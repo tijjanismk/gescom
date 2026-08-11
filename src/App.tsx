@@ -9,18 +9,7 @@ import {Parametres} from "@/pages/Parametres";
 import { Fournisseurs } from "@/pages/Fournisseurs";
 
 // On ajoutera les autres pages ici au fur et à mesure
-function PageEnConstruction({ nom }: { nom: string }) {
-  return (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="text-center">
-        <p className="text-lg font-medium">{nom}</p>
-        <p className="text-muted-foreground text-sm mt-1">
-          En construction
-        </p>
-      </div>
-    </div>
-  );
-}
+
 
 function App() {
   const [pageActive, setPageActive] = useState("dashboard");
@@ -33,7 +22,7 @@ function App() {
         return <Ventes />;
       case "stock":    return <Stock />;
       case "clients":  return <Clients />;
-      case "Fournisseurs": return <Fournisseurs />;
+      case "fournisseurs": return <Fournisseurs />;
       case "caisse":   return <Caisse />;
       case "parametres":
         return <Parametres />;

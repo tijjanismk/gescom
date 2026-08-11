@@ -31,7 +31,99 @@ pub struct ParamsLigneJson {
 pub struct ResultatVente {
     pub vente_id: String,
 }
+/// Commande : lire tous les articles actifs avec leurs unités de vente ET leur stock.
+/// Remplace lire_articles_avec_unites dans lib.rs.
+#[tauri::command]
+pub fn lire_articles_avec_unites(
+    etat: State<EtatApp>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
+    // Récupérer le dépôt par défaut.
+    let depot_id: String = conn.query_row(
+        "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
+        [],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.nom, a.unite_base,
+                u.id, u.libelle, u.facteur, u.prix_reference,
+                COALESCE(sd.quantite, 0) as stock
+         FROM article a
+         JOIN unite_vente u ON u.article_id = a.id AND u.actif = 1
+         LEFT JOIN stock_depot sd ON sd.article_id = a.id AND sd.depot_id = ?1
+         WHERE a.actif = 1
+         ORDER BY a.nom, u.facteur ASC"
+    ).map_err(|e| e.to_string())?;
+
+    let mut articles: Vec<serde_json::Value> = Vec::new();
+    let mut article_courant_id = String::new();
+
+    stmt.query_map(rusqlite::params![depot_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,   // article id
+            row.get::<_, String>(1)?,   // article nom
+            row.get::<_, String>(2)?,   // unite_base
+            row.get::<_, String>(3)?,   // unite id
+            row.get::<_, String>(4)?,   // unite libelle
+            row.get::<_, f64>(5)?,      // facteur
+            row.get::<_, i64>(6)?,      // prix_reference
+            row.get::<_, f64>(7)?,      // stock en unité de base
+        ))
+    })
+    .map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .for_each(|(art_id, art_nom, unite_base, u_id, u_libelle, facteur, prix, stock)| {
+        let unite = serde_json::json!({
+            "id":             u_id,
+            "libelle":        u_libelle,
+            "facteur":        facteur,
+            "prix_reference": prix,
+        });
+
+        if art_id != article_courant_id {
+            article_courant_id = art_id.clone();
+            articles.push(serde_json::json!({
+                "id":         art_id,
+                "nom":        art_nom,
+                "unite_base": unite_base,
+                "stock":      stock,  // stock en unité de base
+                "unites":     [unite],
+            }));
+        } else if let Some(dernier) = articles.last_mut() {
+            if let Some(unites) = dernier["unites"].as_array_mut() {
+                unites.push(unite);
+            }
+        }
+    });
+
+    Ok(articles)
+}
+
+/// Commande : lire tous les dépôts actifs.
+#[tauri::command]
+pub fn lire_depots(
+    etat: State<EtatApp>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, nom, est_defaut FROM depot WHERE actif = 1 ORDER BY est_defaut DESC, nom ASC"
+    ).map_err(|e| e.to_string())?;
+
+    let x = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "id":         row.get::<_, String>(0)?,
+            "nom":        row.get::<_, String>(1)?,
+            "est_defaut": row.get::<_, i64>(2)? != 0,
+        }))
+    })
+    .map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect();
+    Ok(x)
+}
 /// Récupère l'id du premier utilisateur actif en base.
 /// Évite de dépendre d'un id hardcodé depuis le frontend.
 fn id_utilisateur_courant(conn: &rusqlite::Connection) -> String {
@@ -215,63 +307,6 @@ pub fn lire_depot_defaut(
 }
 
 /// Commande : lire tous les articles actifs avec leurs unités de vente.
-#[tauri::command]
-pub fn lire_articles_avec_unites(
-    etat: State<EtatApp>,
-) -> Result<Vec<serde_json::Value>, String> {
-    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-
-    let mut stmt = conn.prepare(
-        "SELECT a.id, a.nom, a.unite_base,
-                u.id, u.libelle, u.facteur, u.prix_reference
-         FROM article a
-         JOIN unite_vente u ON u.article_id = a.id AND u.actif = 1
-         WHERE a.actif = 1
-         ORDER BY a.nom, u.facteur ASC"
-    ).map_err(|e| e.to_string())?;
-
-    let mut articles: Vec<serde_json::Value> = Vec::new();
-    let mut article_courant_id = String::new();
-
-    stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, f64>(5)?,
-            row.get::<_, i64>(6)?,
-        ))
-    })
-    .map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .for_each(|(art_id, art_nom, unite_base, u_id, u_libelle, facteur, prix)| {
-        let unite = serde_json::json!({
-            "id":             u_id,
-            "libelle":        u_libelle,
-            "facteur":        facteur,
-            "prix_reference": prix,
-        });
-
-        if art_id != article_courant_id {
-            article_courant_id = art_id.clone();
-            articles.push(serde_json::json!({
-                "id":         art_id,
-                "nom":        art_nom,
-                "unite_base": unite_base,
-                "unites":     [unite],
-            }));
-        } else if let Some(dernier) = articles.last_mut() {
-            if let Some(unites) = dernier["unites"].as_array_mut() {
-                unites.push(unite);
-            }
-        }
-    });
-
-    Ok(articles)
-}
-
 /// Commande : créer un client rapidement depuis l'écran de vente.
 #[tauri::command]
 pub fn creer_client_rapide(

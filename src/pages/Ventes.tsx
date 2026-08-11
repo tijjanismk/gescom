@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Plus, Trash2, ShoppingCart, User, Search, Loader2 } from "lucide-react";
+import {
+  Plus, Trash2, ShoppingCart, User, Search,
+  Loader2, Warehouse, AlertTriangle
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,18 +21,30 @@ import {
   lireArticlesAvecUnites, creerClientRapide, creerArticleRapide,
   creerVente, enregistrerPaiement,
 } from "@/lib/tauri";
+import { invoke } from "@tauri-apps/api/core";
 
 // =====================================================================
 //  Types locaux
 // =====================================================================
 
+interface ArticleAvecStock extends Article {
+  stock: number; // en unité de base
+}
+
+interface DepotOption {
+  id: string;
+  nom: string;
+  est_defaut: boolean;
+}
+
 interface LignePanier {
   id: string;
-  article: Article;
+  article: ArticleAvecStock;
   unite: UniteVente;
   quantite: number;
   prix_pratique: number;
   montant: number;
+  a_decouvert: boolean;
 }
 
 // =====================================================================
@@ -40,8 +55,18 @@ function formaterMontant(n: number): string {
   return new Intl.NumberFormat("fr-ML").format(n) + " F";
 }
 
+function formaterStock(stock: number, unite: string): string {
+  const q = stock % 1 === 0 ? stock.toString() : stock.toFixed(2);
+  return `${q} ${unite}`;
+}
+
 function genId(): string {
   return Math.random().toString(36).slice(2);
+}
+
+// Stock disponible en unité de vente (stock_base / facteur)
+function stockEnUniteVente(stockBase: number, facteur: number): number {
+  return stockBase / facteur;
 }
 
 // =====================================================================
@@ -111,7 +136,7 @@ function ModalNouvelArticle({
 }: {
   ouvert: boolean;
   onFermer: () => void;
-  onCreer: (a: Article) => void;
+  onCreer: (a: ArticleAvecStock) => void;
 }) {
   const [nom, setNom] = useState("");
   const [uniteBase, setUniteBase] = useState("unite");
@@ -123,7 +148,7 @@ function ModalNouvelArticle({
     setChargement(true);
     try {
       const article = await creerArticleRapide(nom.trim(), uniteBase, parseInt(prix));
-      onCreer(article);
+      onCreer({ ...article, stock: 0 });
       setNom(""); setUniteBase("unite"); setPrix("");
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
@@ -144,7 +169,7 @@ function ModalNouvelArticle({
           </div>
           <div>
             <Label>Unité de base *</Label>
-            <Select value={uniteBase} onValueChange={(v) => { if (v) setUniteBase(v); }}>
+            <Select value={uniteBase} onValueChange={v => { if (v) setUniteBase(v); }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="unite">Unité</SelectItem>
@@ -201,7 +226,7 @@ function ModalEncaissement({
           </div>
           <div>
             <Label>Mode de paiement</Label>
-            <Select value={mode} onValueChange={(v) => { if (v) setMode(v); }}>
+            <Select value={mode} onValueChange={v => { if (v) setMode(v); }}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="especes">Espèces</SelectItem>
@@ -211,6 +236,8 @@ function ModalEncaissement({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Montant reçu uniquement pour espèces */}
           {mode === "especes" && (
             <div>
               <Label>Montant reçu (F)</Label>
@@ -222,12 +249,22 @@ function ModalEncaissement({
                   Rendu : {formaterMontant(rendu)}
                 </p>
               )}
+              {parseInt(montant) < total && (
+                <p className="text-sm text-red-500 mt-1">
+                  Montant insuffisant
+                </p>
+              )}
             </div>
           )}
+
           <div className="flex gap-2">
             <Button variant="outline" onClick={onFermer} className="flex-1">Annuler</Button>
-            <Button onClick={() => onConfirmer(mode, parseInt(montant) || total)}
-              className="flex-1">Confirmer</Button>
+            <Button
+              onClick={() => onConfirmer(mode, mode === "especes" ? parseInt(montant) || total : total)}
+              disabled={mode === "especes" && parseInt(montant || "0") < total}
+              className="flex-1">
+              Confirmer
+            </Button>
           </div>
         </div>
       </DialogContent>
@@ -311,10 +348,7 @@ function ModalConfirmation({
               Annuler
             </Button>
             <Button onClick={onConfirmer} disabled={chargement} className="flex-1">
-              {chargement
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : "Confirmer"
-              }
+              {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmer"}
             </Button>
           </div>
         </div>
@@ -328,11 +362,12 @@ function ModalConfirmation({
 // =====================================================================
 
 export function Ventes() {
-  // Données chargées depuis Tauri
+  // Données depuis Tauri
   const [clientGenerique, setClientGenerique] = useState<Client | null>(null);
   const [tousClients, setTousClients] = useState<Client[]>([]);
-  const [tousArticles, setTousArticles] = useState<Article[]>([]);
-  const [depot, setDepot] = useState<Depot | null>(null);
+  const [tousArticles, setTousArticles] = useState<ArticleAvecStock[]>([]);
+  const [depots, setDepots] = useState<DepotOption[]>([]);
+  const [depotActif, setDepotActif] = useState<Depot | null>(null);
   const [chargementInitial, setChargementInitial] = useState(true);
 
   // Client
@@ -343,8 +378,8 @@ export function Ventes() {
 
   // Article
   const [rechercheArticle, setRechercheArticle] = useState("");
-  const [articlesFiltres, setArticlesFiltres] = useState<Article[]>([]);
-  const [articleSelectionne, setArticleSelectionne] = useState<Article | null>(null);
+  const [articlesFiltres, setArticlesFiltres] = useState<ArticleAvecStock[]>([]);
+  const [articleSelectionne, setArticleSelectionne] = useState<ArticleAvecStock | null>(null);
   const [uniteSelectionnee, setUniteSelectionnee] = useState<UniteVente | null>(null);
   const [quantite, setQuantite] = useState("1");
   const [prixPratique, setPrixPratique] = useState("");
@@ -367,21 +402,26 @@ export function Ventes() {
   const total = panier.reduce((sum, l) => sum + l.montant, 0);
   const acompteNum = parseInt(acompte || "0");
 
-  // ---- Chargement initial depuis Tauri ----
+  // ---- Chargement initial ----
   useEffect(() => {
     async function charger() {
       try {
         const [gen, clients, articles, dep] = await Promise.all([
           lireClientGenerique(),
           lireClients(),
-          lireArticlesAvecUnites(),
+          lireArticlesAvecUnites() as Promise<ArticleAvecStock[]>,
           lireDepotDefaut(),
         ]);
+
+        // Charger aussi les dépôts disponibles
+        const tousDepots = await invoke<DepotOption[]>("lire_depots");
+
         setClientGenerique(gen);
         setClient(gen);
         setTousClients(clients);
         setTousArticles(articles);
-        setDepot(dep);
+        setDepots(tousDepots);
+        setDepotActif(dep);
       } catch (e) {
         console.error("Erreur chargement initial :", e);
       } finally {
@@ -390,6 +430,19 @@ export function Ventes() {
     }
     charger();
   }, []);
+
+  // Recharger les articles si le dépôt change
+  async function changerDepot(depotId: string) {
+    const dep = depots.find(d => d.id === depotId);
+    if (!dep) return;
+    setDepotActif({ id: dep.id, nom: dep.nom });
+    try {
+      const articles = await lireArticlesAvecUnites() as ArticleAvecStock[];
+      setTousArticles(articles);
+    } catch (e) {
+      console.error("Erreur rechargement articles :", e);
+    }
+  }
 
   if (chargementInitial) {
     return (
@@ -427,7 +480,7 @@ export function Ventes() {
     );
   }
 
-  function selectionnerArticle(article: Article) {
+  function selectionnerArticle(article: ArticleAvecStock) {
     setArticleSelectionne(article);
     setUniteSelectionnee(article.unites[0]);
     setPrixPratique(article.unites[0].prix_reference.toString());
@@ -444,6 +497,15 @@ export function Ventes() {
     }
   }
 
+  // Stock disponible pour l'unité sélectionnée
+  const stockDisponible = articleSelectionne && uniteSelectionnee
+    ? stockEnUniteVente(articleSelectionne.stock, uniteSelectionnee.facteur)
+    : 0;
+
+  const quantiteNum = parseFloat(quantite) || 0;
+  const aDecouvert = articleSelectionne && quantiteNum > stockDisponible && stockDisponible >= 0;
+  const enRupture = articleSelectionne && articleSelectionne.stock <= 0;
+
   // ---- Panier ----
   function ajouterAuPanier() {
     if (!articleSelectionne || !uniteSelectionnee) return;
@@ -457,6 +519,7 @@ export function Ventes() {
       quantite: qte,
       prix_pratique: prix,
       montant: Math.round(prix * qte),
+      a_decouvert: qte > stockDisponible && articleSelectionne.stock >= 0,
     }]);
 
     setArticleSelectionne(null);
@@ -494,15 +557,14 @@ export function Ventes() {
   }
 
   async function handleConfirmerVente() {
-    if (!client || !depot) return;
+    if (!client || !depotActif) return;
     setChargementVente(true);
 
     try {
-      // Construire les lignes pour Tauri.
       const lignes = panier.map(l => ({
         article_id:               l.article.id,
         unite_vente_id:           l.unite.id,
-        depot_source_id:          depot.id,
+        depot_source_id:          depotActif.id,
         source_approvisionnement: "stock" as const,
         quantite:                 l.quantite,
         facteur:                  l.unite.facteur,
@@ -510,31 +572,23 @@ export function Ventes() {
         prix_pratique:            l.prix_pratique,
       }));
 
-      // Étape 1 : créer la vente.
       const { vente_id } = await creerVente(
-        client.id,
-        depot.id,
-        modeReglement,
-        lignes,
+        client.id, depotActif.id, modeReglement, lignes,
       );
 
-      // Étape 2 : enregistrer le paiement si applicable.
       if (modeReglement === "comptant") {
         await enregistrerPaiement(vente_id, total, modePaiementComptant);
       } else if (acompteNum > 0) {
         await enregistrerPaiement(vente_id, acompteNum, modeAcompte);
       }
 
-      // Mettre à jour la liste des articles (stock peut avoir changé).
-      const articles = await lireArticlesAvecUnites();
+      // Recharger les articles pour avoir le stock à jour.
+      const articles = await lireArticlesAvecUnites() as ArticleAvecStock[];
       setTousArticles(articles);
 
       setModalConfirmation(false);
       viderPanier();
-      await message("Vente enregistrée avec succès ✓", {
-        title: "Succès",
-        kind: "info",
-      });
+      await message("Vente enregistrée ✓", { title: "Succès", kind: "info" });
 
     } catch (e) {
       setModalConfirmation(false);
@@ -549,7 +603,33 @@ export function Ventes() {
 
       {/* En-tête */}
       <div className="flex items-center justify-between px-4 h-12 border-b border-border bg-card shrink-0">
-        <h1 className="font-semibold text-sm">Nouvelle vente</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="font-semibold text-sm">Nouvelle vente</h1>
+          {/* Sélecteur de dépôt */}
+          {depots.length > 1 ? (
+            <Select
+              value={depotActif?.id ?? ""}
+              onValueChange={v => { if (v) changerDepot(v); }}
+            >
+              <SelectTrigger className="h-7 text-xs w-40">
+                <Warehouse className="h-3 w-3 mr-1" />
+                <SelectValue>
+                  {depotActif?.nom ?? "Dépôt"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {depots.map(d => (
+                  <SelectItem key={d.id} value={d.id}>{d.nom}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Warehouse className="h-3 w-3" />
+              {depotActif?.nom}
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <Button size="sm"
             variant={modeReglement === "comptant" ? "default" : "outline"}
@@ -634,10 +714,21 @@ export function Ventes() {
                   {articlesFiltres.map(a => (
                     <button key={a.id} onClick={() => selectionnerArticle(a)}
                       className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors">
-                      <span className="font-medium">{a.nom}</span>
-                      <span className="text-muted-foreground ml-2 text-xs">
-                        {a.unites[0].prix_reference} F/{a.unite_base}
-                      </span>
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{a.nom}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted-foreground text-xs">
+                            {a.unites[0].prix_reference} F/{a.unite_base}
+                          </span>
+                          {/* Stock visible dans la liste */}
+                          <Badge
+                            variant={a.stock < 0 ? "destructive" : a.stock === 0 ? "outline" : "secondary"}
+                            className={cn("text-xs", a.stock === 0 && "text-orange-500 border-orange-300")}
+                          >
+                            {a.stock < 0 ? "Découvert" : a.stock === 0 ? "Rupture" : formaterStock(a.stock, a.unite_base)}
+                          </Badge>
+                        </div>
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -648,23 +739,72 @@ export function Ventes() {
           {/* Formulaire article sélectionné */}
           {articleSelectionne && (
             <div className="border border-border rounded-lg p-3 bg-muted/30 space-y-3">
-              <p className="font-medium text-sm">{articleSelectionne.nom}</p>
+              <div className="flex items-center justify-between">
+                <p className="font-medium text-sm">{articleSelectionne.nom}</p>
+                {/* Stock du dépôt actif */}
+                <div className="flex items-center gap-1">
+                  {enRupture ? (
+                    <Badge variant="destructive" className="text-xs">
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      Rupture
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant={aDecouvert ? "outline" : "secondary"}
+                      className={cn("text-xs", aDecouvert && "text-orange-500 border-orange-300")}
+                    >
+                      Stock : {formaterStock(articleSelectionne.stock, articleSelectionne.unite_base)}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              {/* Avertissement découvert */}
+              {aDecouvert && !enRupture && (
+                <p className="text-xs text-orange-500 flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  Stock insuffisant — vente à découvert autorisée
+                </p>
+              )}
+              {enRupture && (
+                <p className="text-xs text-red-500 flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  Stock négatif — vente à découvert
+                </p>
+              )}
 
               {articleSelectionne.unites.length > 1 && (
                 <div>
                   <Label className="text-xs">Unité</Label>
-                  <Select value={uniteSelectionnee?.id} onValueChange={(v) => { if (v) handleUniteChange(v); }}>
+                  <Select
+                    value={uniteSelectionnee?.id ?? ""}
+                    onValueChange={v => { if (v) handleUniteChange(v); }}
+                  >
                     <SelectTrigger className="h-8 text-sm mt-0.5">
-                      <SelectValue placeholder="Choisir une unité">
-                          {uniteSelectionnee?.libelle ?? "Choisir"}
+                      <SelectValue>
+                        {uniteSelectionnee
+                          ? `${uniteSelectionnee.libelle} — ${formaterMontant(uniteSelectionnee.prix_reference)}`
+                          : "Choisir"
+                        }
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {articleSelectionne.unites.map(u => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.libelle} — {formaterMontant(u.prix_reference)}
-                        </SelectItem>
-                      ))}
+                      {articleSelectionne.unites.map(u => {
+                        const stockUV = stockEnUniteVente(articleSelectionne.stock, u.facteur);
+                        return (
+                          <SelectItem key={u.id} value={u.id}>
+                            <div className="flex items-center justify-between gap-4 w-full">
+                              <span>{u.libelle} — {formaterMontant(u.prix_reference)}</span>
+                              <span className={cn(
+                                "text-xs",
+                                stockUV <= 0 ? "text-red-500" : "text-muted-foreground"
+                              )}>
+                                {stockUV <= 0 ? "Rupture" : `${stockUV % 1 === 0 ? stockUV : stockUV.toFixed(1)} dispo`}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
@@ -675,7 +815,8 @@ export function Ventes() {
                   <Label className="text-xs">Quantité</Label>
                   <Input type="number" value={quantite}
                     onChange={e => setQuantite(e.target.value)}
-                    className="h-8 text-sm mt-0.5" autoFocus
+                    className={cn("h-8 text-sm mt-0.5", aDecouvert && "border-orange-300")}
+                    autoFocus
                     onKeyDown={e => e.key === "Enter" && ajouterAuPanier()} />
                 </div>
                 <div>
@@ -728,7 +869,7 @@ export function Ventes() {
             )}
           </div>
 
-          {/* Lignes */}
+          {/* Lignes du panier */}
           <div className="flex-1 overflow-auto space-y-1 min-h-0">
             {panier.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -745,6 +886,9 @@ export function Ventes() {
                       {ligne.quantite} {ligne.unite.libelle} × {formaterMontant(ligne.prix_pratique)}
                       {ligne.prix_pratique < ligne.unite.prix_reference && (
                         <span className="text-orange-500 ml-1">(remise)</span>
+                      )}
+                      {ligne.a_decouvert && (
+                        <span className="text-red-500 ml-1">⚠ découvert</span>
                       )}
                     </p>
                   </div>
@@ -766,7 +910,7 @@ export function Ventes() {
           {/* Bas du panier */}
           <div className="border-t border-border pt-3 mt-3 space-y-2">
 
-            {/* Acompte — crédit seulement */}
+            {/* Acompte crédit */}
             {modeReglement === "credit" && (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2">
@@ -778,7 +922,7 @@ export function Ventes() {
                   </div>
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Mode</Label>
-                    <Select value={modeAcompte} onValueChange={(v) => { if (v) setModeAcompte(v); }}>
+                    <Select value={modeAcompte} onValueChange={v => { if (v) setModeAcompte(v); }}>
                       <SelectTrigger className="h-8 text-sm mt-0.5"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="especes">Espèces</SelectItem>

@@ -40,6 +40,7 @@ pub fn run() {
             commandes::ventes::lire_articles_avec_unites,
             commandes::ventes::creer_client_rapide,
             commandes::ventes::creer_article_rapide,
+            commandes::ventes::lire_depots,
             commandes::dashboard::lire_resume_dashboard,
             commandes::dashboard::lire_stocks,
             commandes::dashboard::lire_clients_avec_creances,
