@@ -51,6 +51,11 @@ pub fn run() {
             commandes::parametres::lire_articles_complets,
             commandes::parametres::creer_article_complet,
             commandes::parametres::creer_unite_vente,
+            commandes::fournisseurs::lire_fournisseurs,
+            commandes::fournisseurs::lire_fournisseurs_avec_dettes,
+            commandes::fournisseurs::creer_fournisseur,
+            commandes::fournisseurs::enregistrer_entree_stock,
+            commandes::fournisseurs::enregistrer_ajustement_inventaire,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

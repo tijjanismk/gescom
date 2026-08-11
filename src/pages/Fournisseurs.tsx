@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Users, TrendingUp, Loader2, Search, Plus } from "lucide-react";
+import { Truck, TrendingDown, Loader2, Search, Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -11,13 +11,13 @@ import {
 } from "@/components/ui/dialog";
 import { message } from "@tauri-apps/plugin-dialog";
 
-interface ClientAvecCreance {
+interface FournisseurAvecDette {
   id: string;
-  code: string;
   nom: string;
   telephone?: string;
-  total_creances: number;
-  nb_ventes: number;
+  est_voisin: boolean;
+  total_dettes: number;
+  nb_achats: number;
 }
 
 function formaterMontant(n: number): string {
@@ -25,10 +25,10 @@ function formaterMontant(n: number): string {
 }
 
 // =====================================================================
-//  Modal : Nouveau client
+//  Modal : Nouveau fournisseur
 // =====================================================================
 
-function ModalNouveauClient({
+function ModalNouveauFournisseur({
   ouvert, onFermer, onCreer,
 }: {
   ouvert: boolean;
@@ -45,9 +45,11 @@ function ModalNouveauClient({
     if (!nom.trim()) return;
     setChargement(true);
     try {
-      await invoke("creer_client_rapide", {
+      await invoke("creer_fournisseur", {
         nom: nom.trim(),
         telephone: telephone.trim() || null,
+        nif: nif.trim() || null,
+        adresse: adresse.trim() || null,
       });
       setNom(""); setTelephone(""); setNif(""); setAdresse("");
       onCreer();
@@ -61,12 +63,12 @@ function ModalNouveauClient({
   return (
     <Dialog open={ouvert} onOpenChange={onFermer}>
       <DialogContent className="max-w-sm">
-        <DialogHeader><DialogTitle>Nouveau client</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Nouveau fournisseur</DialogTitle></DialogHeader>
         <div className="space-y-3 pt-2">
           <div>
             <Label>Nom *</Label>
             <Input value={nom} onChange={e => setNom(e.target.value)}
-              placeholder="Nom du client" autoFocus
+              placeholder="Nom du fournisseur" autoFocus
               onKeyDown={e => e.key === "Enter" && handleCreer()} />
           </div>
           <div>
@@ -97,21 +99,21 @@ function ModalNouveauClient({
 }
 
 // =====================================================================
-//  Page Clients
+//  Page Fournisseurs
 // =====================================================================
 
-export function Clients() {
-  const [clients, setClients] = useState<ClientAvecCreance[]>([]);
+export function Fournisseurs() {
+  const [fournisseurs, setFournisseurs] = useState<FournisseurAvecDette[]>([]);
   const [chargement, setChargement] = useState(true);
   const [recherche, setRecherche] = useState("");
-  const [modalNouveauClient, setModalNouveauClient] = useState(false);
+  const [modalNouveauFournisseur, setModalNouveauFournisseur] = useState(false);
 
   async function charger() {
     try {
-      const data = await invoke<ClientAvecCreance[]>("lire_clients_avec_creances");
-      setClients(data);
+      const data = await invoke<FournisseurAvecDette[]>("lire_fournisseurs_avec_dettes");
+      setFournisseurs(data);
     } catch (e) {
-      console.error("Erreur chargement clients :", e);
+      console.error("Erreur chargement fournisseurs :", e);
     } finally {
       setChargement(false);
     }
@@ -119,13 +121,13 @@ export function Clients() {
 
   useEffect(() => { charger(); }, []);
 
-  const filtres = clients.filter(c =>
-    c.nom.toLowerCase().includes(recherche.toLowerCase()) ||
-    (c.telephone && c.telephone.includes(recherche))
-  );
+  const filtres = fournisseurs.filter(f =>
+    f.nom.toLowerCase().includes(recherche.toLowerCase()) ||
+    (f.telephone && f.telephone.includes(recherche))
+  ).filter(f => !f.est_voisin); // Les fournisseurs secondaires sont gérés séparément
 
-  const avecCreances = filtres.filter(c => c.total_creances > 0);
-  const sansCreances = filtres.filter(c => c.total_creances === 0);
+  const avecDettes = filtres.filter(f => f.total_dettes > 0);
+  const sansDettes = filtres.filter(f => f.total_dettes === 0);
 
   if (chargement) {
     return (
@@ -138,10 +140,10 @@ export function Clients() {
   return (
     <div className="flex-1 overflow-auto p-6">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Clients</h1>
+        <h1 className="text-2xl font-semibold">Fournisseurs</h1>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary">{clients.length} clients</Badge>
-          <Button size="sm" onClick={() => setModalNouveauClient(true)}>
+          <Badge variant="secondary">{filtres.length} fournisseurs</Badge>
+          <Button size="sm" onClick={() => setModalNouveauFournisseur(true)}>
             <Plus className="h-4 w-4 mr-1" /> Nouveau
           </Button>
         </div>
@@ -153,32 +155,32 @@ export function Clients() {
           placeholder="Rechercher..." className="pl-8" />
       </div>
 
-      {/* Clients avec créances */}
-      {avecCreances.length > 0 && (
+      {/* Fournisseurs avec dettes */}
+      {avecDettes.length > 0 && (
         <Card className="mb-6">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2 text-orange-500">
-              <TrendingUp className="h-4 w-4" />
-              Créances ouvertes ({avecCreances.length})
+            <CardTitle className="text-sm flex items-center gap-2 text-red-500">
+              <TrendingDown className="h-4 w-4" />
+              Dettes en cours ({avecDettes.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              {avecCreances.map(c => (
-                <div key={c.id}
+              {avecDettes.map(f => (
+                <div key={f.id}
                   className="flex items-center justify-between py-2.5 px-3 rounded-md hover:bg-muted/40 transition-colors">
                   <div>
-                    <p className="text-sm font-medium">{c.nom}</p>
+                    <p className="text-sm font-medium">{f.nom}</p>
                     <p className="text-xs text-muted-foreground">
-                      {c.code}{c.telephone ? ` · ${c.telephone}` : ""}
+                      {f.telephone ?? "—"}
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-semibold text-orange-500">
-                      {formaterMontant(c.total_creances)}
+                    <p className="text-sm font-semibold text-red-500">
+                      {formaterMontant(f.total_dettes)}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {c.nb_ventes} vente{c.nb_ventes > 1 ? "s" : ""}
+                      {f.nb_achats} achat{f.nb_achats > 1 ? "s" : ""}
                     </p>
                   </div>
                 </div>
@@ -188,32 +190,32 @@ export function Clients() {
         </Card>
       )}
 
-      {/* Clients à jour */}
+      {/* Fournisseurs à jour */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            Tous les clients ({sansCreances.length} à jour)
+            <Truck className="h-4 w-4" />
+            Tous les fournisseurs ({sansDettes.length} à jour)
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {sansCreances.length === 0 ? (
+          {sansDettes.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
-              Aucun client
+              Aucun fournisseur
             </p>
           ) : (
             <div className="space-y-1">
-              {sansCreances.map(c => (
-                <div key={c.id}
+              {sansDettes.map(f => (
+                <div key={f.id}
                   className="flex items-center justify-between py-2.5 px-3 rounded-md hover:bg-muted/40 transition-colors">
                   <div>
-                    <p className="text-sm font-medium">{c.nom}</p>
+                    <p className="text-sm font-medium">{f.nom}</p>
                     <p className="text-xs text-muted-foreground">
-                      {c.code}{c.telephone ? ` · ${c.telephone}` : ""}
+                      {f.telephone ?? "—"}
                     </p>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {c.nb_ventes} vente{c.nb_ventes > 1 ? "s" : ""}
+                    {f.nb_achats} achat{f.nb_achats > 1 ? "s" : ""}
                   </p>
                 </div>
               ))}
@@ -222,10 +224,10 @@ export function Clients() {
         </CardContent>
       </Card>
 
-      <ModalNouveauClient
-        ouvert={modalNouveauClient}
-        onFermer={() => setModalNouveauClient(false)}
-        onCreer={() => { setModalNouveauClient(false); charger(); }}
+      <ModalNouveauFournisseur
+        ouvert={modalNouveauFournisseur}
+        onFermer={() => setModalNouveauFournisseur(false)}
+        onCreer={() => { setModalNouveauFournisseur(false); charger(); }}
       />
     </div>
   );

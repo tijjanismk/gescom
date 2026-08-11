@@ -9,6 +9,7 @@ import {
   Menu,
   X,
   Store,
+  Truck
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +19,7 @@ const navigation = [
   { nom: "Ventes",          icone: ShoppingCart, href: "ventes", actif: true },
   { nom: "Stock",           icone: Package, href: "stock", actif: true },
   { nom: "Clients",         icone: Users, href: "clients", actif: true },
+  { nom: "Fournisseurs",    icone: Truck, href: "fournisseurs", actif: true },
   { nom: "Caisse",          icone: Wallet, href: "caisse", actif: true },
   { nom: "Paramètres",      icone: Settings, href: "parametres", actif: true },
 ];
