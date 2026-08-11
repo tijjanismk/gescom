@@ -95,26 +95,35 @@ pub fn creer_fournisseur(
 // =====================================================================
 
 /// Entrée de stock — achat reçu.
-/// Crée un mouvement de type 'achat' et met à jour le stock.
+/// Si depot_id est None, utilise le dépôt par défaut.
 #[tauri::command]
 pub fn enregistrer_entree_stock(
     etat: State<EtatApp>,
     article_id: String,
-    depot_id: String,
+    depot_id: Option<String>,
     quantite: f64,
     prix_achat: Option<i64>,
     fournisseur_id: Option<String>,
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let utilisateur_id = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
-    let maintenant = maintenant_iso();
-    let mouvement_id = uuid::Uuid::new_v4().to_string();
+    let maintenant = crate::utils::maintenant_iso();
+
+    // Résoudre le dépôt — utiliser le dépôt par défaut si non spécifié.
+    let depot_id_reel = match depot_id {
+        Some(id) => id,
+        None => conn.query_row(
+            "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
+            [],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?,
+    };
 
     // Mettre à jour le stock.
     conn.execute(
         "UPDATE stock_depot SET quantite = quantite + ?1
          WHERE article_id = ?2 AND depot_id = ?3",
-        rusqlite::params![quantite, article_id, depot_id],
+        rusqlite::params![quantite, article_id, depot_id_reel],
     ).map_err(|e| e.to_string())?;
 
     // Mettre à jour le prix d'achat si fourni.
@@ -133,7 +142,8 @@ pub fn enregistrer_entree_stock(
           auteur_id, date_mouvement, cree_le, cree_par, origine)
          VALUES (?1, ?2, ?3, 'achat', ?4, ?5, ?6, ?7, ?8, 'app')",
         rusqlite::params![
-            mouvement_id, article_id, depot_id, quantite,
+            uuid::Uuid::new_v4().to_string(),
+            article_id, depot_id_reel, quantite,
             utilisateur_id, maintenant, maintenant, utilisateur_id
         ],
     ).map_err(|e| e.to_string())?;
@@ -150,7 +160,9 @@ pub fn enregistrer_entree_stock(
             utilisateur_id,
             format!(r#"{{"quantite":{}, "fournisseur":{}}}"#,
                 quantite,
-                fournisseur_id.as_deref().unwrap_or("null")
+                fournisseur_id.as_deref()
+                    .map(|s| format!("\"{}\"", s))
+                    .unwrap_or("null".to_string())
             ),
             maintenant
         ],

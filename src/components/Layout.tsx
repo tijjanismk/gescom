@@ -8,6 +8,7 @@ import {
   Settings,
   Menu,
   X,
+  ShoppingBag,
   Store,
   Truck
 } from "lucide-react";
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 const navigation = [
   { nom: "Tableau de bord", icone: BarChart3, href: "dashboard", actif: true },
   { nom: "Ventes",          icone: ShoppingCart, href: "ventes", actif: true },
+  { nom: "Achats", icone: ShoppingBag, href: "achats", actif: true },
   { nom: "Stock",           icone: Package, href: "stock", actif: true },
   { nom: "Clients",         icone: Users, href: "clients", actif: true },
   { nom: "Fournisseurs",    icone: Truck, href: "fournisseurs", actif: true },

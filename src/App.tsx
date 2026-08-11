@@ -7,6 +7,7 @@ import { Clients } from "@/pages/Clients";
 import { Caisse } from "@/pages/Caisse";
 import {Parametres} from "@/pages/Parametres";
 import { Fournisseurs } from "@/pages/Fournisseurs";
+import { Achats } from "./pages/Achats";
 
 // On ajoutera les autres pages ici au fur et à mesure
 
@@ -23,6 +24,7 @@ function App() {
       case "stock":    return <Stock />;
       case "clients":  return <Clients />;
       case "fournisseurs": return <Fournisseurs />;
+      case "achats": return <Achats />;
       case "caisse":   return <Caisse />;
       case "parametres":
         return <Parametres />;
