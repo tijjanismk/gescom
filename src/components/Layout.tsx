@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   ShoppingCart, Package, Users, Wallet,
   BarChart3, Settings, Menu, X, Store,
-  ShoppingBag, Truck,
+  ShoppingBag, Truck,RotateCcw
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/App";
@@ -12,6 +12,7 @@ const NAV_PATRON = [
   { nom: "Tableau de bord", icone: BarChart3,    href: "dashboard" },
   { nom: "Ventes",          icone: ShoppingCart,  href: "ventes" },
   { nom: "Achats",          icone: ShoppingBag,   href: "achats" },
+  { nom: "Retours", icone: RotateCcw, href: "retours" },
   { nom: "Stock",           icone: Package,       href: "stock" },
   { nom: "Clients",         icone: Users,         href: "clients" },
   { nom: "Fournisseurs",    icone: Truck,         href: "fournisseurs" },

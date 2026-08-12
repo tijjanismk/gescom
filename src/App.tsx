@@ -9,6 +9,7 @@ import { Clients } from "@/pages/Clients";
 import { Fournisseurs } from "@/pages/Fournisseurs";
 import { Caisse } from "@/pages/Caisse";
 import { Parametres } from "@/pages/Parametres";
+import { Retours } from "./pages/Retours";
 
 // Contexte du profil actif — partagé avec les pages qui en ont besoin
 export type Role = "patron" | "employe";
@@ -36,6 +37,7 @@ function App() {
       case "dashboard":   return <Dashboard />;
       case "ventes":      return <Ventes />;
       case "achats":      return <Achats />;
+      case "retours":     return <Retours />;
       case "stock":       return <Stock />;
       case "clients":     return <Clients />;
       case "fournisseurs": return <Fournisseurs />;
