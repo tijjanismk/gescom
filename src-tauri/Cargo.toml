@@ -27,3 +27,5 @@ uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 dirs = "5"
 tauri-plugin-dialog = "2"
+bcrypt = "0.15"
+base64 = "0.22"

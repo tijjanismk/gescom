@@ -2,21 +2,21 @@ import { useState } from "react";
 import {
   ShoppingCart, Package, Users, Wallet,
   BarChart3, Settings, Menu, X, Store,
-  ShoppingBag, Truck,RotateCcw
+  ShoppingBag, Truck, RotateCcw, LogOut,
+  Lock, ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Role } from "@/App";
+import type { UtilisateurConnecte } from "@/pages/PageLogin";
 
-// Navigation selon le rôle
 const NAV_PATRON = [
   { nom: "Tableau de bord", icone: BarChart3,    href: "dashboard" },
   { nom: "Ventes",          icone: ShoppingCart,  href: "ventes" },
   { nom: "Achats",          icone: ShoppingBag,   href: "achats" },
-  { nom: "Retours", icone: RotateCcw, href: "retours" },
   { nom: "Stock",           icone: Package,       href: "stock" },
   { nom: "Clients",         icone: Users,         href: "clients" },
   { nom: "Fournisseurs",    icone: Truck,         href: "fournisseurs" },
   { nom: "Caisse",          icone: Wallet,        href: "caisse" },
+  { nom: "Retours",         icone: RotateCcw,     href: "retours" },
   { nom: "Paramètres",      icone: Settings,      href: "parametres" },
 ];
 
@@ -25,18 +25,30 @@ const NAV_EMPLOYE = [
   { nom: "Achats",          icone: ShoppingBag,   href: "achats" },
   { nom: "Stock",           icone: Package,       href: "stock" },
   { nom: "Clients",         icone: Users,         href: "clients" },
+  { nom: "Retours",         icone: RotateCcw,     href: "retours" },
 ];
 
 interface LayoutProps {
   children: React.ReactNode;
   pageActive: string;
   onNaviguer: (page: string) => void;
-  role: Role;
+  role: string;
+  utilisateur: UtilisateurConnecte;
+  onChangerMdp: () => void;
 }
 
-export function Layout({ children, pageActive, onNaviguer, role }: LayoutProps) {
+export function Layout({
+  children, pageActive, onNaviguer, role, utilisateur, onChangerMdp
+}: LayoutProps) {
   const [sidebarOuverte, setSidebarOuverte] = useState(true);
+  const [menuUtilisateur, setMenuUtilisateur] = useState(false);
+
   const navigation = role === "patron" ? NAV_PATRON : NAV_EMPLOYE;
+
+  function handleDeconnexion() {
+    // Recharger l'app — efface l'état React et retourne à la page login.
+    window.location.reload();
+  }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -67,7 +79,7 @@ export function Layout({ children, pageActive, onNaviguer, role }: LayoutProps) 
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-2 space-y-0.5">
+        <nav className="flex-1 p-2 space-y-0.5 overflow-auto">
           {navigation.map(item => {
             const Icone = item.icone;
             const estActif = pageActive === item.href;
@@ -89,25 +101,65 @@ export function Layout({ children, pageActive, onNaviguer, role }: LayoutProps) 
           })}
         </nav>
 
-        {/* Pied — profil actif */}
-        <div className="p-3 border-t border-border">
-          {sidebarOuverte ? (
-            <div className="text-xs text-muted-foreground">
-              <p className="font-medium text-foreground capitalize">{role}</p>
-              <p>Dépôt principal</p>
-            </div>
-          ) : (
-            <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
-              <span className="text-xs text-primary-foreground font-medium capitalize">
-                {role[0].toUpperCase()}
-              </span>
-            </div>
-          )}
+        {/* Pied — utilisateur connecté */}
+        <div className="border-t border-border">
+          <div className="relative">
+            <button
+              onClick={() => setMenuUtilisateur(!menuUtilisateur)}
+              className={cn(
+                "w-full flex items-center gap-2 p-3 hover:bg-accent transition-colors",
+                sidebarOuverte ? "justify-between" : "justify-center"
+              )}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center shrink-0">
+                  <span className="text-xs text-primary-foreground font-medium">
+                    {utilisateur.nom[0].toUpperCase()}
+                  </span>
+                </div>
+                {sidebarOuverte && (
+                  <div className="min-w-0 text-left">
+                    <p className="text-xs font-medium truncate">{utilisateur.nom}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{role}</p>
+                  </div>
+                )}
+              </div>
+              {sidebarOuverte && (
+                <ChevronDown className={cn(
+                  "h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0",
+                  menuUtilisateur && "rotate-180"
+                )} />
+              )}
+            </button>
+
+            {/* Menu utilisateur */}
+            {menuUtilisateur && (
+              <div className={cn(
+                "absolute bottom-full left-0 right-0 bg-card border border-border rounded-t-md shadow-md",
+                !sidebarOuverte && "left-14 right-auto w-40"
+              )}>
+                <button
+                  onClick={() => { setMenuUtilisateur(false); onChangerMdp(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors"
+                >
+                  <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span>Changer mot de passe</span>
+                </button>
+                <button
+                  onClick={handleDeconnexion}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span>Se déconnecter</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
-      {/* Contenu principal */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      {/* Contenu */}
+      <main className="flex-1 flex flex-col overflow-hidden" onClick={() => setMenuUtilisateur(false)}>
         {children}
       </main>
     </div>

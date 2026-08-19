@@ -1,22 +1,18 @@
-//! Données de test pour le premier démarrage.
-//! Appelé une seule fois si la base est vide.
-//! Peuple la base avec des données réalistes pour Bamako.
+//! Données de démarrage pour la première utilisation.
+//! Deux comptes : admin/admin123 (patron) et employe/employe123 (employé).
 
 use rusqlite::{Connection, Result, params};
 use uuid::Uuid;
 use crate::utils::maintenant_iso;
+use crate::commandes::auth::hasher_mot_de_passe_pub;
 
-/// Vérifie si la base est vide (aucun article).
 pub fn base_est_vide(conn: &Connection) -> bool {
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM article", [], |row| row.get(0))
-        .unwrap_or(0);
-    count == 0
+    conn.query_row("SELECT COUNT(*) FROM article", [], |r| r.get::<_, i64>(0))
+        .unwrap_or(0) == 0
 }
 
-/// Peuple la base avec des données de test.
 pub fn seeder(conn: &Connection) -> Result<()> {
-    let maintenant = maintenant_iso();
+    let now = maintenant_iso();
     let origine = "seed";
 
     // ---- Rôles ----
@@ -26,21 +22,46 @@ pub fn seeder(conn: &Connection) -> Result<()> {
     conn.execute(
         "INSERT OR IGNORE INTO role (id, nom, permissions, cree_le, modifie_le, origine)
          VALUES (?1, 'patron', '[]', ?2, ?3, ?4)",
-        params![role_patron_id, maintenant, maintenant, origine],
+        params![role_patron_id, now, now, origine],
     )?;
     conn.execute(
         "INSERT OR IGNORE INTO role (id, nom, permissions, cree_le, modifie_le, origine)
          VALUES (?1, 'employe', '[]', ?2, ?3, ?4)",
-        params![role_employe_id, maintenant, maintenant, origine],
+        params![role_employe_id, now, now, origine],
     )?;
 
     // ---- Utilisateurs ----
     let user_patron_id = Uuid::new_v4().to_string();
+    let user_employe_id = Uuid::new_v4().to_string();
+
     conn.execute(
         "INSERT OR IGNORE INTO utilisateur
          (id, nom, role_id, actif, cree_le, modifie_le, origine)
          VALUES (?1, 'Patron', ?2, 1, ?3, ?4, ?5)",
-        params![user_patron_id, role_patron_id, maintenant, maintenant, origine],
+        params![user_patron_id, role_patron_id, now, now, origine],
+    )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO utilisateur
+         (id, nom, role_id, actif, cree_le, modifie_le, origine)
+         VALUES (?1, 'Employé', ?2, 1, ?3, ?4, ?5)",
+        params![user_employe_id, role_employe_id, now, now, origine],
+    )?;
+
+    // ---- Auth ----
+    let hash_patron = hasher_mot_de_passe_pub("admin123").unwrap_or_default();
+    let hash_employe = hasher_mot_de_passe_pub("employe123").unwrap_or_default();
+
+    conn.execute(
+        "INSERT OR IGNORE INTO utilisateur_auth
+         (utilisateur_id, pseudo, email, mot_de_passe, doit_changer_mdp)
+         VALUES (?1, 'admin', 'admin@gescom.ml', ?2, 1)",
+        params![user_patron_id, hash_patron],
+    )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO utilisateur_auth
+         (utilisateur_id, pseudo, email, mot_de_passe, doit_changer_mdp)
+         VALUES (?1, 'employe', 'employe@gescom.ml', ?2, 0)",
+        params![user_employe_id, hash_employe],
     )?;
 
     // ---- Dépôt par défaut ----
@@ -49,17 +70,17 @@ pub fn seeder(conn: &Connection) -> Result<()> {
         "INSERT OR IGNORE INTO depot
          (id, nom, est_defaut, actif, cree_le, modifie_le, origine)
          VALUES (?1, 'Dépôt principal', 1, 1, ?2, ?3, ?4)",
-        params![depot_id, maintenant, maintenant, origine],
+        params![depot_id, now, now, origine],
     )?;
 
-    // ---- Client générique ----
+    // ---- Client générique (comptant) ----
     let client_generique_id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT OR IGNORE INTO client
          (id, code, nom, est_generique, actif,
           cree_le, modifie_le, cree_par, modifie_par, origine)
          VALUES (?1, 'CLIENT00000', 'Comptant', 1, 1, ?2, ?3, 'system', 'system', ?4)",
-        params![client_generique_id, maintenant, maintenant, origine],
+        params![client_generique_id, now, now, origine],
     )?;
 
     // ---- Clients de test ----
@@ -69,151 +90,84 @@ pub fn seeder(conn: &Connection) -> Result<()> {
         ("CLIENT00003", "Ibrahim Traoré",   Some("70000003")),
         ("CLIENT00004", "Mariam Coulibaly", None),
     ];
-
-    for (code, nom, telephone) in clients {
-        let id = Uuid::new_v4().to_string();
+    for (code, nom, tel) in &clients {
         conn.execute(
             "INSERT OR IGNORE INTO client
              (id, code, nom, telephone, est_generique, actif,
               cree_le, modifie_le, cree_par, modifie_par, origine)
-             VALUES (?1, ?2, ?3, ?4, 0, 1, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                id, code, nom, telephone,
-                maintenant, maintenant,
-                user_patron_id, user_patron_id, origine
-            ],
+             VALUES (?1,?2,?3,?4,0,1,?5,?6,?7,?8,?9)",
+            params![Uuid::new_v4().to_string(), code, nom, tel,
+                    now, now, user_patron_id, user_patron_id, origine],
         )?;
     }
 
     // ---- Catégories ----
-    let cat_alim_id = Uuid::new_v4().to_string();
-    let cat_hygiene_id = Uuid::new_v4().to_string();
-    let cat_boisson_id = Uuid::new_v4().to_string();
-
-    for (id, nom) in [
-        (&cat_alim_id,    "Alimentation"),
-        (&cat_hygiene_id, "Hygiène"),
-        (&cat_boisson_id, "Boissons"),
-    ] {
+    let cat_alim = Uuid::new_v4().to_string();
+    let cat_hygiene = Uuid::new_v4().to_string();
+    let cat_boisson = Uuid::new_v4().to_string();
+    for (id, nom) in [(&cat_alim, "Alimentation"), (&cat_hygiene, "Hygiène"), (&cat_boisson, "Boissons")] {
         conn.execute(
             "INSERT OR IGNORE INTO categorie
              (id, nom, schema_attributs, actif, cree_le, modifie_le, origine)
-             VALUES (?1, ?2, '[]', 1, ?3, ?4, ?5)",
-            params![id, nom, maintenant, maintenant, origine],
+             VALUES (?1,?2,'[]',1,?3,?4,?5)",
+            params![id, nom, now, now, origine],
         )?;
     }
 
-    // ---- Articles avec leurs unités de vente et stock ----
-    let articles = vec![
-        // (nom, categorie_id, unite_base, [(libelle, facteur, prix_ref)], stock_initial)
-        (
-            "Sucre", &cat_alim_id, "kg",
-            vec![
-                ("kg", 1.0_f64, 800_i64),
-                ("sac 50kg", 50.0, 35000),
-            ],
-            200.0_f64,
-        ),
-        (
-            "Riz local", &cat_alim_id, "kg",
-            vec![
-                ("kg", 1.0, 600),
-                ("sac 25kg", 25.0, 13500),
-            ],
-            150.0,
-        ),
-        (
-            "Huile végétale", &cat_alim_id, "litre",
-            vec![
-                ("litre", 1.0, 1200),
-                ("bidon 5L", 5.0, 5500),
-            ],
-            80.0,
-        ),
-        (
-            "Farine de blé", &cat_alim_id, "kg",
-            vec![
-                ("kg", 1.0, 500),
-                ("sac 50kg", 50.0, 22000),
-            ],
-            100.0,
-        ),
-        (
-            "Savon Palmolive", &cat_hygiene_id, "unite",
-            vec![
-                ("unité", 1.0, 500),
-                ("carton 24", 24.0, 10800),
-            ],
-            120.0,
-        ),
-        (
-            "Lait en poudre Nido", &cat_alim_id, "unite",
-            vec![
-                ("boîte 400g", 1.0, 3500),
-                ("carton 6", 6.0, 19000),
-            ],
-            30.0,
-        ),
-        (
-            "Coca-Cola", &cat_boisson_id, "unite",
-            vec![
-                ("bouteille 33cl", 1.0, 600),
-                ("casier 24", 24.0, 12000),
-            ],
-            48.0,
-        ),
-        (
-            "Eau minérale Diago", &cat_boisson_id, "litre",
-            vec![
-                ("bouteille 1.5L", 1.0, 500),
-                ("pack 6", 6.0, 2500),
-            ],
-            60.0,
-        ),
+    // ---- Articles ----
+    let articles: Vec<(&str, &str, &str, Vec<(&str, f64, i64)>, f64)> = vec![
+        ("Sucre", &cat_alim, "kg",
+         vec![("kg", 1.0, 800), ("sac 50kg", 50.0, 35000)], 200.0),
+        ("Riz local", &cat_alim, "kg",
+         vec![("kg", 1.0, 600), ("sac 25kg", 25.0, 13500)], 150.0),
+        ("Huile végétale", &cat_alim, "litre",
+         vec![("litre", 1.0, 1200), ("bidon 5L", 5.0, 5500)], 80.0),
+        ("Farine de blé", &cat_alim, "kg",
+         vec![("kg", 1.0, 500), ("sac 50kg", 50.0, 22000)], 100.0),
+        ("Savon Palmolive", &cat_hygiene, "unite",
+         vec![("unité", 1.0, 500), ("carton 24", 24.0, 10800)], 120.0),
+        ("Lait Nido 400g", &cat_alim, "unite",
+         vec![("boîte", 1.0, 3500), ("carton 6", 6.0, 19000)], 30.0),
+        ("Coca-Cola 33cl", &cat_boisson, "unite",
+         vec![("bouteille", 1.0, 600), ("casier 24", 24.0, 12000)], 48.0),
+        ("Eau Diago 1.5L", &cat_boisson, "litre",
+         vec![("bouteille", 1.0, 500), ("pack 6", 6.0, 2500)], 60.0),
     ];
 
-    for (nom, cat_id, unite_base, unites, stock_initial) in &articles {
-        let article_id = Uuid::new_v4().to_string();
-
+    for (nom, cat_id, unite_base, unites, stock) in &articles {
+        let art_id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT OR IGNORE INTO article
-             (id, nom, categorie_id, unite_base, gere_en_stock,
-              attributs, actif, cree_le, modifie_le,
-              cree_par, modifie_par, origine)
-             VALUES (?1, ?2, ?3, ?4, 1, '{}', 1, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                article_id, nom, cat_id, unite_base,
-                maintenant, maintenant,
-                user_patron_id, user_patron_id, origine
-            ],
+             (id, nom, categorie_id, unite_base, gere_en_stock, attributs,
+              actif, cree_le, modifie_le, cree_par, modifie_par, origine)
+             VALUES (?1,?2,?3,?4,1,'{}',1,?5,?6,?7,?8,?9)",
+            params![art_id, nom, cat_id, unite_base,
+                    now, now, user_patron_id, user_patron_id, origine],
         )?;
-
-        // Unités de vente
-        for (libelle, facteur, prix_reference) in unites {
-            let unite_id = Uuid::new_v4().to_string();
+        for (libelle, facteur, prix) in unites {
             conn.execute(
                 "INSERT OR IGNORE INTO unite_vente
                  (id, article_id, libelle, facteur, prix_reference, actif,
                   cree_le, modifie_le, cree_par, modifie_par, origine)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, ?8, ?9, ?10)",
-                params![
-                    unite_id, article_id, libelle, facteur, prix_reference,
-                    maintenant, maintenant,
-                    user_patron_id, user_patron_id, origine
-                ],
+                 VALUES (?1,?2,?3,?4,?5,1,?6,?7,?8,?9,?10)",
+                params![Uuid::new_v4().to_string(), art_id, libelle, facteur, prix,
+                        now, now, user_patron_id, user_patron_id, origine],
             )?;
         }
-
-        // Stock initial dans le dépôt par défaut
-        let stock_id = Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT OR IGNORE INTO stock_depot
-             (id, article_id, depot_id, quantite)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![stock_id, article_id, depot_id, stock_initial],
+            "INSERT OR IGNORE INTO stock_depot (id, article_id, depot_id, quantite)
+             VALUES (?1,?2,?3,?4)",
+            params![Uuid::new_v4().to_string(), art_id, depot_id, stock],
         )?;
     }
 
-    println!("Seed terminé — base peuplée avec {} articles.", articles.len());
+    // ---- Paramètres société ----
+    conn.execute(
+        "INSERT OR IGNORE INTO parametres_societe (id, nom, pied_facture)
+         VALUES (1, 'Ma Boutique', 'Merci de votre confiance')",
+        [],
+    )?;
+
+    println!("[seed] {} articles, 2 utilisateurs, 1 dépôt", articles.len());
     Ok(())
 }

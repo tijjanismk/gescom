@@ -178,7 +178,7 @@ pub fn lire_clients_pagines(
     }
 
     let where_base = conditions[..2].join(" AND ");
-    let where_full = conditions.join(" AND ");
+    let _where_full = conditions.join(" AND ");
 
     let sql_count = format!(
         "SELECT COUNT(*) FROM (

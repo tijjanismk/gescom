@@ -1,6 +1,12 @@
 pub mod ventes;
-pub mod dashboard;
-pub mod parametres;
 pub mod fournisseurs;
+pub mod parametres;
 pub mod retours;
 pub mod pagination;
+pub mod auth;
+pub mod societe;
+pub mod caisse;
+pub mod dashboard;
+pub mod sauvegarde;
+pub mod impression;
+pub mod logo;
