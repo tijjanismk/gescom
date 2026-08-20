@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
-  Settings, Package, Tag, Building2, Users,
-  Plus, Loader2, Save, HardDrive, FolderOpen,
-  Shield, Eye, EyeOff, Trash2
+  Package, Tag, Building2, Users, HardDrive,
+  Plus, Loader2, Save, Eye, EyeOff, ShoppingCart,
+  FolderOpen, ChevronDown, ChevronRight,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,8 +17,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
-import { open } from "@tauri-apps/plugin-dialog";
 import { ParametresSociete } from "@/components/ParametresSociete";
+import { OngletVentes } from "@/components/ParametresVentes";
+import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================
@@ -26,11 +27,10 @@ import { UTILISATEUR_ACTIF } from "@/App";
 // =====================================================================
 
 interface Categorie { id: string; nom: string; }
-interface Unite { id: string; libelle: string; facteur: number; }
+interface Unite { id: string; libelle: string; facteur: number; prix_reference: number; }
 interface ArticleComplet {
   id: string; nom: string; unite_base: string;
-  dernier_prix_achat?: number;
-  unites: Unite[];
+  dernier_prix_achat?: number; unites: Unite[];
 }
 interface Utilisateur {
   id: string; nom: string; role: string;
@@ -47,12 +47,21 @@ function fmt(n: number): string {
   return new Intl.NumberFormat("fr-ML").format(n) + " F";
 }
 
-const ONGLETS = [
+// =====================================================================
+//  Onglets disponibles selon le rôle
+// =====================================================================
+
+const ONGLETS_PATRON = [
   { key: "societe",      label: "Société",      icone: Building2 },
   { key: "articles",     label: "Articles",     icone: Package },
   { key: "categories",   label: "Catégories",   icone: Tag },
+  { key: "ventes",       label: "Ventes",       icone: ShoppingCart },
   { key: "utilisateurs", label: "Utilisateurs", icone: Users },
   { key: "sauvegarde",   label: "Sauvegarde",   icone: HardDrive },
+];
+
+const ONGLETS_EMPLOYE = [
+  { key: "articles", label: "Articles", icone: Package },
 ];
 
 // =====================================================================
@@ -61,11 +70,7 @@ const ONGLETS = [
 
 function ModalNouvelUtilisateur({
   ouvert, onFermer, onCreer,
-}: {
-  ouvert: boolean;
-  onFermer: () => void;
-  onCreer: () => void;
-}) {
+}: { ouvert: boolean; onFermer: () => void; onCreer: () => void }) {
   const [nom, setNom] = useState("");
   const [pseudo, setPseudo] = useState("");
   const [email, setEmail] = useState("");
@@ -103,18 +108,18 @@ function ModalNouvelUtilisateur({
           <div>
             <Label>Nom complet *</Label>
             <Input value={nom} onChange={e => setNom(e.target.value)}
-              placeholder="Prénom Nom" autoFocus />
+              placeholder="Prénom Nom" autoFocus className="mt-1" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>Pseudo *</Label>
               <Input value={pseudo} onChange={e => setPseudo(e.target.value)}
-                placeholder="jean" />
+                placeholder="jean" className="mt-1" />
             </div>
             <div>
               <Label>Rôle *</Label>
               <Select value={role} onValueChange={v => { if (v) setRole(v); }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="patron">Patron</SelectItem>
                   <SelectItem value="employe">Employé</SelectItem>
@@ -125,13 +130,17 @@ function ModalNouvelUtilisateur({
           <div>
             <Label>Email</Label>
             <Input value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="jean@boutique.ml" />
+              placeholder="jean@boutique.ml" className="mt-1" />
           </div>
           <div>
-            <Label>Mot de passe * <span className="text-xs text-muted-foreground">(min. 6 car.)</span></Label>
+            <Label>
+              Mot de passe *
+              <span className="text-xs text-muted-foreground ml-1">(min. 6 car.)</span>
+            </Label>
             <div className="relative mt-1">
-              <Input type={visible ? "text" : "password"} value={mdp}
-                onChange={e => setMdp(e.target.value)} placeholder="••••••" />
+              <Input type={visible ? "text" : "password"}
+                value={mdp} onChange={e => setMdp(e.target.value)}
+                placeholder="••••••" />
               <button type="button" onClick={() => setVisible(!visible)}
                 className="absolute right-3 top-2.5 text-muted-foreground">
                 {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -143,7 +152,8 @@ function ModalNouvelUtilisateur({
           </div>
           <div className="flex gap-2 pt-1">
             <Button variant="outline" onClick={onFermer} className="flex-1">Annuler</Button>
-            <Button onClick={handleCreer}
+            <Button
+              onClick={handleCreer}
               disabled={!nom.trim() || !pseudo.trim() || mdp.length < 6 || chargement}
               className="flex-1">
               {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : "Créer"}
@@ -156,7 +166,7 @@ function ModalNouvelUtilisateur({
 }
 
 // =====================================================================
-//  Onglet Utilisateurs
+//  Onglet : Utilisateurs
 // =====================================================================
 
 function OngletUtilisateurs() {
@@ -178,10 +188,16 @@ function OngletUtilisateurs() {
 
   useEffect(() => { charger(); }, []);
 
-  if (chargement) return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (chargement) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-w-lg">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {utilisateurs.length} utilisateur{utilisateurs.length > 1 ? "s" : ""}
@@ -194,9 +210,11 @@ function OngletUtilisateurs() {
       <div className="space-y-2">
         {utilisateurs.map(u => (
           <div key={u.id}
-            className="flex items-center justify-between px-4 py-3 border border-border rounded-lg">
+            className="flex items-center justify-between px-4 py-3
+                       border border-border rounded-lg">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-full bg-primary/10
+                              flex items-center justify-center">
                 <span className="text-sm font-medium text-primary">
                   {u.nom[0].toUpperCase()}
                 </span>
@@ -229,13 +247,11 @@ function OngletUtilisateurs() {
 }
 
 // =====================================================================
-//  Onglet Sauvegarde
+//  Onglet : Sauvegarde
 // =====================================================================
 
 function OngletSauvegarde() {
-  const [config, setConfig] = useState<ConfigSauvegarde>({
-    sauvegarde_auto: false,
-  });
+  const [config, setConfig] = useState<ConfigSauvegarde>({ sauvegarde_auto: false });
   const [chargement, setChargement] = useState(true);
   const [enCours, setEnCours] = useState(false);
 
@@ -256,13 +272,12 @@ function OngletSauvegarde() {
   async function choisirDossier() {
     try {
       const dossier = await open({ directory: true, multiple: false });
-      if (dossier && typeof dossier === "string") {
-        setConfig(prev => ({ ...prev, dossier_sauvegarde: dossier }));
-        await invoke("sauvegarder_config_sauvegarde", {
-          dossierSauvegarde: dossier,
-          sauvegardeAuto: config.sauvegarde_auto,
-        });
-      }
+      if (!dossier || typeof dossier !== "string") return;
+      setConfig(prev => ({ ...prev, dossier_sauvegarde: dossier }));
+      await invoke("sauvegarder_config_sauvegarde", {
+        dossierSauvegarde: dossier,
+        sauvegardeAuto: config.sauvegarde_auto,
+      });
     } catch (e) {
       console.error("Erreur sélection dossier :", e);
     }
@@ -280,7 +295,8 @@ function OngletSauvegarde() {
         dossierDestination: config.dossier_sauvegarde,
       });
       await charger();
-      await message(`Sauvegarde réussie ✓\n${chemin}`, { title: "Succès", kind: "info" });
+      await message(`Sauvegarde réussie ✓\n${chemin}`,
+        { title: "Succès", kind: "info" });
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
     } finally {
@@ -288,18 +304,22 @@ function OngletSauvegarde() {
     }
   }
 
-  if (chargement) return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (chargement) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-lg">
       <div className="bg-muted rounded-lg p-4 text-sm text-muted-foreground">
         <p className="font-medium text-foreground mb-1">Protection de vos données</p>
         <p>La sauvegarde copie la base de données complète vers le dossier de votre choix
-        (clé USB, disque externe, autre partition). En cas de panne, récupérez simplement
-        ce fichier.</p>
+          (clé USB, disque externe, autre partition).</p>
       </div>
 
-      {/* Dossier de destination */}
       <div>
         <Label>Dossier de sauvegarde</Label>
         <div className="flex gap-2 mt-1">
@@ -312,16 +332,17 @@ function OngletSauvegarde() {
         </div>
       </div>
 
-      {/* Dernière sauvegarde */}
       {config.derniere_sauvegarde && (
-        <div className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Dernière sauvegarde : {config.derniere_sauvegarde}
-        </div>
+        </p>
       )}
 
-      {/* Bouton sauvegarde manuelle */}
-      <Button onClick={lancerSauvegarde} disabled={enCours || !config.dossier_sauvegarde}
-        className="w-full">
+      <Button
+        onClick={lancerSauvegarde}
+        disabled={enCours || !config.dossier_sauvegarde}
+        className="w-full"
+      >
         {enCours
           ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Sauvegarde en cours...</>
           : <><HardDrive className="h-4 w-4 mr-2" /> Sauvegarder maintenant</>
@@ -332,7 +353,7 @@ function OngletSauvegarde() {
 }
 
 // =====================================================================
-//  Onglet Articles
+//  Onglet : Articles
 // =====================================================================
 
 function OngletArticles() {
@@ -340,9 +361,9 @@ function OngletArticles() {
   const [categories, setCategories] = useState<Categorie[]>([]);
   const [chargement, setChargement] = useState(true);
   const [expandeId, setExpandeId] = useState<string | null>(null);
-
-  // Nouvel article
   const [modalArticle, setModalArticle] = useState(false);
+
+  // Formulaire nouvel article
   const [nom, setNom] = useState("");
   const [categorieId, setCategorieId] = useState("");
   const [uniteBase, setUniteBase] = useState("unite");
@@ -375,7 +396,7 @@ function OngletArticles() {
         nom: nom.trim(),
         categorieId: categorieId || null,
         uniteBase,
-        prixReference: parseInt(prixVente),
+        prixReference: parseMontant(prixVente),
       });
       setNom(""); setCategorieId(""); setUniteBase("unite"); setPrixVente("");
       setModalArticle(false);
@@ -387,7 +408,13 @@ function OngletArticles() {
     }
   }
 
-  if (chargement) return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (chargement) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -403,16 +430,21 @@ function OngletArticles() {
           <div key={a.id} className="border border-border rounded-lg overflow-hidden">
             <button
               onClick={() => setExpandeId(expandeId === a.id ? null : a.id)}
-              className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/40 transition-colors text-left">
-              <div>
-                <p className="text-sm font-medium">{a.nom}</p>
-                <p className="text-xs text-muted-foreground">{a.unite_base}</p>
-              </div>
+              className="w-full flex items-center justify-between px-4 py-2.5
+                         hover:bg-muted/40 transition-colors text-left">
               <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="text-xs">
-                  {a.unites.length} unité{a.unites.length > 1 ? "s" : ""}
-                </Badge>
+                {expandeId === a.id
+                  ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                }
+                <div>
+                  <p className="text-sm font-medium">{a.nom}</p>
+                  <p className="text-xs text-muted-foreground">{a.unite_base}</p>
+                </div>
               </div>
+              <Badge variant="secondary" className="text-xs">
+                {a.unites.length} unité{a.unites.length > 1 ? "s" : ""}
+              </Badge>
             </button>
 
             {expandeId === a.id && (
@@ -420,7 +452,12 @@ function OngletArticles() {
                 {a.unites.map(u => (
                   <div key={u.id}
                     className="flex justify-between text-sm py-1 border-b border-border last:border-0">
-                    <span className="text-muted-foreground">{u.libelle}</span>
+                    <div>
+                      <span className="text-muted-foreground">{u.libelle}</span>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        × {u.facteur} {a.unite_base}
+                      </span>
+                    </div>
                     <span className="font-medium">{fmt(u.prix_reference)}</span>
                   </div>
                 ))}
@@ -430,6 +467,7 @@ function OngletArticles() {
         ))}
       </div>
 
+      {/* Modal nouvel article */}
       <Dialog open={modalArticle} onOpenChange={setModalArticle}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Nouvel article</DialogTitle></DialogHeader>
@@ -437,36 +475,40 @@ function OngletArticles() {
             <div>
               <Label>Nom *</Label>
               <Input value={nom} onChange={e => setNom(e.target.value)}
-                placeholder="Nom de l'article" autoFocus />
+                placeholder="Nom de l'article" autoFocus className="mt-1" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label>Unité de base</Label>
                 <Select value={uniteBase} onValueChange={v => { if (v) setUniteBase(v); }}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="unite">Unité</SelectItem>
                     <SelectItem value="kg">Kg</SelectItem>
                     <SelectItem value="litre">Litre</SelectItem>
                     <SelectItem value="metre">Mètre</SelectItem>
+                    <SelectItem value="carton">Carton</SelectItem>
+                    <SelectItem value="sachet">Sachet</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <Label>Prix de vente (F)</Label>
-                <Input type="number" value={prixVente}
-                  onChange={e => setPrixVente(e.target.value)} placeholder="0" />
+                <MoneyInput value={prixVente} onChange={setPrixVente}
+                  placeholder="0" className="mt-1" />
               </div>
             </div>
             <div>
               <Label>Catégorie</Label>
-              <Select value={categorieId} onValueChange={v => { if (v) setCategorieId(v); }}>
-                <SelectTrigger>
+              <Select value={categorieId}
+                onValueChange={v => { if (v) setCategorieId(v === "aucune" ? "" : v); }}>
+                <SelectTrigger className="mt-1">
                   <SelectValue placeholder="Aucune">
                     {categories.find(c => c.id === categorieId)?.nom ?? "Aucune"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="aucune">Aucune</SelectItem>
                   {categories.map(c => (
                     <SelectItem key={c.id} value={c.id}>{c.nom}</SelectItem>
                   ))}
@@ -477,10 +519,15 @@ function OngletArticles() {
               <Button variant="outline" onClick={() => setModalArticle(false)} className="flex-1">
                 Annuler
               </Button>
-              <Button onClick={handleCreerArticle}
+              <Button
+                onClick={handleCreerArticle}
                 disabled={!nom.trim() || !prixVente || chargementCreer}
-                className="flex-1">
-                {chargementCreer ? <Loader2 className="h-4 w-4 animate-spin" /> : "Créer"}
+                className="flex-1"
+              >
+                {chargementCreer
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : "Créer"
+                }
               </Button>
             </div>
           </div>
@@ -491,7 +538,7 @@ function OngletArticles() {
 }
 
 // =====================================================================
-//  Onglet Catégories
+//  Onglet : Catégories
 // =====================================================================
 
 function OngletCategories() {
@@ -528,25 +575,41 @@ function OngletCategories() {
     }
   }
 
-  if (chargement) return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (chargement) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 max-w-md">
       <div className="flex gap-2">
         <Input value={nom} onChange={e => setNom(e.target.value)}
-          placeholder="Nom de la catégorie" autoFocus
+          placeholder="Nouvelle catégorie" autoFocus
           onKeyDown={e => e.key === "Enter" && handleCreer()} />
         <Button onClick={handleCreer} disabled={!nom.trim() || chargementCreer}>
-          {chargementCreer ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          {chargementCreer
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : <Plus className="h-4 w-4" />
+          }
         </Button>
       </div>
       <div className="space-y-1">
-        {categories.map(c => (
-          <div key={c.id}
-            className="flex items-center justify-between px-3 py-2 border border-border rounded-md">
-            <span className="text-sm">{c.nom}</span>
-          </div>
-        ))}
+        {categories.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            Aucune catégorie
+          </p>
+        ) : (
+          categories.map(c => (
+            <div key={c.id}
+              className="flex items-center justify-between px-3 py-2
+                         border border-border rounded-md">
+              <span className="text-sm">{c.nom}</span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -557,12 +620,9 @@ function OngletCategories() {
 // =====================================================================
 
 export function Parametres() {
-  const [onglet, setOnglet] = useState("societe");
   const estPatron = UTILISATEUR_ACTIF?.role === "patron";
-
-  const ongletsFiltres = ONGLETS.filter(o =>
-    estPatron || o.key === "articles"
-  );
+  const onglets = estPatron ? ONGLETS_PATRON : ONGLETS_EMPLOYE;
+  const [onglet, setOnglet] = useState(onglets[0].key);
 
   return (
     <div className="flex-1 overflow-auto p-6">
@@ -570,16 +630,19 @@ export function Parametres() {
 
       {/* Onglets */}
       <div className="flex gap-1 mb-6 border-b border-border flex-wrap">
-        {ongletsFiltres.map(o => {
+        {onglets.map(o => {
           const Icone = o.icone;
           return (
             <button key={o.key}
               onClick={() => setOnglet(o.key)}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                onglet === o.key
+              className={`
+                flex items-center gap-2 px-4 py-2 text-sm font-medium
+                border-b-2 transition-colors
+                ${onglet === o.key
                   ? "border-primary text-primary"
                   : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}>
+                }
+              `}>
               <Icone className="h-4 w-4" />
               {o.label}
             </button>
@@ -591,6 +654,7 @@ export function Parametres() {
       {onglet === "societe"      && <ParametresSociete />}
       {onglet === "articles"     && <OngletArticles />}
       {onglet === "categories"   && <OngletCategories />}
+      {onglet === "ventes"       && <OngletVentes />}
       {onglet === "utilisateurs" && <OngletUtilisateurs />}
       {onglet === "sauvegarde"   && <OngletSauvegarde />}
     </div>

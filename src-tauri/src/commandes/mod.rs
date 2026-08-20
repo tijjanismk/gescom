@@ -10,3 +10,5 @@ pub mod dashboard;
 pub mod sauvegarde;
 pub mod impression;
 pub mod logo;
+pub mod avoirs;
+pub mod creances;

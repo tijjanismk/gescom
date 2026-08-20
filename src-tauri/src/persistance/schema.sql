@@ -1,5 +1,8 @@
--- Gescom — Schéma SQLite complet
--- Toutes les tables avec IF NOT EXISTS pour idempotence
+-- Gescom — Schéma SQLite complet v2
+-- Toutes les colonnes sont incluses dès la création — pas de migrations ALTER TABLE.
+
+PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=ON;
 
 -- =====================================================================
 -- RÔLES ET UTILISATEURS
@@ -107,6 +110,7 @@ CREATE TABLE IF NOT EXISTS article (
     unite_base          TEXT NOT NULL DEFAULT 'unite',
     gere_en_stock       INTEGER NOT NULL DEFAULT 1,
     dernier_prix_achat  INTEGER,
+    code_barre          TEXT UNIQUE,
     attributs           TEXT NOT NULL DEFAULT '{}',
     actif               INTEGER NOT NULL DEFAULT 1,
     cree_le             TEXT NOT NULL,
@@ -146,7 +150,7 @@ CREATE TABLE IF NOT EXISTS mouvement_stock (
     id              TEXT PRIMARY KEY,
     article_id      TEXT NOT NULL REFERENCES article(id),
     depot_id        TEXT NOT NULL REFERENCES depot(id),
-    type_mouvement  TEXT NOT NULL, -- vente / achat / retour / ajustement / transfert / echange
+    type_mouvement  TEXT NOT NULL,
     quantite_delta  REAL NOT NULL,
     motif           TEXT,
     operation_id    TEXT,
@@ -177,10 +181,9 @@ CREATE TABLE IF NOT EXISTS vente (
     id              TEXT PRIMARY KEY,
     client_id       TEXT NOT NULL REFERENCES client(id),
     depot_id        TEXT NOT NULL REFERENCES depot(id),
-    mode_reglement  TEXT NOT NULL DEFAULT 'credit', -- comptant / credit
+    mode_reglement  TEXT NOT NULL DEFAULT 'credit',
     auteur_id       TEXT,
     statut          TEXT NOT NULL DEFAULT 'creance_ouverte',
-    -- creance_ouverte / partiellement_payee / payee / annulee
     date_vente      TEXT NOT NULL,
     cree_le         TEXT NOT NULL,
     modifie_le      TEXT NOT NULL,
@@ -196,7 +199,6 @@ CREATE TABLE IF NOT EXISTS ligne_vente (
     unite_vente_id              TEXT NOT NULL REFERENCES unite_vente(id),
     depot_source_id             TEXT NOT NULL REFERENCES depot(id),
     source_approvisionnement    TEXT NOT NULL DEFAULT 'stock',
-    -- stock / fournisseur_secondaire
     vente_a_decouvert           INTEGER NOT NULL DEFAULT 0,
     quantite                    REAL NOT NULL,
     prix_reference              INTEGER NOT NULL,
@@ -212,7 +214,6 @@ CREATE TABLE IF NOT EXISTS facture (
     numero          TEXT NOT NULL UNIQUE,
     vente_id        TEXT NOT NULL REFERENCES vente(id),
     statut          TEXT NOT NULL DEFAULT 'validee',
-    -- brouillon / validee / annulee
     total           INTEGER NOT NULL DEFAULT 0,
     date_validation TEXT,
     cree_le         TEXT NOT NULL,
@@ -227,7 +228,6 @@ CREATE TABLE IF NOT EXISTS paiement (
     vente_id        TEXT NOT NULL REFERENCES vente(id),
     montant         INTEGER NOT NULL,
     mode            TEXT NOT NULL DEFAULT 'especes',
-    -- especes / orange_money / moov_money / cheque / avoir
     date_paiement   TEXT NOT NULL,
     auteur_id       TEXT,
     cree_le         TEXT NOT NULL,
@@ -247,7 +247,6 @@ CREATE TABLE IF NOT EXISTS retour (
     quantite                REAL NOT NULL,
     depot_reintegration_id  TEXT NOT NULL REFERENCES depot(id),
     mode_resolution         TEXT NOT NULL,
-    -- remboursement / echange / avoir_conserve
     montant_credit          INTEGER NOT NULL,
     reliquat                INTEGER NOT NULL DEFAULT 0,
     reliquat_resolution     TEXT,
@@ -259,13 +258,14 @@ CREATE TABLE IF NOT EXISTS retour (
 );
 
 CREATE TABLE IF NOT EXISTS avoir (
-    id          TEXT PRIMARY KEY,
-    client_id   TEXT NOT NULL REFERENCES client(id),
-    retour_id   TEXT REFERENCES retour(id),
-    montant     INTEGER NOT NULL,
-    statut      TEXT NOT NULL DEFAULT 'ouvert', -- ouvert / utilise / expire
-    cree_le     TEXT NOT NULL,
-    origine     TEXT NOT NULL DEFAULT 'app'
+    id                      TEXT PRIMARY KEY,
+    client_id               TEXT NOT NULL REFERENCES client(id),
+    retour_id               TEXT REFERENCES retour(id),
+    montant                 INTEGER NOT NULL,
+    statut                  TEXT NOT NULL DEFAULT 'ouvert',
+    vente_utilisation_id    TEXT REFERENCES vente(id),
+    cree_le                 TEXT NOT NULL,
+    origine                 TEXT NOT NULL DEFAULT 'app'
 );
 
 -- =====================================================================
@@ -274,7 +274,7 @@ CREATE TABLE IF NOT EXISTS avoir (
 
 CREATE TABLE IF NOT EXISTS session_caisse (
     id                  TEXT PRIMARY KEY,
-    statut              TEXT NOT NULL DEFAULT 'ouverte', -- ouverte / fermee
+    statut              TEXT NOT NULL DEFAULT 'ouverte',
     fond_ouverture      INTEGER NOT NULL DEFAULT 0,
     solde_theorique     INTEGER,
     especes_comptees    INTEGER,
@@ -289,7 +289,7 @@ CREATE TABLE IF NOT EXISTS session_caisse (
 CREATE TABLE IF NOT EXISTS mouvement_caisse (
     id              TEXT PRIMARY KEY,
     session_id      TEXT NOT NULL REFERENCES session_caisse(id),
-    sens            TEXT NOT NULL, -- entree / sortie
+    sens            TEXT NOT NULL,
     moyen           TEXT NOT NULL DEFAULT 'especes',
     montant         INTEGER NOT NULL,
     motif           TEXT NOT NULL DEFAULT 'autre',
@@ -314,6 +314,7 @@ CREATE TABLE IF NOT EXISTS parametres_societe (
     nif             TEXT,
     rccm            TEXT,
     site_web        TEXT,
+    logo_chemin     TEXT,
     pied_facture    TEXT DEFAULT 'Merci de votre confiance',
     devise          TEXT NOT NULL DEFAULT 'FCFA',
     modifie_le      TEXT NOT NULL DEFAULT (datetime('now')),
@@ -351,15 +352,14 @@ CREATE TABLE IF NOT EXISTS journal (
 -- INDEX
 -- =====================================================================
 
-CREATE INDEX IF NOT EXISTS idx_facture_numero ON facture(numero);
-CREATE INDEX IF NOT EXISTS idx_facture_vente ON facture(vente_id);
-CREATE INDEX IF NOT EXISTS idx_vente_client ON vente(client_id);
-CREATE INDEX IF NOT EXISTS idx_vente_date ON vente(date_vente DESC);
-CREATE INDEX IF NOT EXISTS idx_vente_statut ON vente(statut);
-CREATE INDEX IF NOT EXISTS idx_ligne_vente_vente ON ligne_vente(vente_id);
-CREATE INDEX IF NOT EXISTS idx_paiement_vente ON paiement(vente_id);
-CREATE INDEX IF NOT EXISTS idx_stock_depot_article ON stock_depot(article_id, depot_id);
-CREATE INDEX IF NOT EXISTS idx_mouvement_stock_article ON mouvement_stock(article_id);
-CREATE INDEX IF NOT EXISTS idx_journal_entite ON journal(entite_type, entite_id);
-CREATE INDEX IF NOT EXISTS idx_mouvement_caisse_session ON mouvement_caisse(session_id);
-ALTER TABLE parametres_societe ADD COLUMN logo_chemin TEXT;
+CREATE INDEX IF NOT EXISTS idx_facture_numero      ON facture(numero);
+CREATE INDEX IF NOT EXISTS idx_facture_vente        ON facture(vente_id);
+CREATE INDEX IF NOT EXISTS idx_vente_client         ON vente(client_id);
+CREATE INDEX IF NOT EXISTS idx_vente_date           ON vente(date_vente DESC);
+CREATE INDEX IF NOT EXISTS idx_vente_statut         ON vente(statut);
+CREATE INDEX IF NOT EXISTS idx_ligne_vente_vente    ON ligne_vente(vente_id);
+CREATE INDEX IF NOT EXISTS idx_paiement_vente       ON paiement(vente_id);
+CREATE INDEX IF NOT EXISTS idx_stock_depot_article  ON stock_depot(article_id, depot_id);
+CREATE INDEX IF NOT EXISTS idx_mouvement_stock      ON mouvement_stock(article_id);
+CREATE INDEX IF NOT EXISTS idx_journal_entite       ON journal(entite_type, entite_id);
+CREATE INDEX IF NOT EXISTS idx_mouvement_caisse     ON mouvement_caisse(session_id);
