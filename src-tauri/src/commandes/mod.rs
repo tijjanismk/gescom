@@ -12,3 +12,5 @@ pub mod impression;
 pub mod logo;
 pub mod avoirs;
 pub mod creances;
+pub mod chantiers;
+pub mod pieces;

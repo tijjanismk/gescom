@@ -363,3 +363,43 @@ CREATE INDEX IF NOT EXISTS idx_stock_depot_article  ON stock_depot(article_id, d
 CREATE INDEX IF NOT EXISTS idx_mouvement_stock      ON mouvement_stock(article_id);
 CREATE INDEX IF NOT EXISTS idx_journal_entite       ON journal(entite_type, entite_id);
 CREATE INDEX IF NOT EXISTS idx_mouvement_caisse     ON mouvement_caisse(session_id);
+
+-- Migration pièces commerciales — à ajouter dans persistance/mod.rs
+
+CREATE TABLE IF NOT EXISTS piece_commerciale (
+    id               TEXT PRIMARY KEY,
+    type_piece       TEXT NOT NULL,
+    numero           TEXT NOT NULL UNIQUE,
+    statut           TEXT NOT NULL DEFAULT 'brouillon',
+    tiers_type       TEXT NOT NULL DEFAULT 'client',
+    tiers_id         TEXT NOT NULL,
+    depot_id         TEXT REFERENCES depot(id),
+    piece_origine_id TEXT REFERENCES piece_commerciale(id),
+    auteur_id        TEXT,
+    date_piece       TEXT NOT NULL,
+    date_echeance    TEXT,
+    remise_globale   REAL NOT NULL DEFAULT 0,
+    note             TEXT,
+    cree_le          TEXT NOT NULL,
+    modifie_le       TEXT NOT NULL,
+    origine          TEXT NOT NULL DEFAULT 'app'
+);
+
+CREATE TABLE IF NOT EXISTS ligne_piece (
+    id               TEXT PRIMARY KEY,
+    piece_id         TEXT NOT NULL REFERENCES piece_commerciale(id),
+    article_id       TEXT NOT NULL REFERENCES article(id),
+    unite_vente_id   TEXT NOT NULL REFERENCES unite_vente(id),
+    quantite         REAL NOT NULL,
+    prix_unitaire    INTEGER NOT NULL,
+    remise_pct       REAL NOT NULL DEFAULT 0,
+    remise_montant   INTEGER NOT NULL DEFAULT 0,
+    taux_tva         REAL NOT NULL DEFAULT 0,
+    montant_tva      INTEGER NOT NULL DEFAULT 0,
+    montant_ht       INTEGER NOT NULL,
+    cree_le          TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_piece_tiers ON piece_commerciale(tiers_id, tiers_type);
+CREATE INDEX IF NOT EXISTS idx_piece_type ON piece_commerciale(type_piece);
+CREATE INDEX IF NOT EXISTS idx_ligne_piece ON ligne_piece(piece_id);

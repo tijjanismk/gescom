@@ -5,6 +5,7 @@ import {
   Package, Tag, Building2, Users, HardDrive,
   Plus, Loader2, Save, Eye, EyeOff, ShoppingCart,
   FolderOpen, ChevronDown, ChevronRight,
+  Percent, Banknote, XCircle, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,7 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { ParametresSociete } from "@/components/ParametresSociete";
 import { OngletVentes } from "@/components/ParametresVentes";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
+import { OngletTVA, OngletDettes, OngletIrrecouvrable, OngletAvoirs } from "@/components/OngletChantiers";
 import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================
@@ -52,12 +54,16 @@ function fmt(n: number): string {
 // =====================================================================
 
 const ONGLETS_PATRON = [
-  { key: "societe",      label: "Société",      icone: Building2 },
-  { key: "articles",     label: "Articles",     icone: Package },
-  { key: "categories",   label: "Catégories",   icone: Tag },
-  { key: "ventes",       label: "Ventes",       icone: ShoppingCart },
-  { key: "utilisateurs", label: "Utilisateurs", icone: Users },
-  { key: "sauvegarde",   label: "Sauvegarde",   icone: HardDrive },
+  { key: "societe",       label: "Société",       icone: Building2  },
+  { key: "articles",      label: "Articles",      icone: Package    },
+  { key: "categories",    label: "Catégories",    icone: Tag        },
+  { key: "ventes",        label: "Ventes",        icone: ShoppingCart },
+  { key: "utilisateurs",  label: "Utilisateurs",  icone: Users      },
+  { key: "sauvegarde",    label: "Sauvegarde",    icone: HardDrive  },
+  { key: "tva",           label: "TVA",           icone: Percent    },
+  { key: "dettes",        label: "Dettes fourn.", icone: Banknote   },
+  { key: "irrecouvrable", label: "Irrécouvrable", icone: XCircle    },
+  { key: "avoirs",        label: "Avoirs",        icone: Clock      },
 ];
 
 const ONGLETS_EMPLOYE = [
@@ -188,13 +194,11 @@ function OngletUtilisateurs() {
 
   useEffect(() => { charger(); }, []);
 
-  if (chargement) {
-    return (
-      <div className="flex justify-center py-8">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (chargement) return (
+    <div className="flex justify-center py-8">
+      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+    </div>
+  );
 
   return (
     <div className="space-y-4 max-w-lg">
@@ -304,13 +308,11 @@ function OngletSauvegarde() {
     }
   }
 
-  if (chargement) {
-    return (
-      <div className="flex justify-center py-8">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (chargement) return (
+    <div className="flex justify-center py-8">
+      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+    </div>
+  );
 
   return (
     <div className="space-y-6 max-w-lg">
@@ -341,8 +343,7 @@ function OngletSauvegarde() {
       <Button
         onClick={lancerSauvegarde}
         disabled={enCours || !config.dossier_sauvegarde}
-        className="w-full"
-      >
+        className="w-full">
         {enCours
           ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Sauvegarde en cours...</>
           : <><HardDrive className="h-4 w-4 mr-2" /> Sauvegarder maintenant</>
@@ -363,7 +364,6 @@ function OngletArticles() {
   const [expandeId, setExpandeId] = useState<string | null>(null);
   const [modalArticle, setModalArticle] = useState(false);
 
-  // Formulaire nouvel article
   const [nom, setNom] = useState("");
   const [categorieId, setCategorieId] = useState("");
   const [uniteBase, setUniteBase] = useState("unite");
@@ -408,13 +408,11 @@ function OngletArticles() {
     }
   }
 
-  if (chargement) {
-    return (
-      <div className="flex justify-center py-8">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (chargement) return (
+    <div className="flex justify-center py-8">
+      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+    </div>
+  );
 
   return (
     <div className="space-y-3">
@@ -467,7 +465,6 @@ function OngletArticles() {
         ))}
       </div>
 
-      {/* Modal nouvel article */}
       <Dialog open={modalArticle} onOpenChange={setModalArticle}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Nouvel article</DialogTitle></DialogHeader>
@@ -522,8 +519,7 @@ function OngletArticles() {
               <Button
                 onClick={handleCreerArticle}
                 disabled={!nom.trim() || !prixVente || chargementCreer}
-                className="flex-1"
-              >
+                className="flex-1">
                 {chargementCreer
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : "Créer"
@@ -575,13 +571,11 @@ function OngletCategories() {
     }
   }
 
-  if (chargement) {
-    return (
-      <div className="flex justify-center py-8">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (chargement) return (
+    <div className="flex justify-center py-8">
+      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+    </div>
+  );
 
   return (
     <div className="space-y-4 max-w-md">
@@ -598,9 +592,7 @@ function OngletCategories() {
       </div>
       <div className="space-y-1">
         {categories.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">
-            Aucune catégorie
-          </p>
+          <p className="text-sm text-muted-foreground text-center py-4">Aucune catégorie</p>
         ) : (
           categories.map(c => (
             <div key={c.id}
@@ -651,12 +643,16 @@ export function Parametres() {
       </div>
 
       {/* Contenu */}
-      {onglet === "societe"      && <ParametresSociete />}
-      {onglet === "articles"     && <OngletArticles />}
-      {onglet === "categories"   && <OngletCategories />}
-      {onglet === "ventes"       && <OngletVentes />}
-      {onglet === "utilisateurs" && <OngletUtilisateurs />}
-      {onglet === "sauvegarde"   && <OngletSauvegarde />}
+      {onglet === "societe"       && <ParametresSociete />}
+      {onglet === "articles"      && <OngletArticles />}
+      {onglet === "categories"    && <OngletCategories />}
+      {onglet === "ventes"        && <OngletVentes />}
+      {onglet === "utilisateurs"  && <OngletUtilisateurs />}
+      {onglet === "sauvegarde"    && <OngletSauvegarde />}
+      {onglet === "tva"           && <OngletTVA />}
+      {onglet === "dettes"        && <OngletDettes />}
+      {onglet === "irrecouvrable" && <OngletIrrecouvrable />}
+      {onglet === "avoirs"        && <OngletAvoirs />}
     </div>
   );
 }

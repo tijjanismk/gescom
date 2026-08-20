@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   Users, TrendingUp, Loader2, Plus, X,
   Search, Wallet, ChevronDown, ChevronRight,
-  CheckCircle2
+  CheckCircle2, FileText,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +41,14 @@ interface Creance {
 
 interface PageResult {
   donnees: ClientRow[]; total: number; pages: number; page: number;
+}
+
+// =====================================================================
+//  Props — navigation vers la fiche client
+// =====================================================================
+
+interface ClientsProps {
+  onOuvrirFiche?: (clientId: string) => void;
 }
 
 function fmt(n: number): string {
@@ -118,8 +126,6 @@ function ModalReglementCreance({
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
-
-          {/* Infos créance */}
           <div className="bg-muted rounded-md px-3 py-2 space-y-1">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Client</span>
@@ -151,7 +157,6 @@ function ModalReglementCreance({
             </div>
           </div>
 
-          {/* Résultat après règlement */}
           {resultat ? (
             <div className={`flex items-center gap-3 p-3 rounded-lg ${
               resultat.soldee
@@ -184,7 +189,6 @@ function ModalReglementCreance({
                   </p>
                 )}
               </div>
-
               <div>
                 <Label>Mode de paiement</Label>
                 <Select value={mode} onValueChange={v => { if (v) setMode(v); }}>
@@ -197,7 +201,6 @@ function ModalReglementCreance({
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="flex gap-2">
                 <Button variant="outline" onClick={onFermer} className="flex-1">
                   Annuler
@@ -205,8 +208,7 @@ function ModalReglementCreance({
                 <Button
                   onClick={handleRegler}
                   disabled={montantNum <= 0 || chargement}
-                  className="flex-1"
-                >
+                  className="flex-1">
                   {chargement
                     ? <Loader2 className="h-4 w-4 animate-spin" />
                     : "Encaisser"
@@ -274,10 +276,10 @@ function ModalNouveauClient({
 }
 
 // =====================================================================
-//  Page Clients avec règlement créances
+//  Page Clients
 // =====================================================================
 
-export function Clients() {
+export function Clients({ onOuvrirFiche }: ClientsProps) {
   const [resultat, setResultat] = useState<PageResult>({
     donnees: [], total: 0, pages: 0, page: 0,
   });
@@ -336,7 +338,6 @@ export function Clients() {
     else chargerCreances();
   }
 
-  // Grouper les créances par client pour l'affichage
   const creancesParClient = creances.reduce<Record<string, Creance[]>>((acc, c) => {
     if (!acc[c.client_id]) acc[c.client_id] = [];
     acc[c.client_id].push(c);
@@ -433,7 +434,8 @@ export function Clients() {
                 <div className="divide-y divide-border">
                   {resultat.donnees.map(c => (
                     <div key={c.id}
-                      className="flex items-center justify-between py-2.5 px-4 hover:bg-muted/40 transition-colors">
+                      className="flex items-center justify-between py-2.5 px-4
+                                 hover:bg-muted/40 transition-colors">
                       <div>
                         <p className="text-sm font-medium">{c.nom}</p>
                         <p className="text-xs text-muted-foreground">
@@ -449,6 +451,14 @@ export function Clients() {
                         <p className="text-xs text-muted-foreground">
                           {c.nb_ventes} vente{c.nb_ventes > 1 ? "s" : ""}
                         </p>
+                        {/* ← Bouton Fiche */}
+                        <Button
+                          size="sm" variant="outline"
+                          className="h-7 text-xs gap-1"
+                          onClick={() => onOuvrirFiche?.(c.id)}>
+                          <FileText className="h-3 w-3" />
+                          Fiche
+                        </Button>
                       </div>
                     </div>
                   ))}
@@ -462,7 +472,6 @@ export function Clients() {
       ) : (
         // ---- Onglet Créances ----
         <div className="space-y-3">
-          {/* Total créances */}
           {creances.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3
                             bg-orange-50 dark:bg-orange-950/20
@@ -517,6 +526,15 @@ export function Clients() {
                       <span className="text-sm font-bold text-orange-500">
                         {fmt(totalClient)}
                       </span>
+                      {/* Fiche depuis l'onglet créances aussi */}
+                      <Button size="sm" variant="outline"
+                        className="h-7 text-xs gap-1"
+                        onClick={e => {
+                          e.stopPropagation();
+                          onOuvrirFiche?.(clientId);
+                        }}>
+                        <FileText className="h-3 w-3" /> Fiche
+                      </Button>
                     </div>
                   </button>
 

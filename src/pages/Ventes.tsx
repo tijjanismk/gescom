@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Plus, Trash2, ShoppingCart, User, Search,
-  Loader2, Warehouse, AlertTriangle, Printer, Gift, Scan
+  Loader2, Warehouse, AlertTriangle, Printer, Gift, Scan,
+  Percent,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,11 +39,53 @@ interface Depot {
   id: string; nom: string; est_defaut: boolean;
 }
 interface LignePanier {
-  id: string; article: Article; unite: UniteVente;
-  quantite: number; prix_pratique: number; montant: number; a_decouvert: boolean;
+  id: string;
+  article: Article;
+  unite: UniteVente;
+  quantite: number;
+  prix_pratique: number;    // prix après remise ligne
+  remise_pct: number;       // % remise sur la ligne (0-100)
+  remise_montant: number;   // montant remise ligne calculé
+  montant: number;          // montant HT net après remise ligne
+  a_decouvert: boolean;
 }
 interface Avoir {
   id: string; montant: number; cree_le: string;
+}
+
+// =====================================================================
+//  Calcul remises
+// =====================================================================
+
+function calculerLigne(
+  prix_reference: number,
+  quantite: number,
+  remise_pct: number,
+): { prix_pratique: number; remise_montant: number; montant: number } {
+  const montant_brut = Math.round(prix_reference * quantite);
+  const remise_montant = Math.round(montant_brut * remise_pct / 100);
+  const montant = montant_brut - remise_montant;
+  const prix_pratique = quantite > 0 ? Math.round(montant / quantite) : prix_reference;
+  return { prix_pratique, remise_montant, montant };
+}
+
+interface Totaux {
+  total_brut: number;
+  total_remise_lignes: number;
+  total_ht: number;
+  remise_globale_montant: number;
+  total_net: number;
+}
+
+function calculerTotaux(lignes: LignePanier[], remise_globale_pct: number): Totaux {
+  const total_brut = lignes.reduce(
+    (s, l) => s + Math.round(l.unite.prix_reference * l.quantite), 0
+  );
+  const total_remise_lignes = lignes.reduce((s, l) => s + l.remise_montant, 0);
+  const total_ht = lignes.reduce((s, l) => s + l.montant, 0);
+  const remise_globale_montant = Math.round(total_ht * remise_globale_pct / 100);
+  const total_net = total_ht - remise_globale_montant;
+  return { total_brut, total_remise_lignes, total_ht, remise_globale_montant, total_net };
 }
 
 // =====================================================================
@@ -185,14 +228,23 @@ function ModalEncaissement({
 // =====================================================================
 
 function ModalConfirmation({
-  ouvert, total, totalApresAvoir, avoirApplique,
+  ouvert, totaux, totalApresAvoir, avoirApplique,
   acompte, modeAcompte, modeReglement, client,
   chargement, onFermer, onConfirmer,
 }: {
-  ouvert: boolean; total: number; totalApresAvoir: number; avoirApplique: number;
-  acompte: number; modeAcompte: string; modeReglement: "comptant" | "credit";
-  client: Client; chargement: boolean; onFermer: () => void; onConfirmer: () => void;
+  ouvert: boolean;
+  totaux: Totaux;
+  totalApresAvoir: number;
+  avoirApplique: number;
+  acompte: number;
+  modeAcompte: string;
+  modeReglement: "comptant" | "credit";
+  client: Client;
+  chargement: boolean;
+  onFermer: () => void;
+  onConfirmer: () => void;
 }) {
+  const totalNet = totaux.total_net;
   return (
     <Dialog open={ouvert} onOpenChange={onFermer}>
       <DialogContent className="max-w-sm">
@@ -205,10 +257,34 @@ function ModalConfirmation({
               <p className="text-xs text-muted-foreground">{client.code}</p>
             </div>
           </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Total articles</span>
-              <span className="font-semibold">{fmt(total)}</span>
+          <div className="space-y-1.5">
+            {/* Remises */}
+            {totaux.total_remise_lignes > 0 && (
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Total brut</span>
+                <span>{fmt(totaux.total_brut)}</span>
+              </div>
+            )}
+            {totaux.total_remise_lignes > 0 && (
+              <div className="flex justify-between text-sm text-orange-600">
+                <span className="flex items-center gap-1">
+                  <Percent className="h-3 w-3" /> Remises lignes
+                </span>
+                <span>- {fmt(totaux.total_remise_lignes)}</span>
+              </div>
+            )}
+            {totaux.remise_globale_montant > 0 && (
+              <div className="flex justify-between text-sm text-orange-600">
+                <span className="flex items-center gap-1">
+                  <Percent className="h-3 w-3" /> Remise globale
+                </span>
+                <span>- {fmt(totaux.remise_globale_montant)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-sm font-semibold
+                            border-t border-border pt-1.5">
+              <span>Total articles</span>
+              <span>{fmt(totalNet)}</span>
             </div>
             {avoirApplique > 0 && (
               <div className="flex justify-between text-sm text-green-600">
@@ -219,7 +295,7 @@ function ModalConfirmation({
               </div>
             )}
             {avoirApplique > 0 && (
-              <div className="flex justify-between text-sm font-bold border-t border-border pt-2">
+              <div className="flex justify-between text-sm font-bold border-t border-border pt-1.5">
                 <span>Reste à payer</span>
                 <span>{fmt(totalApresAvoir)}</span>
               </div>
@@ -236,7 +312,7 @@ function ModalConfirmation({
                   <span className="text-muted-foreground">Acompte</span>
                   <span className="text-green-600">{fmt(acompte)}</span>
                 </div>
-                <div className="flex justify-between text-sm border-t border-border pt-2">
+                <div className="flex justify-between text-sm border-t border-border pt-1.5">
                   <span className="text-muted-foreground">Reste en créance</span>
                   <span className="text-orange-500 font-semibold">
                     {fmt(Math.max(0, totalApresAvoir - acompte))}
@@ -245,7 +321,7 @@ function ModalConfirmation({
               </>
             )}
             {modeReglement === "credit" && acompte === 0 && totalApresAvoir > 0 && (
-              <div className="flex justify-between text-sm border-t border-border pt-2">
+              <div className="flex justify-between text-sm border-t border-border pt-1.5">
                 <span className="text-muted-foreground">Créance ouverte</span>
                 <span className="text-orange-500 font-semibold">{fmt(totalApresAvoir)}</span>
               </div>
@@ -295,9 +371,11 @@ export function Ventes() {
   const [uniteSelectionnee, setUniteSelectionnee] = useState<UniteVente | null>(null);
   const [quantite, setQuantite] = useState("1");
   const [prixPratique, setPrixPratique] = useState("");
+  const [remiseLignePct, setRemiseLignePct] = useState("0"); // % remise sur la ligne en cours
 
-  // Panier
+  // Panier & remise globale
   const [panier, setPanier] = useState<LignePanier[]>([]);
+  const [remiseGlobalePct, setRemiseGlobalePct] = useState("0");
   const [modeReglement, setModeReglement] = useState<"comptant" | "credit">("comptant");
   const [acompte, setAcompte] = useState("");
   const [modeAcompte, setModeAcompte] = useState("especes");
@@ -312,8 +390,11 @@ export function Ventes() {
   const [scannerNotification, setScannerNotification] = useState<string | null>(null);
 
   const inputArticleRef = useRef<HTMLInputElement>(null);
-  const total = panier.reduce((s, l) => s + l.montant, 0);
-  const totalApresAvoir = Math.max(0, total - avoirAAppliquer);
+
+  // Totaux calculés
+  const remiseGlobaleNum = Math.min(100, Math.max(0, parseFloat(remiseGlobalePct) || 0));
+  const totaux = calculerTotaux(panier, remiseGlobaleNum);
+  const totalApresAvoir = Math.max(0, totaux.total_net - avoirAAppliquer);
   const acompteNum = parseMontant(acompte);
 
   // ---- Chargement initial ----
@@ -344,13 +425,11 @@ export function Ventes() {
     charger();
   }, []);
 
-  // ---- Charger les avoirs quand le client change ----
+  // ---- Avoirs ----
   useEffect(() => {
     async function chargerAvoirs() {
       if (!client || client.id === clientGenerique?.id) {
-        setAvoirs([]);
-        setTotalAvoirs(0);
-        setAvoirAAppliquer(0);
+        setAvoirs([]); setTotalAvoirs(0); setAvoirAAppliquer(0);
         return;
       }
       try {
@@ -360,14 +439,12 @@ export function Ventes() {
         ]);
         setAvoirs(listeAvoirs);
         setTotalAvoirs(total);
-      } catch (e) {
-        console.error("Erreur avoirs :", e);
-      }
+      } catch (e) { console.error("Erreur avoirs :", e); }
     }
     chargerAvoirs();
   }, [client, clientGenerique]);
 
-  // ---- Scanner code-barres ----
+  // ---- Scanner ----
   const handleScan = useCallback(async (code: string) => {
     try {
       const article = await invoke<Article | null>(
@@ -375,14 +452,14 @@ export function Ventes() {
       );
       if (article) {
         selectionnerArticle(article);
-        // Auto-ajouter au panier si une seule unité
         if (article.unites.length === 1) {
           const unite = article.unites[0];
+          const { prix_pratique, remise_montant, montant } =
+            calculerLigne(unite.prix_reference, 1, 0);
           setPanier(prev => [...prev, {
             id: genId(), article, unite,
-            quantite: 1,
-            prix_pratique: unite.prix_reference,
-            montant: unite.prix_reference,
+            quantite: 1, prix_pratique,
+            remise_pct: 0, remise_montant, montant,
             a_decouvert: 1 > stockUV(article.stock, unite.facteur) && article.stock >= 0,
           }]);
           setArticleSelectionne(null);
@@ -395,9 +472,7 @@ export function Ventes() {
         setScannerNotification(`Article non trouvé : ${code}`);
         setTimeout(() => setScannerNotification(null), 3000);
       }
-    } catch (e) {
-      console.error("Erreur scan :", e);
-    }
+    } catch (e) { console.error("Erreur scan :", e); }
   }, []);
 
   useScanner({ actif: scannerActif, onScan: handleScan });
@@ -450,8 +525,23 @@ export function Ventes() {
     setUniteSelectionnee(article.unites[0]);
     setPrixPratique(article.unites[0].prix_reference.toString());
     setQuantite("1");
+    setRemiseLignePct("0");
     setRechercheArticle("");
     setArticlesFiltres([]);
+  }
+
+  // Recalculer le prix pratique quand la remise ligne change
+  function handleRemiseLigneChange(val: string) {
+    setRemiseLignePct(val);
+    const pct = Math.min(100, Math.max(0, parseFloat(val) || 0));
+    if (uniteSelectionnee) {
+      const { prix_pratique } = calculerLigne(
+        uniteSelectionnee.prix_reference,
+        parseFloat(quantite) || 1,
+        pct
+      );
+      setPrixPratique(prix_pratique.toString());
+    }
   }
 
   const stockDispo = articleSelectionne && uniteSelectionnee
@@ -460,42 +550,63 @@ export function Ventes() {
   const aDecouvert = !!articleSelectionne && qteNum > stockDispo && stockDispo >= 0;
   const enRupture = !!articleSelectionne && articleSelectionne.stock <= 0;
 
+  // Sous-total ligne en cours
+  const remiseLigneNum = Math.min(100, Math.max(0, parseFloat(remiseLignePct) || 0));
+  const sousTotal = uniteSelectionnee
+    ? calculerLigne(uniteSelectionnee.prix_reference, qteNum, remiseLigneNum).montant
+    : 0;
+
   // ---- Panier ----
   function ajouterAuPanier() {
     if (!articleSelectionne || !uniteSelectionnee) return;
     const qte = parseFloat(quantite) || 1;
-    const prix = parseMontant(prixPratique) || uniteSelectionnee.prix_reference;
+    const pct = Math.min(100, Math.max(0, parseFloat(remiseLignePct) || 0));
+    const { prix_pratique, remise_montant, montant } =
+      calculerLigne(uniteSelectionnee.prix_reference, qte, pct);
+
     setPanier(prev => [...prev, {
-      id: genId(), article: articleSelectionne, unite: uniteSelectionnee,
-      quantite: qte, prix_pratique: prix, montant: Math.round(prix * qte),
+      id: genId(),
+      article: articleSelectionne,
+      unite: uniteSelectionnee,
+      quantite: qte,
+      prix_pratique,
+      remise_pct: pct,
+      remise_montant,
+      montant,
       a_decouvert: qte > stockDispo && articleSelectionne.stock >= 0,
     }]);
     setArticleSelectionne(null); setUniteSelectionnee(null);
-    setQuantite("1"); setPrixPratique("");
+    setQuantite("1"); setPrixPratique(""); setRemiseLignePct("0");
     inputArticleRef.current?.focus();
+  }
+
+  // Modifier la remise d'une ligne déjà dans le panier
+  function modifierRemiseLigne(id: string, nouvPct: number) {
+    setPanier(prev => prev.map(l => {
+      if (l.id !== id) return l;
+      const pct = Math.min(100, Math.max(0, nouvPct));
+      const { prix_pratique, remise_montant, montant } =
+        calculerLigne(l.unite.prix_reference, l.quantite, pct);
+      return { ...l, remise_pct: pct, prix_pratique, remise_montant, montant };
+    }));
   }
 
   function viderPanier() {
     setPanier([]); setClient(clientGenerique);
     setModeReglement("comptant"); setAcompte("");
-    setAvoirAAppliquer(0);
+    setAvoirAAppliquer(0); setRemiseGlobalePct("0");
   }
 
   // ---- Avoir ----
   function appliquerAvoir() {
-    const montantAvoir = Math.min(totalAvoirs, total);
-    setAvoirAAppliquer(montantAvoir);
+    setAvoirAAppliquer(Math.min(totalAvoirs, totaux.total_net));
   }
-
-  function retirerAvoir() {
-    setAvoirAAppliquer(0);
-  }
+  function retirerAvoir() { setAvoirAAppliquer(0); }
 
   // ---- Confirmation vente ----
   async function handleConfirmerVente() {
     if (!client || !depotActif) return;
     setChargementVente(true);
-
     try {
       const role = UTILISATEUR_ACTIF?.role ?? "employe";
       const lignes = panier.map(l => ({
@@ -515,7 +626,6 @@ export function Ventes() {
         modeReglement, lignes, utilisateurRole: role,
       });
 
-      // Appliquer l'avoir si demandé
       if (avoirAAppliquer > 0) {
         await invoke("appliquer_avoir_vente", {
           venteId: vente_id,
@@ -524,7 +634,6 @@ export function Ventes() {
         });
       }
 
-      // Enregistrer le paiement sur le reste
       const resteAPayer = totalApresAvoir;
       if (modeReglement === "comptant" && resteAPayer > 0) {
         await invoke("enregistrer_paiement", {
@@ -559,11 +668,9 @@ export function Ventes() {
       <div className="flex items-center justify-between px-4 h-12 border-b border-border bg-card shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="font-semibold text-sm">Nouvelle vente</h1>
-          {/* Indicateur scanner */}
           {scannerActif && (
             <div className="flex items-center gap-1 text-xs text-green-600">
-              <Scan className="h-3 w-3" />
-              <span>Scanner actif</span>
+              <Scan className="h-3 w-3" /><span>Scanner actif</span>
             </div>
           )}
           {depots.length > 1 ? (
@@ -631,7 +738,6 @@ export function Ventes() {
                 <button onClick={() => { setClient(clientGenerique); setAvoirAAppliquer(0); }}
                   className="text-xs text-muted-foreground hover:text-foreground">✕</button>
               )}
-              {/* Badge avoir disponible */}
               {totalAvoirs > 0 && (
                 <Badge variant="outline" className="text-xs text-green-600 border-green-300 flex items-center gap-1">
                   <Gift className="h-2.5 w-2.5" />
@@ -724,7 +830,14 @@ export function Ventes() {
                   <Select value={uniteSelectionnee?.id ?? ""}
                     onValueChange={v => {
                       const u = articleSelectionne.unites.find(u => u.id === v);
-                      if (u) { setUniteSelectionnee(u); setPrixPratique(u.prix_reference.toString()); }
+                      if (u) {
+                        setUniteSelectionnee(u);
+                        const pct = parseFloat(remiseLignePct) || 0;
+                        const { prix_pratique } = calculerLigne(
+                          u.prix_reference, parseFloat(quantite) || 1, pct
+                        );
+                        setPrixPratique(prix_pratique.toString());
+                      }
                     }}>
                     <SelectTrigger className="h-8 text-sm mt-0.5">
                       <SelectValue>
@@ -743,7 +856,9 @@ export function Ventes() {
                   </Select>
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-2">
+
+              {/* Quantité + Remise ligne + Prix */}
+              <div className="grid grid-cols-3 gap-2">
                 <div>
                   <Label className="text-xs">Quantité</Label>
                   <Input type="number" value={quantite}
@@ -753,18 +868,48 @@ export function Ventes() {
                     onKeyDown={e => e.key === "Enter" && ajouterAuPanier()} />
                 </div>
                 <div>
+                  <Label className="text-xs flex items-center gap-0.5">
+                    <Percent className="h-3 w-3" /> Remise
+                  </Label>
+                  <div className="relative mt-0.5">
+                    <Input type="number" min="0" max="100" step="1"
+                      value={remiseLignePct}
+                      onChange={e => handleRemiseLigneChange(e.target.value)}
+                      className="h-8 text-sm pr-5"
+                      onKeyDown={e => e.key === "Enter" && ajouterAuPanier()} />
+                    <span className="absolute right-2 top-2 text-xs text-muted-foreground">%</span>
+                  </div>
+                </div>
+                <div>
                   <Label className="text-xs">Prix (F)</Label>
-                  <MoneyInput value={prixPratique} onChange={setPrixPratique}
+                  <MoneyInput value={prixPratique} onChange={v => {
+                    setPrixPratique(v);
+                    // Recalculer la remise % depuis le prix manuel
+                    if (uniteSelectionnee) {
+                      const prixNum = parseMontant(v);
+                      const pct = uniteSelectionnee.prix_reference > 0
+                        ? Math.max(0, Math.round(
+                            (1 - prixNum / uniteSelectionnee.prix_reference) * 100
+                          ))
+                        : 0;
+                      setRemiseLignePct(pct.toString());
+                    }
+                  }}
                     className="h-8 mt-0.5"
                     onKeyDown={e => e.key === "Enter" && ajouterAuPanier()} />
                 </div>
               </div>
+
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  Sous-total : {fmt(Math.round(
-                    (parseMontant(prixPratique) || 0) * (parseFloat(quantite) || 1)
-                  ))}
-                </span>
+                <div className="text-xs text-muted-foreground">
+                  {remiseLigneNum > 0 ? (
+                    <span className="text-orange-600">
+                      Remise {remiseLigneNum}% → Sous-total : {fmt(sousTotal)}
+                    </span>
+                  ) : (
+                    <span>Sous-total : {fmt(sousTotal)}</span>
+                  )}
+                </div>
                 <Button size="sm" onClick={ajouterAuPanier}>Ajouter →</Button>
               </div>
             </div>
@@ -812,24 +957,43 @@ export function Ventes() {
             ) : (
               panier.map(ligne => (
                 <div key={ligne.id}
-                  className="flex items-center justify-between py-2 px-3 rounded-md bg-muted/40 group">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{ligne.article.nom}</p>
+                  className="py-2 px-3 rounded-md bg-muted/40 group space-y-1">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium truncate flex-1">{ligne.article.nom}</p>
+                    <div className="flex items-center gap-2 ml-2 shrink-0">
+                      <span className="text-sm font-semibold">{fmt(ligne.montant)}</span>
+                      <button
+                        onClick={() => setPanier(prev => prev.filter(l => l.id !== ligne.id))}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity
+                                   text-muted-foreground hover:text-destructive">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
                     <p className="text-xs text-muted-foreground">
                       {ligne.quantite} {ligne.unite.libelle} × {fmt(ligne.prix_pratique)}
-                      {ligne.prix_pratique < ligne.unite.prix_reference && (
-                        <span className="text-orange-500 ml-1">(remise)</span>
-                      )}
                       {ligne.a_decouvert && <span className="text-red-500 ml-1">⚠</span>}
                     </p>
+                    {/* Remise inline sur la ligne du panier */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Percent className="h-3 w-3 text-muted-foreground" />
+                      <input
+                        type="number" min="0" max="100" step="1"
+                        value={ligne.remise_pct}
+                        onChange={e => modifierRemiseLigne(ligne.id, parseFloat(e.target.value) || 0)}
+                        className="w-12 h-5 text-xs border border-border rounded px-1
+                                   bg-background text-right"
+                        title="Remise %"
+                      />
+                      <span className="text-xs text-muted-foreground">%</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 ml-2">
-                    <span className="text-sm font-semibold">{fmt(ligne.montant)}</span>
-                    <button onClick={() => setPanier(prev => prev.filter(l => l.id !== ligne.id))}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                  {ligne.remise_pct > 0 && (
+                    <p className="text-xs text-orange-500">
+                      Remise {ligne.remise_pct}% — économie {fmt(ligne.remise_montant)}
+                    </p>
+                  )}
                 </div>
               ))
             )}
@@ -892,17 +1056,60 @@ export function Ventes() {
               </div>
             )}
 
-            {/* Total */}
+            {/* Remise globale */}
+            {panier.length > 0 && (
+              <div className="flex items-center gap-2 py-1">
+                <Percent className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <Label className="text-xs text-muted-foreground shrink-0">Remise globale</Label>
+                <div className="relative flex-1 max-w-[80px]">
+                  <Input
+                    type="number" min="0" max="100" step="1"
+                    value={remiseGlobalePct}
+                    onChange={e => setRemiseGlobalePct(e.target.value)}
+                    className="h-7 text-sm pr-5"
+                  />
+                  <span className="absolute right-2 top-1.5 text-xs text-muted-foreground">%</span>
+                </div>
+                {totaux.remise_globale_montant > 0 && (
+                  <span className="text-xs text-orange-600">
+                    − {fmt(totaux.remise_globale_montant)}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Total détaillé */}
             <div className="space-y-1">
+              {/* Détail remises si présentes */}
+              {(totaux.total_remise_lignes > 0 || totaux.remise_globale_montant > 0) && (
+                <>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Brut</span>
+                    <span>{fmt(totaux.total_brut)}</span>
+                  </div>
+                  {totaux.total_remise_lignes > 0 && (
+                    <div className="flex items-center justify-between text-xs text-orange-600">
+                      <span>Remises lignes</span>
+                      <span>− {fmt(totaux.total_remise_lignes)}</span>
+                    </div>
+                  )}
+                  {totaux.remise_globale_montant > 0 && (
+                    <div className="flex items-center justify-between text-xs text-orange-600">
+                      <span>Remise globale {remiseGlobaleNum}%</span>
+                      <span>− {fmt(totaux.remise_globale_montant)}</span>
+                    </div>
+                  )}
+                </>
+              )}
               {avoirAAppliquer > 0 && (
                 <>
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span>Sous-total</span>
-                    <span>{fmt(total)}</span>
+                    <span>{fmt(totaux.total_net)}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm text-green-600">
                     <span>Avoir appliqué</span>
-                    <span>- {fmt(avoirAAppliquer)}</span>
+                    <span>− {fmt(avoirAAppliquer)}</span>
                   </div>
                 </>
               )}
@@ -932,7 +1139,11 @@ export function Ventes() {
       {/* Modals */}
       <ModalNouveauClient ouvert={modalNouveauClient}
         onFermer={() => setModalNouveauClient(false)}
-        onCreer={c => { setTousClients(prev => [...prev, c]); selectionnerClient(c); setModalNouveauClient(false); }} />
+        onCreer={c => {
+          setTousClients(prev => [...prev, c]);
+          selectionnerClient(c);
+          setModalNouveauClient(false);
+        }} />
 
       <ModalEncaissement ouvert={modalEncaissement} total={totalApresAvoir}
         onFermer={() => setModalEncaissement(false)}
@@ -943,8 +1154,10 @@ export function Ventes() {
         }} />
 
       <ModalConfirmation
-        ouvert={modalConfirmation} total={total}
-        totalApresAvoir={totalApresAvoir} avoirApplique={avoirAAppliquer}
+        ouvert={modalConfirmation}
+        totaux={totaux}
+        totalApresAvoir={totalApresAvoir}
+        avoirApplique={avoirAAppliquer}
         acompte={modeReglement === "comptant" ? totalApresAvoir : acompteNum}
         modeAcompte={modeReglement === "comptant" ? modePaiementComptant : modeAcompte}
         modeReglement={modeReglement}

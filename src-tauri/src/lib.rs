@@ -109,6 +109,27 @@ pub fn run() {
             // Creances
             commandes::creances::lire_creances_ouvertes,
             commandes::creances::regler_creance,
+            // ---- Chantiers §14 ----
+            commandes::chantiers::lire_taux_tva,
+            commandes::chantiers::sauvegarder_tva_article,
+            commandes::chantiers::lire_resume_tva,
+            commandes::chantiers::lire_dettes_fournisseurs,
+            commandes::chantiers::regler_dette_fournisseur,
+            commandes::chantiers::marquer_irrecouvrable,
+            commandes::chantiers::lire_irrecouvrable,
+            commandes::chantiers::lire_config_avoirs,
+            commandes::chantiers::sauvegarder_config_avoirs,
+            commandes::chantiers::expirer_avoirs,
+            // ---- Pièces commerciales ----
+            commandes::pieces::lire_toutes_pieces_client,
+            commandes::pieces::lire_pieces_client,
+            commandes::pieces::lire_lignes_piece,
+            commandes::pieces::creer_piece,
+            commandes::pieces::convertir_piece,
+            commandes::pieces::changer_statut_piece,
+            commandes::pieces::lire_donnees_piece,
+            commandes::pieces::lire_fiche_client,
+            commandes::pieces::imprimer_piece,
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors du démarrage de l'application");

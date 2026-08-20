@@ -1,43 +1,147 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Layout } from "@/components/Layout";
 import { PageLogin, UtilisateurConnecte } from "@/pages/PageLogin";
 import { ModalChangerMdp } from "@/components/ModalChangerMdp";
 import { Dashboard } from "@/pages/Dashboard";
 import { Ventes } from "@/pages/Ventes";
+import { Pieces } from "@/pages/Pieces";
 import { Achats } from "@/pages/Achats";
 import { Stock } from "@/pages/Stock";
 import { Clients } from "@/pages/Clients";
+import { FicheClient } from "@/pages/FicheClient";
 import { Fournisseurs } from "@/pages/Fournisseurs";
 import { Caisse } from "@/pages/Caisse";
 import { Parametres } from "@/pages/Parametres";
 import { Retours } from "@/pages/Retours";
 
-// Contexte utilisateur global — accessible par les commandes Tauri via le rôle
+// =====================================================================
+//  Session persistante — localStorage + expiration 8h
+// =====================================================================
+
+const CLE_SESSION = "gescom_session";
+const DUREE_SESSION_MS = 8 * 60 * 60 * 1000;
+
+interface SessionStockee {
+  utilisateur: UtilisateurConnecte;
+  connecte_le: number;
+  page_active: string;
+  nav_params?: any;
+}
+
+function sauvegarderSession(u: UtilisateurConnecte, page: string, params?: any) {
+  const s: SessionStockee = {
+    utilisateur: u,
+    connecte_le: Date.now(),
+    page_active: page,
+    nav_params: params ?? null,
+  };
+  localStorage.setItem(CLE_SESSION, JSON.stringify(s));
+}
+
+function lireSession(): SessionStockee | null {
+  try {
+    const raw = localStorage.getItem(CLE_SESSION);
+    if (!raw) return null;
+    const s: SessionStockee = JSON.parse(raw);
+    if (Date.now() - s.connecte_le > DUREE_SESSION_MS) {
+      localStorage.removeItem(CLE_SESSION);
+      return null;
+    }
+    return s;
+  } catch { return null; }
+}
+
+function supprimerSession() {
+  localStorage.removeItem(CLE_SESSION);
+}
+
+// =====================================================================
+//  Contexte global
+// =====================================================================
+
 export let UTILISATEUR_ACTIF: UtilisateurConnecte | null = null;
 
+// =====================================================================
+//  App
+// =====================================================================
+
 function App() {
-  const [utilisateur, setUtilisateur] = useState<UtilisateurConnecte | null>(null);
-  const [pageActive, setPageActive] = useState("dashboard");
+  const sessionInitiale = lireSession();
+
+  const [utilisateur, setUtilisateur] = useState<UtilisateurConnecte | null>(
+    sessionInitiale?.utilisateur ?? null
+  );
+  const [pageActive, setPageActive] = useState(
+    sessionInitiale?.page_active ?? "dashboard"
+  );
+  const [navParams, setNavParams] = useState<any>(
+    sessionInitiale?.nav_params ?? null
+  );
   const [modalMdp, setModalMdp] = useState(false);
+
+  useEffect(() => {
+    if (utilisateur) {
+      UTILISATEUR_ACTIF = utilisateur;
+      if (utilisateur.doit_changer_mdp) setModalMdp(true);
+    }
+  }, []);
+
+  function naviguer(page: string, params?: any) {
+    setPageActive(page);
+    setNavParams(params ?? null);
+    if (utilisateur) sauvegarderSession(utilisateur, page, params ?? null);
+  }
 
   function handleConnecte(u: UtilisateurConnecte) {
     UTILISATEUR_ACTIF = u;
     setUtilisateur(u);
+    sauvegarderSession(u, "dashboard");
+    setPageActive("dashboard");
+    setNavParams(null);
+    if (u.doit_changer_mdp) setModalMdp(true);
+  }
 
-    // Forcer le changement de mot de passe à la première connexion.
-    if (u.doit_changer_mdp) {
-      setModalMdp(true);
-    }
+  function handleDeconnecter() {
+    supprimerSession();
+    UTILISATEUR_ACTIF = null;
+    setUtilisateur(null);
+    setPageActive("dashboard");
+    setNavParams(null);
   }
 
   function rendrePage() {
     if (!utilisateur) return null;
     switch (pageActive) {
-      case "dashboard":    return <Dashboard />;
-      case "ventes":       return <Ventes />;
-      case "achats":       return <Achats />;
-      case "stock":        return <Stock />;
-      case "clients":      return <Clients />;
+      case "dashboard":  return <Dashboard />;
+      case "ventes":     return <Ventes />;
+      case "pieces":
+        return (
+          <Pieces
+            onOuvrirFicheClient={clientId =>
+              naviguer("fiche_client", { clientId })}
+          />
+        );
+      case "achats":     return <Achats />;
+      case "stock":      return <Stock />;
+      case "clients":
+        return (
+          <Clients
+            onOuvrirFiche={clientId =>
+              naviguer("fiche_client", { clientId })}
+          />
+        );
+      case "fiche_client":
+        return navParams?.clientId ? (
+          <FicheClient
+            clientId={navParams.clientId}
+            onRetour={() => naviguer("clients")}
+          />
+        ) : (
+          <Clients
+            onOuvrirFiche={clientId =>
+              naviguer("fiche_client", { clientId })}
+          />
+        );
       case "fournisseurs": return <Fournisseurs />;
       case "caisse":       return <Caisse />;
       case "retours":      return <Retours />;
@@ -46,24 +150,26 @@ function App() {
     }
   }
 
-  // Page de login
   if (!utilisateur) {
     return <PageLogin onConnecte={handleConnecte} />;
   }
 
+  // Pour la sidebar : fiche_client surligne "clients"
+  const pageNavActive = pageActive === "fiche_client" ? "clients" : pageActive;
+
   return (
     <>
       <Layout
-        pageActive={pageActive}
-        onNaviguer={setPageActive}
+        pageActive={pageNavActive}
+        onNaviguer={naviguer}
         role={utilisateur.role}
         utilisateur={utilisateur}
         onChangerMdp={() => setModalMdp(true)}
+        onDeconnecter={handleDeconnecter}
       >
         {rendrePage()}
       </Layout>
 
-      {/* Modal changement de mot de passe */}
       <ModalChangerMdp
         ouvert={modalMdp}
         utilisateurId={utilisateur.id}
@@ -71,11 +177,10 @@ function App() {
         onFermer={() => setModalMdp(false)}
         onChange={() => {
           setModalMdp(false);
-          // Marquer que le mdp a été changé dans l'état local.
-          setUtilisateur(prev => prev ? { ...prev, doit_changer_mdp: false } : prev);
-          UTILISATEUR_ACTIF = utilisateur
-            ? { ...utilisateur, doit_changer_mdp: false }
-            : null;
+          const u = { ...utilisateur, doit_changer_mdp: false };
+          setUtilisateur(u);
+          UTILISATEUR_ACTIF = u;
+          sauvegarderSession(u, pageActive, navParams);
         }}
       />
     </>

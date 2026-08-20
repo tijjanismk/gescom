@@ -63,6 +63,24 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_article_code_barre
             ON article(code_barre);
     ")?;
+    // Chantiers §14
+    conn.execute(
+        "ALTER TABLE article ADD COLUMN taux_tva_defaut REAL NOT NULL DEFAULT 0.0", []
+    ).ok();
+    conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS paiement_fournisseur (
+            id TEXT PRIMARY KEY, fournisseur_id TEXT NOT NULL,
+            montant INTEGER NOT NULL, mode TEXT NOT NULL DEFAULT 'especes',
+            note TEXT, auteur_id TEXT, date_paiement TEXT NOT NULL,
+            cree_le TEXT NOT NULL, origine TEXT NOT NULL DEFAULT 'app'
+        );
+        CREATE TABLE IF NOT EXISTS creance_irrecouvrable (
+            id TEXT PRIMARY KEY, vente_id TEXT NOT NULL, motif TEXT NOT NULL,
+            auteur_id TEXT, date_marque TEXT NOT NULL, cree_le TEXT NOT NULL,
+            origine TEXT NOT NULL DEFAULT 'app'
+        );
+    ").ok();
+    
 
     Ok(())
 }

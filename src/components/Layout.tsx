@@ -3,29 +3,31 @@ import {
   ShoppingCart, Package, Users, Wallet,
   BarChart3, Settings, Menu, X, Store,
   ShoppingBag, Truck, RotateCcw, LogOut,
-  Lock, ChevronDown,
+  Lock, ChevronDown, FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UtilisateurConnecte } from "@/pages/PageLogin";
 
 const NAV_PATRON = [
-  { nom: "Tableau de bord", icone: BarChart3,    href: "dashboard" },
-  { nom: "Ventes",          icone: ShoppingCart,  href: "ventes" },
-  { nom: "Achats",          icone: ShoppingBag,   href: "achats" },
-  { nom: "Stock",           icone: Package,       href: "stock" },
-  { nom: "Clients",         icone: Users,         href: "clients" },
-  { nom: "Fournisseurs",    icone: Truck,         href: "fournisseurs" },
-  { nom: "Caisse",          icone: Wallet,        href: "caisse" },
-  { nom: "Retours",         icone: RotateCcw,     href: "retours" },
-  { nom: "Paramètres",      icone: Settings,      href: "parametres" },
+  { nom: "Tableau de bord", icone: BarChart3,   href: "dashboard"   },
+  { nom: "Ventes",          icone: ShoppingCart, href: "ventes"      },
+  { nom: "Pièces",          icone: FileText,     href: "pieces"      },
+  { nom: "Achats",          icone: ShoppingBag,  href: "achats"      },
+  { nom: "Stock",           icone: Package,      href: "stock"       },
+  { nom: "Clients",         icone: Users,        href: "clients"     },
+  { nom: "Fournisseurs",    icone: Truck,        href: "fournisseurs"},
+  { nom: "Caisse",          icone: Wallet,       href: "caisse"      },
+  { nom: "Retours",         icone: RotateCcw,    href: "retours"     },
+  { nom: "Paramètres",      icone: Settings,     href: "parametres"  },
 ];
 
 const NAV_EMPLOYE = [
-  { nom: "Ventes",          icone: ShoppingCart,  href: "ventes" },
-  { nom: "Achats",          icone: ShoppingBag,   href: "achats" },
-  { nom: "Stock",           icone: Package,       href: "stock" },
-  { nom: "Clients",         icone: Users,         href: "clients" },
-  { nom: "Retours",         icone: RotateCcw,     href: "retours" },
+  { nom: "Ventes",  icone: ShoppingCart, href: "ventes"  },
+  { nom: "Pièces",  icone: FileText,     href: "pieces"  },
+  { nom: "Achats",  icone: ShoppingBag,  href: "achats"  },
+  { nom: "Stock",   icone: Package,      href: "stock"   },
+  { nom: "Clients", icone: Users,        href: "clients" },
+  { nom: "Retours", icone: RotateCcw,    href: "retours" },
 ];
 
 interface LayoutProps {
@@ -35,20 +37,17 @@ interface LayoutProps {
   role: string;
   utilisateur: UtilisateurConnecte;
   onChangerMdp: () => void;
+  onDeconnecter: () => void;
 }
 
 export function Layout({
-  children, pageActive, onNaviguer, role, utilisateur, onChangerMdp
+  children, pageActive, onNaviguer, role,
+  utilisateur, onChangerMdp, onDeconnecter,
 }: LayoutProps) {
   const [sidebarOuverte, setSidebarOuverte] = useState(true);
   const [menuUtilisateur, setMenuUtilisateur] = useState(false);
 
   const navigation = role === "patron" ? NAV_PATRON : NAV_EMPLOYE;
-
-  function handleDeconnexion() {
-    // Recharger l'app — efface l'état React et retourne à la page login.
-    window.location.reload();
-  }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -69,12 +68,8 @@ export function Layout({
           )}
           <button
             onClick={() => setSidebarOuverte(!sidebarOuverte)}
-            className="p-1.5 rounded-md hover:bg-accent transition-colors"
-          >
-            {sidebarOuverte
-              ? <X className="h-4 w-4" />
-              : <Menu className="h-4 w-4" />
-            }
+            className="p-1.5 rounded-md hover:bg-accent transition-colors">
+            {sidebarOuverte ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
         </div>
 
@@ -84,16 +79,13 @@ export function Layout({
             const Icone = item.icone;
             const estActif = pageActive === item.href;
             return (
-              <button
-                key={item.href}
-                onClick={() => onNaviguer(item.href)}
+              <button key={item.href} onClick={() => onNaviguer(item.href)}
                 className={cn(
                   "w-full flex items-center gap-3 px-2.5 py-2 rounded-md text-sm transition-colors",
                   estActif
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )}
-              >
+                )}>
                 <Icone className="h-4 w-4 shrink-0" />
                 {sidebarOuverte && <span className="truncate">{item.nom}</span>}
               </button>
@@ -101,7 +93,7 @@ export function Layout({
           })}
         </nav>
 
-        {/* Pied — utilisateur connecté */}
+        {/* Pied — utilisateur */}
         <div className="border-t border-border">
           <div className="relative">
             <button
@@ -109,8 +101,7 @@ export function Layout({
               className={cn(
                 "w-full flex items-center gap-2 p-3 hover:bg-accent transition-colors",
                 sidebarOuverte ? "justify-between" : "justify-center"
-              )}
-            >
+              )}>
               <div className="flex items-center gap-2 min-w-0">
                 <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center shrink-0">
                   <span className="text-xs text-primary-foreground font-medium">
@@ -132,7 +123,6 @@ export function Layout({
               )}
             </button>
 
-            {/* Menu utilisateur */}
             {menuUtilisateur && (
               <div className={cn(
                 "absolute bottom-full left-0 right-0 bg-card border border-border rounded-t-md shadow-md",
@@ -140,15 +130,15 @@ export function Layout({
               )}>
                 <button
                   onClick={() => { setMenuUtilisateur(false); onChangerMdp(); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors"
-                >
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm
+                             hover:bg-accent transition-colors">
                   <Lock className="h-3.5 w-3.5 text-muted-foreground" />
                   <span>Changer mot de passe</span>
                 </button>
                 <button
-                  onClick={handleDeconnexion}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent transition-colors"
-                >
+                  onClick={() => { setMenuUtilisateur(false); onDeconnecter(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm
+                             text-destructive hover:bg-accent transition-colors">
                   <LogOut className="h-3.5 w-3.5" />
                   <span>Se déconnecter</span>
                 </button>
@@ -159,7 +149,8 @@ export function Layout({
       </aside>
 
       {/* Contenu */}
-      <main className="flex-1 flex flex-col overflow-hidden" onClick={() => setMenuUtilisateur(false)}>
+      <main className="flex-1 flex flex-col overflow-hidden"
+        onClick={() => setMenuUtilisateur(false)}>
         {children}
       </main>
     </div>
