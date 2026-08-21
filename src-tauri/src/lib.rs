@@ -14,25 +14,21 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // Chemin de la base de données
             let data_dir = app.path().app_data_dir()
                 .expect("Impossible de trouver le répertoire de données");
             std::fs::create_dir_all(&data_dir)
                 .expect("Création du répertoire de données");
             let db_path = data_dir.join("gescom.db");
 
-            // Ouvrir et initialiser la base
             let conn = persistance::ouvrir_base(db_path.to_str().unwrap())
                 .expect("Impossible d'ouvrir la base de données");
             persistance::initialiser_tables(&conn)
                 .expect("Impossible d'initialiser les tables");
 
-            // Seeder si la base est vide
             if seed::base_est_vide(&conn) {
                 seed::seeder(&conn).expect("Erreur lors du seeding");
             }
 
-            // Partager la connexion
             app.manage(EtatApp { conn: Mutex::new(conn) });
             Ok(())
         })
@@ -102,11 +98,13 @@ pub fn run() {
             // ---- Dashboard ----
             commandes::dashboard::lire_resume_dashboard,
             commandes::dashboard::lire_ventes_du_jour,
+            commandes::dashboard::lire_top_clients,
+            commandes::dashboard::lire_top_articles,
             // ---- Sauvegarde ----
             commandes::sauvegarde::sauvegarder_base,
             commandes::sauvegarde::lire_config_sauvegarde,
             commandes::sauvegarde::sauvegarder_config_sauvegarde,
-            // Creances
+            // ---- Créances ----
             commandes::creances::lire_creances_ouvertes,
             commandes::creances::regler_creance,
             // ---- Chantiers §14 ----
@@ -122,14 +120,35 @@ pub fn run() {
             commandes::chantiers::expirer_avoirs,
             // ---- Pièces commerciales ----
             commandes::pieces::lire_toutes_pieces_client,
+            commandes::pieces::lire_toutes_pieces_fournisseur,
             commandes::pieces::lire_pieces_client,
             commandes::pieces::lire_lignes_piece,
             commandes::pieces::creer_piece,
+            commandes::pieces::creer_piece_fournisseur,
             commandes::pieces::convertir_piece,
             commandes::pieces::changer_statut_piece,
             commandes::pieces::lire_donnees_piece,
             commandes::pieces::lire_fiche_client,
             commandes::pieces::imprimer_piece,
+            commandes::pieces::valider_facture,
+            // ---- Fiche fournisseur ----
+            commandes::fournisseurs::lire_fournisseur_detail,
+            commandes::fournisseurs::lire_fiche_fournisseur,
+            // ---- Factures POS automatiques ----
+            commandes::pieces_pos::creer_facture_depuis_vente,
+            commandes::pieces_pos::modifier_facture_pos,
+            commandes::pieces_pos::valider_facture_credit,
+            // ---- Relances ----
+            commandes::relances::lire_creances_relances,
+            commandes::relances::enregistrer_relance,
+            commandes::relances::lire_historique_relances,
+            commandes::relances::lire_stats_relances,
+            // ---- Rapports ----
+            commandes::rapports::lire_rapport_ca_mensuel,
+            commandes::rapports::lire_rapport_top_clients,
+            commandes::rapports::lire_rapport_top_articles,
+            commandes::rapports::lire_rapport_stock,
+            commandes::rapports::lire_rapport_creances,
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors du démarrage de l'application");

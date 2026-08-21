@@ -1,181 +1,357 @@
-//! Commandes Tauri pour fournisseurs et opérations de stock.
+//! Fournisseurs — liste, création, stock, fiche détail.
 
 use tauri::State;
 use crate::commandes::ventes::EtatApp;
 use crate::utils::maintenant_iso;
 
+// =====================================================================
+//  Liste fournisseurs
+// =====================================================================
+
 #[tauri::command]
-pub fn lire_fournisseurs(etat: State<EtatApp>) -> Result<Vec<serde_json::Value>, String> {
+pub fn lire_fournisseurs(
+    etat: State<EtatApp>,
+) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare(
-        "SELECT id, nom, telephone FROM fournisseur
-         WHERE actif = 1 AND est_voisin = 0 ORDER BY nom ASC"
+        "SELECT id, nom, telephone, adresse, est_voisin
+         FROM fournisseur ORDER BY nom"
     ).map_err(|e| e.to_string())?;
-    let x = stmt.query_map([], |row| {
+
+    let x = stmt.query_map([], |r| {
         Ok(serde_json::json!({
-            "id": row.get::<_,String>(0)?,
-            "nom": row.get::<_,String>(1)?,
-            "telephone": row.get::<_,Option<String>>(2)?,
+            "id":        r.get::<_,String>(0)?,
+            "nom":       r.get::<_,String>(1)?,
+            "telephone": r.get::<_,Option<String>>(2)?,
+            "adresse":   r.get::<_,Option<String>>(3)?,
+            "est_voisin":r.get::<_,i64>(4)? != 0,
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
     Ok(x)
 }
 
+// =====================================================================
+//  Fournisseurs avec dettes (pour Chantiers)
+// =====================================================================
+
 #[tauri::command]
 pub fn lire_fournisseurs_avec_dettes(
-    etat: State<EtatApp>
+    etat: State<EtatApp>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS paiement_fournisseur (
+            id TEXT PRIMARY KEY, fournisseur_id TEXT,
+            montant INTEGER, mode TEXT, note TEXT,
+            auteur_id TEXT, date_paiement TEXT, cree_le TEXT,
+            origine TEXT DEFAULT 'app'
+        )"
+    ).ok();
+
     let mut stmt = conn.prepare(
-        "SELECT id, nom, telephone, est_voisin FROM fournisseur
-         WHERE actif = 1 ORDER BY nom ASC"
+        "SELECT f.id, f.nom, f.telephone,
+                CAST(COALESCE(
+                  (SELECT SUM(ms.quantite_delta * COALESCE(a.dernier_prix_achat, 0))
+                   FROM mouvement_stock ms
+                   JOIN article a ON a.id = ms.article_id
+                   WHERE ms.type_mouvement = 'achat' AND ms.quantite_delta > 0)
+                , 0) AS INTEGER) as total_achats,
+                CAST(COALESCE(
+                  (SELECT SUM(pf.montant) FROM paiement_fournisseur pf
+                   WHERE pf.fournisseur_id = f.id)
+                , 0) AS INTEGER) as total_paye
+         FROM fournisseur f
+         ORDER BY f.nom"
     ).map_err(|e| e.to_string())?;
-    let x = stmt.query_map([], |row| {
+
+    let x = stmt.query_map([], |r| {
+        let total_achats: i64 = r.get(3)?;
+        let total_paye: i64 = r.get(4)?;
+        let dette = (total_achats - total_paye).max(0);
         Ok(serde_json::json!({
-            "id": row.get::<_,String>(0)?,
-            "nom": row.get::<_,String>(1)?,
-            "telephone": row.get::<_,Option<String>>(2)?,
-            "est_voisin": row.get::<_,i64>(3)? != 0,
-            "total_dettes": 0_i64,
-            "nb_achats": 0_i64,
+            "id":          r.get::<_,String>(0)?,
+            "nom":         r.get::<_,String>(1)?,
+            "telephone":   r.get::<_,Option<String>>(2)?,
+            "total_achats":total_achats,
+            "total_paye":  total_paye,
+            "dette":       dette,
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
     Ok(x)
 }
+
+// =====================================================================
+//  Créer fournisseur
+// =====================================================================
 
 #[tauri::command]
 pub fn creer_fournisseur(
     etat: State<EtatApp>,
     nom: String,
     telephone: Option<String>,
-    nif: Option<String>,
     adresse: Option<String>,
-) -> Result<String, String> {
+    nif: Option<String>,
+    email: Option<String>,
+    est_voisin: Option<bool>,
+) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = maintenant_iso();
+    let voisin = est_voisin.unwrap_or(false) as i64;
+
     conn.execute(
         "INSERT INTO fournisseur
-         (id, nom, telephone, nif, adresse, est_voisin, actif, cree_le, modifie_le, origine)
-         VALUES (?1,?2,?3,?4,?5,0,1,?6,?7,'app')",
-        rusqlite::params![id, nom, telephone, nif, adresse, now, now],
+         (id, nom, telephone, adresse, nif, email, est_voisin, cree_le, modifie_le)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        rusqlite::params![id, nom, telephone, adresse, nif, email, voisin, now, now],
     ).map_err(|e| e.to_string())?;
-    Ok(id)
+
+    Ok(serde_json::json!({"id": id, "nom": nom}))
 }
+
+// =====================================================================
+//  Enregistrer entrée stock (achat)
+// =====================================================================
 
 #[tauri::command]
 pub fn enregistrer_entree_stock(
     etat: State<EtatApp>,
     article_id: String,
-    depot_id: Option<String>,
+    depot_id: Option<String>,  // null → dépôt par défaut
     quantite: f64,
     prix_achat: Option<i64>,
     fournisseur_id: Option<String>,
+    utilisateur_role: Option<String>,
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
     let now = maintenant_iso();
+    let role = utilisateur_role.as_deref().unwrap_or("employe");
+    let auteur = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);
+    let _ = fournisseur_id; // réservé pour v1.1 (lier achat au fournisseur)
 
-    let depot_reel = match depot_id {
-        Some(id) => id,
-        None => conn.query_row(
-            "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
+    // Résoudre le dépôt — utiliser le défaut si null
+    let depot_id = match depot_id {
+        Some(d) if !d.is_empty() => d,
+        _ => conn.query_row(
+            "SELECT id FROM depot WHERE est_defaut = 1 LIMIT 1",
             [], |r| r.get(0)
-        ).map_err(|e| e.to_string())?,
+        ).map_err(|_| "Aucun dépôt par défaut configuré".to_string())?,
     };
 
+    let op_id = uuid::Uuid::new_v4().to_string();
+
+    // Mettre à jour le stock
     conn.execute(
         "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
          VALUES (?1,?2,?3,?4)
-         ON CONFLICT(article_id, depot_id) DO UPDATE SET quantite = quantite + ?4",
+         ON CONFLICT(article_id, depot_id)
+         DO UPDATE SET quantite = quantite + ?4",
         rusqlite::params![
-            uuid::Uuid::new_v4().to_string(), article_id, depot_reel, quantite
+            uuid::Uuid::new_v4().to_string(), article_id, depot_id, quantite
         ],
     ).map_err(|e| e.to_string())?;
 
-    if let Some(prix) = prix_achat {
-        conn.execute(
-            "UPDATE article SET dernier_prix_achat = ?1, modifie_le = ?2 WHERE id = ?3",
-            rusqlite::params![prix, now, article_id],
-        ).ok();
-    }
-
+    // Mouvement stock
     conn.execute(
         "INSERT INTO mouvement_stock
          (id, article_id, depot_id, type_mouvement, quantite_delta,
-          auteur_id, date_mouvement, cree_le, cree_par, origine)
-         VALUES (?1,?2,?3,'achat',?4,?5,?6,?7,?8,'app')",
+          operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine)
+         VALUES (?1,?2,?3,'achat',?4,?5,?6,?7,?8,?9,'app')",
         rusqlite::params![
-            uuid::Uuid::new_v4().to_string(), article_id, depot_reel,
-            quantite, auteur, now, now, auteur
+            uuid::Uuid::new_v4().to_string(),
+            article_id, depot_id, quantite,
+            op_id, auteur, now, now, auteur
         ],
     ).map_err(|e| e.to_string())?;
 
-    conn.execute(
-        "INSERT INTO journal
-         (id, type_evenement, entite_type, entite_id, auteur_id,
-          nouveau_valeur, origine, date_evenement)
-         VALUES (?1,'entree_stock','stock_depot',?2,?3,?4,'app',?5)",
-        rusqlite::params![
-            uuid::Uuid::new_v4().to_string(), article_id, auteur,
-            format!(r#"{{"quantite":{},"fournisseur":{}}}"#,
-                quantite,
-                fournisseur_id.as_deref()
-                    .map(|s| format!("\"{}\"", s))
-                    .unwrap_or("null".to_string())
-            ), now
-        ],
-    ).ok();
+    // Mettre à jour le dernier prix d'achat
+    if let Some(px) = prix_achat {
+        conn.execute(
+            "UPDATE article SET dernier_prix_achat = ?1 WHERE id = ?2",
+            rusqlite::params![px, article_id],
+        ).ok();
+    }
+
     Ok(())
 }
+
+// =====================================================================
+//  Ajustement inventaire
+// =====================================================================
 
 #[tauri::command]
 pub fn enregistrer_ajustement_inventaire(
     etat: State<EtatApp>,
     article_id: String,
     depot_id: String,
-    quantite_reelle: f64,
-    motif: String,
+    nouvelle_quantite: f64,
+    motif: Option<String>,
+    utilisateur_role: Option<String>,
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
-    let now = maintenant_iso();
+    let _ = motif; // réservé pour journal des ajustements v1.1
 
-    let stock_actuel: f64 = conn.query_row(
+    let quantite_actuelle: f64 = conn.query_row(
         "SELECT COALESCE(quantite, 0) FROM stock_depot
          WHERE article_id = ?1 AND depot_id = ?2",
-        rusqlite::params![article_id, depot_id], |r| r.get(0),
+        rusqlite::params![article_id, depot_id],
+        |r| r.get(0),
     ).unwrap_or(0.0);
 
-    let delta = quantite_reelle - stock_actuel;
-    if delta == 0.0 { return Ok(()); }
+    let delta = nouvelle_quantite - quantite_actuelle;
+    let now = maintenant_iso();
+    let role = utilisateur_role.as_deref().unwrap_or("employe");
+    let auteur = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);
+    let op_id = uuid::Uuid::new_v4().to_string();
 
     conn.execute(
-        "UPDATE stock_depot SET quantite = ?1
-         WHERE article_id = ?2 AND depot_id = ?3",
-        rusqlite::params![quantite_reelle, article_id, depot_id],
+        "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+         VALUES (?1,?2,?3,?4)
+         ON CONFLICT(article_id, depot_id)
+         DO UPDATE SET quantite = ?4",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), article_id, depot_id, nouvelle_quantite
+        ],
     ).map_err(|e| e.to_string())?;
 
     conn.execute(
         "INSERT INTO mouvement_stock
          (id, article_id, depot_id, type_mouvement, quantite_delta,
-          motif, auteur_id, date_mouvement, cree_le, cree_par, origine)
+          operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine)
          VALUES (?1,?2,?3,'ajustement',?4,?5,?6,?7,?8,?9,'app')",
         rusqlite::params![
-            uuid::Uuid::new_v4().to_string(), article_id, depot_id,
-            delta, motif, auteur, now, now, auteur
+            uuid::Uuid::new_v4().to_string(),
+            article_id, depot_id, delta,
+            op_id, auteur, now, now, auteur
         ],
     ).map_err(|e| e.to_string())?;
 
-    conn.execute(
-        "INSERT INTO journal
-         (id, type_evenement, entite_type, entite_id, auteur_id,
-          ancien_valeur, nouveau_valeur, origine, date_evenement)
-         VALUES (?1,'ajustement_stock','stock_depot',?2,?3,?4,?5,'app',?6)",
-        rusqlite::params![
-            uuid::Uuid::new_v4().to_string(), article_id, auteur,
-            stock_actuel.to_string(), quantite_reelle.to_string(), now
-        ],
-    ).ok();
     Ok(())
+}
+
+// =====================================================================
+//  Fiche fournisseur — détail
+// =====================================================================
+
+#[tauri::command]
+pub fn lire_fournisseur_detail(
+    etat: State<EtatApp>,
+    fournisseur_id: String,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let f = conn.query_row(
+        "SELECT id, nom, telephone, adresse, nif, email, est_voisin, cree_le
+         FROM fournisseur WHERE id = ?1",
+        rusqlite::params![fournisseur_id],
+        |r| Ok(serde_json::json!({
+            "id":        r.get::<_,String>(0)?,
+            "nom":       r.get::<_,String>(1)?,
+            "telephone": r.get::<_,Option<String>>(2)?,
+            "adresse":   r.get::<_,Option<String>>(3)?,
+            "nif":       r.get::<_,Option<String>>(4)?,
+            "email":     r.get::<_,Option<String>>(5)?,
+            "est_voisin":r.get::<_,i64>(6)? != 0,
+            "cree_le":   r.get::<_,String>(7)?,
+        }))
+    ).map_err(|e| e.to_string())?;
+    Ok(f)
+}
+
+// =====================================================================
+//  Fiche fournisseur — stats, paiements, achats
+// =====================================================================
+
+#[tauri::command]
+pub fn lire_fiche_fournisseur(
+    etat: State<EtatApp>,
+    fournisseur_id: String,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let (_qte, nb_achats, derniere_cmd): (f64, i64, Option<String>) =
+        conn.query_row(
+            "SELECT COALESCE(SUM(quantite_delta), 0), COUNT(*), MAX(date_mouvement)
+             FROM mouvement_stock
+             WHERE type_mouvement = 'achat' AND quantite_delta > 0",
+            [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap_or((0.0, 0, None));
+
+    let total_achats: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(
+            ms.quantite_delta * COALESCE(a.dernier_prix_achat, 0)
+         ), 0) AS INTEGER)
+         FROM mouvement_stock ms
+         JOIN article a ON a.id = ms.article_id
+         WHERE ms.type_mouvement = 'achat' AND ms.quantite_delta > 0",
+        [], |r| r.get(0),
+    ).unwrap_or(0);
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS paiement_fournisseur (
+            id TEXT PRIMARY KEY, fournisseur_id TEXT,
+            montant INTEGER, mode TEXT, note TEXT,
+            auteur_id TEXT, date_paiement TEXT, cree_le TEXT,
+            origine TEXT DEFAULT 'app'
+        )"
+    ).ok();
+
+    let total_paye: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
+         FROM paiement_fournisseur WHERE fournisseur_id = ?1",
+        rusqlite::params![fournisseur_id], |r| r.get(0),
+    ).unwrap_or(0);
+
+    let dette = (total_achats - total_paye).max(0);
+
+    let mut stmt_p = conn.prepare(
+        "SELECT pf.id, pf.montant, pf.mode, pf.note, pf.date_paiement, u.nom
+         FROM paiement_fournisseur pf
+         LEFT JOIN utilisateur u ON u.id = pf.auteur_id
+         WHERE pf.fournisseur_id = ?1 ORDER BY pf.date_paiement DESC"
+    ).map_err(|e| e.to_string())?;
+
+    let paiements: Vec<serde_json::Value> = stmt_p.query_map(
+        rusqlite::params![fournisseur_id], |r| {
+            Ok(serde_json::json!({
+                "id":            r.get::<_,String>(0)?,
+                "montant":       r.get::<_,i64>(1)?,
+                "mode":          r.get::<_,String>(2)?,
+                "note":          r.get::<_,Option<String>>(3)?,
+                "date_paiement": r.get::<_,String>(4)?,
+                "auteur_nom":    r.get::<_,Option<String>>(5)?,
+            }))
+        }
+    ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    let mut stmt_a = conn.prepare(
+        "SELECT ms.id, a.nom, ms.quantite_delta,
+                COALESCE(a.dernier_prix_achat, 0), ms.date_mouvement
+         FROM mouvement_stock ms
+         JOIN article a ON a.id = ms.article_id
+         WHERE ms.type_mouvement = 'achat' AND ms.quantite_delta > 0
+         ORDER BY ms.date_mouvement DESC LIMIT 50"
+    ).map_err(|e| e.to_string())?;
+
+    let achats: Vec<serde_json::Value> = stmt_a.query_map([], |r| {
+        Ok(serde_json::json!({
+            "id":            r.get::<_,String>(0)?,
+            "article_nom":   r.get::<_,String>(1)?,
+            "quantite":      r.get::<_,f64>(2)?,
+            "prix_achat":    r.get::<_,i64>(3)?,
+            "date_mouvement":r.get::<_,String>(4)?,
+        }))
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    Ok(serde_json::json!({
+        "stats": {
+            "total_achats":      total_achats,
+            "nb_achats":         nb_achats,
+            "dette":             dette,
+            "total_paye":        total_paye,
+            "derniere_commande": derniere_cmd,
+        },
+        "paiements": paiements,
+        "achats":    achats,
+    }))
 }

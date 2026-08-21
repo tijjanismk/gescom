@@ -10,9 +10,12 @@ import { Stock } from "@/pages/Stock";
 import { Clients } from "@/pages/Clients";
 import { FicheClient } from "@/pages/FicheClient";
 import { Fournisseurs } from "@/pages/Fournisseurs";
+import { FicheFournisseur } from "@/pages/FicheFournisseur";
 import { Caisse } from "@/pages/Caisse";
 import { Parametres } from "@/pages/Parametres";
 import { Retours } from "@/pages/Retours";
+import { Relances } from "@/pages/Relances";
+import { Rapports } from "@/pages/Rapports";
 
 // =====================================================================
 //  Session persistante — localStorage + expiration 8h
@@ -119,6 +122,8 @@ function App() {
           <Pieces
             onOuvrirFicheClient={clientId =>
               naviguer("fiche_client", { clientId })}
+            onOuvrirFicheFournisseur={fournisseurId =>
+              naviguer("fiche_fournisseur", { fournisseurId })}
           />
         );
       case "achats":     return <Achats />;
@@ -142,11 +147,31 @@ function App() {
               naviguer("fiche_client", { clientId })}
           />
         );
-      case "fournisseurs": return <Fournisseurs />;
-      case "caisse":       return <Caisse />;
-      case "retours":      return <Retours />;
-      case "parametres":   return <Parametres />;
-      default:             return <Dashboard />;
+      case "fournisseurs":
+        return (
+          <Fournisseurs
+            onOuvrirFiche={fournisseurId =>
+              naviguer("fiche_fournisseur", { fournisseurId })}
+          />
+        );
+      case "fiche_fournisseur":
+        return navParams?.fournisseurId ? (
+          <FicheFournisseur
+            fournisseurId={navParams.fournisseurId}
+            onRetour={() => naviguer("fournisseurs")}
+          />
+        ) : (
+          <Fournisseurs
+            onOuvrirFiche={fournisseurId =>
+              naviguer("fiche_fournisseur", { fournisseurId })}
+          />
+        );
+      case "caisse":     return <Caisse />;
+      case "retours":    return <Retours />;
+      case "relances":   return <Relances />;
+      case "rapports":   return <Rapports />;
+      case "parametres": return <Parametres />;
+      default:           return <Dashboard />;
     }
   }
 
@@ -154,8 +179,11 @@ function App() {
     return <PageLogin onConnecte={handleConnecte} />;
   }
 
-  // Pour la sidebar : fiche_client surligne "clients"
-  const pageNavActive = pageActive === "fiche_client" ? "clients" : pageActive;
+  // Fiche client/fournisseur → surligner l'onglet parent dans la sidebar
+  const pageNavActive =
+    pageActive === "fiche_client" ? "clients" :
+    pageActive === "fiche_fournisseur" ? "fournisseurs" :
+    pageActive;
 
   return (
     <>

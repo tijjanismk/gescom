@@ -4,30 +4,33 @@ import {
   BarChart3, Settings, Menu, X, Store,
   ShoppingBag, Truck, RotateCcw, LogOut,
   Lock, ChevronDown, FileText,
+  MessageCircle, BarChart2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UtilisateurConnecte } from "@/pages/PageLogin";
 
 const NAV_PATRON = [
-  { nom: "Tableau de bord", icone: BarChart3,   href: "dashboard"   },
-  { nom: "Ventes",          icone: ShoppingCart, href: "ventes"      },
-  { nom: "Pièces",          icone: FileText,     href: "pieces"      },
-  { nom: "Achats",          icone: ShoppingBag,  href: "achats"      },
-  { nom: "Stock",           icone: Package,      href: "stock"       },
-  { nom: "Clients",         icone: Users,        href: "clients"     },
-  { nom: "Fournisseurs",    icone: Truck,        href: "fournisseurs"},
-  { nom: "Caisse",          icone: Wallet,       href: "caisse"      },
-  { nom: "Retours",         icone: RotateCcw,    href: "retours"     },
-  { nom: "Paramètres",      icone: Settings,     href: "parametres"  },
+  { nom: "Tableau de bord", icone: BarChart3,      href: "dashboard"   },
+  { nom: "Ventes",          icone: ShoppingCart,    href: "ventes"      },
+  { nom: "Pièces",          icone: FileText,        href: "pieces"      },
+  { nom: "Achats",          icone: ShoppingBag,     href: "achats"      },
+  { nom: "Stock",           icone: Package,         href: "stock"       },
+  { nom: "Clients",         icone: Users,           href: "clients"     },
+  { nom: "Fournisseurs",    icone: Truck,           href: "fournisseurs"},
+  { nom: "Caisse",          icone: Wallet,          href: "caisse"      },
+  { nom: "Retours",         icone: RotateCcw,       href: "retours"     },
+  { nom: "Relances",        icone: MessageCircle,   href: "relances"    },
+  { nom: "Rapports",        icone: BarChart2,       href: "rapports"    },
+  { nom: "Paramètres",      icone: Settings,        href: "parametres"  },
 ];
 
 const NAV_EMPLOYE = [
-  { nom: "Ventes",  icone: ShoppingCart, href: "ventes"  },
-  { nom: "Pièces",  icone: FileText,     href: "pieces"  },
-  { nom: "Achats",  icone: ShoppingBag,  href: "achats"  },
-  { nom: "Stock",   icone: Package,      href: "stock"   },
-  { nom: "Clients", icone: Users,        href: "clients" },
-  { nom: "Retours", icone: RotateCcw,    href: "retours" },
+  { nom: "Ventes",          icone: ShoppingCart,    href: "ventes"      },
+  { nom: "Pièces",          icone: FileText,        href: "pieces"      },
+  { nom: "Achats",          icone: ShoppingBag,     href: "achats"      },
+  { nom: "Stock",           icone: Package,         href: "stock"       },
+  { nom: "Clients",         icone: Users,           href: "clients"     },
+  { nom: "Retours",         icone: RotateCcw,       href: "retours"     },
 ];
 
 interface LayoutProps {

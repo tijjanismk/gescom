@@ -14,3 +14,6 @@ pub mod avoirs;
 pub mod creances;
 pub mod chantiers;
 pub mod pieces;
+pub mod pieces_pos;
+pub mod relances;
+pub mod rapports;

@@ -209,18 +209,19 @@ function ModalNouvellePiece({
 
   return (
     <Dialog open={ouvert} onOpenChange={onFermer}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
-        <DialogHeader>
+      <DialogContent className="max-w-5xl w-[92vw] h-[88vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
           <DialogTitle>Nouvelle pièce commerciale</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 pt-2">
 
-          {/* Type + Date échéance */}
-          <div className="grid grid-cols-2 gap-3">
+        <div className="flex-1 overflow-auto px-6 py-4 space-y-4">
+
+          {/* Type + Date + Note */}
+          <div className="grid grid-cols-3 gap-3">
             <div>
-              <Label>Type de pièce</Label>
+              <Label className="text-xs">Type de pièce</Label>
               <Select value={typePiece} onValueChange={v => { if (v) setTypePiece(v); }}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="devis">Devis</SelectItem>
                   <SelectItem value="proforma">Proforma</SelectItem>
@@ -231,9 +232,15 @@ function ModalNouvellePiece({
               </Select>
             </div>
             <div>
-              <Label>Date d'échéance (optionnel)</Label>
+              <Label className="text-xs">Date d'échéance (optionnel)</Label>
               <Input type="date" value={dateEcheance}
-                onChange={e => setDateEcheance(e.target.value)} className="mt-1" />
+                onChange={e => setDateEcheance(e.target.value)}
+                className="mt-1 h-9" />
+            </div>
+            <div>
+              <Label className="text-xs">Note (optionnel)</Label>
+              <Input value={note} onChange={e => setNote(e.target.value)}
+                placeholder="Conditions, délais..." className="mt-1 h-9" />
             </div>
           </div>
 
@@ -246,19 +253,27 @@ function ModalNouvellePiece({
                   e.target.value.length < 1 ? [] :
                   articles.filter(a =>
                     a.nom.toLowerCase().includes(e.target.value.toLowerCase())
-                  ).slice(0, 8)
+                  ).slice(0, 10)
                 );
               }}
-              placeholder="Ajouter un article..." />
+              placeholder="🔍 Rechercher un article à ajouter..."
+              className="h-9" autoFocus />
             {articlesFiltres.length > 0 && (
               <div className="absolute z-20 w-full mt-1 bg-card border border-border
-                              rounded-md shadow-md max-h-40 overflow-auto">
+                              rounded-md shadow-lg max-h-52 overflow-auto">
                 {articlesFiltres.map(a => (
                   <button key={a.id} onClick={() => ajouterLigne(a)}
-                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent">
+                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-accent
+                               flex items-center justify-between gap-4 border-b border-border/50
+                               last:border-0">
                     <span className="font-medium">{a.nom}</span>
-                    <span className="text-muted-foreground ml-2 text-xs">
-                      {fmt(a.unites[0].prix_reference)}/{a.unite_base}
+                    <span className="text-muted-foreground text-xs shrink-0">
+                      {fmt(a.unites[0].prix_reference)} / {a.unite_base}
+                      {a.stock >= 0 && (
+                        <span className={`ml-3 ${a.stock <= 0 ? "text-red-500" : "text-green-600"}`}>
+                          Stock : {a.stock % 1 === 0 ? a.stock : a.stock.toFixed(2)} {a.unite_base}
+                        </span>
+                      )}
                     </span>
                   </button>
                 ))}
@@ -266,18 +281,24 @@ function ModalNouvellePiece({
             )}
           </div>
 
-          {/* Lignes */}
-          {lignes.length > 0 && (
+          {/* Tableau des lignes */}
+          {lignes.length === 0 ? (
+            <div className="border-2 border-dashed border-border rounded-lg py-12
+                            text-center text-muted-foreground">
+              <p className="text-sm">Aucun article — recherchez et ajoutez des articles ci-dessus</p>
+            </div>
+          ) : (
             <div className="border border-border rounded-md overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-muted text-xs">
+                <thead className="bg-muted/80 text-xs">
                   <tr>
-                    <th className="text-left px-3 py-2">Article</th>
-                    <th className="text-right px-2 py-2">Qté</th>
-                    <th className="text-right px-2 py-2">Prix</th>
-                    <th className="text-right px-2 py-2">Remise%</th>
-                    <th className="text-right px-2 py-2">Montant</th>
-                    <th className="px-2 py-2"></th>
+                    <th className="text-left px-4 py-2.5 w-[30%]">Article</th>
+                    <th className="text-center px-2 py-2.5 w-[12%]">Unité</th>
+                    <th className="text-right px-2 py-2.5 w-[10%]">Qté</th>
+                    <th className="text-right px-2 py-2.5 w-[16%]">Prix unitaire (F)</th>
+                    <th className="text-right px-2 py-2.5 w-[10%]">Remise %</th>
+                    <th className="text-right px-2 py-2.5 w-[16%]">Montant (F)</th>
+                    <th className="px-2 py-2.5 w-[6%]"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -286,33 +307,53 @@ function ModalNouvellePiece({
                     const remise = Math.round(brut * l.remise_pct / 100);
                     const montant = brut - remise;
                     return (
-                      <tr key={i} className="border-t border-border">
-                        <td className="px-3 py-1.5">
-                          <p className="font-medium truncate max-w-[140px]">{l.article_nom}</p>
+                      <tr key={i} className="border-t border-border hover:bg-muted/20">
+                        <td className="px-4 py-2">
+                          <p className="font-medium">{l.article_nom}</p>
+                        </td>
+                        <td className="px-2 py-2 text-center">
                           <p className="text-xs text-muted-foreground">{l.unite_libelle}</p>
                         </td>
-                        <td className="px-2 py-1.5">
+                        <td className="px-2 py-2 text-right">
                           <input type="number" min="0.01" step="0.01"
                             value={l.quantite}
                             onChange={e => modifierLigne(i, "quantite", parseFloat(e.target.value) || 1)}
-                            className="w-16 h-7 text-right text-sm border border-border rounded px-1 bg-background" />
+                            className="w-20 h-8 text-right text-sm border border-border
+                                       rounded px-2 bg-background focus:outline-none
+                                       focus:ring-1 focus:ring-primary" />
                         </td>
-                        <td className="px-2 py-1.5">
+                        <td className="px-2 py-2 text-right">
                           <input type="number" min="0"
                             value={l.prix_unitaire}
                             onChange={e => modifierLigne(i, "prix_unitaire", parseInt(e.target.value) || 0)}
-                            className="w-24 h-7 text-right text-sm border border-border rounded px-1 bg-background" />
+                            className="w-28 h-8 text-right text-sm border border-border
+                                       rounded px-2 bg-background focus:outline-none
+                                       focus:ring-1 focus:ring-primary" />
                         </td>
-                        <td className="px-2 py-1.5">
-                          <input type="number" min="0" max="100"
-                            value={l.remise_pct}
-                            onChange={e => modifierLigne(i, "remise_pct", parseFloat(e.target.value) || 0)}
-                            className="w-16 h-7 text-right text-sm border border-border rounded px-1 bg-background" />
+                        <td className="px-2 py-2 text-right">
+                          <div className="relative inline-block">
+                            <input type="number" min="0" max="100" step="1"
+                              value={l.remise_pct}
+                              onChange={e => modifierLigne(i, "remise_pct", parseFloat(e.target.value) || 0)}
+                              className="w-16 h-8 text-right text-sm border border-border
+                                         rounded pl-2 pr-5 bg-background focus:outline-none
+                                         focus:ring-1 focus:ring-primary" />
+                            <span className="absolute right-1.5 top-2 text-xs text-muted-foreground">%</span>
+                          </div>
                         </td>
-                        <td className="px-2 py-1.5 text-right font-medium">{fmt(montant)}</td>
-                        <td className="px-2 py-1.5">
+                        <td className="px-2 py-2 text-right">
+                          <p className="font-semibold">{fmt(montant)}</p>
+                          {remise > 0 && (
+                            <p className="text-xs text-orange-500">−{fmt(remise)}</p>
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-center">
                           <button onClick={() => supprimerLigne(i)}
-                            className="text-muted-foreground hover:text-destructive text-xs">✕</button>
+                            className="w-6 h-6 rounded-full flex items-center justify-center
+                                       text-muted-foreground hover:bg-destructive/10
+                                       hover:text-destructive transition-colors mx-auto">
+                            ✕
+                          </button>
                         </td>
                       </tr>
                     );
@@ -324,44 +365,40 @@ function ModalNouvellePiece({
 
           {/* Remise globale + totaux */}
           {lignes.length > 0 && (
-            <div className="flex items-end justify-between gap-4">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-6 pt-2">
+              <div className="flex items-center gap-3">
                 <Label className="text-sm shrink-0">Remise globale</Label>
-                <div className="relative w-20">
-                  <Input type="number" min="0" max="100"
+                <div className="relative w-24">
+                  <Input type="number" min="0" max="100" step="1"
                     value={remiseGlobale}
                     onChange={e => setRemiseGlobale(e.target.value)}
-                    className="h-8 pr-5 text-sm" />
-                  <span className="absolute right-2 top-2 text-xs text-muted-foreground">%</span>
+                    className="h-8 pr-6 text-sm" />
+                  <span className="absolute right-2.5 top-2 text-xs text-muted-foreground">%</span>
                 </div>
               </div>
-              <div className="text-right space-y-0.5">
-                <p className="text-sm text-muted-foreground">HT : {fmt(totalHT)}</p>
-                {remiseMt > 0 && (
-                  <p className="text-xs text-orange-600">Remise : − {fmt(remiseMt)}</p>
+              <div className="text-right space-y-1">
+                {(remiseMt > 0 || totalHT !== totalNet) && (
+                  <p className="text-sm text-muted-foreground">Brut : {fmt(totalHT)}</p>
                 )}
-                <p className="text-base font-bold">Net : {fmt(totalNet)}</p>
+                {remiseMt > 0 && (
+                  <p className="text-sm text-orange-600">Remise : −{fmt(remiseMt)}</p>
+                )}
+                <p className="text-xl font-bold">Net : {fmt(totalNet)}</p>
               </div>
             </div>
           )}
+        </div>
 
-          {/* Note */}
-          <div>
-            <Label>Note (optionnel)</Label>
-            <Input value={note} onChange={e => setNote(e.target.value)}
-              placeholder="Conditions, délais..." className="mt-1" />
-          </div>
-
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onFermer} className="flex-1">Annuler</Button>
-            <Button onClick={handleCreer}
-              disabled={lignes.length === 0 || chargement} className="flex-1">
-              {chargement
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : `Créer ${LABELS_TYPE[typePiece] ?? typePiece}`
-              }
-            </Button>
-          </div>
+        {/* Pied fixe */}
+        <div className="border-t border-border px-6 py-4 flex gap-3 shrink-0 bg-card">
+          <Button variant="outline" onClick={onFermer} className="flex-1">Annuler</Button>
+          <Button onClick={handleCreer}
+            disabled={lignes.length === 0 || chargement} className="flex-1">
+            {chargement
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : `Créer ${LABELS_TYPE[typePiece] ?? typePiece}`
+            }
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -589,7 +626,7 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
 
         {/* ---- Résumé ---- */}
         {onglet === "resume" && (
-          <div className="space-y-6 max-w-2xl">
+          <div className="space-y-6">
             {/* Infos client */}
             <div className="border border-border rounded-lg p-4 space-y-2">
               <p className="text-sm font-medium mb-3">Informations</p>
@@ -742,7 +779,7 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
 
         {/* ---- Créances ---- */}
         {onglet === "creances" && (
-          <div className="space-y-3 max-w-lg">
+          <div className="space-y-3">
             {creances.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
                 Aucune créance ouverte
@@ -786,7 +823,7 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
 
         {/* ---- Avoirs ---- */}
         {onglet === "avoirs" && (
-          <div className="space-y-3 max-w-lg">
+          <div className="space-y-3">
             {avoirs.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
                 Aucun avoir
