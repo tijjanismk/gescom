@@ -300,7 +300,10 @@ pub fn creer_vente(
         let ligne_id = uuid::Uuid::new_v4().to_string();
         let montant = (ligne.prix_pratique as f64 * ligne.quantite).round() as i64;
         let taux_tva = ligne.taux_tva.unwrap_or(0.0);
-        let montant_tva = (montant as f64 * taux_tva).round() as i64;
+        // TVA incluse dans le prix TTC — extraction : montant × taux / (1 + taux)
+        let montant_tva = if taux_tva > 0.0 {
+            (montant as f64 * taux_tva / (1.0 + taux_tva)).round() as i64
+        } else { 0 };
         total += montant;
 
         tx.execute(

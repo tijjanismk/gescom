@@ -67,9 +67,10 @@ const ONGLETS_PATRON = [
 ];
 
 const ONGLETS_EMPLOYE = [
-  { key: "articles",   label: "Articles",  icone: Package    },
-  { key: "categories", label: "Catégories", icone: Tag       },
-  { key: "ventes",     label: "Ventes",    icone: ShoppingCart },
+  { key: "articles",   label: "Articles",   icone: Package      },
+  { key: "categories", label: "Catégories", icone: Tag          },
+  { key: "ventes",     label: "Ventes",     icone: ShoppingCart },
+  { key: "sauvegarde", label: "Sauvegarde", icone: HardDrive    },
 ];
 
 // =====================================================================
