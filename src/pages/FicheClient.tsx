@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
-import { genererPieceHTML } from "@/lib/genererPiece";
+import { genererPieceHTML } from "@/lib/genererPDF";
 import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================

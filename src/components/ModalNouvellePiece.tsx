@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Loader2, X } from "lucide-react";
+import { Loader2, X, Plus, UserPlus, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +23,7 @@ import { UTILISATEUR_ACTIF } from "@/App";
 
 interface Article {
   id: string; nom: string; unite_base: string; stock: number;
+  taux_tva_defaut?: number;
   unites: { id: string; libelle: string; facteur: number; prix_reference: number }[];
 }
 interface Tiers { id: string; nom: string; code?: string; telephone?: string; }
@@ -92,6 +93,16 @@ export function ModalNouvellePiece({
   const [articlesFiltres, setArticlesFiltres] = useState<Article[]>([]);
   const [chargement, setChargement] = useState(false);
 
+  // Création rapide tiers
+  const [creerTiersEnCours, setCreerTiersEnCours] = useState(false);
+  const [nomNouveauTiers, setNomNouveauTiers] = useState("");
+  const [telNouveauTiers, setTelNouveauTiers] = useState("");
+
+  // Création rapide article
+  const [creerArticleEnCours, setCreerArticleEnCours] = useState(false);
+  const [nomNouvelArticle, setNomNouvelArticle] = useState("");
+  const [prixNouvelArticle, setPrixNouvelArticle] = useState("");
+
   useEffect(() => {
     if (!ouvert) return;
     setTypePiece(defaultType);
@@ -125,13 +136,74 @@ export function ModalNouvellePiece({
     onFermer();
   }
 
+  async function handleCreerTiers() {
+    if (!nomNouveauTiers.trim()) return;
+    setCreerTiersEnCours(true);
+    try {
+      const cmd = cote === "client" ? "creer_client_rapide" : "creer_fournisseur";
+      const res = await invoke<any>(cmd, {
+        nom: nomNouveauTiers.trim(),
+        telephone: telNouveauTiers.trim() || null,
+      });
+      const id = typeof res === "string" ? res : (res.id ?? res);
+      setTiersId(id);
+      setTiersNom(nomNouveauTiers.trim());
+      setTousTiers(prev => [...prev, {
+        id, nom: nomNouveauTiers.trim(),
+        telephone: telNouveauTiers.trim() || undefined
+      }]);
+      setRechercheTiers("");
+      setTiersFiltres([]);
+      setNomNouveauTiers("");
+      setTelNouveauTiers("");
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    } finally { setCreerTiersEnCours(false); }
+  }
+
+  async function handleCreerArticle() {
+    if (!nomNouvelArticle.trim()) return;
+    setCreerArticleEnCours(true);
+    try {
+      const res = await invoke<any>("creer_article_rapide", {
+        nom: nomNouvelArticle.trim(),
+        uniteBase: "Unité",
+        prixReference: parseInt(prixNouvelArticle) || 0,
+      });
+      // creer_article_rapide peut retourner {id, unite_id} ou juste une string id
+      const artId = typeof res === "string" ? res : (res.id ?? res);
+      const uniteId = typeof res === "object" ? (res.unite_id ?? artId) : artId;
+      const nouvelArt: Article = {
+        id: artId,
+        nom: nomNouvelArticle.trim(),
+        unite_base: "Unité",
+        stock: 0,
+        taux_tva_defaut: 0,
+        unites: [{
+          id: uniteId,
+          libelle: "Unité",
+          facteur: 1,
+          prix_reference: parseInt(prixNouvelArticle) || 0,
+        }],
+      };
+      setArticles(prev => [...prev, nouvelArt]);
+      ajouterLigne(nouvelArt);
+      setNomNouvelArticle("");
+      setPrixNouvelArticle("");
+      setRechercheArticle("");
+      setArticlesFiltres([]);
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    } finally { setCreerArticleEnCours(false); }
+  }
+
   function ajouterLigne(article: Article) {
     const unite = article.unites[0];
     setLignes(prev => [...prev, {
       article_id: article.id, unite_vente_id: unite.id,
       article_nom: article.nom, unite_libelle: unite.libelle,
       quantite: 1, prix_unitaire: unite.prix_reference,
-      remise_pct: 0, taux_tva: 0,
+      remise_pct: 0, taux_tva: article.taux_tva_defaut ?? 0,
     }]);
     setRechercheArticle(""); setArticlesFiltres([]);
   }
@@ -179,7 +251,7 @@ export function ModalNouvellePiece({
 
   return (
     <Dialog open={ouvert} onOpenChange={handleFermer}>
-      <DialogContent className="max-w-5xl w-[92vw] h-[88vh] flex flex-col p-0 gap-0">
+      <DialogContent className="flex flex-col p-0 gap-0" style={{width:"96vw",maxWidth:"96vw",height:"92vh",maxHeight:"92vh"}}>
         <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
           <DialogTitle>
             Nouvelle pièce {cote === "client" ? "client" : "fournisseur"}
@@ -234,9 +306,9 @@ export function ModalNouvellePiece({
                       <X className="h-3.5 w-3.5" />
                     </button>
                   )}
-                  {tiersFiltres.length > 0 && (
+                  {(tiersFiltres.length > 0 || (rechercheTiers.length >= 2 && !tiersId)) && (
                     <div className="absolute z-20 w-full mt-1 bg-card border border-border
-                                    rounded-md shadow-lg max-h-40 overflow-auto">
+                                    rounded-md shadow-lg max-h-52 overflow-auto">
                       {tiersFiltres.map(t => (
                         <button key={t.id}
                           onClick={() => {
@@ -246,13 +318,46 @@ export function ModalNouvellePiece({
                             setTiersFiltres([]);
                           }}
                           className="w-full text-left px-3 py-2 text-sm hover:bg-accent
-                                     flex justify-between">
+                                     flex justify-between border-b border-border/50 last:border-0">
                           <span className="font-medium">{t.nom}</span>
                           {t.code && (
                             <span className="text-muted-foreground text-xs">{t.code}</span>
                           )}
                         </button>
                       ))}
+                      {/* Création rapide si aucun résultat */}
+                      {tiersFiltres.length === 0 && rechercheTiers.length >= 2 && (
+                        <div className="p-3 space-y-2 border-t border-border">
+                          <p className="text-xs text-muted-foreground">
+                            Aucun {cote === "client" ? "client" : "fournisseur"} trouvé.
+                            Créer "{rechercheTiers}" ?
+                          </p>
+                          <div className="flex gap-2">
+                            <Input
+                              value={nomNouveauTiers || rechercheTiers}
+                              onChange={e => setNomNouveauTiers(e.target.value)}
+                              placeholder="Nom"
+                              className="h-7 text-xs flex-1"
+                            />
+                            <Input
+                              value={telNouveauTiers}
+                              onChange={e => setTelNouveauTiers(e.target.value)}
+                              placeholder="Téléphone"
+                              className="h-7 text-xs w-28"
+                            />
+                            <Button size="sm" className="h-7 text-xs px-2 gap-1"
+                              onClick={() => {
+                                if (!nomNouveauTiers) setNomNouveauTiers(rechercheTiers);
+                                handleCreerTiers();
+                              }}
+                              disabled={creerTiersEnCours}>
+                              {creerTiersEnCours
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <><UserPlus className="h-3 w-3" /> Créer</>}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -289,9 +394,9 @@ export function ModalNouvellePiece({
               }}
               placeholder="🔍 Rechercher un article à ajouter..."
               className="h-9" />
-            {articlesFiltres.length > 0 && (
+            {(articlesFiltres.length > 0 || (rechercheArticle.length >= 2)) && (
               <div className="absolute z-20 w-full mt-1 bg-card border border-border
-                              rounded-md shadow-lg max-h-52 overflow-auto">
+                              rounded-md shadow-lg max-h-64 overflow-auto">
                 {articlesFiltres.map(a => (
                   <button key={a.id} onClick={() => ajouterLigne(a)}
                     className="w-full text-left px-4 py-2.5 text-sm hover:bg-accent
@@ -308,6 +413,42 @@ export function ModalNouvellePiece({
                     </span>
                   </button>
                 ))}
+                {/* Création rapide article */}
+                {articlesFiltres.length === 0 && rechercheArticle.length >= 2 && (
+                  <div className="p-3 space-y-2 border-t border-border bg-muted/20">
+                    <p className="text-xs text-muted-foreground font-medium">
+                      Article "{rechercheArticle}" introuvable — créer ?
+                    </p>
+                    <div className="flex gap-2">
+                      <Input
+                        value={nomNouvelArticle || rechercheArticle}
+                        onChange={e => setNomNouvelArticle(e.target.value)}
+                        placeholder="Nom article"
+                        className="h-7 text-xs flex-1"
+                      />
+                      <div className="relative w-28">
+                        <Input
+                          type="number"
+                          value={prixNouvelArticle}
+                          onChange={e => setPrixNouvelArticle(e.target.value)}
+                          placeholder="Prix"
+                          className="h-7 text-xs pr-5"
+                        />
+                        <span className="absolute right-1.5 top-1.5 text-[10px] text-muted-foreground">F</span>
+                      </div>
+                      <Button size="sm" className="h-7 text-xs px-2 gap-1"
+                        onClick={() => {
+                          if (!nomNouvelArticle) setNomNouvelArticle(rechercheArticle);
+                          handleCreerArticle();
+                        }}
+                        disabled={creerArticleEnCours}>
+                        {creerArticleEnCours
+                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                          : <><Package className="h-3 w-3" /> Créer</>}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -327,8 +468,9 @@ export function ModalNouvellePiece({
                     <th className="text-center px-2 py-2.5 w-[10%]">Unité</th>
                     <th className="text-right px-2 py-2.5 w-[10%]">Qté</th>
                     <th className="text-right px-2 py-2.5 w-[16%]">Prix (F)</th>
-                    <th className="text-right px-2 py-2.5 w-[10%]">Remise %</th>
-                    <th className="text-right px-2 py-2.5 w-[18%]">Montant (F)</th>
+                    <th className="text-right px-2 py-2.5 w-[8%]">Remise %</th>
+                    <th className="text-right px-2 py-2.5 w-[8%]">TVA %</th>
+                    <th className="text-right px-2 py-2.5 w-[16%]">Montant (F)</th>
                     <th className="px-2 py-2.5 w-[6%]"></th>
                   </tr>
                 </thead>
@@ -365,6 +507,17 @@ export function ModalNouvellePiece({
                                          rounded pl-2 pr-5 bg-background focus:outline-none
                                          focus:ring-1 focus:ring-primary" />
                             <span className="absolute right-1.5 top-2 text-xs text-muted-foreground">%</span>
+                          </div>
+                        </td>
+                        <td className="px-2 py-2 text-right">
+                          <div className="relative inline-block">
+                            <input type="number" min="0" max="100" step="1"
+                              value={(l.taux_tva * 100).toFixed(0)}
+                              onChange={e => modif(i, "taux_tva", (parseFloat(e.target.value) || 0) / 100)}
+                              className="w-14 h-8 text-right text-sm border border-border
+                                         rounded pl-2 pr-4 bg-background focus:outline-none
+                                         focus:ring-1 focus:ring-primary" />
+                            <span className="absolute right-1 top-2 text-xs text-muted-foreground">%</span>
                           </div>
                         </td>
                         <td className="px-2 py-2 text-right">

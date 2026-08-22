@@ -28,6 +28,11 @@ interface StockRapport {
   nom: string; unite: string; quantite: number;
   prix_achat: number; valeur_stock: number; depot: string; statut: string;
 }
+interface TVARapport {
+  par_taux: { taux: number; total_tva: number; total_ht: number; nb_ventes: number }[];
+  total_tva: number;
+}
+
 interface CreanceRapport {
   moins_30j: { montant: number; nb: number };
   tranche_30_60: { montant: number; nb: number };
@@ -133,11 +138,12 @@ function genererHTMLRapport(titre: string, tableauHTML: string, periode?: string
 // =====================================================================
 
 const ONGLETS = [
-  { key: "ca",       label: "CA mensuel",   icone: BarChart2  },
-  { key: "clients",  label: "Top clients",  icone: Users      },
-  { key: "articles", label: "Top articles", icone: Package    },
-  { key: "stock",    label: "Stock",        icone: FileText   },
+  { key: "ca",       label: "CA mensuel",   icone: BarChart2     },
+  { key: "clients",  label: "Top clients",  icone: Users         },
+  { key: "articles", label: "Top articles", icone: Package       },
+  { key: "stock",    label: "Stock",        icone: FileText      },
   { key: "creances", label: "Créances",     icone: AlertTriangle },
+  { key: "tva",      label: "TVA",          icone: TrendingUp    },
 ];
 
 // =====================================================================
@@ -156,6 +162,7 @@ export function Rapports() {
   const [topArticles, setTopArticles] = useState<ArticleRapport[]>([]);
   const [stock, setStock] = useState<StockRapport[]>([]);
   const [creances, setCreances] = useState<CreanceRapport | null>(null);
+  const [tva, setTva] = useState<TVARapport | null>(null);
 
   const charger = useCallback(async () => {
     setChargement(true);
@@ -181,6 +188,11 @@ export function Rapports() {
           break;
         case "creances":
           setCreances(await invoke<CreanceRapport>("lire_rapport_creances"));
+          break;
+        case "tva":
+          setTva(await invoke<TVARapport>("lire_rapport_tva", {
+            dateDebut: dd, dateFin: df,
+          }));
           break;
       }
     } catch (e) { console.error("Erreur rapport :", e); }
@@ -715,6 +727,96 @@ export function Rapports() {
                     )}</span>
                   </div>
                 </div>
+              </div>
+            )}
+            {/* ---- TVA ---- */}
+            {onglet === "tva" && tva && (
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    const lignes = tva.par_taux.map(t =>
+                      `<tr><td>${t.taux * 100}%</td>
+                       <td class="droite">${fmt(t.total_ht)}</td>
+                       <td class="droite">${fmt(t.total_tva)}</td>
+                       <td class="droite">${t.nb_ventes}</td></tr>`
+                    ).join("");
+                    const html = genererHTMLRapport("Rapport TVA", `
+                      <table>
+                        <thead><tr>
+                          <th>Taux</th>
+                          <th class="droite">Base HT (F)</th>
+                          <th class="droite">TVA (F)</th>
+                          <th class="droite">Ventes</th>
+                        </tr></thead>
+                        <tbody>${lignes}</tbody>
+                        <tfoot><tr class="total">
+                          <td colspan="2">TOTAL TVA COLLECTÉE</td>
+                          <td class="droite">${fmt(tva.total_tva)}</td>
+                          <td></td>
+                        </tr></tfoot>
+                      </table>`, `Du ${dateDebut} au ${dateFin}`);
+                    await imprimerRapport(html, "rapport_tva");
+                  }}>
+                    <Printer className="h-3.5 w-3.5 mr-1.5" /> Imprimer
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    await exporterExcel([{ nom: "TVA", donnees: tva.par_taux.map(t => ({
+                      "Taux": `${t.taux * 100}%`,
+                      "Base HT (F)": t.total_ht,
+                      "TVA collectée (F)": t.total_tva,
+                      "Nb ventes": t.nb_ventes,
+                    }))}], "rapport_tva.xlsx");
+                  }}>
+                    <Download className="h-3.5 w-3.5 mr-1.5" /> Excel
+                  </Button>
+                </div>
+
+                {tva.par_taux.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    Aucune TVA collectée sur cette période
+                  </p>
+                ) : (
+                  <>
+                    <div className="border border-border rounded-xl overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted text-xs">
+                          <tr>
+                            <th className="text-left px-4 py-2.5">Taux TVA</th>
+                            <th className="text-right px-4 py-2.5">Base HT</th>
+                            <th className="text-right px-4 py-2.5">TVA collectée</th>
+                            <th className="text-right px-4 py-2.5">Nb ventes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tva.par_taux.map((t, i) => (
+                            <tr key={i}
+                              className={`border-t border-border ${i % 2 === 1 ? "bg-muted/20" : ""}`}>
+                              <td className="px-4 py-2 font-medium">{t.taux * 100}%</td>
+                              <td className="px-4 py-2 text-right">{fmt(t.total_ht)}</td>
+                              <td className="px-4 py-2 text-right font-semibold text-blue-600">
+                                {fmt(t.total_tva)}
+                              </td>
+                              <td className="px-4 py-2 text-right text-muted-foreground">
+                                {t.nb_ventes}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="border-t-2 border-border bg-muted/50">
+                          <tr>
+                            <td colSpan={2} className="px-4 py-2 font-bold">
+                              Total TVA collectée
+                            </td>
+                            <td className="px-4 py-2 text-right font-bold text-blue-700">
+                              {fmt(tva.total_tva)}
+                            </td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </>

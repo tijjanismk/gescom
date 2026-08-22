@@ -29,7 +29,9 @@ interface UniteVente {
   id: string; libelle: string; facteur: number; prix_reference: number;
 }
 interface Article {
-  id: string; nom: string; unite_base: string; stock: number; unites: UniteVente[];
+  id: string; nom: string; unite_base: string; stock: number;
+  taux_tva_defaut?: number;
+  unites: UniteVente[];
 }
 interface Client {
   id: string; code: string; nom: string; telephone?: string;
@@ -313,6 +315,15 @@ export function Ventes() {
 
   const inputArticleRef = useRef<HTMLInputElement>(null);
   const total = panier.reduce((s, l) => s + l.montant, 0);
+  const totalTVA = panier.reduce((s, l) => {
+    const taux = l.article.taux_tva_defaut ?? 0;
+    // TVA incluse : montant TTC = montant HT × (1 + taux)
+    // On affiche la TVA contenue dans le prix : montant - montant/(1+taux)
+    if (taux <= 0) return s;
+    return s + Math.round(l.montant - l.montant / (1 + taux));
+  }, 0);
+  const totalHT = total - totalTVA;
+  const aTVA = totalTVA > 0;
   const totalApresAvoir = Math.max(0, total - avoirAAppliquer);
   const acompteNum = parseMontant(acompte);
 
@@ -321,13 +332,20 @@ export function Ventes() {
     async function charger() {
       try {
         const role = UTILISATEUR_ACTIF?.role ?? "employe";
-        const [gen, clients, articles, tousDepots, scannerConfig] = await Promise.all([
+        const [gen, clients, articlesRaw, tousDepots, scannerConfig, tvaList] = await Promise.all([
           invoke<Client>("lire_client_generique"),
           invoke<Client[]>("lire_clients"),
           invoke<Article[]>("lire_articles_avec_unites", { role }),
           invoke<Depot[]>("lire_depots"),
           invoke<boolean>("lire_config_scanner"),
+          invoke<{id:string;taux:number}[]>("lire_taux_tva"),
         ]);
+        // Injecter taux_tva_defaut dans chaque article
+        const tvaMap: Record<string,number> = {};
+        tvaList.forEach((t: any) => { tvaMap[t.id] = t.taux; });
+        const articles = articlesRaw.map(a => ({
+          ...a, taux_tva_defaut: tvaMap[a.id] ?? 0,
+        }));
         setClientGenerique(gen);
         setClient(gen);
         setTousClients(clients);
@@ -404,7 +422,15 @@ export function Ventes() {
 
   async function rechargerArticles() {
     const role = UTILISATEUR_ACTIF?.role ?? "employe";
-    const articles = await invoke<Article[]>("lire_articles_avec_unites", { role });
+    const [articlesRaw, tvaList] = await Promise.all([
+      invoke<Article[]>("lire_articles_avec_unites", { role }),
+      invoke<{id:string;taux:number}[]>("lire_taux_tva"),
+    ]);
+    const tvaMap: Record<string,number> = {};
+    tvaList.forEach((t: any) => { tvaMap[t.id] = t.taux; });
+    const articles = articlesRaw.map(a => ({
+      ...a, taux_tva_defaut: tvaMap[a.id] ?? 0,
+    }));
     setTousArticles(articles);
   }
 
@@ -507,21 +533,13 @@ export function Ventes() {
         facteur: l.unite.facteur,
         prix_reference: l.unite.prix_reference,
         prix_pratique: l.prix_pratique,
-        taux_tva: 0.0,
+        taux_tva: l.article.taux_tva_defaut ?? 0.0,
       }));
 
       const { vente_id } = await invoke<{ vente_id: string }>("creer_vente", {
         clientId: client.id, depotId: depotActif.id,
         modeReglement, lignes, utilisateurRole: role,
       });
-
-      // Créer la facture automatique liée à cette vente
-      await invoke("creer_facture_depuis_vente", {
-        venteId: vente_id,
-        clientId: client.id,
-        modeReglement,
-        utilisateurRole: role,
-      }).catch(e => console.warn("Facture auto non créée :", e));
 
       // Appliquer l'avoir si demandé
       if (avoirAAppliquer > 0) {
@@ -902,10 +920,23 @@ export function Ventes() {
 
             {/* Total */}
             <div className="space-y-1">
+              {/* TVA si active */}
+              {aTVA && (
+                <>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Sous-total HT</span>
+                    <span>{fmt(totalHT)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-blue-600">
+                    <span>TVA (incluse)</span>
+                    <span>{fmt(totalTVA)}</span>
+                  </div>
+                </>
+              )}
               {avoirAAppliquer > 0 && (
                 <>
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <span>Sous-total</span>
+                    <span>{aTVA ? "Total TTC" : "Sous-total"}</span>
                     <span>{fmt(total)}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm text-green-600">
@@ -916,7 +947,7 @@ export function Ventes() {
               )}
               <div className="flex items-center justify-between">
                 <span className="font-medium">
-                  {avoirAAppliquer > 0 ? "Reste à payer" : "Total"}
+                  {avoirAAppliquer > 0 ? "Reste à payer" : aTVA ? "Total TTC" : "Total"}
                 </span>
                 <span className="text-xl font-bold">{fmt(totalApresAvoir)}</span>
               </div>

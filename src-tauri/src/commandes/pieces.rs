@@ -771,6 +771,16 @@ pub fn lire_donnees_piece(
 
     let lignes: Vec<serde_json::Value> = stmt.query_map(
         rusqlite::params![piece_id], |row| {
+            let taux_tva: f64 = row.get(6)?;
+            let montant_ht: i64 = row.get(8)?;
+            // Recalculer montant_tva depuis taux si montant_tva = 0
+            let montant_tva_raw: i64 = row.get(7)?;
+            let montant_tva = if montant_tva_raw == 0 && taux_tva > 0.0 {
+                // TVA incluse dans le prix : TVA = montant_ht × taux / (1 + taux)
+                (montant_ht as f64 * taux_tva / (1.0 + taux_tva)).round() as i64
+            } else {
+                montant_tva_raw
+            };
             Ok(serde_json::json!({
                 "article_nom":    row.get::<_,String>(0)?,
                 "unite_libelle":  row.get::<_,String>(1)?,
@@ -778,9 +788,9 @@ pub fn lire_donnees_piece(
                 "prix_unitaire":  row.get::<_,i64>(3)?,
                 "remise_pct":     row.get::<_,f64>(4)?,
                 "remise_montant": row.get::<_,i64>(5)?,
-                "taux_tva":       row.get::<_,f64>(6)?,
-                "montant_tva":    row.get::<_,i64>(7)?,
-                "montant_ht":     row.get::<_,i64>(8)?,
+                "taux_tva":       taux_tva,
+                "montant_tva":    montant_tva,
+                "montant_ht":     montant_ht,
             }))
         }
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
@@ -792,6 +802,8 @@ pub fn lire_donnees_piece(
     let remise_g = piece["remise_globale"].as_f64().unwrap_or(0.0);
     let remise_mt = (total_ht as f64 * remise_g / 100.0).round() as i64;
     let total_net = total_ht - remise_mt;
+    // total_ttc = total_net (TVA incluse dans les prix TTC)
+    let total_ttc = total_net; // TVA déjà incluse, on l'affiche séparément
 
     let societe = conn.query_row(
         "SELECT nom, adresse, telephone, telephone2, email, nif, rccm,
@@ -820,7 +832,7 @@ pub fn lire_donnees_piece(
             "remise_globale": remise_g,
             "remise_montant": remise_mt,
             "total_net":      total_net,
-            "total_ttc":      total_net + total_tva,
+            "total_ttc":      total_ttc,
         }
     }))
 }
@@ -1058,5 +1070,160 @@ pub fn creer_piece_fournisseur(
 
     Ok(serde_json::json!({
         "id": piece_id, "numero": numero, "statut": statut,
+    }))
+}
+// Patch à ajouter à la fin de pieces.rs
+
+// =====================================================================
+//  Modifier une pièce (seulement si statut != validee/transfere/annule)
+// =====================================================================
+
+#[tauri::command]
+pub fn modifier_piece(
+    etat: State<EtatApp>,
+    piece_id: String,
+    note: Option<String>,
+    date_echeance: Option<String>,
+    remise_globale: Option<f64>,
+    lignes: Option<Vec<LignePieceInput>>,
+) -> Result<(), String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    // Vérifier statut
+    let statut: String = conn.query_row(
+        "SELECT statut FROM piece_commerciale WHERE id = ?1",
+        rusqlite::params![piece_id],
+        |r| r.get(0),
+    ).map_err(|_| "Pièce introuvable".to_string())?;
+
+    match statut.as_str() {
+        "validee" => return Err("Pièce validée — non modifiable".to_string()),
+        "transfere" => return Err("Pièce transférée — non modifiable".to_string()),
+        "annule" => return Err("Pièce annulée — non modifiable".to_string()),
+        _ => {}
+    }
+
+    let now = maintenant_iso();
+
+    // Mettre à jour les champs
+    conn.execute(
+        "UPDATE piece_commerciale
+         SET note = ?1, date_echeance = ?2,
+             remise_globale = COALESCE(?3, remise_globale),
+             modifie_le = ?4
+         WHERE id = ?5",
+        rusqlite::params![note, date_echeance, remise_globale, now, piece_id],
+    ).map_err(|e| e.to_string())?;
+
+    // Si nouvelles lignes fournies → remplacer
+    if let Some(nouvelles_lignes) = lignes {
+        conn.execute(
+            "DELETE FROM ligne_piece WHERE piece_id = ?1",
+            rusqlite::params![piece_id],
+        ).map_err(|e| e.to_string())?;
+        inserer_lignes(&conn, &piece_id, &nouvelles_lignes, &now)?;
+    }
+
+    Ok(())
+}
+
+// =====================================================================
+//  Annuler une pièce
+// =====================================================================
+
+#[tauri::command]
+pub fn annuler_piece(
+    etat: State<EtatApp>,
+    piece_id: String,
+    motif: Option<String>,
+) -> Result<(), String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let (statut, type_piece): (String, String) = conn.query_row(
+        "SELECT statut, type_piece FROM piece_commerciale WHERE id = ?1",
+        rusqlite::params![piece_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).map_err(|_| "Pièce introuvable".to_string())?;
+
+    match statut.as_str() {
+        "validee" => return Err("Pièce validée — impossible d'annuler".to_string()),
+        "annule"  => return Err("Pièce déjà annulée".to_string()),
+        _ => {}
+    }
+
+    let now = maintenant_iso();
+    let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
+
+    conn.execute(
+        "UPDATE piece_commerciale
+         SET statut = 'annule', note = COALESCE(?1, note), modifie_le = ?2
+         WHERE id = ?3",
+        rusqlite::params![motif, now, piece_id],
+    ).map_err(|e| e.to_string())?;
+
+    // Journaliser
+    conn.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1,'piece_annulee','piece_commerciale',?2,?3,?4,'app',?5)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(),
+            piece_id, auteur,
+            format!(r#"{{"type":"{}","motif":"{}"}}"#,
+                type_piece,
+                motif.as_deref().unwrap_or("")),
+            now
+        ],
+    ).ok();
+
+    Ok(())
+}
+
+// =====================================================================
+//  Dupliquer une pièce (créer une copie en brouillon)
+// =====================================================================
+
+#[tauri::command]
+pub fn dupliquer_piece(
+    etat: State<EtatApp>,
+    piece_id: String,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let (client_id, type_piece, remise_g, date_ech, note): 
+        (String, String, f64, Option<String>, Option<String>) =
+        conn.query_row(
+            "SELECT tiers_id, type_piece, remise_globale, date_echeance, note
+             FROM piece_commerciale WHERE id = ?1",
+            rusqlite::params![piece_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        ).map_err(|_| "Pièce introuvable".to_string())?;
+
+    let lignes = lire_lignes_raw(&conn, &piece_id)?;
+    let now = maintenant_iso();
+    let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
+    let nouvelle_id = uuid::Uuid::new_v4().to_string();
+    let numero = prochain_numero(&conn, &type_piece);
+
+    conn.execute(
+        "INSERT INTO piece_commerciale
+         (id, type_piece, numero, statut, tiers_type, tiers_id,
+          piece_origine_id, auteur_id, date_piece, date_echeance,
+          remise_globale, note, cree_le, modifie_le, origine)
+         VALUES (?1,?2,?3,'brouillon','client',?4,?5,?6,?7,?8,?9,?10,?11,?12,'app')",
+        rusqlite::params![
+            nouvelle_id, type_piece, numero,
+            client_id, piece_id, auteur,
+            now, date_ech, remise_g,
+            note.map(|n| format!("[Copie] {}", n)).or(Some("[Copie]".to_string())),
+            now, now
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    inserer_lignes_raw(&conn, &nouvelle_id, &lignes, &now)?;
+
+    Ok(serde_json::json!({
+        "id": nouvelle_id, "numero": numero, "statut": "brouillon"
     }))
 }

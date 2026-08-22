@@ -223,9 +223,15 @@ pub fn lire_ventes_du_jour(
         }
     });
 
-    // Ne retourner que les heures de 6h à maintenant
+    // Retourner les heures de 6h à maintenant (ou toutes si avant 6h)
     let heure_actuelle = chrono::Local::now().hour() as usize;
-    let heures_filtrees = heures[6..=heure_actuelle.min(23)].to_vec();
+    let debut = heure_actuelle.min(6); // si avant 6h, commencer à 0
+    let fin = heure_actuelle.min(23);
+    let heures_filtrees = if debut <= fin {
+        heures[debut..=fin].to_vec()
+    } else {
+        heures.clone()
+    };
 
     Ok(heures_filtrees)
 }

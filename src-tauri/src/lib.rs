@@ -131,6 +131,11 @@ pub fn run() {
             commandes::pieces::lire_fiche_client,
             commandes::pieces::imprimer_piece,
             commandes::pieces::valider_facture,
+            commandes::pieces::modifier_piece,
+            commandes::pieces::annuler_piece,
+            commandes::pieces::dupliquer_piece,
+            // ---- Rapport TVA ----
+            commandes::rapports::lire_rapport_tva,
             // ---- Fiche fournisseur ----
             commandes::fournisseurs::lire_fournisseur_detail,
             commandes::fournisseurs::lire_fiche_fournisseur,

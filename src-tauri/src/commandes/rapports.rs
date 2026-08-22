@@ -236,10 +236,9 @@ pub fn lire_rapport_stock(
 }
 
 // =====================================================================
-//  Rapport TVA collectée (v1.1 — non exposé dans lib.rs pour l'instant)
+//  Rapport TVA collectée
 // =====================================================================
 
-#[allow(dead_code)]
 #[tauri::command]
 pub fn lire_rapport_tva(
     etat: State<EtatApp>,

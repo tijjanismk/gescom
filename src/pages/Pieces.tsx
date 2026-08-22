@@ -4,7 +4,7 @@ import {
   Plus, Printer, Loader2, Search, X,
   ArrowRight, FileText, ClipboardList,
   Package, Truck, Receipt, Gift,
-  ShoppingBag, CheckCircle2,
+  ShoppingBag, CheckCircle2, Copy, Ban, Edit2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
-import { genererPieceHTML } from "@/lib/genererPiece";
+import { genererPieceHTML, genererTicketThermique } from "@/lib/genererPDF";
 import {
   FiltresAvances, FILTRES_VIDES, type FiltresState,
 } from "@/components/FiltresAvances";
@@ -267,6 +267,82 @@ function ModalValiderFacture({
 }
 
 // =====================================================================
+//  Modal : Modifier une pièce (note + échéance)
+// =====================================================================
+
+function ModalModifierPiece({
+  ouvert, piece, onFermer, onModifie,
+}: {
+  ouvert: boolean; piece: Piece | null;
+  onFermer: () => void; onModifie: () => void;
+}) {
+  const [note, setNote] = useState(piece?.note ?? "");
+  const [dateEcheance, setDateEcheance] = useState(piece?.date_echeance ?? "");
+  const [chargement, setChargement] = useState(false);
+
+  useEffect(() => {
+    if (ouvert && piece) {
+      setNote(piece.note ?? "");
+      setDateEcheance(piece.date_echeance ?? "");
+    }
+  }, [ouvert, piece]);
+
+  async function handleSauvegarder() {
+    if (!piece) return;
+    setChargement(true);
+    try {
+      await invoke("modifier_piece", {
+        pieceId: piece.id,
+        note: note || null,
+        dateEcheance: dateEcheance || null,
+        remiseGlobale: null,
+        lignes: null,
+      });
+      onModifie();
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    } finally { setChargement(false); }
+  }
+
+  if (!piece) return null;
+
+  return (
+    <Dialog open={ouvert} onOpenChange={onFermer}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Edit2 className="h-4 w-4" /> Modifier la pièce
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div className="bg-muted rounded-md px-3 py-2 text-sm">
+            <span className="text-muted-foreground">{piece.numero}</span>
+            <span className="ml-2 font-medium">{piece.tiers_nom}</span>
+          </div>
+          <div>
+            <Label className="text-xs mb-1.5 block">Date d'échéance</Label>
+            <Input type="date" value={dateEcheance}
+              onChange={e => setDateEcheance(e.target.value)} className="h-9" />
+          </div>
+          <div>
+            <Label className="text-xs mb-1.5 block">Note</Label>
+            <Input value={note} onChange={e => setNote(e.target.value)}
+              placeholder="Conditions, remarques..." className="h-9" />
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onFermer} className="flex-1">Annuler</Button>
+            <Button onClick={handleSauvegarder}
+              disabled={chargement} className="flex-1">
+              {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sauvegarder"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// =====================================================================
 //  Page Pièces
 // =====================================================================
 
@@ -292,6 +368,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
   // Modals
   const [modalNouv, setModalNouv] = useState(false);
   const [factureAValider, setFactureAValider] = useState<Piece | null>(null);
+  const [pieceAModifier, setPieceAModifier] = useState<Piece | null>(null);
   const [impressionEnCours, setImpressionEnCours] = useState<string | null>(null);
 
   // Type effectif
@@ -372,14 +449,36 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
     );
   }
 
-  async function handleImprimer(p: Piece) {
+  async function handleDupliquer(p: Piece) {
+    try {
+      const res = await invoke<any>("dupliquer_piece", { pieceId: p.id });
+      await message(`Copie créée — ${res.numero}`, { title: "Dupliqué", kind: "info" });
+      charger();
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    }
+  }
+
+  async function handleAnnuler(p: Piece) {
+    if (!window.confirm(`Annuler ${p.numero} ? Cette action est irréversible.`)) return;
+    try {
+      await invoke("annuler_piece", { pieceId: p.id, motif: null });
+      charger();
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    }
+  }
+
+  async function handleImprimer(p: Piece, thermique = false, format: "a4"|"a5" = "a4") {
     setImpressionEnCours(p.id);
     try {
       const [donnees, logo] = await Promise.all([
         invoke<any>("lire_donnees_piece", { pieceId: p.id }),
         invoke<string | null>("lire_logo_base64"),
       ]);
-      const html = genererPieceHTML(donnees, logo);
+      const html = thermique
+        ? genererTicketThermique(donnees, logo)
+        : genererPieceHTML(donnees, logo, format);
       await invoke("imprimer_piece", {
         html, nomFichier: `${p.numero.replace(/\//g, "-")}.html`,
       });
@@ -617,14 +716,33 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => handleImprimer(p)}
+                        {/* Imprimer A4 — 1 copie */}
+                        <button onClick={() => handleImprimer(p, false, "a4")}
                           disabled={impressionEnCours === p.id}
-                          title="Imprimer"
+                          title="Imprimer A4"
                           className="p-1.5 rounded hover:bg-muted transition-colors
                                      text-muted-foreground hover:text-foreground">
                           {impressionEnCours === p.id
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             : <Printer className="h-3.5 w-3.5" />}
+                        </button>
+                        {/* A5 */}
+                        <button onClick={() => handleImprimer(p, false, "a5")}
+                          disabled={impressionEnCours === p.id}
+                          title="Imprimer A5"
+                          className="p-1.5 rounded hover:bg-muted transition-colors
+                                     text-muted-foreground hover:text-foreground
+                                     text-[10px] font-bold px-1">
+                          A5
+                        </button>
+                        {/* Ticket thermique 80mm */}
+                        <button onClick={() => handleImprimer(p, true)}
+                          disabled={impressionEnCours === p.id}
+                          title="Ticket thermique 80mm"
+                          className="p-1.5 rounded hover:bg-muted transition-colors
+                                     text-muted-foreground hover:text-foreground text-[10px]
+                                     font-bold leading-none">
+                          🧾
                         </button>
                         {peutTransferer && (
                           <button onClick={() => handleConvertir(p)}
@@ -648,6 +766,34 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                             ✓ Valider
                           </button>
                         )}
+
+                        {/* Modifier — si pas validée/annulée */}
+                        {!["validee","annule","transfere"].includes(p.statut) && (
+                          <button onClick={() => setPieceAModifier(p)}
+                            title="Modifier"
+                            className="p-1.5 rounded hover:bg-muted transition-colors
+                                       text-muted-foreground hover:text-blue-600">
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+
+                        {/* Dupliquer */}
+                        <button onClick={() => handleDupliquer(p)}
+                          title="Dupliquer"
+                          className="p-1.5 rounded hover:bg-muted transition-colors
+                                     text-muted-foreground hover:text-foreground">
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
+
+                        {/* Annuler — si pas validée/annulée */}
+                        {!["validee","annule"].includes(p.statut) && (
+                          <button onClick={() => handleAnnuler(p)}
+                            title="Annuler"
+                            className="p-1.5 rounded hover:bg-muted transition-colors
+                                       text-muted-foreground hover:text-red-500">
+                            <Ban className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -664,6 +810,14 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
         cote={onglet}
         onFermer={() => setModalNouv(false)}
         onCree={() => { setModalNouv(false); charger(); }}
+      />
+
+      {/* ── Modal modifier pièce ── */}
+      <ModalModifierPiece
+        ouvert={!!pieceAModifier}
+        piece={pieceAModifier}
+        onFermer={() => setPieceAModifier(null)}
+        onModifie={() => { setPieceAModifier(null); charger(); }}
       />
 
       {/* ── Modal validation facture ── */}

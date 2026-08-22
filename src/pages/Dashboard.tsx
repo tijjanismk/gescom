@@ -329,7 +329,7 @@ export function Dashboard() {
                 Total : {fmt(r.ca_jour)}
               </span>
             </div>
-            <div className="flex items-end gap-1 h-24">
+            <div className="flex items-end gap-1 h-24 bg-transparent">
               {ventesJour.map((v, i) => {
                 const h = Math.round((v.montant / maxVente) * 100);
                 return (
