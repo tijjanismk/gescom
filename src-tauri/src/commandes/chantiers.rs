@@ -100,13 +100,21 @@ pub fn lire_dettes_fournisseurs(
     let mut stmt = conn.prepare(
         "SELECT f.id, f.nom, f.telephone, f.est_voisin,
                 CAST(COALESCE(
-                  (SELECT SUM(CAST(ms.quantite_delta AS REAL) *
-                              COALESCE(a.dernier_prix_achat, 0))
-                   FROM mouvement_stock ms
-                   JOIN article a ON a.id = ms.article_id
-                   WHERE ms.type_mouvement = 'achat'
-                     AND ms.quantite_delta > 0
-                   ), 0
+                  (SELECT COALESCE(SUM(
+                     CASE pc.type_piece
+                       WHEN 'facture_fournisseur' THEN lp.montant_ht + lp.montant_tva
+                       -- Un AVF deja rembourse en especes ('paye') ne
+                       -- reduit pas la dette : la caisse l'a deja fait.
+                       WHEN 'avoir_fournisseur'   THEN
+                            CASE WHEN pc.statut = 'paye' THEN 0
+                                 ELSE -(lp.montant_ht + lp.montant_tva) END
+                       ELSE 0 END), 0)
+                   FROM piece_commerciale pc
+                   JOIN ligne_piece lp ON lp.piece_id = pc.id
+                   WHERE pc.tiers_type = 'fournisseur'
+                     AND pc.tiers_id = f.id
+                     AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
+                     AND pc.statut <> 'annule'), 0
                 ) AS INTEGER) as total_achats,
                 CAST(COALESCE(
                   (SELECT SUM(pf.montant)
@@ -156,6 +164,25 @@ pub fn regler_dette_fournisseur(
             fournisseur_id, montant, mode, note, auteur, now, now
         ],
     ).map_err(|e| e.to_string())?;
+
+    // SORTIE de caisse : le reglement d'une dette sort de l'argent du
+    // tiroir. Sans ce mouvement, la cloture affiche un excedent.
+    let session: Option<String> = conn.query_row(
+        "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
+        [], |r| r.get(0),
+    ).ok();
+    if let Some(sid) = session {
+        conn.execute(
+            "INSERT INTO mouvement_caisse
+             (id, session_id, sens, moyen, montant, motif,
+              operation_id, date_mouvement, cree_le, cree_par, origine)
+             VALUES (?1,?2,'sortie',?3,?4,'reglement_fournisseur',?5,?6,?7,?8,'app')",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                sid, mode, montant, fournisseur_id, now, now, auteur
+            ],
+        ).ok();
+    }
 
     conn.execute(
         "INSERT INTO journal
@@ -238,7 +265,7 @@ pub fn lire_irrecouvrable(
     let mut stmt = conn.prepare(
         "SELECT ci.id, ci.vente_id, ci.motif, ci.date_marque,
                 c.nom as client_nom,
-                f.numero as facture_num,
+                p.numero as facture_num,
                 CAST(COALESCE(
                   (SELECT SUM(prix_pratique * quantite)
                    FROM ligne_vente WHERE vente_id = ci.vente_id), 0
@@ -249,7 +276,7 @@ pub fn lire_irrecouvrable(
          FROM creance_irrecouvrable ci
          JOIN vente v ON v.id = ci.vente_id
          JOIN client c ON c.id = v.client_id
-         LEFT JOIN facture f ON f.vente_id = ci.vente_id
+         LEFT JOIN piece_commerciale p ON p.id = v.piece_id
          ORDER BY ci.date_marque DESC"
     ).map_err(|e| e.to_string())?;
 

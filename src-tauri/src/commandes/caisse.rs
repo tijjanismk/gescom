@@ -1,4 +1,9 @@
 //! Commandes Tauri pour la caisse.
+//!
+//! ⚠️ Le rapprochement ne porte que sur les ESPÈCES. Orange Money, Moov
+//! Money et les chèques sont tracés en mouvement de caisse mais ne sont
+//! pas dans le tiroir physique : les inclure dans le solde théorique
+//! affiche un manque systématique à chaque clôture.
 
 use tauri::State;
 use crate::commandes::ventes::EtatApp;
@@ -35,12 +40,15 @@ pub fn lire_resume_caisse(
                 "fond_ouverture":   0,
                 "total_entrees":    0,
                 "total_sorties":    0,
+                "entrees_especes":  0,
+                "sorties_especes":  0,
                 "solde_theorique":  0,
                 "nb_transactions":  0,
                 "ouvert_le":        null,
             }))
         }
         Some((session_id, fond_ouverture, ouvert_le)) => {
+            // Tous moyens confondus — pour les indicateurs d'activité.
             let total_entrees: i64 = conn.query_row(
                 "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
                  FROM mouvement_caisse
@@ -57,13 +65,32 @@ pub fn lire_resume_caisse(
                 |r| r.get(0),
             ).unwrap_or(0);
 
+            // Espèces seules — pour le rapprochement du tiroir.
+            let entrees_especes: i64 = conn.query_row(
+                "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
+                 FROM mouvement_caisse
+                 WHERE session_id = ?1 AND sens = 'entree' AND moyen = 'especes'",
+                rusqlite::params![session_id],
+                |r| r.get(0),
+            ).unwrap_or(0);
+
+            let sorties_especes: i64 = conn.query_row(
+                "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
+                 FROM mouvement_caisse
+                 WHERE session_id = ?1 AND sens = 'sortie' AND moyen = 'especes'",
+                rusqlite::params![session_id],
+                |r| r.get(0),
+            ).unwrap_or(0);
+
             let nb_transactions: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM mouvement_caisse WHERE session_id = ?1",
                 rusqlite::params![session_id],
                 |r| r.get(0),
             ).unwrap_or(0);
 
-            let solde_theorique = fond_ouverture + total_entrees - total_sorties;
+            let solde_theorique = crate::coeur::caisse::solde_theorique(
+                fond_ouverture, entrees_especes, sorties_especes
+            );
 
             Ok(serde_json::json!({
                 "session_id":      session_id,
@@ -71,6 +98,8 @@ pub fn lire_resume_caisse(
                 "fond_ouverture":  fond_ouverture,
                 "total_entrees":   total_entrees,
                 "total_sorties":   total_sorties,
+                "entrees_especes": entrees_especes,
+                "sorties_especes": sorties_especes,
                 "solde_theorique": solde_theorique,
                 "nb_transactions": nb_transactions,
                 "ouvert_le":       ouvert_le,
@@ -182,26 +211,29 @@ pub fn fermer_session_caisse(
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let maintenant = maintenant_iso();
 
-    // Calculer le solde théorique.
     let fond: i64 = conn.query_row(
         "SELECT fond_ouverture FROM session_caisse WHERE id = ?1",
         rusqlite::params![session_id], |r| r.get(0),
     ).map_err(|e| e.to_string())?;
 
+    // ⚠️ ESPÈCES UNIQUEMENT. Sans ce filtre, l'écart intègre l'Orange
+    // Money et la caisse paraît en déficit à chaque clôture.
     let entrees: i64 = conn.query_row(
         "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
-         FROM mouvement_caisse WHERE session_id = ?1 AND sens = 'entree'",
+         FROM mouvement_caisse
+         WHERE session_id = ?1 AND sens = 'entree' AND moyen = 'especes'",
         rusqlite::params![session_id], |r| r.get(0),
     ).unwrap_or(0);
 
     let sorties: i64 = conn.query_row(
         "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
-         FROM mouvement_caisse WHERE session_id = ?1 AND sens = 'sortie'",
+         FROM mouvement_caisse
+         WHERE session_id = ?1 AND sens = 'sortie' AND moyen = 'especes'",
         rusqlite::params![session_id], |r| r.get(0),
     ).unwrap_or(0);
 
-    let solde_theorique = fond + entrees - sorties;
-    let ecart = especes_comptees - solde_theorique;
+    let solde_theorique = crate::coeur::caisse::solde_theorique(fond, entrees, sorties);
+    let ecart = crate::coeur::caisse::ecart_caisse(especes_comptees, solde_theorique);
 
     conn.execute(
         "UPDATE session_caisse SET

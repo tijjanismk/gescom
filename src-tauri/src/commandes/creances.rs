@@ -17,7 +17,7 @@ pub fn lire_creances_ouvertes(
     let mut stmt = conn.prepare(
         "SELECT v.id, v.date_vente, v.statut,
                 c.id as client_id, c.nom, c.code, c.telephone,
-                f.numero as numero_facture,
+                p.numero as numero_facture,
                 CAST(COALESCE(SUM(lv.prix_pratique * lv.quantite), 0) AS INTEGER) as total,
                 CAST(COALESCE(
                     (SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0
@@ -25,7 +25,7 @@ pub fn lire_creances_ouvertes(
          FROM vente v
          JOIN client c ON c.id = v.client_id
          LEFT JOIN ligne_vente lv ON lv.vente_id = v.id
-         LEFT JOIN facture f ON f.vente_id = v.id AND f.statut = 'validee'
+         LEFT JOIN piece_commerciale p ON p.id = v.piece_id
          WHERE v.statut IN ('creance_ouverte', 'partiellement_payee')
          GROUP BY v.id
          ORDER BY v.date_vente DESC"

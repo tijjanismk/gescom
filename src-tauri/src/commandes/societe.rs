@@ -109,10 +109,10 @@ pub fn lire_donnees_facture(
     let vente = conn.query_row(
         "SELECT v.id, v.date_vente, v.statut, v.mode_reglement,
                 c.nom, c.code, c.telephone, c.adresse, c.nif,
-                f.numero, f.date_validation
+                p.numero, p.date_piece
          FROM vente v
          JOIN client c ON c.id = v.client_id
-         LEFT JOIN facture f ON f.vente_id = v.id AND f.statut = 'validee'
+         LEFT JOIN piece_commerciale p ON p.id = v.piece_id
          WHERE v.id = ?1",
         rusqlite::params![vente_id],
         |row| {

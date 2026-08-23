@@ -20,6 +20,7 @@ import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { ModalImpression } from "@/components/ModalImpression";
 import { useScanner } from "@/lib/useScanner";
 import { UTILISATEUR_ACTIF } from "@/App";
+import type { CreerVenteResultat } from "@/lib/types-api";
 
 // =====================================================================
 //  Types
@@ -530,38 +531,22 @@ export function Ventes() {
         taux_tva: l.article.taux_tva_defaut ?? 0.0,
       }));
 
-      const { vente_id } = await invoke<{ vente_id: string }>("creer_vente", {
+      const { vente_id } = await invoke<CreerVenteResultat>("creer_vente", {
         clientId: client.id, depotId: depotActif.id,
         modeReglement, lignes, utilisateurRole: role,
+        // Reglement dans la MEME transaction que la vente : plus de
+        // fenetre ou le stock est sorti sans que le paiement soit passe.
+        montantPaye: modeReglement === "comptant" ? totalApresAvoir : acompteNum,
+        modePaiement: modeReglement === "comptant" ? modePaiementComptant : modeAcompte,
+        avoirMontant: avoirAAppliquer > 0 ? avoirAAppliquer : null,
       });
 
-      // Appliquer l'avoir si demandé
-      if (avoirAAppliquer > 0) {
-        await invoke("appliquer_avoir_vente", {
-          venteId: vente_id,
-          clientId: client.id,
-          montantDemande: avoirAAppliquer,
-        });
-      }
-
-      // Enregistrer le paiement sur le reste
-      const resteAPayer = totalApresAvoir;
-      if (modeReglement === "comptant" && resteAPayer > 0) {
-        await invoke("enregistrer_paiement", {
-          venteId: vente_id, montant: resteAPayer,
-          mode: modePaiementComptant, utilisateurRole: role,
-        });
-      } else if (modeReglement === "credit" && acompteNum > 0) {
-        await invoke("enregistrer_paiement", {
-          venteId: vente_id, montant: acompteNum,
-          mode: modeAcompte, utilisateurRole: role,
-        });
-      }
-
-      // Facture commerciale automatique (D16)
+      // Facture commerciale (D16) — seul document de la vente depuis que
+      // la table `facture` legacy n'est plus alimentee.
       //   comptant -> statut "validee"   |   credit -> statut "emis"
-      // Non bloquant : la vente et le paiement sont deja enregistres,
-      // on ne bloque pas le caissier si la numerotation echoue.
+      // Toujours non bloquant : la vente et le paiement sont deja
+      // enregistres, on ne bloque pas le caissier devant son client.
+      // Mais l'echec doit se VOIR : sans facture, rien a imprimer.
       try {
         await invoke("creer_facture_depuis_vente", {
           venteId: vente_id,
@@ -571,6 +556,10 @@ export function Ventes() {
         });
       } catch (e) {
         console.error("Facture POS non creee :", e);
+        await message(
+          `Vente enregistrée, mais la facture n'a pas pu être créée.\n${e}`,
+          { title: "Facture manquante", kind: "warning" },
+        );
       }
 
       await rechargerArticles();

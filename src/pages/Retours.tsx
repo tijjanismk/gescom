@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Search, Loader2, RotateCcw, ArrowLeftRight,
-  Wallet, Gift, ChevronDown, ChevronRight, Plus
+  Wallet, Gift, ChevronDown, ChevronRight, Plus, Truck
 } from "lucide-react";
+import { RetourFournisseur } from "@/components/RetourFournisseur";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -214,17 +215,26 @@ function ModalAvoirConserve({
     if (!vente || !ligne || quantiteNum <= 0) return;
     setChargement(true);
     try {
-      await invoke("enregistrer_retour", {
-        venteId: vente.id,
-        ligneVenteId: ligne.id,
-        quantite: quantiteNum,
-        modeResolution: "avoir_conserve",
-        modeEncaissement: null,
-        articleRemplacementId: null,
-        uniteRemplacementId: null,
-        quantiteRemplacement: null,
-        modeReliquatPositif: null,
-      });
+      const res = await invoke<{ numero_avoir: string | null }>(
+        "enregistrer_retour", {
+          venteId: vente.id,
+          ligneVenteId: ligne.id,
+          quantite: quantiteNum,
+          modeResolution: "avoir_conserve",
+          modeEncaissement: null,
+          articleRemplacementId: null,
+          uniteRemplacementId: null,
+          quantiteRemplacement: null,
+          modeReliquatPositif: null,
+        });
+      // L'avoir est desormais un document numerote (AVC-AAAA-NNNNN),
+      // consultable et imprimable depuis l'ecran Pieces.
+      if (res?.numero_avoir) {
+        await message(
+          `Avoir ${res.numero_avoir} créé — imprimable depuis Pièces.`,
+          { title: "Avoir créé", kind: "info" },
+        );
+      }
       onConfirmer();
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
@@ -623,7 +633,7 @@ export function Retours() {
   const [avoirs, setAvoirs] = useState<Avoir[]>([]);
   const [articles, setArticles] = useState<ArticleAchat[]>([]);
   const [chargement, setChargement] = useState(true);
-  const [onglet, setOnglet] = useState<"retours" | "avoirs">("retours");
+  const [onglet, setOnglet] = useState<"retours" | "avoirs" | "fournisseur">("retours");
   const [venteExpandee, setVenteExpandee] = useState<string | null>(null);
 
   // Modals
@@ -697,6 +707,7 @@ export function Retours() {
         {[
           { key: "retours", label: "Retours", icone: RotateCcw },
           { key: "avoirs", label: `Avoirs ouverts (${avoirs.length})`, icone: Gift },
+          { key: "fournisseur", label: "Retour fournisseur", icone: Truck },
         ].map(o => {
           const Icone = o.icone;
           return (
@@ -714,6 +725,11 @@ export function Retours() {
           );
         })}
       </div>
+
+      {/* Onglet Retour fournisseur — flux inverse : stock sort, dette baisse */}
+      {onglet === "fournisseur" && (
+        <RetourFournisseur onTermine={charger} />
+      )}
 
       {/* Onglet Retours */}
       {onglet === "retours" && (

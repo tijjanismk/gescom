@@ -7,6 +7,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { message } from "@tauri-apps/plugin-dialog";
 import { genererFactureHTML } from "@/lib/genererFacture";
+import type { FormatImpression } from "@/lib/genererFacture";
 
 interface ModalImpressionProps {
   ouvert: boolean;
@@ -14,10 +15,11 @@ interface ModalImpressionProps {
   onFermer: () => void;
 }
 
-type FormatImpression = "a4" | "thermique_58" | "thermique_80";
-
+// Le type vit desormais dans genererFacture.ts — une seule definition,
+// sinon ajouter un format ici ne suffit pas a le rendre imprimable.
 const FORMATS: { value: FormatImpression; label: string; desc: string }[] = [
-  { value: "a4",           label: "A4",            desc: "Facture classique — imprimante normale" },
+  { value: "a4",           label: "A4",             desc: "Facture classique — imprimante normale" },
+  { value: "a5",           label: "A5",             desc: "Demi-page — économie de papier" },
   { value: "thermique_58", label: "Thermique 58mm", desc: "Petit reçu — caisse enregistreuse" },
   { value: "thermique_80", label: "Thermique 80mm", desc: "Reçu standard — imprimante de reçus" },
 ];

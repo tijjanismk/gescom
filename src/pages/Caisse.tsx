@@ -14,6 +14,7 @@ import {
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { UTILISATEUR_ACTIF } from "@/App";
+import type { ResumeCaisseApi, MouvementCaisseApi } from "@/lib/types-api";
 
 // =====================================================================
 //  Types
@@ -25,6 +26,8 @@ interface ResumeCaisse {
   fond_ouverture: number;
   total_entrees: number;
   total_sorties: number;
+  entrees_especes: number;
+  sorties_especes: number;
   solde_theorique: number;
   nb_transactions: number;
   ouvert_le: string | null;
@@ -141,17 +144,19 @@ function ModalOuvertureSession({
 // =====================================================================
 
 function ModalFermetureSession({
-  ouvert, resume, onFermer, onFermer2,
+  ouvert, resume, onAnnuler, onCloturer,
 }: {
   ouvert: boolean;
   resume: ResumeCaisse | null;
-  onFermer: () => void;
-  onFermer2: () => void;
+  /** Ferme le modal sans rien faire. */
+  onAnnuler: () => void;
+  /** Appelé APRÈS clôture effective de la caisse. */
+  onCloturer: () => void;
 }) {
-  const [espècesComptees, setEspecesComptees] = useState("");
+  const [especesComptees, setEspecesComptees] = useState("");
   const [chargement, setChargement] = useState(false);
 
-  const montantCompte = parseMontant(espècesComptees);
+  const montantCompte = parseMontant(especesComptees);
   const ecart = resume ? montantCompte - resume.solde_theorique : 0;
 
   async function handleFermer() {
@@ -163,7 +168,7 @@ function ModalFermetureSession({
         especesComptees: montantCompte,
       });
       setEspecesComptees("");
-      onFermer2();
+      onCloturer();
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
     } finally {
@@ -172,7 +177,7 @@ function ModalFermetureSession({
   }
 
   return (
-    <Dialog open={ouvert} onOpenChange={onFermer}>
+    <Dialog open={ouvert} onOpenChange={onAnnuler}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -188,13 +193,21 @@ function ModalFermetureSession({
               <span>{fmt(resume?.fond_ouverture ?? 0)}</span>
             </div>
             <div className="flex justify-between text-sm text-green-600">
-              <span>Entrées</span>
-              <span>+ {fmt(resume?.total_entrees ?? 0)}</span>
+              <span>Entrées espèces</span>
+              <span>+ {fmt(resume?.entrees_especes ?? 0)}</span>
             </div>
             <div className="flex justify-between text-sm text-red-500">
-              <span>Sorties</span>
-              <span>- {fmt(resume?.total_sorties ?? 0)}</span>
+              <span>Sorties espèces</span>
+              <span>- {fmt(resume?.sorties_especes ?? 0)}</span>
             </div>
+            {(resume?.total_entrees ?? 0) !== (resume?.entrees_especes ?? 0) && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Dont mobile money / chèque (hors tiroir)</span>
+                <span>
+                  {fmt((resume?.total_entrees ?? 0) - (resume?.entrees_especes ?? 0))}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between text-sm font-bold border-t border-border pt-2">
               <span>Solde théorique espèces</span>
               <span>{fmt(resume?.solde_theorique ?? 0)}</span>
@@ -204,11 +217,11 @@ function ModalFermetureSession({
           {/* Rapprochement */}
           <div>
             <Label>Espèces comptées physiquement (F)</Label>
-            <MoneyInput value={espècesComptees} onChange={setEspecesComptees}
+            <MoneyInput value={especesComptees} onChange={setEspecesComptees}
               placeholder="0" className="mt-1" autoFocus />
           </div>
 
-          {espècesComptees && (
+          {especesComptees && (
             <div className={`flex justify-between text-sm font-semibold px-3 py-2 rounded-md ${
               ecart === 0 ? "bg-green-50 text-green-600"
               : ecart > 0 ? "bg-blue-50 text-blue-600"
@@ -228,9 +241,9 @@ function ModalFermetureSession({
           )}
 
           <div className="flex gap-2">
-            <Button variant="outline" onClick={onFermer} className="flex-1">Annuler</Button>
+            <Button variant="outline" onClick={onAnnuler} className="flex-1">Annuler</Button>
             <Button onClick={handleFermer}
-              disabled={!espècesComptees || chargement}
+              disabled={!especesComptees || chargement}
               className="flex-1">
               {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : "Clôturer"}
             </Button>
@@ -256,8 +269,8 @@ export function Caisse() {
     setChargement(true);
     try {
       const [r, m] = await Promise.all([
-        invoke<ResumeCaisse>("lire_resume_caisse"),
-        invoke<MouvementCaisse[]>("lire_mouvements_caisse_du_jour"),
+        invoke<ResumeCaisseApi>("lire_resume_caisse"),
+        invoke<MouvementCaisseApi[]>("lire_mouvements_caisse_du_jour"),
       ]);
       setResume(r);
       setMouvements(m);
@@ -419,8 +432,8 @@ export function Caisse() {
       <ModalFermetureSession
         ouvert={modalFermeture}
         resume={resume}
-        onFermer={() => setModalFermeture(false)}
-        onFermer2={handleApresFermeture} />
+        onAnnuler={() => setModalFermeture(false)}
+        onCloturer={handleApresFermeture} />
     </div>
   );
 }

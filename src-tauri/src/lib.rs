@@ -50,6 +50,9 @@ pub fn run() {
             commandes::fournisseurs::creer_fournisseur,
             commandes::fournisseurs::enregistrer_entree_stock,
             commandes::fournisseurs::enregistrer_ajustement_inventaire,
+            commandes::achats::enregistrer_achat,
+            commandes::achats::enregistrer_retour_fournisseur,
+            commandes::achats::lire_factures_fournisseur_retournables,
             // ---- Paramètres articles ----
             commandes::parametres::lire_categories,
             commandes::parametres::creer_categorie,

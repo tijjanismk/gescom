@@ -40,22 +40,24 @@ pub fn lire_fournisseurs_avec_dettes(
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS paiement_fournisseur (
-            id TEXT PRIMARY KEY, fournisseur_id TEXT,
-            montant INTEGER, mode TEXT, note TEXT,
-            auteur_id TEXT, date_paiement TEXT, cree_le TEXT,
-            origine TEXT DEFAULT 'app'
-        )"
-    ).ok();
-
     let mut stmt = conn.prepare(
         "SELECT f.id, f.nom, f.telephone,
                 CAST(COALESCE(
-                  (SELECT SUM(ms.quantite_delta * COALESCE(a.dernier_prix_achat, 0))
-                   FROM mouvement_stock ms
-                   JOIN article a ON a.id = ms.article_id
-                   WHERE ms.type_mouvement = 'achat' AND ms.quantite_delta > 0)
+                  (SELECT COALESCE(SUM(
+                     CASE pc.type_piece
+                       WHEN 'facture_fournisseur' THEN lp.montant_ht + lp.montant_tva
+                       -- Un AVF deja rembourse en especes ('paye') ne
+                       -- reduit pas la dette : la caisse l'a deja fait.
+                       WHEN 'avoir_fournisseur'   THEN
+                            CASE WHEN pc.statut = 'paye' THEN 0
+                                 ELSE -(lp.montant_ht + lp.montant_tva) END
+                       ELSE 0 END), 0)
+                   FROM piece_commerciale pc
+                   JOIN ligne_piece lp ON lp.piece_id = pc.id
+                   WHERE pc.tiers_type = 'fournisseur'
+                     AND pc.tiers_id = f.id
+                     AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
+                     AND pc.statut <> 'annule')
                 , 0) AS INTEGER) as total_achats,
                 CAST(COALESCE(
                   (SELECT SUM(pf.montant) FROM paiement_fournisseur pf
@@ -128,7 +130,6 @@ pub fn enregistrer_entree_stock(
     let now = maintenant_iso();
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);
-    let _ = fournisseur_id; // réservé pour v1.1 (lier achat au fournisseur)
 
     // Résoudre le dépôt — utiliser le défaut si null
     let depot_id = match depot_id {
@@ -156,12 +157,14 @@ pub fn enregistrer_entree_stock(
     conn.execute(
         "INSERT INTO mouvement_stock
          (id, article_id, depot_id, type_mouvement, quantite_delta,
-          operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine)
-         VALUES (?1,?2,?3,'achat',?4,?5,?6,?7,?8,?9,'app')",
+          operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine,
+          fournisseur_id, prix_achat_unitaire)
+         VALUES (?1,?2,?3,'achat',?4,?5,?6,?7,?8,?9,'app',?10,?11)",
         rusqlite::params![
             uuid::Uuid::new_v4().to_string(),
             article_id, depot_id, quantite,
-            op_id, auteur, now, now, auteur
+            op_id, auteur, now, now, auteur,
+            fournisseur_id, prix_achat
         ],
     ).map_err(|e| e.to_string())?;
 
@@ -273,28 +276,28 @@ pub fn lire_fiche_fournisseur(
         conn.query_row(
             "SELECT COALESCE(SUM(quantite_delta), 0), COUNT(*), MAX(date_mouvement)
              FROM mouvement_stock
-             WHERE type_mouvement = 'achat' AND quantite_delta > 0",
-            [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+             WHERE type_mouvement = 'achat' AND quantite_delta > 0
+               AND fournisseur_id = ?1",
+            rusqlite::params![fournisseur_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         ).unwrap_or((0.0, 0, None));
 
     let total_achats: i64 = conn.query_row(
         "SELECT CAST(COALESCE(SUM(
-            ms.quantite_delta * COALESCE(a.dernier_prix_achat, 0)
-         ), 0) AS INTEGER)
-         FROM mouvement_stock ms
-         JOIN article a ON a.id = ms.article_id
-         WHERE ms.type_mouvement = 'achat' AND ms.quantite_delta > 0",
-        [], |r| r.get(0),
+             CASE pc.type_piece
+               WHEN 'facture_fournisseur' THEN lp.montant_ht + lp.montant_tva
+               WHEN 'avoir_fournisseur'   THEN
+                    CASE WHEN pc.statut = 'paye' THEN 0
+                         ELSE -(lp.montant_ht + lp.montant_tva) END
+               ELSE 0 END), 0) AS INTEGER)
+         FROM piece_commerciale pc
+         JOIN ligne_piece lp ON lp.piece_id = pc.id
+         WHERE pc.tiers_type = 'fournisseur'
+           AND pc.tiers_id = ?1
+           AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
+           AND pc.statut <> 'annule'",
+        rusqlite::params![fournisseur_id], |r| r.get(0),
     ).unwrap_or(0);
-
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS paiement_fournisseur (
-            id TEXT PRIMARY KEY, fournisseur_id TEXT,
-            montant INTEGER, mode TEXT, note TEXT,
-            auteur_id TEXT, date_paiement TEXT, cree_le TEXT,
-            origine TEXT DEFAULT 'app'
-        )"
-    ).ok();
 
     let total_paye: i64 = conn.query_row(
         "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
@@ -326,14 +329,17 @@ pub fn lire_fiche_fournisseur(
 
     let mut stmt_a = conn.prepare(
         "SELECT ms.id, a.nom, ms.quantite_delta,
-                COALESCE(a.dernier_prix_achat, 0), ms.date_mouvement
+                COALESCE(ms.prix_achat_unitaire, a.dernier_prix_achat, 0),
+                ms.date_mouvement
          FROM mouvement_stock ms
          JOIN article a ON a.id = ms.article_id
          WHERE ms.type_mouvement = 'achat' AND ms.quantite_delta > 0
+           AND ms.fournisseur_id = ?1
          ORDER BY ms.date_mouvement DESC LIMIT 50"
     ).map_err(|e| e.to_string())?;
 
-    let achats: Vec<serde_json::Value> = stmt_a.query_map([], |r| {
+    let achats: Vec<serde_json::Value> = stmt_a.query_map(
+        rusqlite::params![fournisseur_id], |r| {
         Ok(serde_json::json!({
             "id":            r.get::<_,String>(0)?,
             "article_nom":   r.get::<_,String>(1)?,

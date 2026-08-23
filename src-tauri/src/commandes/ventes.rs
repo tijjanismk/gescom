@@ -280,6 +280,12 @@ pub fn creer_vente(
     mode_reglement: String,
     lignes: Vec<ParamsLigneInput>,
     utilisateur_role: Option<String>,
+    // montant_paye  : encaisse immediatement (comptant integral ou acompte)
+    // mode_paiement : especes | orange_money | moov_money | cheque
+    // avoir_montant : montant d'avoir client a consommer sur cette vente
+    montant_paye: Option<i64>,
+    mode_paiement: Option<String>,
+    avoir_montant: Option<i64>,
 ) -> Result<serde_json::Value, String> {
     let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let role = utilisateur_role.as_deref().unwrap_or("employe");
@@ -365,26 +371,119 @@ pub fn creer_vente(
         }
     }
 
-    // §2 — Facture automatique dans la même transaction
-    let annee = chrono::Local::now().format("%Y").to_string();
-    let dernier: i64 = tx.query_row(
-        "SELECT COUNT(*) FROM facture WHERE numero LIKE ?1",
-        rusqlite::params![format!("GESCOM-{}-%" , annee)],
-        |r| r.get(0),
-    ).unwrap_or(0);
-    let numero = format!("GESCOM-{}-{:06}", annee, dernier + 1);
-    let facture_id = uuid::Uuid::new_v4().to_string();
+    // =================================================================
+    //  Reglement — DANS la transaction.
+    //  Auparavant le front enchainait creer_vente / appliquer_avoir_vente /
+    //  enregistrer_paiement en appels separes : une coupure au milieu
+    //  laissait le stock sorti et la vente en creance ouverte alors que
+    //  le client avait paye.
+    // =================================================================
+    let mut total_regle: i64 = 0;
 
+    // ---- Avoirs (du plus ancien au plus recent) ----
+    let avoir_demande = avoir_montant.unwrap_or(0).min(total);
+    if avoir_demande > 0 {
+        let avoirs: Vec<(String, i64)> = {
+            let mut st = tx.prepare(
+                "SELECT id, montant FROM avoir
+                 WHERE client_id = ?1 AND statut = 'ouvert'
+                 ORDER BY cree_le ASC"
+            ).map_err(|e| e.to_string())?;
+            let v = st.query_map(rusqlite::params![client_id], |r| {
+                Ok((r.get::<_,String>(0)?, r.get::<_,i64>(1)?))
+            }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+            v
+        };
+
+        let mut reste = avoir_demande;
+        for (avoir_id, montant_avoir) in avoirs {
+            if reste <= 0 { break; }
+            tx.execute(
+                "UPDATE avoir SET statut = 'consomme', vente_utilisation_id = ?1
+                 WHERE id = ?2",
+                rusqlite::params![vente_id, avoir_id],
+            ).map_err(|e| e.to_string())?;
+
+            if montant_avoir > reste {
+                // Solde non consomme : nouvel avoir ouvert.
+                tx.execute(
+                    "INSERT INTO avoir (id, client_id, montant, statut, cree_le, origine)
+                     VALUES (?1,?2,?3,'ouvert',?4,'avoir_solde')",
+                    rusqlite::params![
+                        uuid::Uuid::new_v4().to_string(),
+                        client_id, montant_avoir - reste, now
+                    ],
+                ).map_err(|e| e.to_string())?;
+                total_regle += reste;
+                reste = 0;
+            } else {
+                total_regle += montant_avoir;
+                reste -= montant_avoir;
+            }
+        }
+
+        if total_regle > 0 {
+            tx.execute(
+                "INSERT INTO paiement
+                 (id, vente_id, montant, mode, date_paiement, auteur_id,
+                  cree_le, cree_par, origine)
+                 VALUES (?1,?2,?3,'avoir',?4,?5,?6,?7,'app')",
+                rusqlite::params![
+                    uuid::Uuid::new_v4().to_string(),
+                    vente_id, total_regle, now, auteur_id, now, auteur_id
+                ],
+            ).map_err(|e| e.to_string())?;
+        }
+    }
+
+    // ---- Encaissement ----
+    let mode_p = mode_paiement.as_deref().unwrap_or("especes");
+    let a_encaisser = montant_paye.unwrap_or(0).min(total - total_regle).max(0);
+    if a_encaisser > 0 {
+        tx.execute(
+            "INSERT INTO paiement
+             (id, vente_id, montant, mode, date_paiement, auteur_id,
+              cree_le, cree_par, origine)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'app')",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                vente_id, a_encaisser, mode_p, now, auteur_id, now, auteur_id
+            ],
+        ).map_err(|e| e.to_string())?;
+        total_regle += a_encaisser;
+
+        // Caisse — uniquement les reglements reels, jamais les avoirs.
+        let session: Option<String> = tx.query_row(
+            "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
+            [], |r| r.get(0),
+        ).ok();
+        if let Some(sid) = session {
+            tx.execute(
+                "INSERT INTO mouvement_caisse
+                 (id, session_id, sens, moyen, montant, motif,
+                  operation_id, date_mouvement, cree_le, cree_par, origine)
+                 VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?7,?8,'app')",
+                rusqlite::params![
+                    uuid::Uuid::new_v4().to_string(),
+                    sid, mode_p, a_encaisser, vente_id, now, now, auteur_id
+                ],
+            ).map_err(|e| e.to_string())?;
+        }
+    }
+
+    // ---- Statut final ----
+    let statut = if total_regle >= total { "payee" }
+                 else if total_regle > 0  { "partiellement_payee" }
+                 else                     { "creance_ouverte" };
     tx.execute(
-        "INSERT INTO facture
-         (id, numero, vente_id, statut, total, date_validation,
-          cree_le, modifie_le, cree_par, modifie_par, origine)
-         VALUES (?1,?2,?3,'validee',?4,?5,?6,?7,?8,?9,'app')",
-        rusqlite::params![
-            facture_id, numero, vente_id, total,
-            now, now, now, auteur_id, auteur_id
-        ],
+        "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
+        rusqlite::params![statut, now, vente_id],
     ).map_err(|e| e.to_string())?;
+
+    // La table `facture` legacy n'est PLUS alimentee : piece_commerciale
+    // est le referentiel unique des documents. La facture POS est creee
+    // juste apres par creer_facture_depuis_vente (numero FAC-).
+    // Avant, chaque vente portait deux numeros : GESCOM- et FAC-.
 
     // Journal vente
     tx.execute(
@@ -394,13 +493,19 @@ pub fn creer_vente(
          VALUES (?1,'vente_creee','vente',?2,?3,?4,'app',?5)",
         rusqlite::params![
             uuid::Uuid::new_v4().to_string(), vente_id, auteur_id,
-            format!(r#"{{"total":{},"facture":"{}"}}"#, total, numero), now
+            format!(r#"{{"total":{},"regle":{}}}"#, total, total_regle), now
         ],
     ).ok();
 
     tx.commit().map_err(|e| e.to_string())?;
 
-    Ok(serde_json::json!({"vente_id": vente_id, "numero_facture": numero, "total": total}))
+    Ok(serde_json::json!({
+        "vente_id":       vente_id,
+        "total":          total,
+        "total_regle":    total_regle,
+        "reste":          total - total_regle,
+        "statut":         statut,
+    }))
 }
 
 // =====================================================================

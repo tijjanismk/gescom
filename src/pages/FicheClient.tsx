@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import type { CreanceOuverteApi } from "@/lib/types-api";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowLeft, User, Phone, MapPin, Mail, FileText,
@@ -511,7 +512,7 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
       const [ficheData, piecesData, creancesData, avoirsData] = await Promise.all([
         invoke<{ client: Client; stats: Stats }>("lire_fiche_client", { clientId }),
         invoke<Piece[]>("lire_pieces_client", { clientId, typeFiltre: null }),
-        invoke<CreanceVente[]>("lire_creances_ouvertes")
+        invoke<CreanceOuverteApi[]>("lire_creances_ouvertes")
           .then(all => all.filter((c: any) =>
             (c.client_id ?? c.vente_id) && true
           )),

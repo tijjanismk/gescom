@@ -376,7 +376,31 @@ pub fn lire_fournisseurs_pagines(
 
     let offset = page * limite;
     let sql = format!(
-        "SELECT f.id, f.nom, f.telephone, f.nif, f.adresse
+        "SELECT f.id, f.nom, f.telephone, f.nif, f.adresse, f.est_voisin,
+                CAST(COALESCE(
+                  (SELECT COALESCE(SUM(
+                     CASE pc.type_piece
+                       WHEN 'facture_fournisseur' THEN lp.montant_ht + lp.montant_tva
+                       -- Un AVF deja rembourse en especes ('paye') ne
+                       -- reduit pas la dette : la caisse l'a deja fait.
+                       WHEN 'avoir_fournisseur'   THEN
+                            CASE WHEN pc.statut = 'paye' THEN 0
+                                 ELSE -(lp.montant_ht + lp.montant_tva) END
+                       ELSE 0 END), 0)
+                   FROM piece_commerciale pc
+                   JOIN ligne_piece lp ON lp.piece_id = pc.id
+                   WHERE pc.tiers_type = 'fournisseur'
+                     AND pc.tiers_id = f.id
+                     AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
+                     AND pc.statut <> 'annule'), 0
+                ) AS INTEGER) as total_achats,
+                CAST(COALESCE(
+                  (SELECT SUM(pf.montant) FROM paiement_fournisseur pf
+                   WHERE pf.fournisseur_id = f.id), 0
+                ) AS INTEGER) as total_paye,
+                (SELECT COUNT(*) FROM mouvement_stock ms
+                 WHERE ms.type_mouvement = 'achat'
+                   AND ms.fournisseur_id = f.id) as nb_achats
          FROM fournisseur f
          WHERE {}
          ORDER BY f.nom ASC
@@ -388,14 +412,22 @@ pub fn lire_fournisseurs_pagines(
 
     let donnees: Vec<serde_json::Value> = {
         let x = stmt.query_map([], |row| {
+            let total_achats: i64 = row.get(6)?;
+            let total_paye:   i64 = row.get(7)?;
+            let dette = (total_achats - total_paye).max(0);
             Ok(serde_json::json!({
                 "id":        row.get::<_, String>(0)?,
                 "nom":       row.get::<_, String>(1)?,
                 "telephone": row.get::<_, Option<String>>(2)?,
                 "nif":       row.get::<_, Option<String>>(3)?,
                 "adresse":   row.get::<_, Option<String>>(4)?,
-                "total_dettes": 0_i64,
-                "nb_achats": 0_i64,
+                "est_voisin":   row.get::<_, i64>(5)? != 0,
+                "total_achats": total_achats,
+                "total_paye":   total_paye,
+                "dette":        dette,
+                "nb_achats":    row.get::<_, i64>(8)?,
+                // Conserve pour compatibilite avec d'eventuels appelants.
+                "total_dettes": dette,
             }))
         })
         .map_err(|e| e.to_string())?

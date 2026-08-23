@@ -105,8 +105,13 @@ export function calculerDatesFiltres(filtres: FiltresVentesState): {
     case "aujourd_hui":
       return { date_debut: fmt(auj), date_fin: fmt(auj) };
     case "semaine": {
+      // getDay() renvoie 0 le dimanche : "- 0 + 1" donnait le lundi
+      // SUIVANT, donc date_debut > date_fin et une liste vide.
+      // Semaine du lundi au dimanche, comme dashboard.rs.
+      const jour = auj.getDay();
+      const decalage = jour === 0 ? 6 : jour - 1;
       const lundi = new Date(auj);
-      lundi.setDate(auj.getDate() - auj.getDay() + 1);
+      lundi.setDate(auj.getDate() - decalage);
       return { date_debut: fmt(lundi), date_fin: fmt(auj) };
     }
     case "mois": {

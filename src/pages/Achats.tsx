@@ -14,6 +14,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
+import type {
+  CreerFournisseurResultat, EnregistrerAchatResultat,
+} from "@/lib/types-api";
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -82,13 +85,18 @@ function ModalNouveauFournisseur({
     if (!nom.trim()) return;
     setChargement(true);
     try {
-      const id = await invoke<string>("creer_fournisseur", {
+      // creer_fournisseur renvoie un OBJET {id, nom}, pas une chaine.
+      // L'annotation <string> le masquait : fournisseur.id valait alors
+      // {id, nom} et Tauri refusait l'appel ("expected a string").
+      const res = await invoke<CreerFournisseurResultat>("creer_fournisseur", {
         nom: nom.trim(),
         telephone: telephone.trim() || null,
         nif: null,
         adresse: null,
+        email: null,
+        estVoisin: false,
       });
-      onCreer({ id, nom: nom.trim(), telephone: telephone.trim() || undefined });
+      onCreer({ id: res.id, nom: nom.trim(), telephone: telephone.trim() || undefined });
       setNom(""); setTelephone("");
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
@@ -336,16 +344,25 @@ export function Achats() {
   async function handleConfirmerAchat() {
     setChargementAchat(true);
     try {
-      // Enregistrer chaque ligne comme entrée de stock.
-      for (const ligne of panier) {
-        await invoke("enregistrer_entree_stock", {
-          articleId: ligne.article.id,
-          depotId: null, // utilise le dépôt par défaut côté Rust
-          quantite: ligne.quantite * ligne.unite.facteur, // en unité de base
-          prixAchat: ligne.prix_achat,
+      // Un seul appel : stock + mouvements + facture fournisseur,
+      // le tout dans une transaction unique cote Rust.
+      const res = await invoke<EnregistrerAchatResultat>(
+        "enregistrer_achat", {
           fournisseurId: fournisseur?.id ?? null,
-        });
-      }
+          depotId: null, // dépôt par défaut résolu côté Rust
+          modeReglement,
+          // Comptant : sortie de caisse enregistrée avec ce moyen.
+          modePaiement: "especes",
+          note: null,
+          lignes: panier.map(l => ({
+            article_id:     l.article.id,
+            unite_vente_id: l.unite.id,
+            quantite:       l.quantite,
+            facteur:        l.unite.facteur,
+            prix_achat:     l.prix_achat,
+          })),
+        }
+      );
 
       // Recharger les articles pour stock à jour.
       const articles = await invoke<ArticleAchat[]>("lire_articles_avec_unites");
@@ -353,9 +370,12 @@ export function Achats() {
 
       setModalConfirmation(false);
       viderPanier();
-      await message("Achat enregistré ✓ — stock mis à jour", {
-        title: "Succès", kind: "info",
-      });
+      await message(
+        res.numero
+          ? `Achat enregistré ✓ — facture ${res.numero}`
+          : "Achat enregistré ✓ — stock mis à jour",
+        { title: "Succès", kind: "info" },
+      );
 
     } catch (e) {
       setModalConfirmation(false);

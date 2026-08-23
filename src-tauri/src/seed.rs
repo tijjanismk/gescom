@@ -60,7 +60,7 @@ pub fn seeder(conn: &Connection) -> Result<()> {
     conn.execute(
         "INSERT OR IGNORE INTO utilisateur_auth
          (utilisateur_id, pseudo, email, mot_de_passe, doit_changer_mdp)
-         VALUES (?1, 'employe', 'employe@gescom.ml', ?2, 0)",
+         VALUES (?1, 'employe', 'employe@gescom.ml', ?2, 1)",
         params![user_employe_id, hash_employe],
     )?;
 

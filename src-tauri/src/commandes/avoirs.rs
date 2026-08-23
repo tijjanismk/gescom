@@ -95,7 +95,9 @@ pub fn appliquer_avoir_vente(
         if montant_avoir <= reste_a_consommer {
             // Consommer l'avoir entièrement
             conn.execute(
-                "UPDATE avoir SET statut = 'utilise', vente_utilisation_id = ?1
+                // 'consomme' — meme valeur que creer_vente. 'utilise'
+                // etait un troisieme vocabulaire pour le meme etat.
+                "UPDATE avoir SET statut = 'consomme', vente_utilisation_id = ?1
                  WHERE id = ?2",
                 rusqlite::params![vente_id, avoir_id],
             ).map_err(|e| e.to_string())?;
@@ -109,7 +111,9 @@ pub fn appliquer_avoir_vente(
 
             // Marquer l'avoir original comme utilisé
             conn.execute(
-                "UPDATE avoir SET statut = 'utilise', vente_utilisation_id = ?1
+                // 'consomme' — meme valeur que creer_vente. 'utilise'
+                // etait un troisieme vocabulaire pour le meme etat.
+                "UPDATE avoir SET statut = 'consomme', vente_utilisation_id = ?1
                  WHERE id = ?2",
                 rusqlite::params![vente_id, avoir_id],
             ).map_err(|e| e.to_string())?;

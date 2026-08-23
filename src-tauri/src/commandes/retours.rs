@@ -122,14 +122,14 @@ pub fn enregistrer_retour(
     // Reliquat positif d'échange
     mode_reliquat_positif: Option<String>,    // "remboursement" / "avoir"
     mode_encaissement_reliquat: Option<String>,
-) -> Result<String, String> {
+) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let utilisateur_id = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
     let maintenant = maintenant_iso();
     let retour_id = uuid::Uuid::new_v4().to_string();
 
     // Récupérer les infos de la ligne de vente.
-    let (article_id, _unite_vente_id, depot_source_id, facteur, prix_pratique, client_id):
+    let (article_id, unite_vente_id, depot_source_id, facteur, prix_pratique, client_id):
         (String, String, String, f64, i64, String) = conn.query_row(
         "SELECT lv.article_id, lv.unite_vente_id, lv.depot_source_id,
                 u.facteur, lv.prix_pratique, v.client_id
@@ -149,9 +149,15 @@ pub fn enregistrer_retour(
 
     // 1. Remonter le stock de l'article retourné — TOUJOURS.
     conn.execute(
-        "UPDATE stock_depot SET quantite = quantite + ?1
-         WHERE article_id = ?2 AND depot_id = ?3",
-        rusqlite::params![quantite_base, article_id, depot_source_id],
+        // ON CONFLICT et non UPDATE nu : si le couple article/depot
+        // n'existe pas encore, un UPDATE ne fait rien et le retour est
+        // perdu en silence.
+        "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+         VALUES (?4, ?2, ?3, ?1)
+         ON CONFLICT(article_id, depot_id)
+         DO UPDATE SET quantite = quantite + ?1",
+        rusqlite::params![quantite_base, article_id, depot_source_id,
+                          uuid::Uuid::new_v4().to_string()],
     ).map_err(|e| e.to_string())?;
 
     // Mouvement de stock — entrée.
@@ -177,7 +183,7 @@ pub fn enregistrer_retour(
           cree_le, cree_par, origine)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,0,?9,?10,?11,?12,?13,'app')",
         rusqlite::params![
-            retour_id, vente_id, article_id, _unite_vente_id, quantite,
+            retour_id, vente_id, article_id, unite_vente_id, quantite,
             depot_source_id, mode_resolution, montant_credit,
             mode_encaissement.as_deref().unwrap_or("aucun"),
             utilisateur_id, maintenant, maintenant, utilisateur_id
@@ -185,6 +191,7 @@ pub fn enregistrer_retour(
     ).map_err(|e| e.to_string())?;
 
     // 3. Selon le mode de résolution.
+    let mut numero_avoir: Option<String> = None;
     match mode_resolution.as_str() {
 
         "remboursement" => {
@@ -194,8 +201,10 @@ pub fn enregistrer_retour(
         }
 
         "avoir_conserve" => {
-            creer_avoir_client(&conn, &client_id, &retour_id,
-                montant_credit, &maintenant)?;
+            numero_avoir = Some(creer_avoir_client(
+                &conn, &client_id, &retour_id, montant_credit, &maintenant,
+                &article_id, &unite_vente_id, quantite, &utilisateur_id,
+            )?);
         }
 
         "echange" => {
@@ -223,9 +232,12 @@ pub fn enregistrer_retour(
 
                 // Décrémenter le stock de l'article de remplacement.
                 conn.execute(
-                    "UPDATE stock_depot SET quantite = quantite - ?1
-                     WHERE article_id = ?2 AND depot_id = ?3",
-                    rusqlite::params![qte_base_remp, art_remp_id, depot_defaut],
+                    "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+                     VALUES (?4, ?2, ?3, 0 - ?1)
+                     ON CONFLICT(article_id, depot_id)
+                     DO UPDATE SET quantite = quantite - ?1",
+                    rusqlite::params![qte_base_remp, art_remp_id, depot_defaut,
+                                      uuid::Uuid::new_v4().to_string()],
                 ).map_err(|e| e.to_string())?;
 
                 // Mouvement de stock — sortie remplacement.
@@ -255,8 +267,11 @@ pub fn enregistrer_retour(
                         }
                         _ => {
                             // Avoir par défaut.
-                            creer_avoir_client(&conn, &client_id, &retour_id,
-                                reliquat, &maintenant)?;
+                            numero_avoir = Some(creer_avoir_client(
+                                &conn, &client_id, &retour_id, reliquat,
+                                &maintenant, &article_id, &unite_vente_id,
+                                quantite, &utilisateur_id,
+                            )?);
                         }
                     }
                 } else if reliquat < 0 {
@@ -303,7 +318,13 @@ pub fn enregistrer_retour(
         ],
     ).map_err(|e| e.to_string())?;
 
-    Ok(retour_id)
+    Ok(serde_json::json!({
+        "retour_id":     retour_id,
+        "montant_credit": montant_credit,
+        // Numero de la piece AVC quand un avoir a ete cree — permet
+        // d'ouvrir directement l'impression cote front.
+        "numero_avoir":  numero_avoir,
+    }))
 }
 
 // =====================================================================
@@ -340,23 +361,68 @@ fn enregistrer_sortie_caisse(
     Ok(())
 }
 
+/// Cree l'avoir ET sa piece commerciale AVC-AAAA-NNNNN.
+///
+/// Un avoir est un engagement financier envers le client : il doit
+/// exister un document numerote et imprimable, sinon le client repart
+/// avec une promesse non opposable.
 fn creer_avoir_client(
     conn: &rusqlite::Connection,
     client_id: &str,
     retour_id: &str,
     montant: i64,
     maintenant: &str,
-) -> Result<(), String> {
+    // Ligne d'origine, pour que la piece porte l'article concerne.
+    article_id: &str,
+    unite_vente_id: &str,
+    quantite: f64,
+    auteur_id: &str,
+) -> Result<String, String> {
+    let avoir_id = uuid::Uuid::new_v4().to_string();
+
     conn.execute(
         "INSERT INTO avoir
          (id, client_id, retour_id, montant, statut, cree_le, origine)
          VALUES (?1, ?2, ?3, ?4, 'ouvert', ?5, 'app')",
+        rusqlite::params![avoir_id, client_id, retour_id, montant, maintenant],
+    ).map_err(|e| e.to_string())?;
+
+    // ---- Piece commerciale AVC ----
+    let numero = crate::commandes::pieces::prochain_numero(conn, "avoir_client");
+    let piece_id = uuid::Uuid::new_v4().to_string();
+
+    conn.execute(
+        "INSERT INTO piece_commerciale
+         (id, type_piece, numero, statut, tiers_type, tiers_id,
+          auteur_id, date_piece, remise_globale, note,
+          cree_le, modifie_le, origine)
+         VALUES (?1,'avoir_client',?2,'validee','client',?3,
+                 ?4,?5,0.0,?6,?7,?8,'retour')",
         rusqlite::params![
-            uuid::Uuid::new_v4().to_string(),
-            client_id, retour_id, montant, maintenant
+            piece_id, numero, client_id, auteur_id, maintenant,
+            format!("Avoir sur retour — {} F", montant),
+            maintenant, maintenant
         ],
     ).map_err(|e| e.to_string())?;
-    Ok(())
+
+    let prix_u = if quantite > 0.0 {
+        (montant as f64 / quantite).round() as i64
+    } else { montant };
+
+    conn.execute(
+        "INSERT INTO ligne_piece
+         (id, piece_id, article_id, unite_vente_id, quantite,
+          prix_unitaire, remise_pct, remise_montant,
+          taux_tva, montant_tva, montant_ht, cree_le)
+         VALUES (?1,?2,?3,?4,?5,?6,0.0,0,0.0,0,?7,?8)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(),
+            piece_id, article_id, unite_vente_id,
+            quantite, prix_u, montant, maintenant
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(numero)
 }
 
 // =====================================================================

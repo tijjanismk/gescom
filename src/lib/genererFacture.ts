@@ -77,9 +77,11 @@ function fmtMode(mode: string): string {
   }[mode] ?? mode;
 }
 
+export type FormatImpression = "a4" | "a5" | "thermique_58" | "thermique_80";
+
 export function genererFactureHTML(
   donnees: DonneesFacture,
-  format: "a4" | "thermique_58" | "thermique_80" = "a4",
+  format: FormatImpression = "a4",
   logoBase64?: string | null,
 ): string {
   const { societe, vente, lignes, paiements, total, total_paye, reste } = donnees;
@@ -98,18 +100,21 @@ export function genererFactureHTML(
     l.taux_tva ? (l.taux_tva * 100).toFixed(0) + "%" : "—";
   const logo = logoBase64 ?? societe.logo_base64 ?? null;
 
-  const isThermique = format !== "a4";
+  // Attention : tester `format !== "a4"` traitait l'A5 comme un ticket.
+  const isThermique = format.startsWith("thermique");
+  const isA5 = format === "a5";
   const largeur = format === "a4" ? "210mm"
+    : isA5 ? "148mm"
     : format === "thermique_58" ? "58mm" : "80mm";
 
   const cssCommun = `
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: ${isThermique ? "'Courier New', monospace" : "Arial, sans-serif"};
-      font-size: ${isThermique ? "11px" : "12px"};
+      font-size: ${isThermique ? "11px" : isA5 ? "11px" : "12px"};
       color: #000;
       width: ${largeur};
-      ${isThermique ? "padding: 2mm;" : "padding: 15mm;"}
+      ${isThermique ? "padding: 2mm;" : isA5 ? "padding: 10mm;" : "padding: 15mm;"}
     }
     .centre { text-align: center; }
     .droite { text-align: right; }
@@ -122,8 +127,8 @@ export function genererFactureHTML(
     @media print {
       body { margin: 0; }
       @page {
-        size: ${format === "a4" ? "A4" : largeur + " auto"};
-        margin: ${isThermique ? "2mm" : "10mm"};
+        size: ${format === "a4" ? "A4" : isA5 ? "A5" : largeur + " auto"};
+        margin: ${isThermique ? "2mm" : isA5 ? "6mm" : "10mm"};
       }
     }
   `;
@@ -139,7 +144,7 @@ export function genererFactureHTML(
   const enteteSociete = `
     ${logoHtml}
     <div class="centre" style="margin-bottom: 8px;">
-      <div class="bold" style="font-size: ${isThermique ? "13px" : "18px"};">
+      <div class="bold" style="font-size: ${isThermique ? "13px" : isA5 ? "15px" : "18px"};">
         ${societe.nom}
       </div>
       ${societe.adresse ? `<div class="petit">${societe.adresse}</div>` : ""}
@@ -155,7 +160,7 @@ export function genererFactureHTML(
   // ---- Titre ----
   const titreFacture = `
     <div class="sep2"></div>
-    <div class="centre bold" style="font-size: ${isThermique ? "12px" : "14px"}; margin: 6px 0;">
+    <div class="centre bold" style="font-size: ${isThermique ? "12px" : isA5 ? "13px" : "14px"}; margin: 6px 0;">
       ${vente.statut === "payee" ? "FACTURE" : "FACTURE PROFORMA"}
       ${vente.numero_facture ? ` N° ${vente.numero_facture}` : ""}
     </div>

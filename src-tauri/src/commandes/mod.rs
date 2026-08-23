@@ -1,5 +1,6 @@
 pub mod ventes;
 pub mod fournisseurs;
+pub mod achats;
 pub mod parametres;
 pub mod retours;
 pub mod pagination;

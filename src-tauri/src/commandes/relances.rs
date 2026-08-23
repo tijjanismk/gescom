@@ -24,7 +24,7 @@ pub fn lire_creances_relances(
             v.id, v.date_vente, v.statut,
             c.id as client_id, c.nom as client_nom,
             c.code as client_code, c.telephone,
-            f.numero as facture_num,
+            p.numero as facture_num,
             CAST(COALESCE(
               (SELECT SUM(prix_pratique * quantite) FROM ligne_vente WHERE vente_id = v.id)
             , 0) AS INTEGER) as total,
@@ -40,7 +40,7 @@ pub fn lire_creances_relances(
             , NULL) as derniere_relance
          FROM vente v
          JOIN client c ON c.id = v.client_id
-         LEFT JOIN facture f ON f.vente_id = v.id
+         LEFT JOIN piece_commerciale p ON p.id = v.piece_id
          WHERE v.statut IN ('creance_ouverte', 'partiellement_payee')
            AND c.est_generique = 0
            {}

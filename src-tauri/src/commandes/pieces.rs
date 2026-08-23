@@ -18,7 +18,7 @@ use crate::utils::maintenant_iso;
 //  Numérotation
 // =====================================================================
 
-fn prochain_numero(conn: &rusqlite::Connection, type_piece: &str) -> String {
+pub(crate) fn prochain_numero(conn: &rusqlite::Connection, type_piece: &str) -> String {
     let annee = chrono::Local::now().format("%Y").to_string();
     let prefix = match type_piece {
         "devis"            => "DEV",
@@ -28,15 +28,26 @@ fn prochain_numero(conn: &rusqlite::Connection, type_piece: &str) -> String {
         "facture"          => "FAC",
         "facture_acompte"  => "ACP",
         "avoir_client"     => "AVC",
+        // Cote fournisseur — absents jusqu'ici : les 4 types tombaient sur
+        // "PIE" avec un compteur par type, donc collision sur numero UNIQUE.
+        "bon_commande_fournisseur" => "BCF",
+        "bon_reception"            => "BRF",
+        "facture_fournisseur"      => "FAF",
+        "avoir_fournisseur"        => "AVF",
         _                  => "PIE",
     };
-    let nb: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM piece_commerciale
-         WHERE type_piece = ?1 AND numero LIKE ?2",
-        rusqlite::params![type_piece, format!("{}-{}-%" , prefix, annee)],
+    // MAX et non COUNT : une piece supprimee ou deux creations simultanees
+    // rejouaient un numero deja pris (numero est UNIQUE -> erreur bloquante).
+    // On filtre sur le prefixe seul : un prefixe = un type = un compteur.
+    let motif = format!("{}-{}-%", prefix, annee);
+    let dernier: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(CAST(substr(numero, -5) AS INTEGER)), 0)
+         FROM piece_commerciale WHERE numero LIKE ?1",
+        rusqlite::params![motif],
         |r| r.get(0),
     ).unwrap_or(0);
-    format!("{}-{}-{:05}", prefix, annee, nb + 1)
+    let _ = type_piece;
+    format!("{}-{}-{:05}", prefix, annee, dernier + 1)
 }
 
 // =====================================================================

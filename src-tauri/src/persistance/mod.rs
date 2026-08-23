@@ -41,6 +41,16 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     conn.execute(
         "ALTER TABLE vente ADD COLUMN piece_id TEXT", []
     ).ok();
+    // L3 — rattachement des achats a leur fournisseur.
+    // Sans cette colonne, toutes les dettes fournisseurs sont identiques.
+    conn.execute(
+        "ALTER TABLE mouvement_stock ADD COLUMN fournisseur_id TEXT", []
+    ).ok();
+    // Prix d'achat AU MOMENT du mouvement : sinon tout l'historique est
+    // recalcule au dernier prix connu (article.dernier_prix_achat).
+    conn.execute(
+        "ALTER TABLE mouvement_stock ADD COLUMN prix_achat_unitaire INTEGER", []
+    ).ok();
 
     // ---- Nouvelles tables (une par une pour éviter stack overflow) ----
 
