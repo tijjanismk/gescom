@@ -66,7 +66,8 @@ pub fn creer_facture_depuis_vente(
         .filter_map(|r| r.ok()).collect();
 
     for (art_id, uv_id, qte, prix, tva, taux_tva) in &lignes {
-        let montant_ht = (*prix as f64 * qte).round() as i64;
+        let montant_ttc = (*prix as f64 * qte).round() as i64;
+        let montant_ht  = montant_ttc - *tva;   // TVA deja incluse dans le TTC
         conn.execute(
             "INSERT INTO ligne_piece
              (id, piece_id, article_id, unite_vente_id, quantite,
@@ -82,10 +83,14 @@ pub fn creer_facture_depuis_vente(
     }
 
     // Lier la vente à la pièce via colonne optionnelle
-    conn.execute(
+    if let Err(e) = conn.execute(
         "UPDATE vente SET piece_id = ?1 WHERE id = ?2",
         rusqlite::params![piece_id, vente_id],
-    ).ok(); // ok() car la colonne peut ne pas exister encore
+    ) {
+        // Non bloquant : la piece est creee, seul le lien manque.
+        // Si ce message apparait, la migration vente.piece_id n'est pas passee.
+        eprintln!("[gescom] lien vente->piece non etabli : {}", e);
+    }
 
     Ok(serde_json::json!({
         "piece_id": piece_id,

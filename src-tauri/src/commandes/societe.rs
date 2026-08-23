@@ -136,7 +136,8 @@ pub fn lire_donnees_facture(
     let mut stmt = conn.prepare(
         "SELECT a.nom, u.libelle, lv.quantite,
                 lv.prix_pratique, lv.prix_reference,
-                CAST(lv.prix_pratique * lv.quantite AS INTEGER) as montant
+                CAST(lv.prix_pratique * lv.quantite AS INTEGER) as montant,
+                COALESCE(lv.taux_tva, 0.0), COALESCE(lv.montant_tva, 0)
          FROM ligne_vente lv
          JOIN article a ON a.id = lv.article_id
          JOIN unite_vente u ON u.id = lv.unite_vente_id
@@ -146,13 +147,26 @@ pub fn lire_donnees_facture(
 
     let lignes: Vec<serde_json::Value> = {
         let x = stmt.query_map(rusqlite::params![vente_id], |row| {
+            let quantite: f64  = row.get(2)?;
+            let montant_ttc: i64 = row.get(5)?;   // prix_pratique est du TTC (D8)
+            let montant_tva: i64 = row.get(7)?;
+            let montant_ht = montant_ttc - montant_tva;
+            // Prix unitaire HT, pour que P.U. x Qte = Montant HT sur la facture.
+            let prix_unitaire_ht = if quantite > 0.0 {
+                (montant_ht as f64 / quantite).round() as i64
+            } else { montant_ht };
+
             Ok(serde_json::json!({
                 "article_nom":   row.get::<_, String>(0)?,
                 "unite_libelle": row.get::<_, String>(1)?,
-                "quantite":      row.get::<_, f64>(2)?,
-                "prix_pratique": row.get::<_, i64>(3)?,
+                "quantite":      quantite,
+                "prix_pratique": row.get::<_, i64>(3)?,   // TTC (compat.)
                 "prix_reference":row.get::<_, i64>(4)?,
-                "montant":       row.get::<_, i64>(5)?,
+                "montant":       montant_ttc,             // TTC (compat.)
+                "taux_tva":         row.get::<_, f64>(6)?,
+                "montant_tva":      montant_tva,
+                "montant_ht":       montant_ht,
+                "prix_unitaire_ht": prix_unitaire_ht,
             }))
         })
         .map_err(|e| e.to_string())?
@@ -181,9 +195,15 @@ pub fn lire_donnees_facture(
         x
     };
 
+    // total = TTC (somme des prix_pratique x quantite) — c'est le montant du.
     let total: i64 = lignes.iter()
         .filter_map(|l| l["montant"].as_i64())
         .sum();
+    let total_tva: i64 = lignes.iter()
+        .filter_map(|l| l["montant_tva"].as_i64())
+        .sum();
+    let total_ht = total - total_tva;
+    let a_tva = total_tva > 0;
 
     let total_paye: i64 = paiements.iter()
         .filter_map(|p| p["montant"].as_i64())
@@ -197,6 +217,9 @@ pub fn lire_donnees_facture(
         "lignes":     lignes,
         "paiements":  paiements,
         "total":      total,
+        "total_ht":   total_ht,
+        "total_tva":  total_tva,
+        "a_tva":      a_tva,
         "total_paye": total_paye,
         "reste":      reste,
     }))

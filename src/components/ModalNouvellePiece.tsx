@@ -510,15 +510,13 @@ export function ModalNouvellePiece({
                           </div>
                         </td>
                         <td className="px-2 py-2 text-right">
-                          <div className="relative inline-block">
-                            <input type="number" min="0" max="100" step="1"
-                              value={(l.taux_tva * 100).toFixed(0)}
-                              onChange={e => modif(i, "taux_tva", (parseFloat(e.target.value) || 0) / 100)}
-                              className="w-14 h-8 text-right text-sm border border-border
-                                         rounded pl-2 pr-4 bg-background focus:outline-none
-                                         focus:ring-1 focus:ring-primary" />
-                            <span className="absolute right-1 top-2 text-xs text-muted-foreground">%</span>
-                          </div>
+                          {/* Taux non modifiable : il vient de la fiche article
+                              (Parametres -> TVA). Une seule source de verite. */}
+                          <span
+                            className="text-sm text-muted-foreground tabular-nums"
+                            title="Defini dans Parametres -> TVA">
+                            {(l.taux_tva * 100).toFixed(0)} %
+                          </span>
                         </td>
                         <td className="px-2 py-2 text-right">
                           <p className="font-semibold">{fmt(montant)}</p>

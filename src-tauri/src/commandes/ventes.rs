@@ -119,7 +119,8 @@ pub fn lire_articles_avec_unites(
     let mut stmt = conn.prepare(
         "SELECT a.id, a.nom, a.unite_base, a.dernier_prix_achat,
                 u.id, u.libelle, u.facteur, u.prix_reference,
-                COALESCE(sd.quantite, 0) as stock
+                COALESCE(sd.quantite, 0) as stock,
+                COALESCE(a.taux_tva_defaut, 0.0) as taux_tva_defaut
          FROM article a
          JOIN unite_vente u ON u.article_id = a.id AND u.actif = 1
          LEFT JOIN stock_depot sd ON sd.article_id = a.id AND sd.depot_id = ?1
@@ -141,11 +142,12 @@ pub fn lire_articles_avec_unites(
             row.get::<_,f64>(6)?,
             row.get::<_,i64>(7)?,
             row.get::<_,f64>(8)?,
+            row.get::<_,f64>(9)?,
         ))
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
     .for_each(|(art_id, art_nom, unite_base, prix_achat,
-                u_id, u_libelle, facteur, prix_ref, stock)| {
+                u_id, u_libelle, facteur, prix_ref, stock, taux_tva)| {
         let unite = serde_json::json!({
             "id": u_id, "libelle": u_libelle,
             "facteur": facteur, "prix_reference": prix_ref,
@@ -155,6 +157,8 @@ pub fn lire_articles_avec_unites(
             let mut art = serde_json::json!({
                 "id": art_id, "nom": art_nom,
                 "unite_base": unite_base, "stock": stock,
+                // Source unique du taux : la fiche article (Parametres -> TVA).
+                "taux_tva_defaut": taux_tva,
                 "unites": [unite],
             });
             // §7 — Prix d'achat protégé côté serveur

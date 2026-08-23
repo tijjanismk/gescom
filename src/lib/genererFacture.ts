@@ -18,9 +18,13 @@ interface LigneFacture {
   article_nom: string;
   unite_libelle: string;
   quantite: number;
-  prix_pratique: number;
+  prix_pratique: number;    // TTC
   prix_reference: number;
-  montant: number;
+  montant: number;          // TTC
+  taux_tva?: number;
+  montant_tva?: number;
+  montant_ht?: number;
+  prix_unitaire_ht?: number;
 }
 
 interface Paiement {
@@ -46,7 +50,10 @@ interface DonneesFacture {
   vente: Vente;
   lignes: LigneFacture[];
   paiements: Paiement[];
-  total: number;
+  total: number;            // TTC — montant du
+  total_ht?: number;
+  total_tva?: number;
+  a_tva?: boolean;
   total_paye: number;
   reste: number;
   logo_base64?: string | null;
@@ -77,6 +84,18 @@ export function genererFactureHTML(
 ): string {
   const { societe, vente, lignes, paiements, total, total_paye, reste } = donnees;
   const devise = societe.devise ?? "FCFA";
+
+  // TVA : presente uniquement si au moins une ligne est taxee.
+  const aTVA = donnees.a_tva ?? lignes.some(l => (l.taux_tva ?? 0) > 0);
+  const totalTVA = donnees.total_tva ?? 0;
+  const totalHT  = donnees.total_ht ?? total - totalTVA;
+  // Avec TVA on presente le HT (P.U. HT x Qte = Montant HT) ; sinon le TTC.
+  const puLigne  = (l: LigneFacture) =>
+    aTVA ? (l.prix_unitaire_ht ?? l.prix_pratique) : l.prix_pratique;
+  const mtLigne  = (l: LigneFacture) =>
+    aTVA ? (l.montant_ht ?? l.montant) : l.montant;
+  const pctTVA   = (l: LigneFacture) =>
+    l.taux_tva ? (l.taux_tva * 100).toFixed(0) + "%" : "—";
   const logo = logoBase64 ?? societe.logo_base64 ?? null;
 
   const isThermique = format !== "a4";
@@ -190,8 +209,8 @@ export function genererFactureHTML(
         <div class="row petit">
           <span style="flex:3"></span>
           <span style="flex:1;text-align:right">${l.quantite % 1 === 0 ? l.quantite : l.quantite.toFixed(2)} ${l.unite_libelle}</span>
-          <span style="flex:2;text-align:right">${fmt(l.prix_pratique)}</span>
-          <span style="flex:2;text-align:right" class="bold">${fmt(l.montant)}</span>
+          <span style="flex:2;text-align:right">${fmt(puLigne(l))}</span>
+          <span style="flex:2;text-align:right" class="bold">${fmt(mtLigne(l))}</span>
         </div>
         ${l.prix_pratique < l.prix_reference ? `<div class="petit" style="color:#888">Remise appliquée</div>` : ""}
       </div>
@@ -202,8 +221,9 @@ export function genererFactureHTML(
         <tr style="background:#f0f0f0;border-bottom:2px solid #000;">
           <th style="text-align:left;padding:6px 4px;">Désignation</th>
           <th style="text-align:center;padding:6px 4px;">Qté</th>
-          <th style="text-align:right;padding:6px 4px;">P.U. (${devise})</th>
-          <th style="text-align:right;padding:6px 4px;">Montant (${devise})</th>
+          <th style="text-align:right;padding:6px 4px;">P.U. ${aTVA ? "HT" : ""} (${devise})</th>
+          ${aTVA ? '<th style="text-align:center;padding:6px 4px;">TVA</th>' : ""}
+          <th style="text-align:right;padding:6px 4px;">Montant ${aTVA ? "HT" : ""} (${devise})</th>
         </tr>
       </thead>
       <tbody>
@@ -218,8 +238,9 @@ export function genererFactureHTML(
             <td style="text-align:center;padding:6px 4px;">
               ${l.quantite % 1 === 0 ? l.quantite : l.quantite.toFixed(2)} ${l.unite_libelle}
             </td>
-            <td style="text-align:right;padding:6px 4px;">${fmt(l.prix_pratique)}</td>
-            <td style="text-align:right;padding:6px 4px;font-weight:bold;">${fmt(l.montant)}</td>
+            <td style="text-align:right;padding:6px 4px;">${fmt(puLigne(l))}</td>
+            ${aTVA ? `<td style="text-align:center;padding:6px 4px;color:#555;">${pctTVA(l)}</td>` : ""}
+            <td style="text-align:right;padding:6px 4px;font-weight:bold;">${fmt(mtLigne(l))}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -229,8 +250,14 @@ export function genererFactureHTML(
   // ---- Totaux ----
   const totaux = isThermique ? `
     <div class="sep"></div>
+    ${aTVA ? `
+      <div class="row"><span class="petit">Total HT</span>
+        <span class="petit">${fmt(totalHT)} ${devise}</span></div>
+      <div class="row"><span class="petit">TVA</span>
+        <span class="petit">${fmt(totalTVA)} ${devise}</span></div>
+    ` : ""}
     <div class="row bold">
-      <span>TOTAL</span>
+      <span>${aTVA ? "TOTAL TTC" : "TOTAL"}</span>
       <span>${fmt(total)} ${devise}</span>
     </div>
     ${total_paye > 0 && total_paye < total ? `
@@ -247,12 +274,18 @@ export function genererFactureHTML(
   ` : `
     <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
       <table style="border-collapse:collapse;min-width:220px;">
-        <tr>
-          <td style="padding:4px 8px;">Total HT</td>
-          <td style="padding:4px 8px;text-align:right;font-weight:bold;">
-            ${fmt(total)} ${devise}
-          </td>
-        </tr>
+        ${aTVA ? `
+          <tr>
+            <td style="padding:4px 8px;">Total HT</td>
+            <td style="padding:4px 8px;text-align:right;">${fmt(totalHT)} ${devise}</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 8px;color:#1a56db;">TVA</td>
+            <td style="padding:4px 8px;text-align:right;color:#1a56db;">
+              ${fmt(totalTVA)} ${devise}
+            </td>
+          </tr>
+        ` : ""}
         ${total_paye > 0 && total_paye < total ? `
           <tr>
             <td style="padding:4px 8px;">Acompte reçu</td>
@@ -264,7 +297,7 @@ export function genererFactureHTML(
           </tr>
         ` : `
           <tr style="border-top:2px solid #000;background:#f0f0f0;">
-            <td style="padding:4px 8px;font-weight:bold;">TOTAL TTC</td>
+            <td style="padding:4px 8px;font-weight:bold;">${aTVA ? "TOTAL TTC" : "TOTAL"}</td>
             <td style="padding:4px 8px;text-align:right;font-weight:bold;">${fmt(total)} ${devise}</td>
           </tr>
         `}

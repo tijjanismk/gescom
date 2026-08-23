@@ -54,7 +54,8 @@ pub fn lire_creances_ouvertes(
            telephone, numero_facture, total, total_paye)| {
         let reste = total - total_paye;
         serde_json::json!({
-            "id":             id,
+            "id":             id.clone(),
+            "vente_id":       id,
             "date_vente":     date,
             "statut":         statut,
             "client_id":      client_id,

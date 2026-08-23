@@ -108,13 +108,6 @@ pub fn sauvegarder_config_sauvegarde(
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
-    // Créer la table config_app si elle n'existe pas.
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS config_app
-         (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)",
-        [],
-    ).ok();
-
     if let Some(ref dossier) = dossier_sauvegarde {
         conn.execute(
             "INSERT INTO config_app (cle, valeur) VALUES ('dossier_sauvegarde', ?1)

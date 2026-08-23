@@ -524,14 +524,40 @@ pub fn valider_facture(
     let auteur_id = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);
     let now = maintenant_iso();
 
-    // Calculer le total
-    let total_ht: i64 = lignes_raw.iter().map(|(_, _, qte, prix, remise_pct, _)| {
-        let brut = (*prix as f64 * qte).round() as i64;
-        let remise = (brut as f64 * remise_pct / 100.0).round() as i64;
-        brut - remise
-    }).sum();
-    let remise_g_mt = (total_ht as f64 * remise_g / 100.0).round() as i64;
-    let total_net = total_ht - remise_g_mt;
+    // Calculer les montants ligne par ligne.
+    // La remise globale est REPARTIE au prorata sur chaque ligne, sinon
+    // SUM(prix_pratique * quantite) ne correspond pas au montant du et la
+    // creance reapparait apres reglement.
+    // La TVA est AJOUTEE au HT : le client doit le TTC.
+    struct MontantsLigne {
+        montant_tva: i64,
+        prix_pratique: i64,
+    }
+    let montants: Vec<MontantsLigne> = lignes_raw.iter()
+        .map(|(_, _, qte, prix, remise_pct, taux_tva)| {
+            let brut = (*prix as f64 * qte).round() as i64;
+            let remise = (brut as f64 * remise_pct / 100.0).round() as i64;
+            let ht_ligne = brut - remise;
+            // Quote-part de remise globale (meme pourcentage sur chaque ligne).
+            let remise_g_ligne = (ht_ligne as f64 * remise_g / 100.0).round() as i64;
+            let montant_ht = ht_ligne - remise_g_ligne;
+            let montant_tva = (montant_ht as f64 * taux_tva).round() as i64;
+            let montant_ttc = montant_ht + montant_tva;
+            // Prix unitaire TTC arrondi au franc : c'est LUI qui est stocke.
+            let prix_pratique = if *qte > 0.0 {
+                (montant_ttc as f64 / qte).round() as i64
+            } else { *prix };
+            MontantsLigne { montant_tva, prix_pratique }
+        }).collect();
+
+    // Le montant du doit etre derive des prix_pratique REELLEMENT stockes,
+    // pas de la somme arithmetique des TTC de lignes : toutes les requetes
+    // recalculent CAST(SUM(prix_pratique * quantite) AS INTEGER), et
+    // l'arrondi du prix unitaire fait diverger les deux. Une divergence
+    // d'un seul franc laisse une creance residuelle apres reglement.
+    let total_net: i64 = lignes_raw.iter().enumerate()
+        .map(|(i, (_, _, qte, _, _, _))| montants[i].prix_pratique as f64 * qte)
+        .sum::<f64>() as i64;   // `as i64` tronque, comme le CAST de SQLite
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
@@ -549,14 +575,11 @@ pub fn valider_facture(
     ).map_err(|e| e.to_string())?;
 
     // 2. Insérer les lignes de vente + décrémenter le stock
-    for (art_id, uv_id, qte, prix_u, remise_pct, taux_tva) in &lignes_raw {
-        let montant_brut = (*prix_u as f64 * qte).round() as i64;
-        let remise_mt = (montant_brut as f64 * remise_pct / 100.0).round() as i64;
-        let montant_ht = montant_brut - remise_mt;
-        let montant_tva = (montant_ht as f64 * taux_tva).round() as i64;
-        let prix_pratique = if *qte > 0.0 {
-            (montant_ht as f64 / qte).round() as i64
-        } else { *prix_u };
+    for (i, (art_id, uv_id, qte, prix_u, _remise_pct, taux_tva))
+        in lignes_raw.iter().enumerate()
+    {
+        let montant_tva   = montants[i].montant_tva;
+        let prix_pratique = montants[i].prix_pratique;
 
         // Facteur de l'unité de vente
         let facteur: f64 = tx.query_row(
@@ -776,8 +799,8 @@ pub fn lire_donnees_piece(
             // Recalculer montant_tva depuis taux si montant_tva = 0
             let montant_tva_raw: i64 = row.get(7)?;
             let montant_tva = if montant_tva_raw == 0 && taux_tva > 0.0 {
-                // TVA incluse dans le prix : TVA = montant_ht × taux / (1 + taux)
-                (montant_ht as f64 * taux_tva / (1.0 + taux_tva)).round() as i64
+                // Filet de securite : TVA ajoutee au HT.
+                (montant_ht as f64 * taux_tva).round() as i64
             } else {
                 montant_tva_raw
             };
@@ -797,13 +820,32 @@ pub fn lire_donnees_piece(
 
     let total_ht: i64 = lignes.iter()
         .filter_map(|l| l["montant_ht"].as_i64()).sum();
-    let total_tva: i64 = lignes.iter()
-        .filter_map(|l| l["montant_tva"].as_i64()).sum();
     let remise_g = piece["remise_globale"].as_f64().unwrap_or(0.0);
     let remise_mt = (total_ht as f64 * remise_g / 100.0).round() as i64;
     let total_net = total_ht - remise_mt;
-    // total_ttc = total_net (TVA incluse dans les prix TTC)
-    let total_ttc = total_net; // TVA déjà incluse, on l'affiche séparément
+
+    // Le TTC imprime doit etre STRICTEMENT celui que valider_facture
+    // enregistrera comme montant du. On reproduit donc ici la meme suite
+    // d'operations : remise globale par ligne -> TVA -> prix unitaire TTC
+    // arrondi -> troncature de la somme (comme le CAST de SQLite).
+    // Toute divergence, meme d'un franc, laisse une creance residuelle.
+    let mut total_tva: i64 = 0;
+    let mut somme_ttc: f64 = 0.0;
+    for l in &lignes {
+        let qte      = l["quantite"].as_f64().unwrap_or(0.0);
+        let ht_ligne = l["montant_ht"].as_i64().unwrap_or(0);
+        let taux     = l["taux_tva"].as_f64().unwrap_or(0.0);
+
+        let remise_g_ligne = (ht_ligne as f64 * remise_g / 100.0).round() as i64;
+        let ht  = ht_ligne - remise_g_ligne;
+        let tva = (ht as f64 * taux).round() as i64;
+        total_tva += tva;
+
+        let ttc = ht + tva;
+        let pu_ttc = if qte > 0.0 { (ttc as f64 / qte).round() as i64 } else { ttc };
+        somme_ttc += pu_ttc as f64 * qte;
+    }
+    let total_ttc = somme_ttc as i64;
 
     let societe = conn.query_row(
         "SELECT nom, adresse, telephone, telephone2, email, nif, rccm,

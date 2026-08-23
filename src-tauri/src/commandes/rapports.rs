@@ -250,7 +250,8 @@ pub fn lire_rapport_tva(
     let mut stmt = conn.prepare(
         "SELECT lv.taux_tva,
                 CAST(SUM(lv.montant_tva) AS INTEGER) as total_tva,
-                CAST(SUM(lv.prix_pratique * lv.quantite) AS INTEGER) as total_ht,
+                CAST(SUM(lv.prix_pratique * lv.quantite)
+                     - SUM(lv.montant_tva) AS INTEGER) as total_ht,
                 COUNT(DISTINCT v.id) as nb_ventes
          FROM ligne_vente lv
          JOIN vente v ON v.id = lv.vente_id

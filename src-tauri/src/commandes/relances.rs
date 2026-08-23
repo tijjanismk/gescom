@@ -86,20 +86,6 @@ pub fn enregistrer_relance(
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
-    // Créer la table si elle n'existe pas
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS relance_creance (
-            id           TEXT PRIMARY KEY,
-            vente_id     TEXT NOT NULL REFERENCES vente(id),
-            canal        TEXT NOT NULL DEFAULT 'whatsapp',
-            note         TEXT,
-            auteur_id    TEXT,
-            date_relance TEXT NOT NULL,
-            cree_le      TEXT NOT NULL,
-            origine      TEXT NOT NULL DEFAULT 'app'
-        )"
-    ).map_err(|e| e.to_string())?;
-
     let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
     let now = maintenant_iso();
 
@@ -126,14 +112,6 @@ pub fn lire_historique_relances(
     vente_id: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS relance_creance (
-            id TEXT PRIMARY KEY, vente_id TEXT, canal TEXT,
-            note TEXT, auteur_id TEXT, date_relance TEXT,
-            cree_le TEXT, origine TEXT DEFAULT 'app'
-        )"
-    ).ok();
 
     let mut stmt = conn.prepare(
         "SELECT rc.id, rc.canal, rc.note, rc.date_relance, u.nom as auteur_nom
@@ -164,14 +142,6 @@ pub fn lire_stats_relances(
     etat: State<EtatApp>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS relance_creance (
-            id TEXT PRIMARY KEY, vente_id TEXT, canal TEXT,
-            note TEXT, auteur_id TEXT, date_relance TEXT,
-            cree_le TEXT, origine TEXT DEFAULT 'app'
-        )"
-    ).ok();
 
     let total_creances: i64 = conn.query_row(
         "SELECT COUNT(*) FROM vente

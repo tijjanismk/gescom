@@ -314,15 +314,17 @@ export function Ventes() {
   const [scannerNotification, setScannerNotification] = useState<string | null>(null);
 
   const inputArticleRef = useRef<HTMLInputElement>(null);
-  const total = panier.reduce((s, l) => s + l.montant, 0);
-  const totalTVA = panier.reduce((s, l) => {
-    const taux = l.article.taux_tva_defaut ?? 0;
-    // TVA incluse : montant TTC = montant HT × (1 + taux)
-    // On affiche la TVA contenue dans le prix : montant - montant/(1+taux)
-    if (taux <= 0) return s;
-    return s + Math.round(l.montant - l.montant / (1 + taux));
-  }, 0);
-  const totalHT = total - totalTVA;
+  // Les prix saisis / de reference sont des prix HORS TAXE.
+  // La TVA est AJOUTEE par-dessus : le client paie HT + TVA.
+  // On calcule ici le PU TTC une seule fois par ligne, et c'est ce PU
+  // qui part vers creer_vente -> prix_pratique reste "ce que le client
+  // paie", et toutes les requetes de totaux restent justes.
+  const puTTC = (l: LignePanier) =>
+    Math.round(l.prix_pratique * (1 + (l.article.taux_tva_defaut ?? 0)));
+
+  const totalHT  = panier.reduce((s, l) => s + l.montant, 0);
+  const total    = panier.reduce((s, l) => s + Math.round(puTTC(l) * l.quantite), 0);
+  const totalTVA = total - totalHT;
   const aTVA = totalTVA > 0;
   const totalApresAvoir = Math.max(0, total - avoirAAppliquer);
   const acompteNum = parseMontant(acompte);
@@ -332,20 +334,15 @@ export function Ventes() {
     async function charger() {
       try {
         const role = UTILISATEUR_ACTIF?.role ?? "employe";
-        const [gen, clients, articlesRaw, tousDepots, scannerConfig, tvaList] = await Promise.all([
+        // taux_tva_defaut est fourni directement par lire_articles_avec_unites :
+        // une seule source, celle de Parametres -> TVA.
+        const [gen, clients, articles, tousDepots, scannerConfig] = await Promise.all([
           invoke<Client>("lire_client_generique"),
           invoke<Client[]>("lire_clients"),
           invoke<Article[]>("lire_articles_avec_unites", { role }),
           invoke<Depot[]>("lire_depots"),
           invoke<boolean>("lire_config_scanner"),
-          invoke<{id:string;taux:number}[]>("lire_taux_tva"),
         ]);
-        // Injecter taux_tva_defaut dans chaque article
-        const tvaMap: Record<string,number> = {};
-        tvaList.forEach((t: any) => { tvaMap[t.id] = t.taux; });
-        const articles = articlesRaw.map(a => ({
-          ...a, taux_tva_defaut: tvaMap[a.id] ?? 0,
-        }));
         setClientGenerique(gen);
         setClient(gen);
         setTousClients(clients);
@@ -422,15 +419,9 @@ export function Ventes() {
 
   async function rechargerArticles() {
     const role = UTILISATEUR_ACTIF?.role ?? "employe";
-    const [articlesRaw, tvaList] = await Promise.all([
-      invoke<Article[]>("lire_articles_avec_unites", { role }),
-      invoke<{id:string;taux:number}[]>("lire_taux_tva"),
-    ]);
-    const tvaMap: Record<string,number> = {};
-    tvaList.forEach((t: any) => { tvaMap[t.id] = t.taux; });
-    const articles = articlesRaw.map(a => ({
-      ...a, taux_tva_defaut: tvaMap[a.id] ?? 0,
-    }));
+    const articles = await invoke<Article[]>(
+      "lire_articles_avec_unites", { role }
+    );
     setTousArticles(articles);
   }
 
@@ -531,8 +522,11 @@ export function Ventes() {
         source_approvisionnement: "stock",
         quantite: l.quantite,
         facteur: l.unite.facteur,
-        prix_reference: l.unite.prix_reference,
-        prix_pratique: l.prix_pratique,
+        // Envoyes en TTC : le backend extrait la TVA du TTC (D8).
+        prix_reference: Math.round(
+          l.unite.prix_reference * (1 + (l.article.taux_tva_defaut ?? 0))
+        ),
+        prix_pratique: puTTC(l),
         taux_tva: l.article.taux_tva_defaut ?? 0.0,
       }));
 
@@ -562,6 +556,21 @@ export function Ventes() {
           venteId: vente_id, montant: acompteNum,
           mode: modeAcompte, utilisateurRole: role,
         });
+      }
+
+      // Facture commerciale automatique (D16)
+      //   comptant -> statut "validee"   |   credit -> statut "emis"
+      // Non bloquant : la vente et le paiement sont deja enregistres,
+      // on ne bloque pas le caissier si la numerotation echoue.
+      try {
+        await invoke("creer_facture_depuis_vente", {
+          venteId: vente_id,
+          clientId: client.id,
+          modeReglement,
+          utilisateurRole: role,
+        });
+      } catch (e) {
+        console.error("Facture POS non creee :", e);
       }
 
       await rechargerArticles();
@@ -928,7 +937,7 @@ export function Ventes() {
                     <span>{fmt(totalHT)}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-blue-600">
-                    <span>TVA (incluse)</span>
+                    <span>TVA</span>
                     <span>{fmt(totalTVA)}</span>
                   </div>
                 </>

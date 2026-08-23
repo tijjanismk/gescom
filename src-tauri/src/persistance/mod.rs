@@ -37,6 +37,10 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     conn.execute(
         "ALTER TABLE article ADD COLUMN taux_tva_defaut REAL NOT NULL DEFAULT 0.0", []
     ).ok();
+    // Lien vente -> piece_commerciale (facture POS automatique, D16).
+    conn.execute(
+        "ALTER TABLE vente ADD COLUMN piece_id TEXT", []
+    ).ok();
 
     // ---- Nouvelles tables (une par une pour éviter stack overflow) ----
 
