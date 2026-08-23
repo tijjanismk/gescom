@@ -150,20 +150,27 @@ pub fn regler_dette_fournisseur(
     montant: i64,
     mode: String,
     note: Option<String>,
-) -> Result<(), String> {
+    // Facture imputee. NULL = reglement global, reparti de la plus
+    // ancienne a la plus recente (voir imputer_paiements_fournisseur).
+    piece_id: Option<String>,
+) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
     let now = maintenant_iso();
 
     conn.execute(
         "INSERT INTO paiement_fournisseur
-         (id, fournisseur_id, montant, mode, note, auteur_id, date_paiement, cree_le, origine)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'app')",
+         (id, fournisseur_id, montant, mode, note, auteur_id,
+          date_paiement, cree_le, origine, piece_id)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'app',?9)",
         rusqlite::params![
             uuid::Uuid::new_v4().to_string(),
-            fournisseur_id, montant, mode, note, auteur, now, now
+            fournisseur_id, montant, mode, note, auteur, now, now, piece_id
         ],
     ).map_err(|e| e.to_string())?;
+
+    // Recalculer les statuts des factures de ce fournisseur.
+    let soldees = imputer_paiements_fournisseur(&conn, &fournisseur_id, &now)?;
 
     // SORTIE de caisse : le reglement d'une dette sort de l'argent du
     // tiroir. Sans ce mouvement, la cloture affiche un excedent.
@@ -196,7 +203,80 @@ pub fn regler_dette_fournisseur(
             now
         ],
     ).ok();
-    Ok(())
+
+    Ok(serde_json::json!({
+        "montant":  montant,
+        // Numeros des factures passees a "paye" par ce reglement.
+        "soldees":  soldees,
+    }))
+}
+
+/// Recalcule le statut des factures fournisseur d'apres les paiements.
+///
+/// Deux sources de reglement :
+///   - paiements IMPUTES (piece_id renseigne) — affectes a leur facture
+///   - paiements GLOBAUX (piece_id NULL) — repartis de la facture la
+///     plus ancienne a la plus recente
+///
+/// Une facture passe a "paye" quand le cumul couvre son total, et
+/// revient a "emis" sinon (annulation d'un paiement, avoir ajoute).
+/// Retourne les numeros des factures desormais soldees.
+fn imputer_paiements_fournisseur(
+    conn: &rusqlite::Connection,
+    fournisseur_id: &str,
+    now: &str,
+) -> Result<Vec<String>, String> {
+    // Enveloppe globale disponible pour les factures non imputees.
+    let mut enveloppe: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
+         FROM paiement_fournisseur
+         WHERE fournisseur_id = ?1 AND piece_id IS NULL",
+        rusqlite::params![fournisseur_id], |r| r.get(0),
+    ).unwrap_or(0);
+
+    let mut stmt = conn.prepare(
+        "SELECT pc.id, pc.numero, pc.statut,
+                CAST(COALESCE((SELECT SUM(lp.montant_ht + lp.montant_tva)
+                   FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0) AS INTEGER),
+                CAST(COALESCE((SELECT SUM(pf.montant)
+                   FROM paiement_fournisseur pf WHERE pf.piece_id = pc.id), 0) AS INTEGER)
+         FROM piece_commerciale pc
+         WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
+           AND pc.type_piece = 'facture_fournisseur'
+           AND pc.statut <> 'annule'
+         ORDER BY pc.date_piece ASC"
+    ).map_err(|e| e.to_string())?;
+
+    let factures: Vec<(String, String, String, i64, i64)> = stmt.query_map(
+        rusqlite::params![fournisseur_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        }
+    ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    let mut soldees = Vec::new();
+
+    for (piece_id, numero, statut_actuel, total, impute) in factures {
+        let mut couvert = impute;
+        if couvert < total && enveloppe > 0 {
+            let pris = enveloppe.min(total - couvert);
+            couvert += pris;
+            enveloppe -= pris;
+        }
+
+        let nouveau = if couvert >= total && total > 0 { "paye" } else { "emis" };
+        if nouveau != statut_actuel {
+            conn.execute(
+                "UPDATE piece_commerciale SET statut = ?1, modifie_le = ?2
+                 WHERE id = ?3",
+                rusqlite::params![nouveau, now, piece_id],
+            ).map_err(|e| e.to_string())?;
+        }
+        if nouveau == "paye" {
+            soldees.push(numero);
+        }
+    }
+
+    Ok(soldees)
 }
 
 // =====================================================================
@@ -391,4 +471,45 @@ pub fn expirer_avoirs(etat: State<EtatApp>) -> Result<i64, String> {
     }
 
     Ok(nb as i64)
+}
+
+/// Factures fournisseur non soldees, avec leur reste du.
+///
+/// Sert a l'ecran de reglement : on impute sur une facture precise au
+/// lieu d'un montant global qui ne dit pas ce qu'il paie.
+#[tauri::command]
+pub fn lire_factures_fournisseur_ouvertes(
+    etat: State<EtatApp>,
+    fournisseur_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn.prepare(
+        "SELECT pc.id, pc.numero, pc.date_piece, pc.statut,
+                CAST(COALESCE((SELECT SUM(lp.montant_ht + lp.montant_tva)
+                   FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0) AS INTEGER) as total,
+                CAST(COALESCE((SELECT SUM(pf.montant)
+                   FROM paiement_fournisseur pf WHERE pf.piece_id = pc.id), 0) AS INTEGER) as paye
+         FROM piece_commerciale pc
+         WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
+           AND pc.type_piece = 'facture_fournisseur'
+           AND pc.statut NOT IN ('annule','paye')
+         ORDER BY pc.date_piece ASC"
+    ).map_err(|e| e.to_string())?;
+
+    let x = stmt.query_map(rusqlite::params![fournisseur_id], |r| {
+        let total: i64 = r.get(4)?;
+        let paye: i64 = r.get(5)?;
+        Ok(serde_json::json!({
+            "piece_id":   r.get::<_,String>(0)?,
+            "numero":     r.get::<_,String>(1)?,
+            "date_piece": r.get::<_,String>(2)?,
+            "statut":     r.get::<_,String>(3)?,
+            "total":      total,
+            "paye":       paye,
+            "reste":      (total - paye).max(0),
+        }))
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    Ok(x)
 }

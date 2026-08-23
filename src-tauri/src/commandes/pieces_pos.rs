@@ -22,15 +22,11 @@ pub fn creer_facture_depuis_vente(
     let auteur_id = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);
     let now = maintenant_iso();
 
-    // Numérotation
-    let annee = chrono::Local::now().format("%Y").to_string();
-    let nb: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM piece_commerciale
-         WHERE type_piece = 'facture' AND numero LIKE ?1",
-        rusqlite::params![format!("FAC-{}-%" , annee)],
-        |r| r.get(0),
-    ).unwrap_or(0);
-    let numero = format!("FAC-{}-{:05}", annee, nb + 1);
+    // Numérotation — meme fonction que les pieces saisies manuellement.
+    // Avant : COUNT(*) local, en parallele de prochain_numero. Deux
+    // compteurs pour la meme sequence FAC- = collision sur numero UNIQUE
+    // des qu'une facture est creee des deux cotes.
+    let numero = crate::commandes::pieces::prochain_numero(&conn, "facture");
     let piece_id = uuid::Uuid::new_v4().to_string();
 
     // Statut selon mode règlement
@@ -66,8 +62,15 @@ pub fn creer_facture_depuis_vente(
         .filter_map(|r| r.ok()).collect();
 
     for (art_id, uv_id, qte, prix, tva, taux_tva) in &lignes {
+        // prix_pratique est du TTC (D8). Une ligne_piece stocke du HT,
+        // comme les pieces saisies manuellement -> on convertit.
         let montant_ttc = (*prix as f64 * qte).round() as i64;
-        let montant_ht  = montant_ttc - *tva;   // TVA deja incluse dans le TTC
+        let montant_ht  = montant_ttc - *tva;
+        let prix_ht = if *qte > 0.0 {
+            (montant_ht as f64 / qte).round() as i64
+        } else {
+            *prix
+        };
         conn.execute(
             "INSERT INTO ligne_piece
              (id, piece_id, article_id, unite_vente_id, quantite,
@@ -77,7 +80,7 @@ pub fn creer_facture_depuis_vente(
             rusqlite::params![
                 uuid::Uuid::new_v4().to_string(),
                 piece_id, art_id, uv_id, qte,
-                prix, taux_tva, tva, montant_ht, now
+                prix_ht, taux_tva, tva, montant_ht, now
             ],
         ).map_err(|e| e.to_string())?;
     }
@@ -110,15 +113,26 @@ pub fn modifier_facture_pos(
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
-    // Vérifier que la facture est modifiable
+    // Exception assumee a l'immuabilite de coeur::pieces.
+    //
+    // Une facture emise est normalement figee. On tolere ici la retouche
+    // de la NOTE et de la DATE D'ECHEANCE sur une facture credit non
+    // encore validee : ces deux champs ne portent ni montant, ni TVA,
+    // ni article. Ils n'ont donc aucun effet comptable.
+    //
+    // Toute modification touchant les lignes ou les montants doit passer
+    // par modifier_piece, qui applique la regle complete.
     let statut: String = conn.query_row(
         "SELECT statut FROM piece_commerciale WHERE id = ?1",
         rusqlite::params![piece_id],
         |r| r.get(0),
     ).map_err(|_| "Facture introuvable".to_string())?;
 
-    if statut == "validee" {
-        return Err("Cette facture est validée et ne peut plus être modifiée".to_string());
+    if matches!(statut.as_str(), "validee" | "paye" | "annule" | "transfere") {
+        return Err(format!(
+            "Facture en statut '{}' — non modifiable. Émettre un avoir.",
+            statut
+        ));
     }
 
     conn.execute(

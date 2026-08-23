@@ -51,6 +51,11 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     conn.execute(
         "ALTER TABLE mouvement_stock ADD COLUMN prix_achat_unitaire INTEGER", []
     ).ok();
+    // Imputation : a quelle facture fournisseur ce paiement se rapporte.
+    // NULL = paiement global non impute (anciens reglements).
+    conn.execute(
+        "ALTER TABLE paiement_fournisseur ADD COLUMN piece_id TEXT", []
+    ).ok();
 
     // ---- Nouvelles tables (une par une pour éviter stack overflow) ----
 

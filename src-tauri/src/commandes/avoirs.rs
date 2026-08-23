@@ -65,9 +65,14 @@ pub fn appliquer_avoir_vente(
     client_id: String,
     montant_demande: i64,
 ) -> Result<i64, String> {
-    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let maintenant = maintenant_iso();
     let auteur_id = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
+
+    // Transaction : consommation d'avoirs, paiement et statut forment un
+    // tout. Une coupure au milieu laissait un avoir consomme sans
+    // paiement en face — le client perdait son credit.
+    let conn = conn.transaction().map_err(|e| e.to_string())?;
 
     // Lire les avoirs ouverts du client (du plus ancien au plus récent)
     let avoirs: Vec<(String, i64)> = {
@@ -160,9 +165,12 @@ pub fn appliquer_avoir_vente(
             rusqlite::params![vente_id], |r| r.get(0),
         ).unwrap_or(0);
 
-        let statut = if total_paye >= total_vente { "payee" }
-            else if total_paye > 0 { "partiellement_payee" }
-            else { "creance_ouverte" };
+        // Meme regle que creer_vente, via le coeur teste.
+        let statut = match crate::coeur::calcul::statut_vente(total_vente, total_paye) {
+            crate::coeur::calcul::StatutVente::Payee => "payee",
+            crate::coeur::calcul::StatutVente::PartiellementPayee => "partiellement_payee",
+            crate::coeur::calcul::StatutVente::CreanceOuverte => "creance_ouverte",
+        };
 
         conn.execute(
             "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
@@ -184,6 +192,7 @@ pub fn appliquer_avoir_vente(
         ).ok();
     }
 
+    conn.commit().map_err(|e| e.to_string())?;
     Ok(total_applique)
 }
 

@@ -43,10 +43,15 @@ pub fn sauvegarder_base(
     let nom_fichier = format!("gescom_backup_{}.db", horodatage);
     let dest = dest_dir.join(&nom_fichier);
 
-    // Copie via SQLite VACUUM INTO pour une copie propre et cohérente.
+    // Copie via SQLite VACUUM INTO — copie propre et coherente, y
+    // compris le WAL (une copie de gescom.db seul donnerait une base
+    // vide, les ecritures recentes vivant dans gescom.db-wal).
+    //
+    // Le chemin est passe en PARAMETRE : l'interpoler cassait sur une
+    // apostrophe, frequente dans les noms d'utilisateur Windows.
     conn.execute(
-        &format!("VACUUM INTO '{}'", dest.to_string_lossy()),
-        [],
+        "VACUUM INTO ?1",
+        rusqlite::params![dest.to_string_lossy().to_string()],
     ).map_err(|e| format!("Erreur VACUUM INTO : {}", e))?;
 
     // Journaliser la sauvegarde.

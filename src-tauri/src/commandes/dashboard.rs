@@ -225,7 +225,9 @@ pub fn lire_ventes_du_jour(
 
     // Retourner les heures de 6h à maintenant (ou toutes si avant 6h)
     let heure_actuelle = chrono::Local::now().hour() as usize;
-    let debut = heure_actuelle.min(6); // si avant 6h, commencer à 0
+    // Avant 6h on part de 0 : `heure.min(6)` donnait `heures[3..=3]`,
+    // soit une seule barre au lieu de la matinee complete.
+    let debut = if heure_actuelle < 6 { 0 } else { 6 };
     let fin = heure_actuelle.min(23);
     let heures_filtrees = if debut <= fin {
         heures[debut..=fin].to_vec()
@@ -257,6 +259,7 @@ pub fn lire_top_clients(
          FROM vente v
          JOIN client c ON c.id = v.client_id
          WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
+           AND c.est_generique = 0
          GROUP BY c.id
          ORDER BY ca DESC
          LIMIT 10"

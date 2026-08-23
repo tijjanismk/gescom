@@ -6,8 +6,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { message } from "@tauri-apps/plugin-dialog";
-import { genererFactureHTML } from "@/lib/genererFacture";
-import type { FormatImpression } from "@/lib/genererFacture";
+import { genererImpression } from "@/lib/genererPDF";
+import type { FormatImpression, DonneesPiece } from "@/lib/genererPDF";
 
 interface ModalImpressionProps {
   ouvert: boolean;
@@ -15,8 +15,6 @@ interface ModalImpressionProps {
   onFermer: () => void;
 }
 
-// Le type vit desormais dans genererFacture.ts — une seule definition,
-// sinon ajouter un format ici ne suffit pas a le rendre imprimable.
 const FORMATS: { value: FormatImpression; label: string; desc: string }[] = [
   { value: "a4",           label: "A4",             desc: "Facture classique — imprimante normale" },
   { value: "a5",           label: "A5",             desc: "Demi-page — économie de papier" },
@@ -32,16 +30,32 @@ export function ModalImpression({ ouvert, venteId, onFermer }: ModalImpressionPr
     if (!venteId) return;
     setChargement(true);
     try {
-      // 1. Charger les données depuis Rust
-      const donnees = await invoke<any>("lire_donnees_facture", { venteId });
+      // La vente et l'écran Pièces désignent le MÊME document depuis que
+      // la table `facture` legacy n'est plus alimentée. On lit donc la
+      // même source, et un seul générateur produit le HTML.
+      const pieceId = await invoke<string | null>("lire_piece_de_vente", {
+        venteId,
+      });
 
-      // 2. Générer le HTML
-      const html = genererFactureHTML(donnees, format);
+      if (!pieceId) {
+        await message(
+          "Aucune facture n'est liée à cette vente. " +
+          "Elle a probablement échoué à la création — voir la console.",
+          { title: "Facture introuvable", kind: "warning" },
+        );
+        return;
+      }
 
-      // 3. Passer le HTML à Rust qui écrit le fichier et ouvre le navigateur
+      const donnees = await invoke<DonneesPiece>("lire_donnees_piece", {
+        pieceId,
+      });
+      const logo = await invoke<string | null>("lire_logo_base64").catch(() => null);
+
+      const html = genererImpression(donnees, format, logo);
+
       const chemin = await invoke<string>("imprimer_facture", {
         html,
-        nomFichier: `gescom_${donnees.vente?.numero_facture ?? venteId}.html`,
+        nomFichier: `gescom_${donnees.piece?.numero ?? venteId}.html`,
       });
 
       console.log("Facture ouverte :", chemin);
@@ -51,7 +65,7 @@ export function ModalImpression({ ouvert, venteId, onFermer }: ModalImpressionPr
       console.error("Erreur impression :", e);
       await message(
         `Erreur : ${typeof e === "string" ? e : JSON.stringify(e)}`,
-        { title: "Erreur impression", kind: "error" }
+        { title: "Erreur impression", kind: "error" },
       );
     } finally {
       setChargement(false);

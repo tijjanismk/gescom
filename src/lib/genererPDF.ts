@@ -1,6 +1,9 @@
 // lib/genererPDF.ts — Génération PDF via impression HTML → PDF navigateur
 // Pas de dépendance externe — utilise window.print() avec CSS @page
 
+/** Formats d'impression. Un seul generateur pour toutes les pieces. */
+export type FormatImpression = "a4" | "a5" | "thermique_58" | "thermique_80";
+
 export interface DonneesPiece {
   piece: any;
   lignes: any[];
@@ -216,12 +219,38 @@ export function genererPieceHTML(
 }
 
 // =====================================================================
-//  Ticket thermique 80mm
+//  Point d'entree unique
+// =====================================================================
+
+/**
+ * Genere le HTML d'une piece dans le format demande.
+ *
+ * Remplace l'ancien couple genererFactureHTML (POS) / genererPieceHTML
+ * (Pieces) : les deux ecrans lisent desormais lire_donnees_piece, donc
+ * une seule mise en page a maintenir. Un client ne recoit plus deux
+ * presentations differentes pour le meme document.
+ */
+export function genererImpression(
+  donnees: DonneesPiece,
+  format: FormatImpression,
+  logoBase64?: string | null,
+): string {
+  switch (format) {
+    case "thermique_58": return genererTicketThermique(donnees, logoBase64, 58);
+    case "thermique_80": return genererTicketThermique(donnees, logoBase64, 80);
+    case "a5":           return genererPieceHTML(donnees, logoBase64, "a5");
+    default:             return genererPieceHTML(donnees, logoBase64, "a4");
+  }
+}
+
+// =====================================================================
+//  Ticket thermique 58 / 80mm
 // =====================================================================
 
 export function genererTicketThermique(
   donnees: DonneesPiece,
   logoBase64?: string | null,
+  largeurMm: 58 | 80 = 80,
 ): string {
   const { piece, lignes, societe, totaux } = donnees;
   const devise = societe.devise ?? "F";
@@ -256,12 +285,12 @@ export function genererTicketThermique(
       font-family: 'Courier New', monospace;
       font-size: 11px;
       color: #000;
-      width: 72mm;
-      padding: 4mm 3mm;
+      width: ${largeurMm === 58 ? "52mm" : "72mm"};
+      padding: ${largeurMm === 58 ? "3mm 2mm" : "4mm 3mm"};
     }
     @media print {
       body { margin:0; }
-      @page { size: 80mm auto; margin: 2mm; }
+      @page { size: ${largeurMm}mm auto; margin: 2mm; }
     }
   </style>
 </head>

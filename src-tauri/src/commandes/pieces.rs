@@ -1142,19 +1142,15 @@ pub fn modifier_piece(
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
-    // Vérifier statut
-    let statut: String = conn.query_row(
-        "SELECT statut FROM piece_commerciale WHERE id = ?1",
+    // Immuabilite : voir coeur::pieces. Une piece engageante (facture,
+    // avoir) est figee des son emission, pas seulement une fois validee.
+    let (statut, type_piece): (String, String) = conn.query_row(
+        "SELECT statut, type_piece FROM piece_commerciale WHERE id = ?1",
         rusqlite::params![piece_id],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     ).map_err(|_| "Pièce introuvable".to_string())?;
 
-    match statut.as_str() {
-        "validee" => return Err("Pièce validée — non modifiable".to_string()),
-        "transfere" => return Err("Pièce transférée — non modifiable".to_string()),
-        "annule" => return Err("Pièce annulée — non modifiable".to_string()),
-        _ => {}
-    }
+    crate::coeur::pieces::peut_modifier(&type_piece, &statut)?;
 
     let now = maintenant_iso();
 
@@ -1198,11 +1194,23 @@ pub fn annuler_piece(
         |r| Ok((r.get(0)?, r.get(1)?)),
     ).map_err(|_| "Pièce introuvable".to_string())?;
 
-    match statut.as_str() {
-        "validee" => return Err("Pièce validée — impossible d'annuler".to_string()),
-        "annule"  => return Err("Pièce déjà annulée".to_string()),
-        _ => {}
-    }
+    // Une piece qui a produit des ecritures ne s'annule pas : la
+    // correction passe par un avoir, sinon on laisse des paiements ou
+    // des mouvements de stock orphelins.
+    let a_produit_effets: bool = conn.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM vente WHERE piece_id = ?1
+             UNION ALL
+             SELECT 1 FROM paiement_fournisseur WHERE piece_id = ?1
+             UNION ALL
+             SELECT 1 FROM piece_commerciale WHERE piece_origine_id = ?1
+                AND statut <> 'annule'
+         )",
+        rusqlite::params![piece_id],
+        |r| r.get::<_, i64>(0),
+    ).unwrap_or(0) != 0;
+
+    crate::coeur::pieces::peut_annuler(&type_piece, &statut, a_produit_effets)?;
 
     let now = maintenant_iso();
     let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
@@ -1279,4 +1287,23 @@ pub fn dupliquer_piece(
     Ok(serde_json::json!({
         "id": nouvelle_id, "numero": numero, "statut": "brouillon"
     }))
+}
+
+/// Retourne l'id de la piece commerciale liee a une vente.
+///
+/// Permet a l'impression POS de lire la MEME source que l'ecran Pieces
+/// (lire_donnees_piece), au lieu de lire_donnees_facture. Un seul jeu de
+/// donnees, donc un seul generateur HTML a maintenir.
+#[tauri::command]
+pub fn lire_piece_de_vente(
+    etat: State<EtatApp>,
+    vente_id: String,
+) -> Result<Option<String>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let piece_id: Option<String> = conn.query_row(
+        "SELECT piece_id FROM vente WHERE id = ?1",
+        rusqlite::params![vente_id],
+        |r| r.get(0),
+    ).map_err(|_| "Vente introuvable".to_string())?;
+    Ok(piece_id)
 }
