@@ -82,6 +82,10 @@ export function OngletTVA() {
       await invoke("sauvegarder_tva_article", {
         articleId, tauxTva: val / 100,
       });
+      // Le resume TVA affiche plus bas se calcule cote Rust : sans ce
+      // rechargement il gardait l'ancienne valeur jusqu'au prochain
+      // passage sur l'onglet.
+      await chargerResume();
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
     } finally { setSaving(null); }

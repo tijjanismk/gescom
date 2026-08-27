@@ -360,6 +360,25 @@ export function Ventes() {
     charger();
   }, []);
 
+  // ---- Recharger les articles quand la fenetre reprend le focus ----
+  // Un taux de TVA modifie dans Parametres n'etait visible qu'au
+  // prochain montage de l'ecran : les articles sont charges une fois au
+  // mount. On rafraichit donc au retour sur la fenetre, ce qui couvre
+  // aussi le cas ou un autre poste a modifie un prix.
+  useEffect(() => {
+    function surRetour() {
+      if (document.visibilityState === "visible") {
+        rechargerArticles().catch(console.error);
+      }
+    }
+    window.addEventListener("focus", surRetour);
+    document.addEventListener("visibilitychange", surRetour);
+    return () => {
+      window.removeEventListener("focus", surRetour);
+      document.removeEventListener("visibilitychange", surRetour);
+    };
+  }, []);
+
   // ---- Charger les avoirs quand le client change ----
   useEffect(() => {
     async function chargerAvoirs() {
