@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "gescom",
-  "version": "0.1.0",
-  "identifier": "com.user.gescom",
+  "productName": "Gescom",
+  "version": "1.0.0",
+  "identifier": "ml.gescom.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "gescom",
-        "width": 800,
-        "height": 600
+        "title": "Gescom — Gestion commerciale",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true,
+        "center": true
       }
     ],
     "security": {
@@ -23,13 +27,24 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "Gescom",
+    "copyright": "© 2026 Gescom",
+    "category": "Business",
+    "shortDescription": "Gestion commerciale pour PME",
+    "longDescription": "Point de vente, pièces commerciales, stock, caisse, créances et rapports. Fonctionne hors ligne.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["French"]
+      }
+    }
   }
 }

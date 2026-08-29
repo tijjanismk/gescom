@@ -1049,12 +1049,15 @@ pub fn lire_fiche_client(
 //  Proxy impression
 // =====================================================================
 
+/// Proxy vers l'impression. Depuis L36 elle ouvre une fenetre Tauri au
+/// lieu du navigateur : elle est donc `async` et reclame l'AppHandle.
 #[tauri::command]
-pub fn imprimer_piece(
+pub async fn imprimer_piece(
+    app: tauri::AppHandle,
     html: String,
     nom_fichier: Option<String>,
 ) -> Result<String, String> {
-    crate::commandes::impression::imprimer_facture(html, nom_fichier)
+    crate::commandes::impression::imprimer_facture(app, html, nom_fichier).await
 }
 
 // =====================================================================

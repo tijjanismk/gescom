@@ -313,7 +313,10 @@ function ModalEncaisser({
         });
         if (!venteId) {
           throw new Error(
-            "Aucune vente liée à cette facture — impossible d'encaisser."
+            "Cette facture est encore en brouillon : aucune vente n'a été " +
+            "créée, il n'y a donc rien à encaisser.\n\n" +
+            "Valider la facture d'abord (bouton ✓ Valider). La validation " +
+            "crée la vente, sort le stock et permet de saisir un acompte."
           );
         }
         await invoke("regler_creance", {
@@ -1062,7 +1065,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                         {/* Encaisser — facture avec reste dû */}
                         {p.type_piece.startsWith("facture")
                           && (p.reste ?? 0) > 0
-                          && !["annule","transfere"].includes(p.statut) && (
+                          && !["annule","transfere","brouillon"].includes(p.statut) && (
                           <button onClick={() => setPieceAEncaisser(p)}
                             title="Encaisser un règlement"
                             className="px-2 py-1 rounded-md text-xs font-medium

@@ -122,15 +122,6 @@ export function PageLogin({ onConnecte }: PageLoginProps) {
             }
           </Button>
         </div>
-
-        {/* Comptes par défaut — visibles uniquement en développement */}
-        {import.meta.env.DEV && (
-        <div className="mt-6 p-3 bg-muted rounded-lg text-xs text-muted-foreground">
-          <p className="font-medium mb-1">Comptes par défaut :</p>
-          <p>Patron : <span className="font-mono">admin</span> / <span className="font-mono">admin123</span></p>
-          <p>Employé : <span className="font-mono">employe</span> / <span className="font-mono">employe123</span></p>
-        </div>
-        )}
       </div>
     </div>
   );

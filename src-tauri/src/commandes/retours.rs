@@ -144,8 +144,69 @@ pub fn enregistrer_retour(
         )),
     ).map_err(|e| e.to_string())?;
 
+    // =================================================================
+    //  GARDE 1 — on ne retourne pas plus qu'on n'a vendu
+    // =================================================================
+    let qte_vendue: f64 = conn.query_row(
+        "SELECT quantite FROM ligne_vente WHERE id = ?1",
+        rusqlite::params![ligne_vente_id], |r| r.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    // `retour` ne porte pas ligne_vente_id : on agrege par vente+article.
+    let deja_retourne: f64 = conn.query_row(
+        "SELECT COALESCE(SUM(quantite), 0) FROM retour
+         WHERE vente_id = ?1 AND article_id = ?2",
+        rusqlite::params![vente_id, article_id], |r| r.get(0),
+    ).unwrap_or(0.0);
+
+    let retournable = qte_vendue - deja_retourne;
+    if quantite <= 0.0 {
+        return Err("La quantité retournée doit être positive".to_string());
+    }
+    if quantite > retournable + 1e-9 {
+        return Err(format!(
+            "Quantité trop élevée : {} vendue(s), {} déjà retournée(s), \
+             il reste {} retournable(s).",
+            qte_vendue, deja_retourne, retournable.max(0.0)
+        ));
+    }
+
     let montant_credit: i64 = (prix_pratique as f64 * quantite).round() as i64;
     let quantite_base = quantite * facteur;
+
+    // =================================================================
+    //  GARDE 2 — on ne rend que ce que le client a réellement versé
+    // =================================================================
+    //
+    //  Ordre comptable : le retour éteint d'abord la DETTE, puis le
+    //  solde éventuel revient au client.
+    //
+    //  Sans cela, une vente à crédit de 10 000 F jamais réglée dont la
+    //  marchandise revient sortait 10 000 F de la caisse ET laissait la
+    //  créance ouverte — l'argent partait deux fois.
+    let total_vente: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(prix_pratique * quantite), 0) AS INTEGER)
+         FROM ligne_vente WHERE vente_id = ?1",
+        rusqlite::params![vente_id], |r| r.get(0),
+    ).unwrap_or(0);
+
+    let deja_paye: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
+         FROM paiement WHERE vente_id = ?1",
+        rusqlite::params![vente_id], |r| r.get(0),
+    ).unwrap_or(0);
+
+    // Ce qui reste dû AVANT ce retour.
+    let reste_du = (total_vente - deja_paye).max(0);
+
+    // Le retour s'impute d'abord sur la dette (sauf echange).
+    let part_creance = if mode_resolution == "echange" {
+        0
+    } else {
+        montant_credit.min(reste_du)
+    };
+    // Ce qui depasse la dette a ete paye : il revient au client.
+    let part_client = montant_credit - part_creance;
 
     // 1. Remonter le stock de l'article retourné — TOUJOURS.
     conn.execute(
@@ -190,19 +251,56 @@ pub fn enregistrer_retour(
         ],
     ).map_err(|e| e.to_string())?;
 
-    // 3. Selon le mode de résolution.
+    // 2 bis. Imputer la part qui éteint la dette.
+    //
+    // Enregistré comme un paiement de mode 'retour' : le reste dû
+    // diminue mécaniquement, puisqu'il vaut total − SUM(paiements).
+    // Aucun argent ne bouge, la caisse n'est pas touchée.
+    // Pas pour l'echange : la marchandise part vers un autre article,
+    // le credit finance le remplacement et non la dette.
+    if part_creance > 0 && mode_resolution != "echange" {
+        conn.execute(
+            "INSERT INTO paiement
+             (id, vente_id, montant, mode, date_paiement,
+              auteur_id, cree_le, cree_par, origine)
+             VALUES (?1,?2,?3,'retour',?4,?5,?6,?7,'retour')",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                vente_id, part_creance, maintenant,
+                utilisateur_id, maintenant, utilisateur_id
+            ],
+        ).map_err(|e| e.to_string())?;
+
+        // Recalculer le statut via le coeur testé.
+        let paye_apres = deja_paye + part_creance;
+        let statut = match crate::coeur::calcul::statut_vente(total_vente, paye_apres) {
+            crate::coeur::calcul::StatutVente::Payee => "payee",
+            crate::coeur::calcul::StatutVente::PartiellementPayee => "partiellement_payee",
+            crate::coeur::calcul::StatutVente::CreanceOuverte => "creance_ouverte",
+        };
+        conn.execute(
+            "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
+            rusqlite::params![statut, maintenant, vente_id],
+        ).ok();
+    }
+
+    // 3. Le solde éventuel — uniquement ce que le client a versé.
     let mut numero_avoir: Option<String> = None;
     match mode_resolution.as_str() {
 
         "remboursement" => {
-            let mode = mode_encaissement.as_deref().unwrap_or("especes");
-            enregistrer_sortie_caisse(&conn, montant_credit, mode, &retour_id,
-                "remboursement", &utilisateur_id, &maintenant)?;
+            if part_client > 0 {
+                let mode = mode_encaissement.as_deref().unwrap_or("especes");
+                enregistrer_sortie_caisse(&conn, part_client, mode, &retour_id,
+                    "remboursement", &utilisateur_id, &maintenant)?;
+            }
+            // part_client == 0 : le retour a servi a eteindre la dette,
+            // rien a rendre. Ce n'est pas une erreur.
         }
 
-        "avoir_conserve" => {
+        "avoir_conserve" if part_client > 0 => {
             numero_avoir = Some(creer_avoir_client(
-                &conn, &client_id, &retour_id, montant_credit, &maintenant,
+                &conn, &client_id, &retour_id, part_client, &maintenant,
                 &article_id, &unite_vente_id, quantite, &utilisateur_id,
             )?);
         }
@@ -319,8 +417,12 @@ pub fn enregistrer_retour(
     ).map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
-        "retour_id":     retour_id,
+        "retour_id":      retour_id,
         "montant_credit": montant_credit,
+        // Repartition : ce qui a eteint la dette, ce qui revient au
+        // client. Permet au front d'expliquer le resultat.
+        "part_creance":   part_creance,
+        "part_client":    part_client,
         // Numero de la piece AVC quand un avoir a ete cree — permet
         // d'ouvrir directement l'impression cote front.
         "numero_avoir":  numero_avoir,

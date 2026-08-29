@@ -92,6 +92,7 @@ pub fn run() {
             commandes::logo::supprimer_logo,
             // ---- Impression ----
             commandes::impression::imprimer_facture,
+            commandes::impression::ouvrir_avec_systeme,
             // ---- Caisse ----
             commandes::caisse::lire_resume_caisse,
             commandes::caisse::lire_mouvements_caisse_du_jour,

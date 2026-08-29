@@ -54,11 +54,15 @@ export function Layout({
   const navigation = role === "patron" ? NAV_PATRON : NAV_EMPLOYE;
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="flex h-screen bg-background overflow-hidden
+                    print:h-auto print:block print:overflow-visible">
 
       {/* Sidebar */}
+      {/* print:hidden — la sidebar s'imprimait avec le Journal et les
+          factures, mangeant un quart de la largeur du papier. */}
       <aside className={cn(
         "flex flex-col bg-card border-r border-border transition-all duration-300",
+        "print:hidden",
         sidebarOuverte ? "w-56" : "w-14"
       )}>
 
@@ -153,7 +157,10 @@ export function Layout({
       </aside>
 
       {/* Contenu */}
-      <main className="flex-1 flex flex-col overflow-hidden"
+      {/* A l'impression : plus de hauteur d'ecran ni de scroll interne,
+          sinon seule la premiere page sort. */}
+      <main className="flex-1 flex flex-col overflow-hidden
+                       print:overflow-visible print:block"
         onClick={() => setMenuUtilisateur(false)}>
         {children}
       </main>

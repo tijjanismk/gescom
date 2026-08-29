@@ -30,6 +30,9 @@ interface Tiers { id: string; nom: string; code?: string; telephone?: string; }
 interface Ligne {
   article_id: string; unite_vente_id: string;
   article_nom: string; unite_libelle: string;
+  // Unites disponibles pour cet article — permet de changer de
+  // conditionnement sans retirer et rajouter la ligne.
+  unites?: { id: string; libelle: string; facteur: number; prix_reference: number }[];
   quantite: number; prix_unitaire: number;
   remise_pct: number; taux_tva: number;
 }
@@ -209,10 +212,13 @@ export function ModalNouvellePiece({
   }
 
   function ajouterLigne(article: Article) {
+    // unites[0] = la plus petite (tri par facteur). C'est le defaut,
+    // mais l'utilisateur peut basculer sur le sac ou le carton.
     const unite = article.unites[0];
     setLignes(prev => [...prev, {
       article_id: article.id, unite_vente_id: unite.id,
       article_nom: article.nom, unite_libelle: unite.libelle,
+      unites: article.unites,
       quantite: 1, prix_unitaire: unite.prix_reference,
       remise_pct: 0, taux_tva: article.taux_tva_defaut ?? 0,
     }]);
@@ -493,8 +499,34 @@ export function ModalNouvellePiece({
                     return (
                       <tr key={i} className="border-t border-border hover:bg-muted/20">
                         <td className="px-4 py-2 font-medium">{l.article_nom}</td>
-                        <td className="px-2 py-2 text-center text-xs text-muted-foreground">
-                          {l.unite_libelle}
+                        <td className="px-2 py-2 text-center">
+                          {(l.unites?.length ?? 0) > 1 ? (
+                            <select
+                              value={l.unite_vente_id}
+                              onChange={e => {
+                                const u = l.unites!.find(x => x.id === e.target.value);
+                                if (!u) return;
+                                // Changer d'unite change aussi le prix :
+                                // un sac de 50 kg ne vaut pas le prix du kg.
+                                setLignes(prev => prev.map((x, k) => k === i
+                                  ? { ...x,
+                                      unite_vente_id: u.id,
+                                      unite_libelle:  u.libelle,
+                                      prix_unitaire:  u.prix_reference }
+                                  : x));
+                              }}
+                              className="h-8 text-xs border border-border rounded
+                                         px-1 bg-background focus:outline-none
+                                         focus:ring-1 focus:ring-primary">
+                              {l.unites!.map(u => (
+                                <option key={u.id} value={u.id}>{u.libelle}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {l.unite_libelle}
+                            </span>
+                          )}
                         </td>
                         <td className="px-2 py-2 text-right">
                           <input type="number" min="0.01" step="0.01" value={l.quantite}
