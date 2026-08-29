@@ -120,20 +120,48 @@ function ModalRelancer({
 
   const msgWA = genererMessageWhatsApp(creance, societe, messagePerso);
 
-  function ouvrirWhatsApp() {
+  // window.open ne fonctionne pas dans une webview Tauri : le lien
+  // s'ouvre dans l'application, ou ne fait rien. On passe par le
+  // systeme, qui lance WhatsApp Desktop ou le navigateur.
+  async function ouvrirWhatsApp() {
     if (!creance.telephone) return;
     const tel = creance.telephone.replace(/\D/g, "");
+    // Numero malien : 8 chiffres. On prefixe 223 s'il manque.
     const telMali = tel.startsWith("223") ? tel : `223${tel}`;
     const url = `https://wa.me/${telMali}?text=${encodeURIComponent(msgWA)}`;
-    window.open(url, "_blank");
-    setEnvoye(true);
+    try {
+      await invoke("ouvrir_avec_systeme", { chemin: url });
+      setEnvoye(true);
+    } catch (e) {
+      await message(
+        `Impossible d'ouvrir WhatsApp : ${e}\n\n` +
+        `Numéro : +${telMali}`,
+        { title: "WhatsApp", kind: "error" },
+      );
+    }
   }
 
-  function ouvrirSMS() {
+  async function ouvrirSMS() {
     if (!creance.telephone) return;
     const tel = creance.telephone.replace(/\D/g, "");
-    window.open(`sms:${tel}?body=${encodeURIComponent(msgWA)}`, "_blank");
-    setEnvoye(true);
+    try {
+      await invoke("ouvrir_avec_systeme", {
+        chemin: `sms:${tel}?body=${encodeURIComponent(msgWA)}`,
+      });
+      setEnvoye(true);
+    } catch (e) {
+      await message(`Impossible d'ouvrir les SMS : ${e}`,
+        { title: "SMS", kind: "error" });
+    }
+  }
+
+  async function copierMessage() {
+    try {
+      await navigator.clipboard.writeText(msgWA);
+      setEnvoye(true);
+    } catch {
+      // Sans presse-papier, l'utilisateur selectionne le texte a la main.
+    }
   }
 
   async function handleEnregistrer() {

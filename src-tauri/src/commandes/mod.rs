@@ -2,6 +2,8 @@ pub mod ventes;
 pub mod fournisseurs;
 pub mod achats;
 pub mod journal;
+pub mod transferts;
+pub mod depots;
 pub mod parametres;
 pub mod retours;
 pub mod pagination;

@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DEPOT_ACTIF } from "@/App";
 
 // ---------------------------------------------------------------------
 
@@ -136,7 +137,8 @@ export function Journal() {
   const charger = useCallback(async (d: string) => {
     setChargement(true);
     try {
-      const j = await invoke<Journal>("lire_journal_du_jour", { date: d });
+      const j = await invoke<Journal>("lire_journal_du_jour",
+        { date: d, depotId: DEPOT_ACTIF });
       setData(j);
     } catch (e) {
       console.error("Erreur journal :", e);

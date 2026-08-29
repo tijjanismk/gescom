@@ -206,7 +206,44 @@ pub fn enregistrer_retour(
         montant_credit.min(reste_du)
     };
     // Ce qui depasse la dette a ete paye : il revient au client.
-    let part_client = montant_credit - part_creance;
+    //
+    // SECONDE BORNE — defense en profondeur.
+    // La garde sur la quantite empeche normalement montant_credit de
+    // depasser le total de la vente. Mais elle est le seul rempart : si
+    // un prix a change apres la vente, ou si des retours successifs se
+    // cumulent au-dela du vendu, on rendrait plus que ce que le client
+    // a verse. On plafonne donc explicitement au versement net.
+    let rembourse_deja: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(mc.montant), 0) AS INTEGER)
+         FROM mouvement_caisse mc
+         WHERE mc.motif IN ('remboursement','remboursement_reliquat')
+           AND mc.operation_id IN (SELECT id FROM retour WHERE vente_id = ?1)",
+        rusqlite::params![vente_id], |r| r.get(0),
+    ).unwrap_or(0);
+
+    // Versements REELS du client : on exclut les paiements de mode
+    // 'retour' (ecritures internes) et 'avoir' (pas d'argent recu).
+    let verse_reel: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
+         FROM paiement
+         WHERE vente_id = ?1 AND mode NOT IN ('retour', 'avoir')",
+        rusqlite::params![vente_id], |r| r.get(0),
+    ).unwrap_or(0);
+
+    let plafond_client = (verse_reel - rembourse_deja).max(0);
+    let part_client_brute = montant_credit - part_creance;
+    let part_client = part_client_brute.min(plafond_client);
+
+    // Ce qui ne peut etre ni impute ni rendu : le signaler plutot que
+    // de le faire disparaitre en silence.
+    let non_attribue = part_client_brute - part_client;
+    if non_attribue > 0 {
+        eprintln!(
+            "[gescom] retour {} : {} F non attribuables \
+             (verse {}, deja rembourse {})",
+            retour_id, non_attribue, verse_reel, rembourse_deja
+        );
+    }
 
     // 1. Remonter le stock de l'article retourné — TOUJOURS.
     conn.execute(

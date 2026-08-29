@@ -17,6 +17,7 @@ import { Retours } from "@/pages/Retours";
 import { Relances } from "@/pages/Relances";
 import { Rapports } from "@/pages/Rapports";
 import { Journal } from "@/pages/Journal";
+import { Transferts } from "@/pages/Transferts";
 
 // =====================================================================
 //  Session persistante — localStorage + expiration 8h
@@ -66,6 +67,32 @@ function supprimerSession() {
 export let UTILISATEUR_ACTIF: UtilisateurConnecte | null = null;
 
 // =====================================================================
+//  Dépôt actif — scénario « un poste, plusieurs magasins »
+// =====================================================================
+//
+//  null = vue consolidée, tous les dépôts. C'est le défaut : le patron
+//  ouvre l'application et voit l'ensemble de ses points de vente.
+//
+//  Choisir un dépôt filtre le tableau de bord, le journal et le stock.
+//  Les ventes se font toujours sur le dépôt sélectionné dans l'écran
+//  Ventes, qui reste maître de son propre choix.
+
+const CLE_DEPOT = "gescom_depot_actif";
+
+export let DEPOT_ACTIF: string | null = (() => {
+  try { return localStorage.getItem(CLE_DEPOT) || null; }
+  catch { return null; }
+})();
+
+export function definirDepotActif(id: string | null) {
+  DEPOT_ACTIF = id;
+  try {
+    if (id) localStorage.setItem(CLE_DEPOT, id);
+    else localStorage.removeItem(CLE_DEPOT);
+  } catch { /* mode privé : le choix ne survit pas au redémarrage */ }
+}
+
+// =====================================================================
 //  App
 // =====================================================================
 
@@ -82,6 +109,9 @@ function App() {
     sessionInitiale?.nav_params ?? null
   );
   const [modalMdp, setModalMdp] = useState(false);
+  // Sert uniquement à forcer le rendu quand le dépôt change ;
+  // la valeur de référence reste DEPOT_ACTIF.
+  const [depotActif, setDepotActif] = useState<string | null>(DEPOT_ACTIF);
 
   useEffect(() => {
     if (utilisateur) {
@@ -171,6 +201,7 @@ function App() {
       case "retours":    return <Retours />;
       case "relances":   return <Relances />;
       case "journal":    return <Journal />;
+      case "transferts": return <Transferts />;
       case "rapports":   return <Rapports />;
       case "parametres": return <Parametres />;
       default:           return <Dashboard />;
@@ -192,6 +223,8 @@ function App() {
       <Layout
         pageActive={pageNavActive}
         onNaviguer={naviguer}
+        depotActif={depotActif}
+        onChangerDepot={(id) => { definirDepotActif(id); setDepotActif(id); }}
         role={utilisateur.role}
         utilisateur={utilisateur}
         onChangerMdp={() => setModalMdp(true)}

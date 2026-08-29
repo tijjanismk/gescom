@@ -67,6 +67,23 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
         "ALTER TABLE mouvement_caisse ADD COLUMN categorie TEXT", []
     ).ok();
 
+    // ---- v1.2 : transferts inter-depots ----
+    // `bon` regroupe les lignes d'un meme bon numerote BTR-AAAA-NNNNN.
+    // La table transfert existait depuis l'origine mais n'etait pas
+    // utilisee ; elle n'avait ni bon, ni unite, ni motif.
+    conn.execute(
+        "ALTER TABLE transfert ADD COLUMN bon TEXT", []
+    ).ok();
+    conn.execute(
+        "ALTER TABLE transfert ADD COLUMN unite_vente_id TEXT", []
+    ).ok();
+    conn.execute(
+        "ALTER TABLE transfert ADD COLUMN motif TEXT", []
+    ).ok();
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_transfert_bon ON transfert(bon)"
+    ).ok();
+
     // ---- Nouvelles tables (une par une pour éviter stack overflow) ----
 
     conn.execute_batch(

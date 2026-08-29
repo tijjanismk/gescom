@@ -315,6 +315,10 @@ CREATE TABLE IF NOT EXISTS mouvement_caisse (
     montant         INTEGER NOT NULL,
     motif           TEXT NOT NULL DEFAULT 'autre',
     operation_id    TEXT,
+    -- Dépenses : motif porte la catégorie technique ('depense'),
+    -- libelle le texte saisi, categorie le poste comptable.
+    libelle         TEXT,
+    categorie       TEXT,
     date_mouvement  TEXT NOT NULL,
     cree_le         TEXT NOT NULL,
     cree_par        TEXT,

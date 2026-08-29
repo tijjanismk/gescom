@@ -5,7 +5,7 @@ import {
   Package, Tag, Building2, Users, HardDrive,
   Plus, Loader2, Save, Eye, EyeOff, ShoppingCart,
   FolderOpen, ChevronDown, ChevronRight,
-  Percent, Banknote, XCircle, Clock,
+  Percent, Banknote, XCircle, Clock, Warehouse,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ import { ParametresSociete } from "@/components/ParametresSociete";
 import { OngletVentes } from "@/components/ParametresVentes";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { OngletTVA, OngletDettes, OngletIrrecouvrable, OngletAvoirs } from "@/components/OngletChantiers";
+import { OngletDepots } from "@/components/OngletDepots";
 import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================
@@ -55,6 +56,7 @@ function fmt(n: number): string {
 
 const ONGLETS_PATRON = [
   { key: "societe",       label: "Société",       icone: Building2  },
+  { key: "depots",        label: "Dépôts",        icone: Warehouse  },
   { key: "articles",      label: "Articles",      icone: Package    },
   { key: "categories",    label: "Catégories",    icone: Tag        },
   { key: "ventes",        label: "Ventes",        icone: ShoppingCart },
@@ -647,6 +649,7 @@ export function Parametres() {
 
       {/* Contenu */}
       {onglet === "societe"       && <ParametresSociete />}
+      {onglet === "depots"        && <OngletDepots />}
       {onglet === "articles"      && <OngletArticles />}
       {onglet === "categories"    && <OngletCategories />}
       {onglet === "ventes"        && <OngletVentes />}

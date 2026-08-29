@@ -6,7 +6,8 @@ import {
   Package, ArrowUpRight, ArrowDownRight,
   Receipt, Gift, Loader2, RefreshCw,
 } from "lucide-react";
-import { UTILISATEUR_ACTIF } from "@/App";
+import { Button } from "@/components/ui/button";
+import { UTILISATEUR_ACTIF, DEPOT_ACTIF } from "@/App";
 
 // =====================================================================
 //  Types
@@ -142,7 +143,7 @@ export function Dashboard() {
     setChargement(true);
     try {
       const [res, vj, tc, ta] = await Promise.all([
-        invoke<ResumeDashboard>("lire_resume_dashboard"),
+        invoke<ResumeDashboard>("lire_resume_dashboard", { depotId: DEPOT_ACTIF }),
         invoke<VenteJour[]>("lire_ventes_du_jour"),
         estPatron ? invoke<TopClient[]>("lire_top_clients") : Promise.resolve([]),
         estPatron ? invoke<TopArticle[]>("lire_top_articles") : Promise.resolve([]),
@@ -169,7 +170,26 @@ export function Dashboard() {
     );
   }
 
-  const r = resume!;
+  // Le `resume!` d'origine partait du principe qu'un chargement termine
+  // signifie des donnees presentes. Si la commande echoue, `resume`
+  // reste null et l'ecran plante sur `r.ca_mois` — le vrai probleme
+  // (l'erreur de chargement) devient alors invisible.
+  if (!resume) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6">
+        <AlertTriangle className="h-8 w-8 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground text-center max-w-sm">
+          Impossible de charger le tableau de bord.
+          Voir la console pour le détail.
+        </p>
+        <Button variant="outline" size="sm" onClick={charger}>
+          <RefreshCw className="h-4 w-4 mr-2" /> Réessayer
+        </Button>
+      </div>
+    );
+  }
+
+  const r = resume;
   const tendanceMois = pct(r.ca_mois, r.ca_mois_precedent);
   const maxVente = Math.max(...ventesJour.map(v => v.montant), 1);
   const maxClient = Math.max(...topClients.map(c => c.ca), 1);

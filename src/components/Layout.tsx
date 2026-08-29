@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   ShoppingCart, Package, Users, Wallet,
   BarChart3, Settings, Menu, X, Store,
   ShoppingBag, Truck, RotateCcw, LogOut,
   Lock, ChevronDown, FileText,
-  MessageCircle, BarChart2, BookOpen,
+  MessageCircle, BarChart2, BookOpen, ArrowLeftRight, Warehouse,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UtilisateurConnecte } from "@/pages/PageLogin";
@@ -19,6 +20,7 @@ const NAV_PATRON = [
   { nom: "Fournisseurs",    icone: Truck,           href: "fournisseurs"},
   { nom: "Caisse",          icone: Wallet,          href: "caisse"      },
   { nom: "Retours",         icone: RotateCcw,       href: "retours"     },
+  { nom: "Transferts",      icone: ArrowLeftRight,  href: "transferts"  },
   { nom: "Relances",        icone: MessageCircle,   href: "relances"    },
   { nom: "Journal",         icone: BookOpen,        href: "journal"     },
   { nom: "Rapports",        icone: BarChart2,       href: "rapports"    },
@@ -34,10 +36,15 @@ const NAV_EMPLOYE = [
   { nom: "Retours",         icone: RotateCcw,       href: "retours"     },
 ];
 
+interface Depot { id: string; nom: string; est_defaut?: boolean; }
+
 interface LayoutProps {
   children: React.ReactNode;
   pageActive: string;
   onNaviguer: (page: string) => void;
+  /** null = vue consolidée, tous les dépôts. */
+  depotActif: string | null;
+  onChangerDepot: (id: string | null) => void;
   role: string;
   utilisateur: UtilisateurConnecte;
   onChangerMdp: () => void;
@@ -45,24 +52,29 @@ interface LayoutProps {
 }
 
 export function Layout({
-  children, pageActive, onNaviguer, role,
+  children, pageActive, onNaviguer, depotActif, onChangerDepot, role,
   utilisateur, onChangerMdp, onDeconnecter,
 }: LayoutProps) {
   const [sidebarOuverte, setSidebarOuverte] = useState(true);
   const [menuUtilisateur, setMenuUtilisateur] = useState(false);
+  const [depots, setDepots] = useState<Depot[]>([]);
+
+  useEffect(() => {
+    invoke<Depot[]>("lire_depots").then(setDepots).catch(console.error);
+  }, []);
+
+  // Le sélecteur n'a de sens qu'avec plusieurs dépôts. Avec un seul,
+  // l'afficher ajouterait une décision inutile au quotidien.
+  const multiDepot = depots.length > 1;
 
   const navigation = role === "patron" ? NAV_PATRON : NAV_EMPLOYE;
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden
-                    print:h-auto print:block print:overflow-visible">
+    <div className="flex h-screen bg-background overflow-hidden">
 
       {/* Sidebar */}
-      {/* print:hidden — la sidebar s'imprimait avec le Journal et les
-          factures, mangeant un quart de la largeur du papier. */}
       <aside className={cn(
         "flex flex-col bg-card border-r border-border transition-all duration-300",
-        "print:hidden",
         sidebarOuverte ? "w-56" : "w-14"
       )}>
 
@@ -80,6 +92,27 @@ export function Layout({
             {sidebarOuverte ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
         </div>
+
+        {/* Dépôt actif — masqué s'il n'y a qu'un seul dépôt */}
+        {multiDepot && sidebarOuverte && (
+          <div className="px-2 pt-2">
+            <label className="text-[10px] uppercase text-muted-foreground
+                              px-1 mb-1 flex items-center gap-1">
+              <Warehouse className="h-3 w-3" /> Dépôt
+            </label>
+            <select
+              value={depotActif ?? ""}
+              onChange={e => onChangerDepot(e.target.value || null)}
+              className="w-full h-8 text-xs border border-border rounded-md
+                         bg-background px-2 focus:outline-none
+                         focus:ring-1 focus:ring-primary">
+              <option value="">Tous les dépôts</option>
+              {depots.map(d => (
+                <option key={d.id} value={d.id}>{d.nom}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Navigation */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-auto">
@@ -157,10 +190,7 @@ export function Layout({
       </aside>
 
       {/* Contenu */}
-      {/* A l'impression : plus de hauteur d'ecran ni de scroll interne,
-          sinon seule la premiere page sort. */}
-      <main className="flex-1 flex flex-col overflow-hidden
-                       print:overflow-visible print:block"
+      <main className="flex-1 flex flex-col overflow-hidden"
         onClick={() => setMenuUtilisateur(false)}>
         {children}
       </main>

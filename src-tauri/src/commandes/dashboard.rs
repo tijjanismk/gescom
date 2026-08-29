@@ -11,8 +11,22 @@ use crate::commandes::ventes::EtatApp;
 #[tauri::command]
 pub fn lire_resume_dashboard(
     etat: State<EtatApp>,
+    // Depot actif. None ou vide = tous les depots (vue consolidee).
+    depot_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    // Le depot vient d'une liste fermee cote Rust (lire_depots), jamais
+    // d'une saisie libre. On le passe malgre tout en PARAMETRE lie et
+    // non par interpolation : une clause construite par format! est la
+    // porte ouverte a l'injection le jour ou la source change.
+    //
+    // Astuce : `(?N IS NULL OR colonne = ?N)` laisse passer tout quand
+    // le parametre est NULL. Une seule requete couvre les deux cas.
+    let dep: Option<String> = match depot_id {
+        Some(d) if !d.is_empty() => Some(d),
+        _ => None,
+    };
 
     let debut_jour = chrono::Local::now().format("%Y-%m-%dT00:00:00").to_string();
     let debut_semaine = {
@@ -40,14 +54,16 @@ pub fn lire_resume_dashboard(
              FROM ligne_vente WHERE vente_id = v.id)
          ), 0) AS INTEGER)
          FROM vente v
-         WHERE v.date_vente >= ?1 AND v.statut != 'annulee'",
-        rusqlite::params![debut_jour],
+         WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
+           AND (?2 IS NULL OR v.depot_id = ?2)",
+        rusqlite::params![debut_jour, dep],
         |r| r.get(0),
     ).unwrap_or(0);
 
     let nb_ventes_jour: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM vente WHERE date_vente >= ?1 AND statut != 'annulee'",
-        rusqlite::params![debut_jour], |r| r.get(0),
+        "SELECT COUNT(*) FROM vente WHERE date_vente >= ?1 AND statut != 'annulee'
+           AND (?2 IS NULL OR depot_id = ?2)",
+        rusqlite::params![debut_jour, dep], |r| r.get(0),
     ).unwrap_or(0);
 
     // CA semaine
@@ -56,8 +72,9 @@ pub fn lire_resume_dashboard(
             (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
              FROM ligne_vente WHERE vente_id = v.id)
          ), 0) AS INTEGER)
-         FROM vente v WHERE v.date_vente >= ?1 AND v.statut != 'annulee'",
-        rusqlite::params![debut_semaine], |r| r.get(0),
+         FROM vente v WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
+           AND (?2 IS NULL OR v.depot_id = ?2)",
+        rusqlite::params![debut_semaine, dep], |r| r.get(0),
     ).unwrap_or(0);
 
     // CA mois
@@ -68,8 +85,9 @@ pub fn lire_resume_dashboard(
                  FROM ligne_vente WHERE vente_id = v.id)
             ), 0) AS INTEGER),
             COUNT(*)
-         FROM vente v WHERE v.date_vente >= ?1 AND v.statut != 'annulee'",
-        rusqlite::params![debut_mois],
+         FROM vente v WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
+           AND (?2 IS NULL OR v.depot_id = ?2)",
+        rusqlite::params![debut_mois, dep],
         |r| Ok((r.get(0)?, r.get(1)?)),
     ).unwrap_or((0, 0));
 
@@ -81,8 +99,9 @@ pub fn lire_resume_dashboard(
          ), 0) AS INTEGER)
          FROM vente v
          WHERE v.date_vente >= ?1 AND v.date_vente < ?2
-           AND v.statut != 'annulee'",
-        rusqlite::params![debut_mois_prec, fin_mois_prec],
+           AND v.statut != 'annulee'
+           AND (?3 IS NULL OR v.depot_id = ?3)",
+        rusqlite::params![debut_mois_prec, fin_mois_prec, dep],
         |r| r.get(0),
     ).unwrap_or(0);
 
@@ -97,8 +116,9 @@ pub fn lire_resume_dashboard(
             ), 0) AS INTEGER),
             COUNT(DISTINCT v.id)
          FROM vente v
-         WHERE v.statut IN ('creance_ouverte','partiellement_payee')",
-        [],
+         WHERE v.statut IN ('creance_ouverte','partiellement_payee')
+           AND (?1 IS NULL OR v.depot_id = ?1)",
+        rusqlite::params![dep],
         |r| Ok((r.get(0)?, r.get(1)?)),
     ).unwrap_or((0, 0));
 
@@ -123,16 +143,18 @@ pub fn lire_resume_dashboard(
     let stock_ruptures: i64 = conn.query_row(
         "SELECT COUNT(*) FROM stock_depot sd
          JOIN article a ON a.id = sd.article_id
-         WHERE sd.quantite <= 0 AND a.actif = 1 AND a.gere_en_stock = 1",
-        [], |r| r.get(0),
+         WHERE sd.quantite <= 0 AND a.actif = 1 AND a.gere_en_stock = 1
+           AND (?1 IS NULL OR sd.depot_id = ?1)",
+        rusqlite::params![dep], |r| r.get(0),
     ).unwrap_or(0);
 
     let stock_alertes: i64 = conn.query_row(
         "SELECT COUNT(*) FROM stock_depot sd
          JOIN article a ON a.id = sd.article_id
          WHERE sd.quantite > 0 AND sd.quantite < 5
-           AND a.actif = 1 AND a.gere_en_stock = 1",
-        [], |r| r.get(0),
+           AND a.actif = 1 AND a.gere_en_stock = 1
+           AND (?1 IS NULL OR sd.depot_id = ?1)",
+        rusqlite::params![dep], |r| r.get(0),
     ).unwrap_or(0);
 
     // Caisse

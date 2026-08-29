@@ -30,9 +30,15 @@ fn jour(date: &Option<String>) -> String {
 pub fn lire_journal_du_jour(
     etat: State<EtatApp>,
     date: Option<String>,
+    // Depot actif. None = journal consolide, tous magasins.
+    depot_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let j = jour(&date);
+    let dep: Option<String> = match depot_id {
+        Some(d) if !d.is_empty() => Some(d),
+        _ => None,
+    };
 
     // -----------------------------------------------------------------
     //  1. Ventes du jour, ligne par ligne
@@ -50,11 +56,12 @@ pub fn lire_journal_du_jour(
          JOIN unite_vente u ON u.id = lv.unite_vente_id
          LEFT JOIN piece_commerciale p ON p.id = v.piece_id
          WHERE DATE(v.date_vente) = ?1 AND v.statut != 'annulee'
+           AND (?2 IS NULL OR v.depot_id = ?2)
          ORDER BY v.date_vente"
     ).map_err(|e| e.to_string())?;
 
     let ventes: Vec<serde_json::Value> = st.query_map(
-        rusqlite::params![j], |r| {
+        rusqlite::params![j, dep], |r| {
             let ttc: i64 = r.get(6)?;
             let tva: i64 = r.get(7)?;
             Ok(serde_json::json!({
@@ -91,11 +98,12 @@ pub fn lire_journal_du_jour(
          JOIN client c ON c.id = v.client_id
          WHERE DATE(p.date_paiement) = ?1
            AND DATE(v.date_vente) <> ?1
+           AND (?2 IS NULL OR v.depot_id = ?2)
          ORDER BY p.date_paiement"
     ).map_err(|e| e.to_string())?;
 
     let hors_jour: Vec<serde_json::Value> = st.query_map(
-        rusqlite::params![j], |r| {
+        rusqlite::params![j, dep], |r| {
             let total: i64 = r.get(5)?;
             let paye: i64 = r.get(6)?;
             Ok(serde_json::json!({
@@ -127,10 +135,12 @@ pub fn lire_journal_du_jour(
          JOIN client c ON c.id = v.client_id
          WHERE v.statut IN ('creance_ouverte','partiellement_payee')
            AND c.est_generique = 0
+           AND (?1 IS NULL OR v.depot_id = ?1)
          ORDER BY v.date_vente"
     ).map_err(|e| e.to_string())?;
 
-    let impayes: Vec<serde_json::Value> = st.query_map([], |r| {
+    let impayes: Vec<serde_json::Value> = st.query_map(
+        rusqlite::params![dep], |r| {
         let total: i64 = r.get(2)?;
         let paye: i64 = r.get(3)?;
         Ok(serde_json::json!({
@@ -158,11 +168,12 @@ pub fn lire_journal_du_jour(
          LEFT JOIN fournisseur f ON f.id = ms.fournisseur_id
          WHERE ms.type_mouvement = 'achat'
            AND DATE(ms.date_mouvement) = ?1
+           AND (?2 IS NULL OR ms.depot_id = ?2)
          ORDER BY ms.date_mouvement"
     ).map_err(|e| e.to_string())?;
 
     let achats: Vec<serde_json::Value> = st.query_map(
-        rusqlite::params![j], |r| {
+        rusqlite::params![j, dep], |r| {
             let qte: f64 = r.get(2)?;
             let pu: i64 = r.get(3)?;
             Ok(serde_json::json!({
@@ -197,11 +208,12 @@ pub fn lire_journal_du_jour(
          LEFT JOIN client c ON c.id = v.client_id
          WHERE ms.type_mouvement IN ('retour','retour_fournisseur')
            AND DATE(ms.date_mouvement) = ?1
+           AND (?2 IS NULL OR ms.depot_id = ?2)
          ORDER BY ms.date_mouvement"
     ).map_err(|e| e.to_string())?;
 
     let retours: Vec<serde_json::Value> = st.query_map(
-        rusqlite::params![j], |r| {
+        rusqlite::params![j, dep], |r| {
             let qte: f64 = r.get(3)?;
             let pu: i64 = r.get(4)?;
             Ok(serde_json::json!({
@@ -292,6 +304,8 @@ pub fn lire_journal_du_jour(
 
     Ok(serde_json::json!({
         "date": j,
+        // null = journal consolide
+        "depot_id": dep,
         "ventes":     ventes,
         "hors_jour":  hors_jour,
         "impayes":    impayes,

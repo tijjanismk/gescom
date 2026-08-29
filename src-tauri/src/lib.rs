@@ -102,6 +102,18 @@ pub fn run() {
             commandes::caisse::lire_depenses_du_jour,
             // ---- Journal ----
             commandes::journal::lire_journal_du_jour,
+            // ---- Transferts inter-depots ----
+            commandes::transferts::enregistrer_transfert,
+            commandes::transferts::lire_transferts,
+            commandes::transferts::lire_bon_transfert,
+            // ---- Depots / magasins ----
+            commandes::depots::lire_depots_detail,
+            commandes::depots::creer_depot,
+            commandes::depots::renommer_depot,
+            commandes::depots::definir_depot_defaut,
+            commandes::depots::desactiver_depot,
+            commandes::depots::lire_stock_depot,
+            commandes::depots::lire_resume_par_depot,
             // ---- Dashboard ----
             commandes::dashboard::lire_resume_dashboard,
             commandes::dashboard::lire_ventes_du_jour,
