@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  Plus, Printer, Loader2, Search, X,
+  Plus, Printer, Loader2, Search, X, Wallet,
   ArrowRight, FileText, ClipboardList,
   Package, Truck, Receipt, Gift,
   ShoppingBag, CheckCircle2, Copy, Ban, Edit2,
@@ -34,6 +34,7 @@ interface Piece {
   date_piece: string; date_echeance?: string;
   tiers_nom: string; tiers_code: string; tiers_id: string;
   total_ht: number; total_net: number; total_ttc: number;
+  total_paye: number; reste: number;
   remise_globale: number; remise_montant: number;
   note?: string; auteur_nom?: string; piece_origine_id?: string;
 }
@@ -267,8 +268,151 @@ function ModalValiderFacture({
 }
 
 // =====================================================================
-//  Modal : Modifier une pièce (note + échéance)
+//  Modal : Encaisser sur une facture émise
 // =====================================================================
+//
+//  Sur une facture 'emis' on ne pouvait rien faire depuis cet ecran :
+//  ni encaisser, ni solder. Il fallait passer par la fiche client, ou
+//  par l'ecran Fournisseurs. C'est le geste le plus frequent, il doit
+//  etre a portee de main.
+//
+//  Client     -> regler_creance (vente liee, alimente la caisse)
+//  Fournisseur -> regler_dette_fournisseur (impute sur cette facture)
+
+function ModalEncaisser({
+  ouvert, piece, cote, onFermer, onRegle,
+}: {
+  ouvert: boolean;
+  piece: Piece | null;
+  cote: "client" | "fournisseur";
+  onFermer: () => void;
+  onRegle: () => void;
+}) {
+  const [montant, setMontant] = useState("");
+  const [mode, setMode] = useState("especes");
+  const [chargement, setChargement] = useState(false);
+
+  useEffect(() => {
+    if (ouvert && piece) {
+      setMontant(String(piece.reste ?? 0));
+      setMode("especes");
+    }
+  }, [ouvert, piece]);
+
+  async function handleRegler() {
+    if (!piece) return;
+    const val = parseMontant(montant);
+    if (val <= 0) return;
+    setChargement(true);
+    try {
+      if (cote === "client") {
+        // La vente liee porte la creance ; regler_creance fait aussi
+        // passer la piece a 'paye' quand elle est soldee.
+        const venteId = await invoke<string | null>("lire_vente_de_piece", {
+          pieceId: piece.id,
+        });
+        if (!venteId) {
+          throw new Error(
+            "Aucune vente liée à cette facture — impossible d'encaisser."
+          );
+        }
+        await invoke("regler_creance", {
+          venteId, montant: val, mode,
+          utilisateurRole: UTILISATEUR_ACTIF?.role ?? "employe",
+        });
+      } else {
+        await invoke("regler_dette_fournisseur", {
+          fournisseurId: piece.tiers_id,
+          montant: val, mode, note: `Règlement ${piece.numero}`,
+          pieceId: piece.id,
+        });
+      }
+      onRegle();
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    } finally {
+      setChargement(false);
+    }
+  }
+
+  if (!piece) return null;
+
+  return (
+    <Dialog open={ouvert} onOpenChange={onFermer}>
+      <DialogContent style={{ width: "420px", maxWidth: "92vw" }}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Wallet className="h-4 w-4" />
+            Encaisser — {piece.numero}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div className="bg-muted rounded-lg p-3 space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total TTC</span>
+              <span>{fmt(piece.total_ttc)}</span>
+            </div>
+            <div className="flex justify-between text-green-700">
+              <span>Déjà payé</span><span>{fmt(piece.total_paye ?? 0)}</span>
+            </div>
+            <div className="flex justify-between font-bold border-t
+                            border-border pt-1">
+              <span>Reste dû</span><span>{fmt(piece.reste ?? 0)}</span>
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs mb-1.5 block">Montant reçu (F)</Label>
+            <MoneyInput value={montant} onChange={setMontant}
+              placeholder="0" autoFocus />
+          </div>
+          <div>
+            <Label className="text-xs mb-1.5 block">Moyen</Label>
+            <select value={mode} onChange={e => setMode(e.target.value)}
+              className="w-full h-9 px-2 text-sm border border-border
+                         rounded-md bg-background">
+              <option value="especes">Espèces</option>
+              <option value="orange_money">Orange Money</option>
+              <option value="moov_money">Moov Money</option>
+              <option value="cheque">Chèque</option>
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onFermer} className="flex-1">
+              Annuler
+            </Button>
+            <Button onClick={handleRegler}
+              disabled={chargement || !montant} className="flex-1">
+              {chargement
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : "Encaisser"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// =====================================================================
+//  Modal : Modifier une pièce (note, échéance et LIGNES)
+// =====================================================================
+//
+//  L'edition des lignes n'est proposee que sur un brouillon. C'est la
+//  garde de coeur::pieces cote Rust : une piece engageante est figee des
+//  son emission. Le cas d'usage principal est la conversion
+//  commande -> facture, ou une partie de la commande n'est pas livree :
+//  on convertit, on retire les lignes concernees, on valide.
+
+interface LigneEdit {
+  article_id: string;
+  article_nom: string;
+  unite_vente_id: string;
+  unite_libelle: string;
+  quantite: number;
+  prix_unitaire: number;
+  remise_pct: number;
+  taux_tva: number;
+}
 
 function ModalModifierPiece({
   ouvert, piece, onFermer, onModifie,
@@ -279,24 +423,76 @@ function ModalModifierPiece({
   const [note, setNote] = useState(piece?.note ?? "");
   const [dateEcheance, setDateEcheance] = useState(piece?.date_echeance ?? "");
   const [chargement, setChargement] = useState(false);
+  const [lignes, setLignes] = useState<LigneEdit[]>([]);
+  const [chargeLignes, setChargeLignes] = useState(false);
+
+  // Brouillon ET emis acceptent la modification des lignes — cote
+  // client comme cote fournisseur. Une facture soldee ('paye') ou
+  // validee est figee : coeur::pieces la refuse de toute facon.
+  const editable = piece?.statut === "brouillon" || piece?.statut === "emis";
 
   useEffect(() => {
     if (ouvert && piece) {
       setNote(piece.note ?? "");
       setDateEcheance(piece.date_echeance ?? "");
+      setLignes([]);
+      if (piece.statut === "brouillon" || piece.statut === "emis") {
+        setChargeLignes(true);
+        invoke<LigneEdit[]>("lire_lignes_piece", { pieceId: piece.id })
+          .then(setLignes)
+          .catch(console.error)
+          .finally(() => setChargeLignes(false));
+      }
     }
   }, [ouvert, piece]);
+
+  function retirerLigne(i: number) {
+    setLignes(l => l.filter((_, k) => k !== i));
+  }
+  function changerQuantite(i: number, valeur: string) {
+    const q = parseFloat(valeur);
+    setLignes(l => l.map((x, k) =>
+      k === i ? { ...x, quantite: isNaN(q) ? 0 : q } : x));
+  }
+
+  const totalEdit = lignes.reduce(
+    (s, l) => s + Math.round(l.prix_unitaire * l.quantite), 0);
 
   async function handleSauvegarder() {
     if (!piece) return;
     setChargement(true);
     try {
+      // lignes: null => le Rust ne touche pas aux lignes existantes.
+      // On n'envoie la liste que si on l'a chargee ET modifiee.
+      const lignesEnvoi = editable && lignes.length > 0
+        ? lignes
+            .filter(l => l.quantite > 0)
+            .map(l => ({
+              article_id:     l.article_id,
+              unite_vente_id: l.unite_vente_id,
+              quantite:       l.quantite,
+              prix_unitaire:  l.prix_unitaire,
+              remise_pct:     l.remise_pct ?? 0,
+              taux_tva:       l.taux_tva ?? 0,
+            }))
+        : null;
+
+      if (editable && lignes.length > 0 && lignesEnvoi!.length === 0) {
+        await message(
+          "Une pièce doit conserver au moins une ligne. " +
+          "Pour tout retirer, annulez la pièce.",
+          { title: "Modification refusée", kind: "warning" },
+        );
+        setChargement(false);
+        return;
+      }
+
       await invoke("modifier_piece", {
         pieceId: piece.id,
         note: note || null,
         dateEcheance: dateEcheance || null,
         remiseGlobale: null,
-        lignes: null,
+        lignes: lignesEnvoi,
       });
       onModifie();
     } catch (e) {
@@ -308,7 +504,13 @@ function ModalModifierPiece({
 
   return (
     <Dialog open={ouvert} onOpenChange={onFermer}>
-      <DialogContent className="max-w-sm">
+      {/* D22 : shadcn ignore max-w-* sur DialogContent, d'ou le style
+          inline. Meme contournement que ModalNouvellePiece. */}
+      <DialogContent
+        className="overflow-y-auto"
+        style={editable
+          ? { width: "92vw", maxWidth: "1100px", maxHeight: "90vh" }
+          : { width: "420px", maxWidth: "92vw" }}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Edit2 className="h-4 w-4" /> Modifier la pièce
@@ -329,6 +531,66 @@ function ModalModifierPiece({
             <Input value={note} onChange={e => setNote(e.target.value)}
               placeholder="Conditions, remarques..." className="h-9" />
           </div>
+
+          {/* Lignes — brouillon uniquement */}
+          {editable && (
+            <div>
+              <Label className="text-xs mb-1.5 block">
+                Articles ({lignes.length})
+              </Label>
+              {chargeLignes ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
+                </div>
+              ) : (
+                <div className="border border-border rounded-md divide-y divide-border
+                                max-h-64 overflow-auto">
+                  {lignes.map((l, i) => (
+                    <div key={`${l.article_id}-${i}`}
+                      className="flex items-center gap-2 px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm truncate">{l.article_nom}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {fmt(l.prix_unitaire)} / {l.unite_libelle}
+                        </p>
+                      </div>
+                      <Input type="number" min="0" step="any"
+                        value={l.quantite}
+                        onChange={e => changerQuantite(i, e.target.value)}
+                        className="h-8 w-24 text-sm text-right" />
+                      <span className="w-28 text-right text-sm font-medium">
+                        {fmt(Math.round(l.prix_unitaire * l.quantite))}
+                      </span>
+                      <button onClick={() => retirerLigne(i)}
+                        title="Retirer cette ligne"
+                        className="p-1 text-muted-foreground hover:text-destructive">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {lignes.length === 0 && (
+                    <p className="text-sm text-muted-foreground px-3 py-3">
+                      Aucune ligne.
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="flex justify-between mt-2 text-sm">
+                <span className="text-muted-foreground">
+                  Retirer une ligne non livrée puis valider — la pièce
+                  d'origine reste liée.
+                </span>
+                <strong>{fmt(totalEdit)}</strong>
+              </div>
+            </div>
+          )}
+
+          {!editable && (
+            <p className="text-xs text-muted-foreground">
+              Pièce {piece?.statut} : seules la note et l'échéance sont
+              modifiables. Pour corriger les montants, émettre un avoir.
+            </p>
+          )}
           <div className="flex gap-2">
             <Button variant="outline" onClick={onFermer} className="flex-1">Annuler</Button>
             <Button onClick={handleSauvegarder}
@@ -369,6 +631,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
   const [modalNouv, setModalNouv] = useState(false);
   const [factureAValider, setFactureAValider] = useState<Piece | null>(null);
   const [pieceAModifier, setPieceAModifier] = useState<Piece | null>(null);
+  const [pieceAEncaisser, setPieceAEncaisser] = useState<Piece | null>(null);
   const [impressionEnCours, setImpressionEnCours] = useState<string | null>(null);
 
   // Type effectif
@@ -503,7 +766,18 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
     }
   }
 
-  const totalNet = piecesTri.reduce((s, p) => s + p.total_net, 0);
+  // Un devis ou une commande n'a rien a payer : afficher un "reste"
+  // egal au total ferait croire a un impaye. Seules les factures et les
+  // avoirs portent un solde.
+  const estFacture = (p: Piece) =>
+    p.type_piece.startsWith("facture") || p.type_piece.startsWith("avoir");
+
+  const totalNet  = piecesTri.reduce((s, p) => s + p.total_net, 0);
+  const totalTTC  = piecesTri.reduce((s, p) => s + p.total_ttc, 0);
+  const totalPaye = piecesTri
+    .filter(estFacture).reduce((s, p) => s + (p.total_paye ?? 0), 0);
+  const totalReste = piecesTri
+    .filter(estFacture).reduce((s, p) => s + (p.reste ?? 0), 0);
   const pillsActuels = onglet === "client" ? TYPES_PILLS_CLIENT : TYPES_PILLS_FOURNISSEUR;
   const labelTiers = onglet === "client" ? "Client" : "Fournisseur";
 
@@ -642,8 +916,14 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                 <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">
                   Échéance
                 </th>
-                <Th col="montant" label="Montant" align="right" />
-                <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground w-36">
+                <Th col="montant" label="Total TTC" align="right" />
+                <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
+                  Payé
+                </th>
+                <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
+                  Reste
+                </th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground w-40">
                   Actions
                 </th>
               </tr>
@@ -707,12 +987,24 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                       {enRetard && " ⚠"}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
-                      <span className="font-semibold text-sm">{fmt(p.total_net)}</span>
+                      <span className="font-semibold text-sm">{fmt(p.total_ttc)}</span>
                       {p.remise_montant > 0 && (
                         <p className="text-xs text-orange-500 font-normal">
                           −{fmt(p.remise_montant)}
                         </p>
                       )}
+                    </td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap
+                                   text-sm text-green-700">
+                      {estFacture(p) && p.total_paye > 0
+                        ? fmt(p.total_paye) : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap text-sm">
+                      {estFacture(p) && p.reste > 0
+                        ? <span className="font-semibold text-red-600">
+                            {fmt(p.reste)}
+                          </span>
+                        : <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1">
@@ -767,8 +1059,22 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                           </button>
                         )}
 
+                        {/* Encaisser — facture avec reste dû */}
+                        {p.type_piece.startsWith("facture")
+                          && (p.reste ?? 0) > 0
+                          && !["annule","transfere"].includes(p.statut) && (
+                          <button onClick={() => setPieceAEncaisser(p)}
+                            title="Encaisser un règlement"
+                            className="px-2 py-1 rounded-md text-xs font-medium
+                                       border text-emerald-700 border-emerald-200
+                                       hover:bg-emerald-50 hover:border-emerald-400
+                                       whitespace-nowrap">
+                            ₣ Encaisser
+                          </button>
+                        )}
+
                         {/* Modifier — si pas validée/annulée */}
-                        {!["validee","annule","transfere"].includes(p.statut) && (
+                        {!["validee","annule","transfere","paye"].includes(p.statut) && (
                           <button onClick={() => setPieceAModifier(p)}
                             title="Modifier"
                             className="p-1.5 rounded hover:bg-muted transition-colors
@@ -800,6 +1106,26 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                 );
               })}
             </tbody>
+            {/* Totaux de la selection courante — filtres compris. */}
+            <tfoot className="sticky bottom-0 bg-muted/95 backdrop-blur-sm
+                              border-t-2 border-foreground">
+              <tr>
+                <td className="px-3 py-2.5 text-xs font-bold uppercase
+                               text-muted-foreground" colSpan={6}>
+                  Total · {piecesTri.length} pièce(s)
+                </td>
+                <td className="px-3 py-2.5 text-right font-bold text-sm">
+                  {fmt(totalTTC)}
+                </td>
+                <td className="px-3 py-2.5 text-right font-bold text-sm text-green-700">
+                  {totalPaye > 0 ? fmt(totalPaye) : "—"}
+                </td>
+                <td className="px-3 py-2.5 text-right font-bold text-sm text-red-600">
+                  {totalReste > 0 ? fmt(totalReste) : "—"}
+                </td>
+                <td />
+              </tr>
+            </tfoot>
           </table>
         )}
       </div>
@@ -810,6 +1136,15 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
         cote={onglet}
         onFermer={() => setModalNouv(false)}
         onCree={() => { setModalNouv(false); charger(); }}
+      />
+
+      {/* ── Modal encaissement ── */}
+      <ModalEncaisser
+        ouvert={!!pieceAEncaisser}
+        piece={pieceAEncaisser}
+        cote={onglet}
+        onFermer={() => setPieceAEncaisser(null)}
+        onRegle={() => { setPieceAEncaisser(null); charger(); }}
       />
 
       {/* ── Modal modifier pièce ── */}

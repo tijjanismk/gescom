@@ -254,11 +254,6 @@ pub fn lire_config_scanner(
 ) -> Result<bool, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS config_app (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)",
-        [],
-    ).ok();
-
     let actif: String = conn.query_row(
         "SELECT valeur FROM config_app WHERE cle = 'scanner_actif'",
         [], |r| r.get(0),
@@ -273,11 +268,6 @@ pub fn sauvegarder_config_scanner(
     actif: bool,
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS config_app (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)",
-        [],
-    ).ok();
 
     conn.execute(
         "INSERT INTO config_app (cle, valeur) VALUES ('scanner_actif', ?1)

@@ -16,6 +16,7 @@ import { Parametres } from "@/pages/Parametres";
 import { Retours } from "@/pages/Retours";
 import { Relances } from "@/pages/Relances";
 import { Rapports } from "@/pages/Rapports";
+import { Journal } from "@/pages/Journal";
 
 // =====================================================================
 //  Session persistante — localStorage + expiration 8h
@@ -169,6 +170,7 @@ function App() {
       case "caisse":     return <Caisse />;
       case "retours":    return <Retours />;
       case "relances":   return <Relances />;
+      case "journal":    return <Journal />;
       case "rapports":   return <Rapports />;
       case "parametres": return <Parametres />;
       default:           return <Dashboard />;

@@ -86,6 +86,7 @@ pub fn run() {
             // ---- Société & factures ----
             commandes::societe::lire_parametres_societe,
             commandes::societe::sauvegarder_parametres_societe,
+            commandes::societe::lire_donnees_facture,
             // ---- Logo ----
             commandes::logo::sauvegarder_logo,
             commandes::logo::lire_logo_base64,
@@ -136,7 +137,6 @@ pub fn run() {
             commandes::pieces::changer_statut_piece,
             commandes::pieces::lire_donnees_piece,
             commandes::pieces::lire_piece_de_vente,
-            commandes::pieces::lire_vente_de_piece,
             commandes::pieces::lire_fiche_client,
             commandes::pieces::imprimer_piece,
             commandes::pieces::valider_facture,

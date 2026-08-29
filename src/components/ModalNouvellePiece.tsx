@@ -165,26 +165,37 @@ export function ModalNouvellePiece({
     if (!nomNouvelArticle.trim()) return;
     setCreerArticleEnCours(true);
     try {
-      const res = await invoke<any>("creer_article_rapide", {
+      // creer_article_rapide renvoie l'article COMPLET :
+      //   { id, nom, unite_base, stock, unites: [{ id, libelle, ... }] }
+      //
+      // Le code precedent cherchait `res.unite_id`, qui n'existe pas, et
+      // retombait sur `artId`. L'id de l'ARTICLE partait donc comme
+      // unite_vente_id dans la ligne de piece -> violation de cle
+      // etrangere sur unite_vente(id).
+      const res = await invoke<{
+        id: string; nom: string; unite_base: string; stock: number;
+        unites: { id: string; libelle: string; facteur: number;
+                  prix_reference: number }[];
+      }>("creer_article_rapide", {
         nom: nomNouvelArticle.trim(),
         uniteBase: "Unité",
         prixReference: parseInt(prixNouvelArticle) || 0,
       });
-      // creer_article_rapide peut retourner {id, unite_id} ou juste une string id
-      const artId = typeof res === "string" ? res : (res.id ?? res);
-      const uniteId = typeof res === "object" ? (res.unite_id ?? artId) : artId;
+
+      if (!res?.unites?.[0]?.id) {
+        throw new Error(
+          "Article créé mais son unité de vente est introuvable. " +
+          "Ne pas l'ajouter à la pièce."
+        );
+      }
+
       const nouvelArt: Article = {
-        id: artId,
-        nom: nomNouvelArticle.trim(),
-        unite_base: "Unité",
-        stock: 0,
+        id: res.id,
+        nom: res.nom,
+        unite_base: res.unite_base,
+        stock: res.stock ?? 0,
         taux_tva_defaut: 0,
-        unites: [{
-          id: uniteId,
-          libelle: "Unité",
-          facteur: 1,
-          prix_reference: parseInt(prixNouvelArticle) || 0,
-        }],
+        unites: res.unites,
       };
       setArticles(prev => [...prev, nouvelArt]);
       ajouterLigne(nouvelArt);
@@ -510,13 +521,15 @@ export function ModalNouvellePiece({
                           </div>
                         </td>
                         <td className="px-2 py-2 text-right">
-                          {/* Taux non modifiable : il vient de la fiche article
-                              (Parametres -> TVA). Une seule source de verite. */}
-                          <span
-                            className="text-sm text-muted-foreground tabular-nums"
-                            title="Defini dans Parametres -> TVA">
-                            {(l.taux_tva * 100).toFixed(0)} %
-                          </span>
+                          <div className="relative inline-block">
+                            <input type="number" min="0" max="100" step="1"
+                              value={(l.taux_tva * 100).toFixed(0)}
+                              onChange={e => modif(i, "taux_tva", (parseFloat(e.target.value) || 0) / 100)}
+                              className="w-14 h-8 text-right text-sm border border-border
+                                         rounded pl-2 pr-4 bg-background focus:outline-none
+                                         focus:ring-1 focus:ring-primary" />
+                            <span className="absolute right-1 top-2 text-xs text-muted-foreground">%</span>
+                          </div>
                         </td>
                         <td className="px-2 py-2 text-right">
                           <p className="font-semibold">{fmt(montant)}</p>

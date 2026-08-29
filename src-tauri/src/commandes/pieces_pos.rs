@@ -29,18 +29,48 @@ pub fn creer_facture_depuis_vente(
     let numero = crate::commandes::pieces::prochain_numero(&conn, "facture");
     let piece_id = uuid::Uuid::new_v4().to_string();
 
-    // Statut selon mode règlement
-    let statut = if mode_reglement == "comptant" { "validee" } else { "emis" };
+    // Statut selon ce qui est REELLEMENT encaisse, pas selon le mode
+    // annonce. Une vente a credit avec acompte n'est ni "emis" tout
+    // court (le client a paye une partie) ni soldee.
+    let total_vente: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(prix_pratique * quantite), 0) AS INTEGER)
+         FROM ligne_vente WHERE vente_id = ?1",
+        rusqlite::params![vente_id], |r| r.get(0),
+    ).unwrap_or(0);
+
+    let total_paye: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
+         FROM paiement WHERE vente_id = ?1",
+        rusqlite::params![vente_id], |r| r.get(0),
+    ).unwrap_or(0);
+
+    let statut = if total_paye >= total_vente && total_vente > 0 {
+        // Soldee des l'emission — comptant, ou credit paye d'avance.
+        // 'paye' et non 'validee' : toute facture existante a produit
+        // ses effets, seul le reglement distingue les etats.
+        "paye"
+    } else {
+        // Emise, avec ou sans acompte. Passera a "paye" au solde de la
+        // creance (voir creances.rs).
+        "emis"
+    };
+    let _ = &mode_reglement;
 
     // Créer la pièce
     conn.execute(
         "INSERT INTO piece_commerciale
          (id, type_piece, numero, statut, tiers_type, tiers_id,
           auteur_id, date_piece, remise_globale, note, cree_le, modifie_le, origine)
-         VALUES (?1,'facture',?2,?3,'client',?4,?5,?6,0.0,'Vente POS',?7,?8,'pos')",
+         VALUES (?1,'facture',?2,?3,'client',?4,?5,?6,0.0,?7,?8,?9,'pos')",
         rusqlite::params![
             piece_id, numero, statut,
-            client_id, auteur_id, now, now, now
+            client_id, auteur_id, now,
+            if total_paye > 0 && total_paye < total_vente {
+                format!("Vente POS — acompte reçu {} F", total_paye)
+            } else {
+                "Vente POS".to_string()
+            },
+            now, now
         ],
     ).map_err(|e| e.to_string())?;
 

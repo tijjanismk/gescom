@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Wallet, RefreshCw, Loader2, TrendingUp, TrendingDown,
-  Lock, Unlock, AlertTriangle, CheckCircle2
+  Lock, Unlock, AlertTriangle, CheckCircle2, MinusCircle
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,6 @@ import {
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { UTILISATEUR_ACTIF } from "@/App";
-import type { ResumeCaisseApi, MouvementCaisseApi } from "@/lib/types-api";
 
 // =====================================================================
 //  Types
@@ -40,6 +39,8 @@ interface MouvementCaisse {
   montant: number;
   motif: string;
   date_mouvement: string;
+  /** Texte saisi pour une dépense — vide pour les mouvements automatiques. */
+  libelle?: string | null;
 }
 
 function fmt(n: number): string {
@@ -61,6 +62,10 @@ function fmtDate(iso: string): string {
 function fmtMotif(motif: string): string {
   return {
     vente: "Vente",
+    achat: "Achat",
+    reglement_fournisseur: "Règlement fournisseur",
+    retour_fournisseur: "Retour fournisseur",
+    depense: "Dépense",
     remboursement: "Remboursement",
     remboursement_reliquat: "Remboursement reliquat",
     complement_echange: "Complément échange",
@@ -131,6 +136,131 @@ function ModalOuvertureSession({
             <Button variant="outline" onClick={onFermer} className="flex-1">Annuler</Button>
             <Button onClick={handleOuvrir} disabled={chargement} className="flex-1">
               {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ouvrir"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// =====================================================================
+//  Modal : Saisie d'une dépense
+// =====================================================================
+//
+//  Une depense n'est ni un achat ni un reglement fournisseur : loyer,
+//  transport, carburant. Sans ce module, ces sorties d'argent
+//  n'apparaissaient nulle part et la caisse semblait en excedent.
+
+// Postes de depense. "autre" est le defaut : mieux vaut une depense
+// non ventilee qu'une depense non saisie.
+const CATEGORIES_DEPENSE = [
+  { value: "transport",   label: "Transport"        },
+  { value: "carburant",   label: "Carburant"        },
+  { value: "loyer",       label: "Loyer"            },
+  { value: "salaire",     label: "Salaire / main d'œuvre" },
+  { value: "electricite", label: "Électricité"      },
+  { value: "eau",         label: "Eau"              },
+  { value: "fourniture",  label: "Fournitures"      },
+  { value: "entretien",   label: "Entretien"        },
+  { value: "taxe",        label: "Taxe / impôt"     },
+  { value: "autre",       label: "Autre"            },
+];
+
+function ModalDepense({
+  ouvert, onAnnuler, onEnregistre,
+}: {
+  ouvert: boolean;
+  onAnnuler: () => void;
+  onEnregistre: () => void;
+}) {
+  const [montant, setMontant] = useState("");
+  const [libelle, setLibelle] = useState("");
+  const [categorie, setCategorie] = useState("autre");
+  const [moyen, setMoyen] = useState("especes");
+  const [chargement, setChargement] = useState(false);
+
+  async function handleEnregistrer() {
+    const val = parseMontant(montant);
+    if (val <= 0 || !libelle.trim()) return;
+    setChargement(true);
+    try {
+      await invoke("enregistrer_depense", {
+        montant: val,
+        libelle: libelle.trim(),
+        categorie,
+        moyen,
+        utilisateurRole: UTILISATEUR_ACTIF?.role ?? "employe",
+      });
+      setMontant(""); setLibelle(""); setMoyen("especes");
+      setCategorie("autre");
+      onEnregistre();
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    } finally {
+      setChargement(false);
+    }
+  }
+
+  return (
+    <Dialog open={ouvert} onOpenChange={onAnnuler}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MinusCircle className="h-4 w-4" /> Enregistrer une dépense
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div>
+            <Label>Libellé</Label>
+            <input
+              value={libelle}
+              onChange={e => setLibelle(e.target.value)}
+              placeholder="Transport, carburant, loyer…"
+              autoFocus
+              className="mt-1 w-full h-9 px-3 text-sm border border-border
+                         rounded-md bg-background focus:outline-none
+                         focus:ring-1 focus:ring-primary" />
+          </div>
+          <div>
+            <Label>Montant (F)</Label>
+            <MoneyInput value={montant} onChange={setMontant}
+              placeholder="0" className="mt-1" />
+          </div>
+          <div>
+            <Label>Poste</Label>
+            <select value={categorie} onChange={e => setCategorie(e.target.value)}
+              className="mt-1 w-full h-9 px-2 text-sm border border-border
+                         rounded-md bg-background">
+              {CATEGORIES_DEPENSE.map(c => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label>Moyen</Label>
+            <select value={moyen} onChange={e => setMoyen(e.target.value)}
+              className="mt-1 w-full h-9 px-2 text-sm border border-border
+                         rounded-md bg-background">
+              <option value="especes">Espèces</option>
+              <option value="orange_money">Orange Money</option>
+              <option value="moov_money">Moov Money</option>
+              <option value="cheque">Chèque</option>
+            </select>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Seules les dépenses en espèces sortent du tiroir physique.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onAnnuler} className="flex-1">
+              Annuler
+            </Button>
+            <Button onClick={handleEnregistrer}
+              disabled={chargement || !montant || !libelle.trim()}
+              className="flex-1">
+              {chargement
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : "Enregistrer"}
             </Button>
           </div>
         </div>
@@ -264,13 +394,14 @@ export function Caisse() {
   const [chargement, setChargement] = useState(true);
   const [modalOuverture, setModalOuverture] = useState(false);
   const [modalFermeture, setModalFermeture] = useState(false);
+  const [modalDepense, setModalDepense] = useState(false);
 
   const charger = useCallback(async () => {
     setChargement(true);
     try {
       const [r, m] = await Promise.all([
-        invoke<ResumeCaisseApi>("lire_resume_caisse"),
-        invoke<MouvementCaisseApi[]>("lire_mouvements_caisse_du_jour"),
+        invoke<ResumeCaisse>("lire_resume_caisse"),
+        invoke<MouvementCaisse[]>("lire_mouvements_caisse_du_jour"),
       ]);
       setResume(r);
       setMouvements(m);
@@ -313,6 +444,12 @@ export function Caisse() {
           <Button variant="outline" size="sm" onClick={charger}>
             <RefreshCw className="h-4 w-4 mr-2" /> Actualiser
           </Button>
+          {sessionOuverte && (
+            <Button variant="outline" size="sm"
+              onClick={() => setModalDepense(true)}>
+              <MinusCircle className="h-4 w-4 mr-2" /> Dépense
+            </Button>
+          )}
           {sessionOuverte ? (
             <Button variant="destructive" size="sm"
               onClick={() => setModalFermeture(true)}>
@@ -406,10 +543,13 @@ export function Caisse() {
               {mouvements.map(m => (
                 <div key={m.id}
                   className="flex items-center justify-between px-4 py-2.5 hover:bg-muted/40">
-                  <div>
-                    <p className="text-sm font-medium">{fmtMotif(m.motif)}</p>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {m.libelle || fmtMotif(m.motif)}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {fmtHeure(m.date_mouvement)} · {fmtMoyen(m.moyen)}
+                      {m.libelle && ` · ${fmtMotif(m.motif)}`}
                     </p>
                   </div>
                   <span className={`text-sm font-semibold ${
@@ -423,6 +563,14 @@ export function Caisse() {
           )}
         </CardContent>
       </Card>
+
+      <ModalDepense
+        ouvert={modalDepense}
+        onAnnuler={() => setModalDepense(false)}
+        onEnregistre={async () => {
+          setModalDepense(false);
+          await charger();
+        }} />
 
       <ModalOuvertureSession
         ouvert={modalOuverture}

@@ -52,9 +52,12 @@ interface TopArticle {
 function fmt(n: number) {
   return new Intl.NumberFormat("fr-ML").format(n) + " F";
 }
+// Montants TOUJOURS en entier, jamais abreges.
+//
+// "1,2M F" cache la difference entre 1 150 000 et 1 249 999 — sur des
+// FCFA, l'ecart depasse le CA d'une journee. Un commercant qui compare
+// son tableau de bord a sa caisse doit voir le meme nombre.
 function fmtCompact(n: number) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M F";
-  if (n >= 1_000) return (n / 1_000).toFixed(0) + "k F";
   return fmt(n);
 }
 function pct(a: number, b: number) {

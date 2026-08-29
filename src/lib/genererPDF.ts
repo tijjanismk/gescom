@@ -113,6 +113,26 @@ export function genererPieceHTML(
         ${fmt(hasTVA ? totaux.total_ttc : totaux.total_net, devise)}
       </td>
     </tr>`);
+
+    // Acompte et reste du : affiches des qu'il reste quelque chose a
+    // payer, meme sans acompte. Le client doit lire sur son document ce
+    // qu'il doit encore — c'est la premiere source de litige.
+    if (totaux.reste_du > 0 && piece.type_piece === "facture") {
+      if (totaux.total_paye > 0) {
+        rows.push(`<tr>
+          <td style="padding:3px 8px;color:#555">Acompte reçu</td>
+          <td style="padding:3px 8px;text-align:right">
+            −${fmt(totaux.total_paye, devise)}
+          </td>
+        </tr>`);
+      }
+      rows.push(`<tr style="border-top:1px solid #000;background:#fff5f5">
+        <td style="padding:7px 8px;font-weight:bold;color:#c00">RESTE DÛ</td>
+        <td style="padding:7px 8px;text-align:right;font-weight:bold;color:#c00">
+          ${fmt(totaux.reste_du, devise)}
+        </td>
+      </tr>`);
+    }
     return rows.join("");
   }
 
@@ -329,6 +349,15 @@ export function genererTicketThermique(
     <span>${totaux.total_tva > 0 ? "TOTAL TTC" : "TOTAL"}</span>
     <span>${fmt(totaux.total_ttc, devise)}</span>
   </div>
+  ${totaux.reste_du > 0 && piece.type_piece === "facture" ? `
+    ${totaux.total_paye > 0 ? `
+      <div style="display:flex;justify-content:space-between">
+        <span>Acompte reçu</span><span>−${fmt(totaux.total_paye, devise)}</span>
+      </div>` : ""}
+    <div style="border-top:1px solid #000;margin:3px 0"></div>
+    <div style="display:flex;justify-content:space-between;font-weight:bold">
+      <span>RESTE DÛ</span><span>${fmt(totaux.reste_du, devise)}</span>
+    </div>` : ""}
   <div style="border-top:1px dashed #000;margin:4px 0"></div>
   <div style="text-align:center;font-size:10px;margin-top:4px">
     ${societe.pied_facture ?? "Merci de votre confiance !"}

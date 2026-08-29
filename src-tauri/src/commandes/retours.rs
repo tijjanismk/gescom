@@ -27,7 +27,7 @@ pub fn lire_ventes_recentes(
                 f.numero
          FROM vente v
          JOIN client c ON c.id = v.client_id
-         LEFT JOIN facture f ON f.vente_id = v.id AND f.statut = 'validee'
+         LEFT JOIN piece_commerciale f ON f.id = v.piece_id
          ORDER BY v.date_vente DESC
          LIMIT 50"
     ).map_err(|e| e.to_string())?;
@@ -396,7 +396,7 @@ fn creer_avoir_client(
          (id, type_piece, numero, statut, tiers_type, tiers_id,
           auteur_id, date_piece, remise_globale, note,
           cree_le, modifie_le, origine)
-         VALUES (?1,'avoir_client',?2,'validee','client',?3,
+         VALUES (?1,'avoir_client',?2,'emis','client',?3,
                  ?4,?5,0.0,?6,?7,?8,'retour')",
         rusqlite::params![
             piece_id, numero, client_id, auteur_id, maintenant,

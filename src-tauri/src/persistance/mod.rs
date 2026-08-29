@@ -56,6 +56,16 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     conn.execute(
         "ALTER TABLE paiement_fournisseur ADD COLUMN piece_id TEXT", []
     ).ok();
+    // Depenses : un mouvement de caisse libre a besoin d'un libelle.
+    // motif reste la categorie technique ('vente', 'achat', 'depense'),
+    // libelle porte le texte saisi par le commercant.
+    conn.execute(
+        "ALTER TABLE mouvement_caisse ADD COLUMN libelle TEXT", []
+    ).ok();
+    // Poste de depense, pour ventiler le journal (transport, loyer...).
+    conn.execute(
+        "ALTER TABLE mouvement_caisse ADD COLUMN categorie TEXT", []
+    ).ok();
 
     // ---- Nouvelles tables (une par une pour éviter stack overflow) ----
 

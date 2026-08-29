@@ -123,6 +123,16 @@ pub fn lire_toutes_pieces_client(
                   (SELECT SUM(lp.montant_tva)
                    FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0
                 ) AS INTEGER) as total_tva,
+                -- Encaisse : via la vente liee (client) ou via les
+                -- paiements imputes a la piece (fournisseur).
+                CAST(COALESCE(
+                  (SELECT SUM(pa.montant) FROM paiement pa
+                   JOIN vente ve ON ve.id = pa.vente_id
+                   WHERE ve.piece_id = pc.id)
+                  , 0) + COALESCE(
+                  (SELECT SUM(pf.montant) FROM paiement_fournisseur pf
+                   WHERE pf.piece_id = pc.id)
+                  , 0) AS INTEGER) as total_paye,
                 u.nom as auteur_nom,
                 pc.piece_origine_id
          FROM piece_commerciale pc
@@ -138,9 +148,12 @@ pub fn lire_toutes_pieces_client(
     let rows: Vec<serde_json::Value> = stmt.query_map([], |row| {
         let total_ht: i64 = row.get(11)?;
         let total_tva: i64 = row.get(12)?;
+        let total_paye: i64 = row.get(13)?;
         let remise_g: f64 = row.get(6).unwrap_or(0.0);
         let remise_mt = (total_ht as f64 * remise_g / 100.0).round() as i64;
         let total_net = total_ht - remise_mt;
+        let total_ttc_calc = total_net + total_tva;
+        let reste = (total_ttc_calc - total_paye).max(0);
         Ok(serde_json::json!({
             "id":               row.get::<_,String>(0)?,
             "type_piece":       row.get::<_,String>(1)?,
@@ -157,9 +170,12 @@ pub fn lire_toutes_pieces_client(
             "total_tva":        total_tva,
             "remise_montant":   remise_mt,
             "total_net":        total_net,
-            "total_ttc":        total_net + total_tva,
-            "auteur_nom":       row.get::<_,Option<String>>(13)?,
-            "piece_origine_id": row.get::<_,Option<String>>(14)?,
+            "total_ttc":        total_ttc_calc,
+            "total_paye":       total_paye,
+            "reste":            reste,
+            // Index decales de 1 : total_paye s'est insere en 13.
+            "auteur_nom":       row.get::<_,Option<String>>(14)?,
+            "piece_origine_id": row.get::<_,Option<String>>(15)?,
         }))
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
@@ -219,7 +235,7 @@ pub fn lire_lignes_piece(
             "id":             row.get::<_,String>(0)?,
             "article_id":     row.get::<_,String>(1)?,
             "article_nom":    row.get::<_,String>(2)?,
-            "unite_id":       row.get::<_,String>(3)?,
+            "unite_vente_id":       row.get::<_,String>(3)?,
             "unite_libelle":  row.get::<_,String>(4)?,
             "facteur":        row.get::<_,f64>(5)?,
             "quantite":       row.get::<_,f64>(6)?,
@@ -402,7 +418,11 @@ pub fn convertir_piece(
          (id, type_piece, numero, statut, tiers_type, tiers_id,
           piece_origine_id, auteur_id, date_piece, date_echeance,
           remise_globale, note, cree_le, modifie_le, origine)
-         VALUES (?1,?2,?3,?4,'client',?5,?6,?7,?8,?9,?10,?11,?12,?13,'app')",
+         VALUES (?1,?2,?3,?4,
+         CASE WHEN ?2 IN ('bon_commande_fournisseur','bon_reception',
+                          'facture_fournisseur','avoir_fournisseur')
+              THEN 'fournisseur' ELSE 'client' END,
+         ?5,?6,?7,?8,?9,?10,?11,?12,?13,'app')",
         rusqlite::params![
             nouvelle_id, nouveau_type, numero, statut_nouveau,
             client_id, piece_id, auteur,
@@ -500,13 +520,13 @@ pub fn valider_facture(
     let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
     // Vérifier que c'est bien une facture brouillon
-    let (client_id, type_p, statut, remise_g, depot_id_opt):
-        (String, String, String, f64, Option<String>) =
+    let (client_id, type_p, statut, remise_g, depot_id_opt, numero):
+        (String, String, String, f64, Option<String>, String) =
         conn.query_row(
-            "SELECT tiers_id, type_piece, statut, remise_globale, depot_id
+            "SELECT tiers_id, type_piece, statut, remise_globale, depot_id, numero
              FROM piece_commerciale WHERE id = ?1",
             rusqlite::params![piece_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
         ).map_err(|_| "Pièce introuvable".to_string())?;
 
     if type_p != "facture" {
@@ -575,13 +595,17 @@ pub fn valider_facture(
     // 1. Créer la vente
     let vente_id = uuid::Uuid::new_v4().to_string();
     tx.execute(
+        // piece_id : SANS ce lien, regler_creance ne retrouve pas la
+        // piece a passer en 'paye'. Une facture soldee restait 'emis',
+        // donc encore modifiable — c'etait le trou signale.
         "INSERT INTO vente
          (id, client_id, depot_id, mode_reglement, auteur_id, statut,
-          date_vente, cree_le, modifie_le, cree_par, modifie_par, origine)
-         VALUES (?1,?2,?3,?4,?5,'creance_ouverte',?6,?7,?8,?9,?10,'app')",
+          date_vente, cree_le, modifie_le, cree_par, modifie_par, origine,
+          piece_id)
+         VALUES (?1,?2,?3,?4,?5,'creance_ouverte',?6,?7,?8,?9,?10,'app',?11)",
         rusqlite::params![
             vente_id, client_id, depot_id, mode_reglement,
-            auteur_id, now, now, now, auteur_id, auteur_id
+            auteur_id, now, now, now, auteur_id, auteur_id, piece_id
         ],
     ).map_err(|e| e.to_string())?;
 
@@ -638,25 +662,10 @@ pub fn valider_facture(
     }
 
     // 3. Numéro de facture lié à la vente
-    let annee = chrono::Local::now().format("%Y").to_string();
-    let nb_fac: i64 = tx.query_row(
-        "SELECT COUNT(*) FROM facture WHERE numero LIKE ?1",
-        rusqlite::params![format!("GESCOM-{}-%" , annee)],
-        |r| r.get(0),
-    ).unwrap_or(0);
-    let numero_fac = format!("GESCOM-{}-{:06}", annee, nb_fac + 1);
-    let facture_id = uuid::Uuid::new_v4().to_string();
-
-    tx.execute(
-        "INSERT INTO facture
-         (id, numero, vente_id, statut, total, date_validation,
-          cree_le, modifie_le, cree_par, modifie_par, origine)
-         VALUES (?1,?2,?3,'validee',?4,?5,?6,?7,?8,?9,'app')",
-        rusqlite::params![
-            facture_id, numero_fac, vente_id, total_net,
-            now, now, now, auteur_id, auteur_id
-        ],
-    ).map_err(|e| e.to_string())?;
+    // La table `facture` legacy n'est plus alimentee : piece_commerciale
+    // est le referentiel unique. Elle l'etait encore ici, donc chaque
+    // facture validee depuis l'ecran Pieces portait DEUX numeros —
+    // GESCOM-… et FAC-…. Le client en voyait un, l'ecran l'autre.
 
     // 4. Paiement si comptant
     if mode_reglement == "comptant" {
@@ -687,7 +696,7 @@ pub fn valider_facture(
                 "INSERT INTO mouvement_caisse
                  (id, session_id, sens, moyen, montant, motif,
                   operation_id, date_mouvement, cree_le, cree_par, origine)
-                 VALUES (?1,?2,'entree',?3,?4,'vente_facture',?5,?6,?7,?8,'app')",
+                 VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?7,?8,'app')",
                 rusqlite::params![
                     uuid::Uuid::new_v4().to_string(), session_id,
                     mode_p, total_net, vente_id, now, now, auteur_id
@@ -709,6 +718,27 @@ pub fn valider_facture(
                 ],
             ).map_err(|e| e.to_string())?;
 
+            // ENTREE de caisse : l'acompte est de l'argent recu. La
+            // branche comptant le faisait, pas celle-ci — l'acompte
+            // n'apparaissait donc jamais dans le tiroir et la cloture
+            // affichait un manque de ce montant.
+            let session: Option<String> = tx.query_row(
+                "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
+                [], |r| r.get(0),
+            ).ok();
+            if let Some(sid) = session {
+                tx.execute(
+                    "INSERT INTO mouvement_caisse
+                     (id, session_id, sens, moyen, montant, motif,
+                      operation_id, date_mouvement, cree_le, cree_par, origine)
+                     VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?7,?8,'app')",
+                    rusqlite::params![
+                        uuid::Uuid::new_v4().to_string(),
+                        sid, mode_p, ac, vente_id, now, now, auteur_id
+                    ],
+                ).map_err(|e| e.to_string())?;
+            }
+
             let statut_v = if ac >= total_net { "payee" } else { "partiellement_payee" };
             tx.execute(
                 "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
@@ -717,20 +747,39 @@ pub fn valider_facture(
         }
     }
 
-    // 5. Marquer la facture pièce comme validée + lier à la vente
+    // 5. Statut de la piece selon ce qui est REELLEMENT encaisse.
+    //    Soldee -> "validee" (effets produits et rien du).
+    //    Acompte ou credit sec -> "emis", passera a "paye" au solde
+    //    de la creance (creances.rs).
+    let encaisse: i64 = if mode_reglement == "comptant" {
+        total_net
+    } else {
+        acompte.unwrap_or(0)
+    };
+    // Statuts factures : 'paye' (soldee) ou 'emis' (reste du).
+    // 'validee' voulait dire "effets produits", mais toute facture qui
+    // existe a produit ses effets — le mot n'apportait rien et faisait
+    // doublon avec 'paye'.
+    let statut_piece = if encaisse >= total_net { "paye" } else { "emis" };
+
     tx.execute(
         "UPDATE piece_commerciale
-         SET statut = 'validee', modifie_le = ?1 WHERE id = ?2",
-        rusqlite::params![now, piece_id],
+         SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
+        rusqlite::params![statut_piece, now, piece_id],
     ).map_err(|e| e.to_string())?;
 
     tx.commit().map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "vente_id":      vente_id,
-        "numero_facture": numero_fac,
+        // Le numero est celui de la piece elle-meme (FAC-…), plus un
+        // GESCOM- distinct comme avant.
+        "numero_facture": numero,
         "total_net":     total_net,
-        "statut_vente":  if mode_reglement == "comptant" { "payee" } else { "creance_ouverte" },
+        "statut_piece":  statut_piece,
+        "statut_vente":  if encaisse >= total_net { "payee" }
+                         else if encaisse > 0 { "partiellement_payee" }
+                         else { "creance_ouverte" },
     }))
 }
 
@@ -858,6 +907,23 @@ pub fn lire_donnees_piece(
     }
     let total_ttc = somme_ttc as i64;
 
+    // Acompte : montant deja encaisse sur la vente liee a cette piece.
+    // Une facture credit avec acompte doit afficher ce qui a ete verse
+    // et ce qui reste du, sinon le client conteste le montant.
+    // Acompte : cherche via la vente liee (POS) OU via un paiement
+    // direct sur la piece (valider_facture avec acompte).
+    // Depuis que valider_facture renseigne vente.piece_id, un seul
+    // chemin suffit. L'UNION ALL precedent comptait DEUX FOIS les
+    // paiements a credit, qui satisfaisaient les deux branches.
+    let total_paye: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(p.montant), 0) AS INTEGER)
+         FROM paiement p
+         JOIN vente v ON v.id = p.vente_id
+         WHERE v.piece_id = ?1 AND p.mode <> 'avoir'",
+        rusqlite::params![piece_id], |r| r.get(0),
+    ).unwrap_or(0);
+    let reste_du = (total_ttc - total_paye).max(0);
+
     let societe = conn.query_row(
         "SELECT nom, adresse, telephone, telephone2, email, nif, rccm,
                 pied_facture, devise
@@ -886,6 +952,8 @@ pub fn lire_donnees_piece(
             "remise_montant": remise_mt,
             "total_net":      total_net,
             "total_ttc":      total_ttc,
+            "total_paye":     total_paye,
+            "reste_du":       reste_du,
         }
     }))
 }
@@ -1034,6 +1102,16 @@ pub fn lire_toutes_pieces_fournisseur(
                 CAST(COALESCE(
                   (SELECT SUM(lp.montant_tva) FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0
                 ) AS INTEGER) as total_tva,
+                -- Encaisse : via la vente liee (client) ou via les
+                -- paiements imputes a la piece (fournisseur).
+                CAST(COALESCE(
+                  (SELECT SUM(pa.montant) FROM paiement pa
+                   JOIN vente ve ON ve.id = pa.vente_id
+                   WHERE ve.piece_id = pc.id)
+                  , 0) + COALESCE(
+                  (SELECT SUM(pf.montant) FROM paiement_fournisseur pf
+                   WHERE pf.piece_id = pc.id)
+                  , 0) AS INTEGER) as total_paye,
                 u.nom as auteur_nom,
                 pc.piece_origine_id
          FROM piece_commerciale pc
@@ -1049,9 +1127,12 @@ pub fn lire_toutes_pieces_fournisseur(
     let x = stmt.query_map([], |row| {
         let total_ht: i64 = row.get(11)?;
         let total_tva: i64 = row.get(12)?;
+        let total_paye: i64 = row.get(13)?;
         let remise_g: f64 = row.get(6).unwrap_or(0.0);
         let remise_mt = (total_ht as f64 * remise_g / 100.0).round() as i64;
         let total_net = total_ht - remise_mt;
+        let total_ttc_calc = total_net + total_tva;
+        let reste = (total_ttc_calc - total_paye).max(0);
         Ok(serde_json::json!({
             "id":               row.get::<_,String>(0)?,
             "type_piece":       row.get::<_,String>(1)?,
@@ -1068,9 +1149,12 @@ pub fn lire_toutes_pieces_fournisseur(
             "total_tva":        total_tva,
             "remise_montant":   remise_mt,
             "total_net":        total_net,
-            "total_ttc":        total_net + total_tva,
-            "auteur_nom":       row.get::<_,Option<String>>(13)?,
-            "piece_origine_id": row.get::<_,Option<String>>(14)?,
+            "total_ttc":        total_ttc_calc,
+            "total_paye":       total_paye,
+            "reste":            reste,
+            // Index decales de 1 : total_paye s'est insere en 13.
+            "auteur_nom":       row.get::<_,Option<String>>(14)?,
+            "piece_origine_id": row.get::<_,Option<String>>(15)?,
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
     Ok(x)
@@ -1215,6 +1299,32 @@ pub fn annuler_piece(
     let now = maintenant_iso();
     let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
 
+    // Acompte deja encaisse -> sortie de caisse pour equilibre du tiroir.
+    let acompte: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(p.montant),0) AS INTEGER)
+         FROM paiement p
+         JOIN vente v ON v.id = p.vente_id
+         WHERE v.piece_id = ?1 AND p.mode <> 'avoir'",
+        rusqlite::params![piece_id], |r| r.get(0),
+    ).unwrap_or(0);
+    if acompte > 0 {
+        if let Ok(Some(sid)) = conn.query_row::<Option<String>, _, _>(
+            "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
+            [], |r| r.get(0),
+        ) {
+            conn.execute(
+                "INSERT INTO mouvement_caisse
+                 (id, session_id, sens, moyen, montant, motif, libelle,
+                  date_mouvement, cree_le, cree_par, origine)
+                 VALUES (?1,?2,'sortie','especes',?3,'remboursement',
+                         'Annulation — acompte rendu',?4,?5,?6,'app')",
+                rusqlite::params![
+                    uuid::Uuid::new_v4().to_string(), sid, acompte, now, now, auteur
+                ],
+            ).ok();
+        }
+    }
+
     conn.execute(
         "UPDATE piece_commerciale
          SET statut = 'annule', note = COALESCE(?1, note), modifie_le = ?2
@@ -1306,4 +1416,233 @@ pub fn lire_piece_de_vente(
         |r| r.get(0),
     ).map_err(|_| "Vente introuvable".to_string())?;
     Ok(piece_id)
+}
+
+/// Annule une facture client PAR AVOIR — la seule annulation possible
+/// une fois que la facture a produit ses effets.
+///
+/// Pourquoi pas une suppression : la facture porte un numero dans une
+/// serie sequentielle et a genere une vente, une sortie de stock et
+/// parfois un encaissement. L'effacer laisserait un trou dans la serie
+/// et des ecritures orphelines. La contrepartie est un avoir AVC, qui
+/// documente l'annulation au lieu de la masquer.
+///
+/// Ce que la commande defait reellement :
+///   - le stock est reintegre (mouvement 'retour')
+///   - la vente passe en 'annulee' et sort des creances
+///   - l'acompte deja encaisse est SOIT rembourse en caisse,
+///     SOIT transforme en avoir client utilisable plus tard
+///   - un AVC est cree, lie a la facture d'origine
+#[tauri::command]
+pub fn annuler_facture_par_avoir(
+    etat: State<EtatApp>,
+    piece_id: String,
+    // "especes" -> remboursement immediat | "avoir" -> credit client
+    mode_remboursement: Option<String>,
+    // Moyen si remboursement : especes | orange_money | moov_money
+    moyen: Option<String>,
+    motif: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let (type_piece, statut, client_id, numero_src): (String, String, String, String) =
+        conn.query_row(
+            "SELECT type_piece, statut, tiers_id, numero
+             FROM piece_commerciale WHERE id = ?1",
+            rusqlite::params![piece_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).map_err(|_| "Pièce introuvable".to_string())?;
+
+    if type_piece != "facture" {
+        return Err("Seule une facture client s'annule par avoir".to_string());
+    }
+    if statut == "annule" {
+        return Err("Facture déjà annulée".to_string());
+    }
+
+    // Vente liee — c'est elle qui porte les effets.
+    let vente: Option<(String, String)> = conn.query_row(
+        "SELECT id, depot_id FROM vente WHERE piece_id = ?1",
+        rusqlite::params![piece_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).ok();
+
+    let numero_avoir = prochain_numero(&conn, "avoir_client");
+    let now = maintenant_iso();
+    let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
+    let rembourse = mode_remboursement.as_deref() != Some("avoir");
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let avoir_piece_id = uuid::Uuid::new_v4().to_string();
+    let mut total_avoir: i64 = 0;
+    let mut acompte: i64 = 0;
+
+    // ---- 1. Piece AVC, copie des lignes de la facture ----
+    tx.execute(
+        "INSERT INTO piece_commerciale
+         (id, type_piece, numero, statut, tiers_type, tiers_id,
+          piece_origine_id, auteur_id, date_piece, remise_globale, note,
+          cree_le, modifie_le, origine)
+         VALUES (?1,'avoir_client',?2,?3,'client',?4,?5,?6,?7,0.0,?8,?9,?10,'annulation')",
+        rusqlite::params![
+            avoir_piece_id, numero_avoir,
+            // 'paye' si l'acompte est rendu, 'emis' si le client garde
+            // un credit a consommer. Meme regle que les factures.
+            if rembourse { "paye" } else { "emis" },
+            client_id, piece_id, auteur, now,
+            motif.clone().unwrap_or_else(|| format!("Annulation de {}", numero_src)),
+            now, now
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    let lignes = lire_lignes_raw(&tx, &piece_id)?;
+    inserer_lignes_raw(&tx, &avoir_piece_id, &lignes, &now)?;
+
+    // ---- 2. Defaire les effets de la vente ----
+    if let Some((vente_id, depot_id)) = vente {
+        total_avoir = tx.query_row(
+            "SELECT CAST(COALESCE(SUM(prix_pratique * quantite), 0) AS INTEGER)
+             FROM ligne_vente WHERE vente_id = ?1",
+            rusqlite::params![vente_id], |r| r.get(0),
+        ).unwrap_or(0);
+
+        acompte = tx.query_row(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
+             FROM paiement WHERE vente_id = ?1 AND mode <> 'avoir'",
+            rusqlite::params![vente_id], |r| r.get(0),
+        ).unwrap_or(0);
+
+        // Reintegration du stock, ligne par ligne.
+        let mut st = tx.prepare(
+            "SELECT lv.article_id, lv.quantite, COALESCE(u.facteur, 1.0)
+             FROM ligne_vente lv
+             LEFT JOIN unite_vente u ON u.id = lv.unite_vente_id
+             WHERE lv.vente_id = ?1"
+        ).map_err(|e| e.to_string())?;
+        let l: Vec<(String, f64, f64)> = st.query_map(
+            rusqlite::params![vente_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+        drop(st);
+
+        for (art, qte, facteur) in l {
+            let base = qte * facteur;
+            tx.execute(
+                "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+                 VALUES (?1,?2,?3,?4)
+                 ON CONFLICT(article_id, depot_id)
+                 DO UPDATE SET quantite = quantite + ?4",
+                rusqlite::params![
+                    uuid::Uuid::new_v4().to_string(), art, depot_id, base
+                ],
+            ).map_err(|e| e.to_string())?;
+
+            tx.execute(
+                "INSERT INTO mouvement_stock
+                 (id, article_id, depot_id, type_mouvement, quantite_delta,
+                  operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine)
+                 VALUES (?1,?2,?3,'retour',?4,?5,?6,?7,?8,?9,'annulation')",
+                rusqlite::params![
+                    uuid::Uuid::new_v4().to_string(), art, depot_id, base,
+                    avoir_piece_id, auteur, now, now, auteur
+                ],
+            ).map_err(|e| e.to_string())?;
+        }
+
+        tx.execute(
+            "UPDATE vente SET statut = 'annulee', modifie_le = ?1 WHERE id = ?2",
+            rusqlite::params![now, vente_id],
+        ).map_err(|e| e.to_string())?;
+
+        // ---- 3. Sort de l'acompte deja encaisse ----
+        if acompte > 0 {
+            if rembourse {
+                let m = moyen.as_deref().unwrap_or("especes");
+                let session: Option<String> = tx.query_row(
+                    "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
+                    [], |r| r.get(0),
+                ).ok();
+                if let Some(sid) = session {
+                    tx.execute(
+                        "INSERT INTO mouvement_caisse
+                         (id, session_id, sens, moyen, montant, motif, libelle,
+                          operation_id, date_mouvement, cree_le, cree_par, origine)
+                         VALUES (?1,?2,'sortie',?3,?4,'remboursement',?5,?6,?7,?8,?9,'app')",
+                        rusqlite::params![
+                            uuid::Uuid::new_v4().to_string(), sid, m, acompte,
+                            format!("Annulation {}", numero_src),
+                            avoir_piece_id, now, now, auteur
+                        ],
+                    ).map_err(|e| e.to_string())?;
+                } else {
+                    return Err(
+                        "Aucune session de caisse ouverte — impossible de                          rembourser l'acompte. Ouvrir la caisse, ou choisir                          un avoir client.".to_string()
+                    );
+                }
+            } else {
+                // Credit conserve : le client l'utilisera sur une prochaine vente.
+                tx.execute(
+                    "INSERT INTO avoir
+                     (id, client_id, montant, statut, cree_le, origine)
+                     VALUES (?1,?2,?3,'ouvert',?4,'annulation')",
+                    rusqlite::params![
+                        uuid::Uuid::new_v4().to_string(), client_id, acompte, now
+                    ],
+                ).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+
+    // ---- 4. Marquer la facture ----
+    tx.execute(
+        "UPDATE piece_commerciale
+         SET statut = 'annule',
+             note = ?1,
+             modifie_le = ?2
+         WHERE id = ?3",
+        rusqlite::params![
+            format!("Annulée par avoir {}", numero_avoir), now, piece_id
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1,'facture_annulee_par_avoir','piece_commerciale',?2,?3,?4,'app',?5)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), piece_id, auteur,
+            format!(r#"{{"avoir":"{}","acompte":{},"rembourse":{}}}"#,
+                    numero_avoir, acompte, rembourse),
+            now
+        ],
+    ).ok();
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!({
+        "numero_avoir": numero_avoir,
+        "piece_id":     avoir_piece_id,
+        "total":        total_avoir,
+        "acompte":      acompte,
+        "rembourse":    rembourse,
+    }))
+}
+
+/// Vente liee a une piece — inverse de lire_piece_de_vente.
+///
+/// Permet d'encaisser directement depuis l'ecran Pieces : la creance
+/// est portee par la vente, pas par la piece.
+#[tauri::command]
+pub fn lire_vente_de_piece(
+    etat: State<EtatApp>,
+    piece_id: String,
+) -> Result<Option<String>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let vente_id: Option<String> = conn.query_row(
+        "SELECT id FROM vente WHERE piece_id = ?1 LIMIT 1",
+        rusqlite::params![piece_id],
+        |r| r.get(0),
+    ).ok();
+    Ok(vente_id)
 }

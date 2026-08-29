@@ -139,6 +139,20 @@ pub fn regler_creance(
         rusqlite::params![nouveau_statut, maintenant, vente_id],
     ).map_err(|e| e.to_string())?;
 
+    // Répercuter sur la pièce commerciale liée.
+    // Sans cela une facture émise restait "emis" indéfiniment, même
+    // réglée — impossible de distinguer un impayé d'une facture soldée.
+    // Symétrique de l'imputation côté fournisseur.
+    if nouveau_statut == "payee" {
+        conn.execute(
+            "UPDATE piece_commerciale
+             SET statut = 'paye', modifie_le = ?1
+             WHERE id = (SELECT piece_id FROM vente WHERE id = ?2)
+               AND statut IN ('emis','accepte','brouillon')",
+            rusqlite::params![maintenant, vente_id],
+        ).ok();
+    }
+
     // Alimenter la caisse si session ouverte
     if mode != "avoir" {
         let session_id: Option<String> = conn.query_row(

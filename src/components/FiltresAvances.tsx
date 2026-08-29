@@ -71,13 +71,15 @@ const TYPES_FOURNISSEUR = [
   { value: "avoir_fournisseur",        label: "Avoir fournisseur"   },
 ];
 
+// "accepte" retire : aucune commande ne l'ecrit en base, le filtre ne
+// remontait jamais rien. Les statuts ci-dessous sont ceux reellement
+// produits par le code.
 const STATUTS = [
   { value: "tous",      label: "Tous statuts" },
   { value: "brouillon", label: "Brouillon"    },
   { value: "emis",      label: "Émis"         },
-  { value: "accepte",   label: "Accepté"      },
   { value: "transfere", label: "Transféré"    },
-  { value: "validee",   label: "Validée"      },
+  { value: "validee",   label: "Validée (ancien)" },
   { value: "paye",      label: "Payé"         },
   { value: "annule",    label: "Annulé"       },
 ];
@@ -100,7 +102,8 @@ interface FiltresAvancesProps {
 }
 
 export function FiltresAvances({ filtres, onChange, cote }: FiltresAvancesProps) {
-  const [ouvert, setOuvert] = useState(false);
+  // Ouverts par defaut : un filtre replie est un filtre qu'on oublie.
+  const [ouvert, setOuvert] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
 
   const nb = nbFiltresActifs(filtres);
