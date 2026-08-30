@@ -342,17 +342,25 @@ CREATE TABLE IF NOT EXISTS mouvement_stock (
 
 -- Table prévue pour les transferts inter-dépôts. Non utilisée
 --    en v1 — le multi-dépôt est reporté.
+-- Un transfert deplace du stock entre depots du MEME proprietaire.
+-- Ni vente, ni achat, ni creance : le CA ne bouge pas.
+-- `bon` regroupe les lignes d'un meme bon numerote (BTR-AAAA-NNNNN).
 CREATE TABLE IF NOT EXISTS transfert (
     id              TEXT PRIMARY KEY,
+    bon             TEXT,
     article_id      TEXT NOT NULL REFERENCES article(id),
     depot_source    TEXT NOT NULL REFERENCES depot(id),
     depot_dest      TEXT NOT NULL REFERENCES depot(id),
     quantite        REAL NOT NULL,
+    unite_vente_id  TEXT,
+    motif           TEXT,
     auteur_id       TEXT,
     date_transfert  TEXT NOT NULL,
     cree_le         TEXT NOT NULL,
     origine         TEXT NOT NULL DEFAULT 'app'
 );
+
+CREATE INDEX IF NOT EXISTS idx_transfert_bon ON transfert(bon);
 
 
 -- =====================================================================

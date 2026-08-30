@@ -239,3 +239,66 @@ pub fn lire_resume_par_depot(
 
     Ok(x)
 }
+
+/// Stock d'un article dans TOUS les dépôts.
+///
+/// Le vendeur doit voir ce qu'il a sous la main et ce qui dort à côté.
+/// Sans cette vue, il vend à l'aveugle : soit il refuse une vente qu'il
+/// pouvait honorer, soit il promet une quantité qu'il n'a pas.
+#[tauri::command]
+pub fn lire_stock_article_depots(
+    etat: State<EtatApp>,
+    article_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut st = conn.prepare(
+        "SELECT d.id, d.nom, d.est_defaut, COALESCE(sd.quantite, 0)
+         FROM depot d
+         LEFT JOIN stock_depot sd
+                ON sd.depot_id = d.id AND sd.article_id = ?1
+         WHERE d.actif = 1
+         ORDER BY d.est_defaut DESC, d.nom"
+    ).map_err(|e| e.to_string())?;
+
+    let x = st.query_map(rusqlite::params![article_id], |r| {
+        Ok(serde_json::json!({
+            "depot_id":   r.get::<_, String>(0)?,
+            "nom":        r.get::<_, String>(1)?,
+            "est_defaut": r.get::<_, i64>(2)? != 0,
+            "quantite":   r.get::<_, f64>(3)?,
+        }))
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    Ok(x)
+}
+
+/// Stock de plusieurs articles dans tous les dépôts, en un appel.
+///
+/// Le POS charge ses articles une fois au démarrage ; interroger dépôt
+/// par dépôt à chaque frappe serait intenable.
+#[tauri::command]
+pub fn lire_stock_multi_depots(
+    etat: State<EtatApp>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut st = conn.prepare(
+        "SELECT sd.article_id, sd.depot_id, d.nom, d.est_defaut, sd.quantite
+         FROM stock_depot sd
+         JOIN depot d ON d.id = sd.depot_id
+         WHERE d.actif = 1 AND sd.quantite <> 0"
+    ).map_err(|e| e.to_string())?;
+
+    let x = st.query_map([], |r| {
+        Ok(serde_json::json!({
+            "article_id": r.get::<_, String>(0)?,
+            "depot_id":   r.get::<_, String>(1)?,
+            "depot_nom":  r.get::<_, String>(2)?,
+            "est_defaut": r.get::<_, i64>(3)? != 0,
+            "quantite":   r.get::<_, f64>(4)?,
+        }))
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    Ok(x)
+}

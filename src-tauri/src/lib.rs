@@ -114,6 +114,22 @@ pub fn run() {
             commandes::depots::desactiver_depot,
             commandes::depots::lire_stock_depot,
             commandes::depots::lire_resume_par_depot,
+            commandes::depots::lire_stock_article_depots,
+            commandes::depots::lire_stock_multi_depots,
+            // ---- Caisse : historique et rapports ----
+            commandes::caisse::lire_sessions_caisse,
+            commandes::caisse::lire_mouvements_session,
+            commandes::caisse::lire_rapport_ecarts,
+            commandes::caisse::modifier_depense,
+            // ---- Codes-barres ----
+            commandes::codebarre::generer_code_barre,
+            commandes::codebarre::generer_codes_barres_manquants,
+            commandes::codebarre::definir_code_barre,
+            commandes::codebarre::lire_articles_codes_barres,
+            // ---- Cheques recus ----
+            commandes::cheques::enregistrer_cheque,
+            commandes::cheques::lire_cheques,
+            commandes::cheques::changer_statut_cheque,
             // ---- Dashboard ----
             commandes::dashboard::lire_resume_dashboard,
             commandes::dashboard::lire_ventes_du_jour,

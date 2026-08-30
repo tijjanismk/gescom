@@ -49,14 +49,10 @@ pub fn lire_resume_caisse(
         }
         Some((session_id, fond_ouverture, ouvert_le)) => {
             // Tous moyens confondus — pour les indicateurs d'activité.
-            // Le fond est affiche dans sa propre carte : l'exclure ici
-            // pour que "Fond + Entrees - Sorties = Solde" se verifie a
-            // l'oeil sur l'ecran.
             let total_entrees: i64 = conn.query_row(
                 "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
                  FROM mouvement_caisse
-                 WHERE session_id = ?1 AND sens = 'entree'
-                   AND motif <> 'ouverture'",
+                 WHERE session_id = ?1 AND sens = 'entree'",
                 rusqlite::params![session_id],
                 |r| r.get(0),
             ).unwrap_or(0);
@@ -70,15 +66,10 @@ pub fn lire_resume_caisse(
             ).unwrap_or(0);
 
             // Espèces seules — pour le rapprochement du tiroir.
-            // ⚠️ motif <> 'ouverture' : le fond est deja porte par la
-            // colonne session_caisse.fond_ouverture. Le mouvement
-            // d'ouverture n'existe que pour la tracabilite du journal.
-            // Sans ce filtre, `fond + entrees` compte le fond DEUX FOIS.
             let entrees_especes: i64 = conn.query_row(
                 "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
                  FROM mouvement_caisse
-                 WHERE session_id = ?1 AND sens = 'entree'
-                   AND moyen = 'especes' AND motif <> 'ouverture'",
+                 WHERE session_id = ?1 AND sens = 'entree' AND moyen = 'especes'",
                 rusqlite::params![session_id],
                 |r| r.get(0),
             ).unwrap_or(0);
@@ -229,12 +220,10 @@ pub fn fermer_session_caisse(
 
     // ⚠️ ESPÈCES UNIQUEMENT. Sans ce filtre, l'écart intègre l'Orange
     // Money et la caisse paraît en déficit à chaque clôture.
-    // motif <> 'ouverture' : le fond arrive par la variable `fond`.
     let entrees: i64 = conn.query_row(
         "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
          FROM mouvement_caisse
-         WHERE session_id = ?1 AND sens = 'entree'
-           AND moyen = 'especes' AND motif <> 'ouverture'",
+         WHERE session_id = ?1 AND sens = 'entree' AND moyen = 'especes'",
         rusqlite::params![session_id], |r| r.get(0),
     ).unwrap_or(0);
 
@@ -390,4 +379,190 @@ pub fn lire_depenses_du_jour(
         "total":         total,
         "par_categorie": ventilation,
     }))
+}
+
+// =====================================================================
+//  HISTORIQUE DES SESSIONS
+// =====================================================================
+//
+//  L'ecart de cloture est la seule mesure qui confronte le logiciel au
+//  monde reel. Un ecart isole ne dit rien ; c'est la SUITE des ecarts
+//  qui parle :
+//    - toujours nul          -> les saisies sont completes
+//    - manque regulier       -> une sortie d'argent n'est jamais saisie
+//    - excedent              -> une vente echappe au systeme
+//    - manque brutal, isole  -> la question du vol se pose
+
+#[tauri::command]
+pub fn lire_sessions_caisse(
+    etat: State<EtatApp>,
+    limite: Option<i64>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let lim = limite.unwrap_or(60);
+
+    let mut st = conn.prepare(
+        "SELECT sc.id, sc.statut, sc.fond_ouverture, sc.cree_le, sc.ferme_le,
+                sc.solde_theorique, sc.especes_comptees, sc.ecart,
+                COALESCE(uo.nom, '—'),
+                CAST(COALESCE((SELECT SUM(mc.montant) FROM mouvement_caisse mc
+                   WHERE mc.session_id = sc.id AND mc.sens = 'entree'
+                     AND mc.moyen = 'especes' AND mc.motif <> 'ouverture'), 0) AS INTEGER),
+                CAST(COALESCE((SELECT SUM(mc.montant) FROM mouvement_caisse mc
+                   WHERE mc.session_id = sc.id AND mc.sens = 'sortie'
+                     AND mc.moyen = 'especes'), 0) AS INTEGER),
+                (SELECT COUNT(*) FROM mouvement_caisse mc WHERE mc.session_id = sc.id)
+         FROM session_caisse sc
+         LEFT JOIN utilisateur uo ON uo.id = sc.ouvert_par
+         ORDER BY sc.cree_le DESC
+         LIMIT ?1"
+    ).map_err(|e| e.to_string())?;
+
+    let x = st.query_map(rusqlite::params![lim], |r| {
+        Ok(serde_json::json!({
+            "id":               r.get::<_, String>(0)?,
+            "statut":           r.get::<_, String>(1)?,
+            "fond_ouverture":   r.get::<_, i64>(2)?,
+            "ouvert_le":        r.get::<_, String>(3)?,
+            "ferme_le":         r.get::<_, Option<String>>(4)?,
+            "solde_theorique":  r.get::<_, Option<i64>>(5)?,
+            "especes_comptees": r.get::<_, Option<i64>>(6)?,
+            "ecart":            r.get::<_, Option<i64>>(7)?,
+            "ouvert_par":       r.get::<_, String>(8)?,
+            "entrees_especes":  r.get::<_, i64>(9)?,
+            "sorties_especes":  r.get::<_, i64>(10)?,
+            "nb_mouvements":    r.get::<_, i64>(11)?,
+        }))
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    Ok(x)
+}
+
+/// Mouvements d'une session precise — pour comprendre un ecart.
+#[tauri::command]
+pub fn lire_mouvements_session(
+    etat: State<EtatApp>,
+    session_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let mut st = conn.prepare(
+        "SELECT mc.id, mc.sens, mc.moyen, mc.montant, mc.motif,
+                COALESCE(mc.libelle, ''), COALESCE(mc.categorie, ''),
+                mc.date_mouvement
+         FROM mouvement_caisse mc
+         WHERE mc.session_id = ?1
+         ORDER BY mc.date_mouvement"
+    ).map_err(|e| e.to_string())?;
+
+    let x = st.query_map(rusqlite::params![session_id], |r| {
+        Ok(serde_json::json!({
+            "id":             r.get::<_, String>(0)?,
+            "sens":           r.get::<_, String>(1)?,
+            "moyen":          r.get::<_, String>(2)?,
+            "montant":        r.get::<_, i64>(3)?,
+            "motif":          r.get::<_, String>(4)?,
+            "libelle":        r.get::<_, String>(5)?,
+            "categorie":      r.get::<_, String>(6)?,
+            "date_mouvement": r.get::<_, String>(7)?,
+        }))
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    Ok(x)
+}
+
+/// Synthese des ecarts sur une periode — c'est la tendance qui compte.
+#[tauri::command]
+pub fn lire_rapport_ecarts(
+    etat: State<EtatApp>,
+    jours: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let n = jours.unwrap_or(30);
+
+    let (nb, nuls, manques, excedents, cumul, pire): (i64, i64, i64, i64, i64, i64) =
+        conn.query_row(
+            "SELECT COUNT(*),
+                    SUM(CASE WHEN ecart = 0 THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN ecart < 0 THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN ecart > 0 THEN 1 ELSE 0 END),
+                    CAST(COALESCE(SUM(ecart), 0) AS INTEGER),
+                    CAST(COALESCE(MIN(ecart), 0) AS INTEGER)
+             FROM session_caisse
+             WHERE statut = 'fermee' AND ecart IS NOT NULL
+               AND DATE(ferme_le) >= DATE('now', 'localtime', '-' || ?1 || ' days')",
+            rusqlite::params![n],
+            |r| Ok((r.get(0)?, r.get(1).unwrap_or(0), r.get(2).unwrap_or(0),
+                    r.get(3).unwrap_or(0), r.get(4)?, r.get(5)?)),
+        ).unwrap_or((0, 0, 0, 0, 0, 0));
+
+    // Interpretation, pour que le patron sache quoi en faire.
+    let diagnostic = if nb == 0 {
+        "Aucune clôture sur la période."
+    } else if nuls == nb {
+        "Toutes les caisses tombent juste. Les saisies sont complètes."
+    } else if manques > nb / 2 && cumul < 0 {
+        "Manques réguliers : une sortie d'argent n'est probablement          jamais saisie (transport, monnaie prêtée, petites dépenses)."
+    } else if excedents > nb / 2 {
+        "Excédents réguliers : des ventes échappent au système.          Le stock devient faux et les clients n'ont pas de facture."
+    } else {
+        "Écarts irréguliers : erreurs de monnaie rendue ou saisies          approximatives."
+    };
+
+    Ok(serde_json::json!({
+        "jours": n, "nb_clotures": nb,
+        "nuls": nuls, "manques": manques, "excedents": excedents,
+        "cumul": cumul, "pire_manque": pire,
+        "moyenne": if nb > 0 { cumul / nb } else { 0 },
+        "diagnostic": diagnostic,
+    }))
+}
+
+/// Corriger une depense mal saisie. Uniquement sur la session OUVERTE :
+/// une session close a ete rapprochee, la modifier invaliderait l'ecart
+/// deja constate.
+#[tauri::command]
+pub fn modifier_depense(
+    etat: State<EtatApp>,
+    mouvement_id: String,
+    montant: Option<i64>,
+    libelle: Option<String>,
+    categorie: Option<String>,
+) -> Result<(), String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let (motif, statut): (String, String) = conn.query_row(
+        "SELECT mc.motif, sc.statut FROM mouvement_caisse mc
+         JOIN session_caisse sc ON sc.id = mc.session_id
+         WHERE mc.id = ?1",
+        rusqlite::params![mouvement_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).map_err(|_| "Mouvement introuvable".to_string())?;
+
+    if motif != "depense" {
+        return Err(
+            "Seule une dépense se corrige. Les mouvements liés à une              vente, un achat ou un retour suivent leur document."
+                .to_string()
+        );
+    }
+    if statut != "ouverte" {
+        return Err(
+            "Cette session est clôturée : l'écart a déjà été constaté.              Saisir une dépense corrective sur la session du jour."
+                .to_string()
+        );
+    }
+
+    if let Some(m) = montant {
+        if m <= 0 { return Err("Le montant doit être positif".to_string()); }
+        conn.execute("UPDATE mouvement_caisse SET montant = ?1 WHERE id = ?2",
+            rusqlite::params![m, mouvement_id]).map_err(|e| e.to_string())?;
+    }
+    if let Some(l) = libelle {
+        conn.execute("UPDATE mouvement_caisse SET libelle = ?1 WHERE id = ?2",
+            rusqlite::params![l.trim(), mouvement_id]).map_err(|e| e.to_string())?;
+    }
+    if let Some(c) = categorie {
+        conn.execute("UPDATE mouvement_caisse SET categorie = ?1 WHERE id = ?2",
+            rusqlite::params![c, mouvement_id]).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }

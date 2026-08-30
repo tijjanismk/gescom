@@ -188,7 +188,10 @@ pub fn enregistrer_ajustement_inventaire(
     etat: State<EtatApp>,
     article_id: String,
     depot_id: String,
-    nouvelle_quantite: f64,
+    // `quantite_reelle` et non `nouvelle_quantite` : c'est ce qui a ete
+    // COMPTE physiquement dans le depot. Le front envoyait deja ce nom,
+    // d'ou l'erreur « invalid args ».
+    quantite_reelle: f64,
     motif: Option<String>,
     utilisateur_role: Option<String>,
 ) -> Result<(), String> {
@@ -202,7 +205,7 @@ pub fn enregistrer_ajustement_inventaire(
         |r| r.get(0),
     ).unwrap_or(0.0);
 
-    let delta = nouvelle_quantite - quantite_actuelle;
+    let delta = quantite_reelle - quantite_actuelle;
     let now = maintenant_iso();
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);
@@ -214,7 +217,7 @@ pub fn enregistrer_ajustement_inventaire(
          ON CONFLICT(article_id, depot_id)
          DO UPDATE SET quantite = ?4",
         rusqlite::params![
-            uuid::Uuid::new_v4().to_string(), article_id, depot_id, nouvelle_quantite
+            uuid::Uuid::new_v4().to_string(), article_id, depot_id, quantite_reelle
         ],
     ).map_err(|e| e.to_string())?;
 

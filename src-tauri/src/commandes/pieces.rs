@@ -1049,9 +1049,9 @@ pub fn lire_fiche_client(
 //  Proxy impression
 // =====================================================================
 
+#[tauri::command]
 /// Proxy vers l'impression. Depuis L36 elle ouvre une fenetre Tauri au
 /// lieu du navigateur : elle est donc `async` et reclame l'AppHandle.
-#[tauri::command]
 pub async fn imprimer_piece(
     app: tauri::AppHandle,
     html: String,
@@ -1186,8 +1186,12 @@ pub fn creer_piece_fournisseur(
     let remise_g = remise_globale.unwrap_or(0.0);
 
     let statut = match type_piece.as_str() {
+        // BRF et FAF naissent en BROUILLON : les prix du bon de commande
+        // sont indicatifs, ceux facturés par le fournisseur different
+        // presque toujours. Le brouillon permet de les corriger avant
+        // que la piece ne soit figee (coeur::pieces).
         "bon_commande_fournisseur" => "emis",
-        "bon_reception"            => "emis",
+        "bon_reception"            => "brouillon",
         "facture_fournisseur"      => "brouillon",
         "avoir_fournisseur"        => "emis",
         _                          => "brouillon",

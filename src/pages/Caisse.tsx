@@ -463,6 +463,31 @@ export function Caisse() {
         </div>
       </div>
 
+      {/* Onglets */}
+      <div className="flex gap-1 border-b border-border mb-6">
+        {[
+          { key: "jour",       label: "Aujourd'hui", icone: Wallet },
+          { key: "historique", label: "Historique",  icone: History },
+        ].map(o => {
+          const Icone = o.icone;
+          const actif = onglet === o.key;
+          return (
+            <button key={o.key} onClick={() => setOnglet(o.key as typeof onglet)}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium
+                          border-b-2 -mb-px transition-colors
+                ${actif
+                  ? "border-foreground text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+              <Icone className="h-4 w-4" /> {o.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {onglet === "historique" && <OngletHistoriqueCaisse />}
+
+      {onglet === "jour" && (<>
+
       {/* Statut de la session */}
       {resume?.statut === "aucune" && (
         <div className="flex items-center gap-3 p-4 bg-muted rounded-lg mb-6">
@@ -563,6 +588,8 @@ export function Caisse() {
           )}
         </CardContent>
       </Card>
+
+      </>)}
 
       <ModalDepense
         ouvert={modalDepense}

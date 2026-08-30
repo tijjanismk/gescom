@@ -84,6 +84,34 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_transfert_bon ON transfert(bon)"
     ).ok();
 
+    // ---- v1.2 : suivi des cheques recus ----
+    // Un cheque est une promesse, pas de l'argent. Il n'entre PAS dans
+    // le rapprochement de caisse (D29) — comme le mobile money.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS cheque_recu (
+            id            TEXT PRIMARY KEY,
+            paiement_id   TEXT,
+            vente_id      TEXT,
+            numero        TEXT NOT NULL,
+            banque        TEXT NOT NULL,
+            tireur        TEXT,
+            montant       INTEGER NOT NULL,
+            date_emission TEXT,
+            date_echeance TEXT,
+            statut        TEXT NOT NULL DEFAULT 'recu',
+            motif_rejet   TEXT,
+            cree_le       TEXT NOT NULL,
+            modifie_le    TEXT NOT NULL,
+            origine       TEXT NOT NULL DEFAULT 'app'
+        )"
+    ).ok();
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_cheque_statut ON cheque_recu(statut)"
+    ).ok();
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_cheque_vente ON cheque_recu(vente_id)"
+    ).ok();
+
     // ---- Nouvelles tables (une par une pour éviter stack overflow) ----
 
     conn.execute_batch(

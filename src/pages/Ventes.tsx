@@ -19,7 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { ModalImpression } from "@/components/ModalImpression";
 import { useScanner } from "@/lib/useScanner";
-import { UTILISATEUR_ACTIF } from "@/App";
+import { UTILISATEUR_ACTIF, DEPOT_ACTIF, definirDepotActif } from "@/App";
 import type { CreerVenteResultat } from "@/lib/types-api";
 
 // =====================================================================
@@ -43,6 +43,17 @@ interface Depot {
 interface LignePanier {
   id: string; article: Article; unite: UniteVente;
   quantite: number; prix_pratique: number; montant: number; a_decouvert: boolean;
+  // Depot d'ou sort REELLEMENT cette ligne. Une meme vente peut puiser
+  // dans deux depots : 5 sacs en boutique, 15 a la reserve. Deux lignes,
+  // deux origines, chaque stock baisse au bon endroit.
+  depot_id: string;
+  depot_nom: string;
+}
+
+/** Stock d'un article, dépôt par dépôt. */
+interface StockDepot {
+  article_id: string; depot_id: string; depot_nom: string;
+  est_defaut: boolean; quantite: number;
 }
 interface Avoir {
   id: string; montant: number; cree_le: string;
@@ -121,9 +132,12 @@ function ModalNouveauClient({
 
 function ModalEncaissement({
   ouvert, total, onFermer, onConfirmer,
+  chequeNumero, setChequeNumero, chequeBanque, setChequeBanque,
 }: {
   ouvert: boolean; total: number;
   onFermer: () => void; onConfirmer: (mode: string, montant: number) => void;
+  chequeNumero: string; setChequeNumero: (v: string) => void;
+  chequeBanque: string; setChequeBanque: (v: string) => void;
 }) {
   const [mode, setMode] = useState("especes");
   const [montant, setMontant] = useState(total.toString());
@@ -153,6 +167,24 @@ function ModalEncaissement({
               </SelectContent>
             </Select>
           </div>
+          {/* Un cheque doit etre identifie : sans numero ni banque, on ne
+              saura pas plus tard lequel a ete encaisse ou rejete. */}
+          {mode === "cheque" && (
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Label>N° du chèque</Label>
+                <Input value={chequeNumero}
+                  onChange={e => setChequeNumero(e.target.value)}
+                  placeholder="0123456" className="mt-1" autoFocus />
+              </div>
+              <div className="flex-1">
+                <Label>Banque</Label>
+                <Input value={chequeBanque}
+                  onChange={e => setChequeBanque(e.target.value)}
+                  placeholder="BDM, BOA…" className="mt-1" />
+              </div>
+            </div>
+          )}
           {mode === "especes" && (
             <div>
               <Label>Montant reçu (F)</Label>
@@ -270,6 +302,150 @@ function ModalConfirmation({
 
 // =====================================================================
 //  Page Ventes
+
+// =====================================================================
+//  Modal : répartition d'une ligne entre plusieurs dépôts
+// =====================================================================
+//
+//  Le dépôt actif ne suffit pas, mais un autre a le complément. Plutôt
+//  que de vendre à découvert — ce qui rendrait DEUX stocks faux — on
+//  dit d'où sort chaque unité.
+//
+//  Le vendeur met la vente en pause, envoie quelqu'un chercher la
+//  marchandise, et valide au retour. Une ligne de panier par dépôt :
+//  chaque stock baisse là où la marchandise est réellement partie.
+
+function ModalRepartition({
+  demande, depotActif, stockDepots, onAnnuler, onValider,
+}: {
+  demande: { article: Article; unite: UniteVente; quantite: number; prix: number } | null;
+  depotActif: Depot | null;
+  stockDepots: StockDepot[];
+  onAnnuler: () => void;
+  onValider: (parts: { depot_id: string; depot_nom: string; qte: number }[]) => void;
+}) {
+  const [parts, setParts] = useState<Record<string, string>>({});
+
+  // Sources disponibles, dépôt actif en tête.
+  const sources = demande
+    ? stockDepots
+        .filter(sd => sd.article_id === demande.article.id && sd.quantite > 0)
+        .sort((a, b) =>
+          (b.depot_id === depotActif?.id ? 1 : 0) -
+          (a.depot_id === depotActif?.id ? 1 : 0))
+    : [];
+
+  useEffect(() => {
+    if (!demande) { setParts({}); return; }
+    // Pré-remplir : on prend d'abord ce qu'on a sous la main.
+    let reste = demande.quantite;
+    const init: Record<string, string> = {};
+    for (const sd of sources) {
+      const pris = Math.min(reste, sd.quantite);
+      init[sd.depot_id] = pris > 0 ? String(pris) : "";
+      reste -= pris;
+      if (reste <= 0) break;
+    }
+    setParts(init);
+  }, [demande]);
+
+  if (!demande) return null;
+
+  const total = Object.values(parts)
+    .reduce((s, v) => s + (parseFloat(v) || 0), 0);
+  const manque = demande.quantite - total;
+  const depassements = sources.filter(sd =>
+    (parseFloat(parts[sd.depot_id] || "0") || 0) > sd.quantite);
+
+  return (
+    <Dialog open={!!demande} onOpenChange={onAnnuler}>
+      <DialogContent style={{ width: "480px", maxWidth: "94vw" }}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Warehouse className="h-4 w-4" />
+            D'où sort la marchandise ?
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-2">
+          <div className="bg-muted rounded-lg p-3">
+            <p className="text-sm font-medium">{demande.article.nom}</p>
+            <p className="text-xs text-muted-foreground">
+              {demande.quantite} {demande.unite.libelle} demandé(s)
+              · {fmt(demande.prix)} l'unité
+            </p>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Le dépôt courant ne suffit pas. Indiquer combien vient de
+            chaque endroit, puis envoyer quelqu'un chercher le complément
+            avant de valider.
+          </p>
+
+          <div className="space-y-2">
+            {sources.map(sd => {
+              const val = parts[sd.depot_id] || "";
+              const trop = (parseFloat(val) || 0) > sd.quantite;
+              return (
+                <div key={sd.depot_id} className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm">
+                      {sd.depot_nom}
+                      {sd.depot_id === depotActif?.id && (
+                        <span className="text-xs text-muted-foreground"> · ici</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {sd.quantite} disponible(s)
+                    </p>
+                  </div>
+                  <Input type="number" min="0" step="any" max={sd.quantite}
+                    value={val}
+                    onChange={e => setParts(p => ({ ...p, [sd.depot_id]: e.target.value }))}
+                    className={`h-8 w-24 text-right text-sm ${
+                      trop ? "border-destructive" : ""}`} />
+                </div>
+              );
+            })}
+          </div>
+
+          <div className={`flex justify-between text-sm px-3 py-2 rounded-md ${
+            manque === 0 ? "bg-green-50 text-green-800" : "bg-orange-50 text-orange-800"
+          }`}>
+            <span>Réparti</span>
+            <strong>
+              {total} / {demande.quantite}
+              {manque > 0 && ` — manque ${manque}`}
+              {manque < 0 && ` — ${-manque} en trop`}
+            </strong>
+          </div>
+
+          {depassements.length > 0 && (
+            <p className="text-xs text-destructive">
+              Une quantité dépasse le stock disponible d'un dépôt.
+            </p>
+          )}
+
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onAnnuler} className="flex-1">
+              Annuler
+            </Button>
+            <Button
+              disabled={manque !== 0 || depassements.length > 0}
+              onClick={() => onValider(sources.map(sd => ({
+                depot_id: sd.depot_id, depot_nom: sd.depot_nom,
+                qte: parseFloat(parts[sd.depot_id] || "0") || 0,
+              })))}
+              className="flex-1">
+              Marchandise réunie — valider
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // =====================================================================
 
 export function Ventes() {
@@ -279,6 +455,13 @@ export function Ventes() {
   const [tousArticles, setTousArticles] = useState<Article[]>([]);
   const [depots, setDepots] = useState<Depot[]>([]);
   const [depotActif, setDepotActif] = useState<Depot | null>(null);
+  // Stock de tous les articles dans tous les depots, charge une fois.
+  // Interroger depot par depot a chaque frappe serait intenable.
+  const [stockDepots, setStockDepots] = useState<StockDepot[]>([]);
+  // Ligne en attente de repartition entre depots.
+  const [repartition, setRepartition] = useState<{
+    article: Article; unite: UniteVente; quantite: number; prix: number;
+  } | null>(null);
   const [scannerActif, setScannerActif] = useState(false);
   const [chargementInitial, setChargementInitial] = useState(true);
 
@@ -310,6 +493,10 @@ export function Ventes() {
   const [modalConfirmation, setModalConfirmation] = useState(false);
   const [modalImpression, setModalImpression] = useState(false);
   const [modePaiementComptant, setModePaiementComptant] = useState("especes");
+  // Un cheque doit etre identifie : numero + banque. Sans cela il est
+  // impossible de savoir plus tard lequel a ete encaisse ou rejete.
+  const [chequeNumero, setChequeNumero] = useState("");
+  const [chequeBanque, setChequeBanque] = useState("");
   const [chargementVente, setChargementVente] = useState(false);
   const [venteIdPourImpression, setVenteIdPourImpression] = useState<string | null>(null);
   const [scannerNotification, setScannerNotification] = useState<string | null>(null);
@@ -349,7 +536,17 @@ export function Ventes() {
         setTousClients(clients);
         setTousArticles(articles);
         setDepots(tousDepots);
-        setDepotActif(tousDepots.find(d => d.est_defaut) ?? tousDepots[0]);
+        invoke<StockDepot[]>("lire_stock_multi_depots")
+          .then(setStockDepots).catch(console.error);
+        // Le depot de la sidebar fait foi. Sans cela, filtrer sur un
+        // depot puis vendre sortait la marchandise du depot PAR DEFAUT
+        // — le stock baissait au mauvais endroit.
+        // DEPOT_ACTIF null = vue consolidee : on retombe sur le defaut.
+        setDepotActif(
+          tousDepots.find(d => d.id === DEPOT_ACTIF)
+          ?? tousDepots.find(d => d.est_defaut)
+          ?? tousDepots[0]
+        );
         setScannerActif(scannerConfig);
       } catch (e) {
         console.error("Erreur chargement ventes :", e);
@@ -494,18 +691,56 @@ export function Ventes() {
   const stockDispo = articleSelectionne && uniteSelectionnee
     ? stockUV(articleSelectionne.stock, uniteSelectionnee.facteur) : 0;
   const qteNum = parseFloat(quantite) || 0;
+  // Stock de l'article selectionne, depot par depot.
+  const stockAilleurs = articleSelectionne
+    ? stockDepots.filter(sd =>
+        sd.article_id === articleSelectionne.id
+        && sd.depot_id !== depotActif?.id
+        && sd.quantite > 0)
+    : [];
+  const totalAilleurs = stockAilleurs.reduce((s, x) => s + x.quantite, 0);
+
+  const stockIci = articleSelectionne
+    ? (stockDepots.find(sd => sd.article_id === articleSelectionne.id
+        && sd.depot_id === depotActif?.id)?.quantite ?? 0)
+    : 0;
+
   const aDecouvert = !!articleSelectionne && qteNum > stockDispo && stockDispo >= 0;
+  // Le depot actif ne suffit pas, mais un autre a le complement :
+  // c'est le cas ou l'on envoie quelqu'un chercher.
+  const completableAilleurs = !!articleSelectionne
+    && qteNum > stockIci && qteNum <= stockIci + totalAilleurs;
   const enRupture = !!articleSelectionne && articleSelectionne.stock <= 0;
+
+  // Texte affiche au vendeur : « 5 ici · 30 à Djelibougou ».
+  const resumeStock = articleSelectionne
+    ? [`${stockIci} ici`,
+       ...stockAilleurs.map(sd => `${sd.quantite} à ${sd.depot_nom}`)].join(" · ")
+    : "";
 
   // ---- Panier ----
   function ajouterAuPanier() {
     if (!articleSelectionne || !uniteSelectionnee) return;
     const qte = parseFloat(quantite) || 1;
     const prix = parseMontant(prixPratique) || uniteSelectionnee.prix_reference;
+
+    // Le depot actif ne suffit pas mais un autre a le complement :
+    // on met la vente EN PAUSE et on demande la repartition. Quelqu'un
+    // va chercher la marchandise, puis on valide.
+    if (completableAilleurs) {
+      setRepartition({
+        article: articleSelectionne, unite: uniteSelectionnee,
+        quantite: qte, prix,
+      });
+      return;
+    }
+
     setPanier(prev => [...prev, {
       id: genId(), article: articleSelectionne, unite: uniteSelectionnee,
       quantite: qte, prix_pratique: prix, montant: Math.round(prix * qte),
       a_decouvert: qte > stockDispo && articleSelectionne.stock >= 0,
+      depot_id: depotActif?.id ?? "",
+      depot_nom: depotActif?.nom ?? "",
     }]);
     setArticleSelectionne(null); setUniteSelectionnee(null);
     setQuantite("1"); setPrixPratique("");
@@ -538,7 +773,9 @@ export function Ventes() {
       const lignes = panier.map(l => ({
         article_id: l.article.id,
         unite_vente_id: l.unite.id,
-        depot_source_id: depotActif.id,
+        // Depot de la ligne, pas le depot actif : une vente repartie
+        // puise dans plusieurs depots.
+        depot_source_id: l.depot_id || depotActif.id,
         source_approvisionnement: "stock",
         quantite: l.quantite,
         facteur: l.unite.facteur,
@@ -559,6 +796,34 @@ export function Ventes() {
         modePaiement: modeReglement === "comptant" ? modePaiementComptant : modeAcompte,
         avoirMontant: avoirAAppliquer > 0 ? avoirAAppliquer : null,
       });
+
+      // Cheque : le tracer pour pouvoir suivre son encaissement.
+      // Non bloquant — la vente est faite, le client est parti.
+      const moyenUtilise = modeReglement === "comptant"
+        ? modePaiementComptant : modeAcompte;
+      const montantCheque = modeReglement === "comptant"
+        ? totalApresAvoir : acompteNum;
+      if (moyenUtilise === "cheque" && montantCheque > 0 && chequeNumero.trim()) {
+        try {
+          await invoke("enregistrer_cheque", {
+            paiementId: null,
+            venteId: vente_id,
+            numero: chequeNumero.trim(),
+            banque: chequeBanque.trim() || "—",
+            tireur: client.nom,
+            montant: montantCheque,
+            dateEmission: null,
+            dateEcheance: null,
+          });
+        } catch (e) {
+          console.error("Cheque non enregistre :", e);
+          await message(
+            `Vente enregistrée, mais le chèque n'a pas été tracé.\n${e}\n\n` +
+            `L'ajouter manuellement dans l'écran Chèques.`,
+            { title: "Chèque non tracé", kind: "warning" },
+          );
+        }
+      }
 
       // Facture commerciale (D16) — seul document de la vente depuis que
       // la table `facture` legacy n'est plus alimentee.
@@ -583,6 +848,7 @@ export function Ventes() {
 
       await rechargerArticles();
       setModalConfirmation(false);
+      setChequeNumero(""); setChequeBanque("");
       viderPanier();
       setVenteIdPourImpression(vente_id);
       setModalImpression(true);
@@ -595,8 +861,35 @@ export function Ventes() {
     }
   }
 
+  // Confirme la repartition : une ligne de panier PAR depot.
+  function validerRepartition(parts: { depot_id: string; depot_nom: string; qte: number }[]) {
+    if (!repartition) return;
+    const { article, unite, prix } = repartition;
+    const nouvelles: LignePanier[] = parts
+      .filter(p => p.qte > 0)
+      .map(p => ({
+        id: genId(), article, unite,
+        quantite: p.qte, prix_pratique: prix,
+        montant: Math.round(prix * p.qte),
+        a_decouvert: false,
+        depot_id: p.depot_id, depot_nom: p.depot_nom,
+      }));
+    setPanier(prev => [...prev, ...nouvelles]);
+    setRepartition(null);
+    setArticleSelectionne(null); setUniteSelectionnee(null);
+    setQuantite("1"); setPrixPratique("");
+    inputArticleRef.current?.focus();
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      <ModalRepartition
+        demande={repartition}
+        depotActif={depotActif}
+        stockDepots={stockDepots}
+        onAnnuler={() => setRepartition(null)}
+        onValider={validerRepartition}
+      />
 
       {/* En-tête */}
       <div className="flex items-center justify-between px-4 h-12 border-b border-border bg-card shrink-0">
@@ -611,7 +904,14 @@ export function Ventes() {
           )}
           {depots.length > 1 ? (
             <Select value={depotActif?.id ?? ""}
-              onValueChange={v => { const d = depots.find(dep => dep.id === v); if (d) setDepotActif(d); }}>
+              onValueChange={v => {
+                const d = depots.find(dep => dep.id === v);
+                if (!d) return;
+                setDepotActif(d);
+                // Le choix fait ici devient le depot actif global :
+                // deux selecteurs qui divergent sont une source d'erreur.
+                definirDepotActif(d.id);
+              }}>
               <SelectTrigger className="h-7 text-xs w-40">
                 <Warehouse className="h-3 w-3 mr-1" />
                 <SelectValue>{depotActif?.nom}</SelectValue>
@@ -756,7 +1056,21 @@ export function Ventes() {
                   </Badge>
                 )}
               </div>
-              {aDecouvert && (
+              {/* Ou est la marchandise. Sans cette ligne, le vendeur
+                  refuse une vente qu'il pouvait honorer, ou promet une
+                  quantite qui n'existe nulle part. */}
+              {stockAilleurs.length > 0 && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Warehouse className="h-3 w-3 shrink-0" /> {resumeStock}
+                </p>
+              )}
+              {completableAilleurs && (
+                <p className="text-xs text-blue-600 flex items-center gap-1">
+                  <Warehouse className="h-3 w-3 shrink-0" />
+                  Complément disponible ailleurs — la répartition sera demandée
+                </p>
+              )}
+              {aDecouvert && !completableAilleurs && (
                 <p className="text-xs text-orange-500 flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3" /> Vente à découvert autorisée
                 </p>
@@ -991,6 +1305,8 @@ export function Ventes() {
         onCreer={c => { setTousClients(prev => [...prev, c]); selectionnerClient(c); setModalNouveauClient(false); }} />
 
       <ModalEncaissement ouvert={modalEncaissement} total={totalApresAvoir}
+        chequeNumero={chequeNumero} setChequeNumero={setChequeNumero}
+        chequeBanque={chequeBanque} setChequeBanque={setChequeBanque}
         onFermer={() => setModalEncaissement(false)}
         onConfirmer={(mode, _) => {
           setModePaiementComptant(mode);
