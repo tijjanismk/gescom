@@ -321,6 +321,15 @@ pub fn enregistrer_retour(
         ).ok();
     }
 
+    // D40 — un avoir au comptant atterrit dans le pot commun
+    // `client0000`, que le POS refuse de lire. On rend l'argent ou on
+    // remplace, tout de suite.
+    let client_generique = crate::utils::est_client_generique(&conn, &client_id);
+    if client_generique && mode_resolution == "avoir_conserve" {
+        return Err("Pas d'avoir pour un client comptant. \
+                    Choisir remboursement ou échange.".to_string());
+    }
+
     // 3. Le solde éventuel — uniquement ce que le client a versé.
     let mut numero_avoir: Option<String> = None;
     match mode_resolution.as_str() {
@@ -349,16 +358,30 @@ pub fn enregistrer_retour(
                 &unite_remplacement_id,
                 quantite_remplacement,
             ) {
-                // Récupérer le facteur de l'unité de remplacement.
-                let (facteur_remp, prix_remp, depot_defaut): (f64, i64, String) =
-                    conn.query_row(
-                    "SELECT u.facteur, u.prix_reference, d.id
-                     FROM unite_vente u
-                     JOIN depot d ON d.est_defaut = 1
-                     WHERE u.id = ?1",
+                // Deux lectures distinctes : un `JOIN depot ON
+                // est_defaut = 1` sans condition de jointure renvoyait
+                // zero ligne quand aucun depot n'est marque par defaut
+                // -> QueryReturnedNoRows en pleine transaction.
+                let (facteur_remp, prix_remp): (f64, i64) = conn.query_row(
+                    "SELECT u.facteur, u.prix_reference
+                     FROM unite_vente u WHERE u.id = ?1",
                     rusqlite::params![unite_remp_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                ).map_err(|e| e.to_string())?;
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                ).map_err(|_| "Unité de remplacement introuvable".to_string())?;
+
+                // Le remplacement sort du depot d'origine de la vente,
+                // pas d'un depot par defaut arbitraire : la marchandise
+                // rendue y est reintegree juste au-dessus.
+                let depot_defaut: String = conn.query_row(
+                    "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
+                    [], |r| r.get(0),
+                ).or_else(|_| conn.query_row(
+                    "SELECT id FROM depot WHERE id = ?1 AND actif = 1",
+                    rusqlite::params![depot_source_id], |r| r.get(0),
+                )).map_err(|_| {
+                    "Aucun dépôt par défaut actif. Désigner un dépôt \
+                     par défaut dans Paramètres → Dépôts.".to_string()
+                })?;
 
                 let qte_base_remp = qte_remp * facteur_remp;
                 let montant_remplacement: i64 =
@@ -393,6 +416,21 @@ pub fn enregistrer_retour(
                 if reliquat > 0 {
                     // Client reçoit de l'argent ou un avoir.
                     match mode_reliquat_positif.as_deref() {
+                        // `client_generique` D'ABORD : la branche par
+                        // defaut ci-dessous est l'avoir, donc un
+                        // mode_reliquat_positif absent creerait un avoir
+                        // au comptant sans que personne l'ait demande.
+                        Some("remboursement") | None if client_generique => {
+                            let mode = mode_encaissement_reliquat
+                                .as_deref().unwrap_or("especes");
+                            enregistrer_sortie_caisse(&conn, reliquat, mode,
+                                &retour_id, "remboursement_reliquat",
+                                &utilisateur_id, &maintenant)?;
+                        }
+                        _ if client_generique => {
+                            return Err("Pas d'avoir pour un client comptant. \
+                                        Le reliquat doit être remboursé.".to_string());
+                        }
                         Some("remboursement") => {
                             let mode = mode_encaissement_reliquat
                                 .as_deref().unwrap_or("especes");

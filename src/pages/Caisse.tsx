@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Wallet, RefreshCw, Loader2, TrendingUp, TrendingDown,
+  // `History` entre en collision avec window.History, une classe
+  // native que React tenterait d'instancier (« Illegal constructor »).
+  History as HistoryIcon,
   Lock, Unlock, AlertTriangle, CheckCircle2, MinusCircle
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +17,7 @@ import {
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { UTILISATEUR_ACTIF } from "@/App";
+import { OngletHistoriqueCaisse } from "@/components/OngletHistoriqueCaisse";
 
 // =====================================================================
 //  Types
@@ -395,6 +399,7 @@ export function Caisse() {
   const [modalOuverture, setModalOuverture] = useState(false);
   const [modalFermeture, setModalFermeture] = useState(false);
   const [modalDepense, setModalDepense] = useState(false);
+  const [onglet, setOnglet] = useState<"jour" | "historique">("jour");
 
   const charger = useCallback(async () => {
     setChargement(true);
@@ -467,7 +472,7 @@ export function Caisse() {
       <div className="flex gap-1 border-b border-border mb-6">
         {[
           { key: "jour",       label: "Aujourd'hui", icone: Wallet },
-          { key: "historique", label: "Historique",  icone: History },
+          { key: "historique", label: "Historique",  icone: HistoryIcon },
         ].map(o => {
           const Icone = o.icone;
           const actif = onglet === o.key;

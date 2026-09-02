@@ -44,7 +44,8 @@ pub fn creer_facture_depuis_vente(
         rusqlite::params![vente_id], |r| r.get(0),
     ).unwrap_or(0);
 
-    let statut = if total_paye >= total_vente && total_vente > 0 {
+    let statut = if total_vente > 0
+        && crate::coeur::calcul::reste_exigible(total_vente, total_paye) == 0 {
         // Soldee des l'emission — comptant, ou credit paye d'avance.
         // 'paye' et non 'validee' : toute facture existante a produit
         // ses effets, seul le reglement distingue les etats.

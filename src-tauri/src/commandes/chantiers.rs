@@ -263,7 +263,11 @@ fn imputer_paiements_fournisseur(
             enveloppe -= pris;
         }
 
-        let nouveau = if couvert >= total && total > 0 { "paye" } else { "emis" };
+        // Meme seuil que le cote client : un residu d'arrondi ne doit
+        // pas laisser une FAF eternellement "emis" (D41).
+        let nouveau = if total > 0
+            && crate::coeur::calcul::reste_exigible(total, couvert) == 0
+            { "paye" } else { "emis" };
         if nouveau != statut_actuel {
             conn.execute(
                 "UPDATE piece_commerciale SET statut = ?1, modifie_le = ?2
@@ -507,7 +511,7 @@ pub fn lire_factures_fournisseur_ouvertes(
             "statut":     r.get::<_,String>(3)?,
             "total":      total,
             "paye":       paye,
-            "reste":      (total - paye).max(0),
+            "reste":      crate::coeur::calcul::reste_exigible(total, paye),
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 

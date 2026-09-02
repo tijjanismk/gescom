@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlertTriangle, Package, RefreshCw, Loader2,
-  ArrowUpCircle, ClipboardList, X
+  ArrowUpCircle, ClipboardList, X, Printer,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DEPOT_ACTIF } from "@/App";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -21,10 +22,15 @@ import { cn } from "@/lib/utils";
 
 const LIMITE = 40;
 
+interface UniteVente {
+  id: string; libelle: string; facteur: number;
+}
 interface StockRow {
   article_id: string;
   article_nom: string;
   unite_base: string;
+  /** Conditionnements disponibles — sac de 50 kg, carton de 12… */
+  unites?: UniteVente[];
   depot_nom: string;
   depot_id: string;
   quantite: number;
@@ -59,6 +65,14 @@ function ModalEntreeStock({
   onConfirmer: () => void;
 }) {
   const [quantite, setQuantite] = useState("");
+  const [uniteChoisie, setUniteChoisie] = useState("");
+
+  // Unite retenue pour la saisie. Par defaut la plus petite — c'est
+  // celle du stock, donc la conversion est neutre.
+  const uniteSel = article?.unites?.find(u => u.id === uniteChoisie)
+    ?? article?.unites?.[0];
+  const facteurChoisi = uniteSel?.facteur ?? 1;
+  const libelleChoisi = uniteSel?.libelle ?? article?.unite_base ?? "";
   const [prixAchat, setPrixAchat] = useState("");
   const [fournisseurs, setFournisseurs] = useState<Fournisseur[]>([]);
   const [fournisseurId, setFournisseurId] = useState("");
@@ -78,8 +92,12 @@ function ModalEntreeStock({
       await invoke("enregistrer_entree_stock", {
         articleId: article.article_id,
         depotId: article.depot_id,
-        quantite: parseFloat(quantite),
-        prixAchat: prixAchat ? parseInt(prixAchat) : null,
+        // Le stock est tenu en unite de base : on convertit avant
+        // d'envoyer, sinon 10 sacs deviendraient 10 kilos.
+        quantite: parseFloat(quantite) * facteurChoisi,
+        prixAchat: prixAchat
+          ? Math.round(parseInt(prixAchat) / facteurChoisi)
+          : null,
         fournisseurId: fournisseurId && fournisseurId !== "aucun" ? fournisseurId : null,
       });
       onConfirmer();
@@ -103,21 +121,46 @@ function ModalEntreeStock({
               {article ? formaterQuantite(article.quantite, article.unite_base) : "—"}
             </span>
           </div>
+          {/* Le stock est TOUJOURS tenu en unite de base. Mais on
+              recoit des sacs, pas des kilos : on saisit dans le
+              conditionnement reel et on convertit. */}
           <div>
-            <Label>Quantité reçue ({article?.unite_base}) *</Label>
-            <Input type="number" value={quantite}
-              onChange={e => setQuantite(e.target.value)}
-              placeholder="Ex: 50" autoFocus className="mt-1" />
+            <Label>Quantité reçue *</Label>
+            <div className="flex gap-2 mt-1">
+              <Input type="number" value={quantite}
+                onChange={e => setQuantite(e.target.value)}
+                placeholder="Ex: 50" autoFocus className="flex-1" />
+              {(article?.unites?.length ?? 0) > 1 ? (
+                <select value={uniteChoisie}
+                  onChange={e => setUniteChoisie(e.target.value)}
+                  className="h-9 px-2 text-sm border border-border
+                             rounded-md bg-background w-32">
+                  {article!.unites!.map(u => (
+                    <option key={u.id} value={u.id}>
+                      {u.libelle}{u.facteur !== 1 && ` (×${u.facteur})`}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="flex items-center px-3 text-sm
+                                 text-muted-foreground">
+                  {article?.unite_base}
+                </span>
+              )}
+            </div>
             {quantite && article && (
               <p className="text-xs text-green-600 mt-1">
-                Stock après : {formaterQuantite(
-                  article.quantite + parseFloat(quantite), article.unite_base
+                Soit {formaterQuantite(
+                  parseFloat(quantite) * facteurChoisi, article.unite_base
+                )} · stock après : {formaterQuantite(
+                  article.quantite + parseFloat(quantite) * facteurChoisi,
+                  article.unite_base
                 )}
               </p>
             )}
           </div>
           <div>
-            <Label>Prix d'achat (F/{article?.unite_base})
+            <Label>Prix d'achat (F/{libelleChoisi})
               <span className="text-muted-foreground text-xs ml-1">optionnel</span>
             </Label>
             <Input type="number" value={prixAchat}
@@ -318,13 +361,34 @@ export function Stock() {
     await message("Opération enregistrée ✓", { title: "Succès", kind: "info" });
   }
 
+  // L'etat du stock est un document qu'on emporte pour l'inventaire :
+  // on coche a la main dans la colonne « Compté », puis on ajuste.
+  async function imprimerEtat() {
+    try {
+      const d = await invoke<any>("lire_etat_stock", {
+        depotId: DEPOT_ACTIF, avecZero: false,
+      });
+      await invoke("imprimer_facture", {
+        html: genererEtatStockHTML(d),
+        nomFichier: `etat_stock_${new Date().toISOString().slice(0,10)}.html`,
+      });
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Impression", kind: "error" });
+    }
+  }
+
   return (
     <div className="flex-1 overflow-auto p-6">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Stock</h1>
-        <Button variant="outline" size="sm" onClick={() => charger(page)}>
-          <RefreshCw className="h-4 w-4 mr-2" /> Actualiser
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => charger(page)}>
+            <RefreshCw className="h-4 w-4 mr-2" /> Actualiser
+          </Button>
+          <Button variant="outline" size="sm" onClick={imprimerEtat}>
+            <Printer className="h-4 w-4 mr-2" /> État du stock
+          </Button>
+        </div>
       </div>
 
       {/* Filtres */}
@@ -432,4 +496,104 @@ export function Stock() {
       />
     </div>
   );
+}
+
+// =====================================================================
+//  État du stock imprimable
+// =====================================================================
+//
+//  Document d'inventaire : une colonne « Compté » vide, à remplir à la
+//  main dans les rayons. C'est le seul usage réel de cette impression —
+//  on ne consulte pas un stock sur papier, on le vérifie.
+
+function genererEtatStockHTML(d: any): string {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("fr-ML").format(n) + " F";
+  const fmtQ = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(2));
+
+  let categorieCourante = "";
+  const lignes = d.lignes.map((l: any) => {
+    let entete = "";
+    if (l.categorie !== categorieCourante) {
+      categorieCourante = l.categorie;
+      entete = `<tr><td colspan="6" style="background:#eee;padding:5px 8px;
+        font-weight:bold;font-size:11px">${l.categorie}</td></tr>`;
+    }
+    return entete + `
+      <tr style="border-bottom:1px solid #eee">
+        <td style="padding:5px 8px">${l.article}</td>
+        <td style="padding:5px 8px;font-size:10px;color:#666">${l.depot}</td>
+        <td style="padding:5px 8px;text-align:right">${fmtQ(l.quantite)}</td>
+        <td style="padding:5px 8px;font-size:10px;color:#666">${l.unite}</td>
+        <td style="padding:5px 8px;text-align:right">${fmt(l.valeur)}</td>
+        <td style="padding:5px 8px;width:70px;border-left:1px solid #ccc"></td>
+      </tr>`;
+  }).join("");
+
+  const maintenant = new Date();
+  return `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><title>État du stock</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:Arial,sans-serif;font-size:12px;padding:12mm}
+  table{width:100%;border-collapse:collapse}
+  @media print{@page{size:A4;margin:8mm}}
+</style></head><body>
+
+<div style="display:flex;justify-content:space-between;margin-bottom:14px">
+  <div>
+    <div style="font-size:16px;font-weight:bold">${d.societe.nom}</div>
+    ${d.societe.adresse ? `<div style="font-size:10px;color:#555">${d.societe.adresse}</div>` : ""}
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:15px;font-weight:bold">ÉTAT DU STOCK</div>
+    <div style="font-size:10px;color:#555">
+      ${maintenant.toLocaleDateString("fr-ML")} à
+      ${maintenant.toLocaleTimeString("fr-ML", { hour: "2-digit", minute: "2-digit" })}
+    </div>
+    <div style="font-size:10px;color:#555">${d.nb_articles} référence(s)</div>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr style="background:#f0f0f0;border-bottom:2px solid #000">
+      <th style="text-align:left;padding:6px 8px">Article</th>
+      <th style="text-align:left;padding:6px 8px">Dépôt</th>
+      <th style="text-align:right;padding:6px 8px">Théorique</th>
+      <th style="text-align:left;padding:6px 8px">Unité</th>
+      <th style="text-align:right;padding:6px 8px">Valeur</th>
+      <th style="text-align:center;padding:6px 8px;border-left:1px solid #ccc">Compté</th>
+    </tr>
+  </thead>
+  <tbody>${lignes}</tbody>
+  <tfoot>
+    <tr style="border-top:2px solid #000;background:#f5f5f5">
+      <td colspan="4" style="padding:7px 8px;font-weight:bold">
+        VALEUR TOTALE DU STOCK
+      </td>
+      <td style="padding:7px 8px;text-align:right;font-weight:bold">
+        ${fmt(d.valeur_totale)}
+      </td>
+      <td style="border-left:1px solid #ccc"></td>
+    </tr>
+  </tfoot>
+</table>
+
+<div style="font-size:10px;color:#777;margin-top:12px">
+  Valeur calculée au dernier prix d'achat connu. La colonne « Compté »
+  est à remplir lors de l'inventaire, puis à saisir dans l'application.
+</div>
+
+<div style="display:flex;justify-content:space-between;margin-top:36px">
+  <div style="width:45%;border-top:1px solid #000;padding-top:6px;text-align:center">
+    Compté par
+  </div>
+  <div style="width:45%;border-top:1px solid #000;padding-top:6px;text-align:center">
+    Vérifié par
+  </div>
+</div>
+
+<script>window.onload = () => { window.focus(); window.print(); }</script>
+</body></html>`;
 }

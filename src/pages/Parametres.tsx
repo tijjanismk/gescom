@@ -6,6 +6,7 @@ import {
   Plus, Loader2, Save, Eye, EyeOff, ShoppingCart,
   FolderOpen, ChevronDown, ChevronRight,
   Percent, Banknote, XCircle, Clock, Warehouse, Barcode,
+  FileSpreadsheet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { OngletTVA, OngletDettes, OngletIrrecouvrable, OngletAvoirs } from "@/components/OngletChantiers";
 import { OngletDepots } from "@/components/OngletDepots";
 import { OngletCodesBarres } from "@/components/OngletCodesBarres";
+import { OngletImportExport } from "@/components/OngletImportExport";
 import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================
@@ -60,6 +62,7 @@ const ONGLETS_PATRON = [
   { key: "depots",        label: "Dépôts",        icone: Warehouse  },
   { key: "articles",      label: "Articles",      icone: Package    },
   { key: "codesbarres",   label: "Codes-barres",  icone: Barcode    },
+  { key: "importexport",  label: "Import/Export", icone: FileSpreadsheet },
   { key: "categories",    label: "Catégories",    icone: Tag        },
   { key: "ventes",        label: "Ventes",        icone: ShoppingCart },
   { key: "utilisateurs",  label: "Utilisateurs",  icone: Users      },
@@ -70,11 +73,16 @@ const ONGLETS_PATRON = [
   { key: "avoirs",        label: "Avoirs",        icone: Clock      },
 ];
 
+// Un employe ne voit que 4 onglets — c'est voulu. Il n'a rien a faire
+// dans la TVA, les dettes ou les utilisateurs.
+//
+// « Sauvegarde » a ete RETIRE : la commande produit une copie complete
+// de la base, prix d'achat et marges compris. C'est au patron.
 const ONGLETS_EMPLOYE = [
-  { key: "articles",   label: "Articles",   icone: Package      },
-  { key: "categories", label: "Catégories", icone: Tag          },
-  { key: "ventes",     label: "Ventes",     icone: ShoppingCart },
-  { key: "sauvegarde", label: "Sauvegarde", icone: HardDrive    },
+  { key: "articles",    label: "Articles",     icone: Package      },
+  { key: "categories",  label: "Catégories",   icone: Tag          },
+  { key: "ventes",      label: "Ventes",       icone: ShoppingCart },
+  { key: "codesbarres", label: "Codes-barres", icone: Barcode      },
 ];
 
 // =====================================================================
@@ -653,6 +661,7 @@ export function Parametres() {
       {onglet === "societe"       && <ParametresSociete />}
       {onglet === "depots"        && <OngletDepots />}
       {onglet === "codesbarres"   && <OngletCodesBarres />}
+      {onglet === "importexport"  && <OngletImportExport />}
       {onglet === "articles"      && <OngletArticles />}
       {onglet === "categories"    && <OngletCategories />}
       {onglet === "ventes"        && <OngletVentes />}

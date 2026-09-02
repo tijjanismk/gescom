@@ -22,6 +22,26 @@ pub fn reste_du(total: i64, paiements: &[i64]) -> i64 {
     total - total_paye(paiements)
 }
 
+/// Sous ce seuil, un reste dû n'est plus recouvrable : la plus petite
+/// pièce en circulation vaut 5 F. `CAST` tronquant en SQLite (D31), un
+/// résidu d'arrondi laisserait sinon la créance ouverte pour toujours.
+pub const SEUIL_SOLDE: i64 = 5;
+
+/// Reste dû réellement exigible. Absorbe les résidus d'arrondi (D41).
+///
+/// Ne modifie AUCUN montant : ferme un statut, rien de plus. Aucun
+/// paiement n'est créé, la caisse ne bouge pas.
+pub fn reste_exigible(total: i64, montant_paye: i64) -> i64 {
+    let reste = total - montant_paye;
+    if reste <= 0 {
+        return 0; // soldee, ou trop-percu
+    }
+    // Un residu naît d'un arrondi SUR un encaissement. Sans encaissement,
+    // une petite vente reste une creance : sinon un total de 3 F se
+    // solderait tout seul, sans qu'un franc entre en caisse.
+    if montant_paye > 0 && reste <= SEUIL_SOLDE { 0 } else { reste }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum StatutVente {
     Payee,
@@ -34,7 +54,7 @@ pub enum StatutVente {
 /// ⚠️ Le second argument est le montant PAYÉ, pas le reste dû.
 /// Pour partir d'un reste, utiliser `statut_vente_depuis_reste`.
 pub fn statut_vente(total: i64, montant_paye: i64) -> StatutVente {
-    if montant_paye >= total {
+    if reste_exigible(total, montant_paye) == 0 {
         StatutVente::Payee
     } else if montant_paye > 0 {
         StatutVente::PartiellementPayee
@@ -109,6 +129,40 @@ mod tests {
             statut_vente_depuis_reste(10_000, 6_000),
             StatutVente::PartiellementPayee
         );
+    }
+
+    #[test]
+    fn seuil_absorbe_les_residus_darrondi() {
+        // Le cas qui motive le seuil : 1 F de troncature (D31).
+        assert_eq!(reste_exigible(10_000, 9_999), 0);
+        assert_eq!(reste_exigible(10_000, 9_995), 0);
+        assert_eq!(statut_vente(10_000, 9_997), StatutVente::Payee);
+    }
+
+    #[test]
+    fn seuil_ne_solde_jamais_un_impaye_reel() {
+        // 6 F reste exigible : le seuil ne mord pas au-dela.
+        assert_eq!(reste_exigible(10_000, 9_994), 6);
+        assert_eq!(statut_vente(10_000, 9_994), StatutVente::PartiellementPayee);
+        assert_eq!(reste_exigible(10_000, 0), 10_000);
+        assert_eq!(statut_vente(10_000, 0), StatutVente::CreanceOuverte);
+    }
+
+    #[test]
+    fn seuil_couvre_le_trop_percu() {
+        // Reste negatif : deja absorbe, pas d'exigible negatif.
+        assert_eq!(reste_exigible(10_000, 12_000), 0);
+        assert_eq!(statut_vente(10_000, 12_000), StatutVente::Payee);
+    }
+
+    #[test]
+    fn petite_vente_impayee_reste_une_creance() {
+        // Sans encaissement, pas de residu : le seuil ne doit pas
+        // solder une vente de 3 F dont rien n'est entre en caisse.
+        assert_eq!(reste_exigible(3, 0), 3);
+        assert_eq!(statut_vente(3, 0), StatutVente::CreanceOuverte);
+        // Mais 3 F payes sur 5 laissent bien un residu absorbable.
+        assert_eq!(reste_exigible(5, 3), 0);
     }
 
     #[test]

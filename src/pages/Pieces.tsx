@@ -124,6 +124,12 @@ const LABELS_STATUT: Record<string, string> = {
 function fmt(n: number) {
   return new Intl.NumberFormat("fr-ML").format(n) + " F";
 }
+/** Heure seule — la date est deja dans la colonne. */
+function fmtHeure(iso: string) {
+  return new Date(iso).toLocaleTimeString("fr-ML", {
+    hour: "2-digit", minute: "2-digit",
+  });
+}
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("fr-ML", {
     day: "2-digit", month: "2-digit", year: "numeric",
@@ -195,7 +201,10 @@ function ModalValiderFacture({
                 </p>
                 <p className="text-xs text-green-600">
                   {fmt(resultat.total_net)} ·{" "}
-                  {resultat.statut_vente === "payee" ? "Payée" : "Créance ouverte"}
+                  {resultat.statut_vente === "payee" ? "Payée"
+                    : resultat.statut_vente === "partiellement_payee"
+                      ? "Acompte reçu — créance ouverte"
+                      : "Créance ouverte"}
                 </p>
               </div>
             </div>
@@ -953,6 +962,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
 
                     <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
                       {fmtDate(p.date_piece)}
+                      {/* L'heure distingue deux pieces du meme jour pour
+                          le meme tiers, et permet de retrouver
+                          l'operation dans le journal. */}
+                      <span className="block text-xs text-muted-foreground">
+                        {fmtHeure(p.date_piece)}
+                      </span>
                     </td>
                     <td className="px-3 py-2 font-mono text-xs font-medium">
                       {p.numero}

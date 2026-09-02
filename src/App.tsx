@@ -114,11 +114,21 @@ function App() {
   // la valeur de référence reste DEPOT_ACTIF.
   const [depotActif, setDepotActif] = useState<string | null>(DEPOT_ACTIF);
 
+  // ⚠️ NE PAS remettre cette affectation dans un useEffect.
+  //
+  // Les effets des ENFANTS s'executent avant ceux du parent. Parametres
+  // lisait donc UTILISATEUR_ACTIF encore null au premier rendu et
+  // concluait « employe » : seuls 4 onglets apparaissaient, et il
+  // fallait rafraichir pour voir les 12.
+  //
+  // L'affectation doit avoir lieu pendant le rendu, avant que le moindre
+  // enfant ne soit monte.
+  if (utilisateur && UTILISATEUR_ACTIF?.id !== utilisateur.id) {
+    UTILISATEUR_ACTIF = utilisateur;
+  }
+
   useEffect(() => {
-    if (utilisateur) {
-      UTILISATEUR_ACTIF = utilisateur;
-      if (utilisateur.doit_changer_mdp) setModalMdp(true);
-    }
+    if (utilisateur?.doit_changer_mdp) setModalMdp(true);
   }, []);
 
   function naviguer(page: string, params?: any) {

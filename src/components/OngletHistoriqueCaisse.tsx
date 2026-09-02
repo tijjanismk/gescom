@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  History, Loader2, RefreshCw, ChevronDown, ChevronRight,
+  History as HistoryIcon, Loader2, RefreshCw, ChevronDown, ChevronRight,
   TrendingDown, TrendingUp, CheckCircle2, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -115,7 +115,7 @@ export function OngletHistoriqueCaisse() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <History className="h-5 w-5" /> Historique de caisse
+            <HistoryIcon className="h-5 w-5" /> Historique de caisse
           </h2>
           <p className="text-xs text-muted-foreground">
             L'écart confronte ce que dit le logiciel à ce qu'il y a dans

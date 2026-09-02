@@ -293,6 +293,14 @@ pub fn creer_vente(
     let now = maintenant_iso();
     let vente_id = uuid::Uuid::new_v4().to_string();
 
+    let client_generique = crate::utils::est_client_generique(&conn, &client_id);
+
+    // D40 — refus AVANT d'ouvrir la transaction : rien a defaire.
+    if mode_reglement == "credit" && client_generique {
+        return Err("Pas de crédit pour un client comptant. \
+                    Créer ou sélectionner le client d'abord.".to_string());
+    }
+
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     tx.execute(
@@ -381,7 +389,14 @@ pub fn creer_vente(
     let mut total_regle: i64 = 0;
 
     // ---- Avoirs (du plus ancien au plus recent) ----
-    let avoir_demande = avoir_montant.unwrap_or(0).min(total);
+    // Pot commun `client0000` : le premier passant venu raflerait le
+    // credit d'un autre. Le POS le bloque deja (Ventes.tsx), mais la
+    // commande est appelable directement.
+    let avoir_demande = if client_generique {
+        0
+    } else {
+        avoir_montant.unwrap_or(0).min(total)
+    };
     if avoir_demande > 0 {
         let avoirs: Vec<(String, i64)> = {
             let mut st = tx.prepare(

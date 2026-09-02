@@ -203,7 +203,7 @@ export function Dashboard() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold">
-              Bonjour, {UTILISATEUR_ACTIF?.nom?.split(" ")[0] ?? "..."} 👋
+              Bonjour, {UTILISATEUR_ACTIF?.nom?.split(" ")[0] ?? "..."} 
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {new Date().toLocaleDateString("fr-ML", {

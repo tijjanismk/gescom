@@ -299,12 +299,14 @@ function ModalAvoirConserve({
 // =====================================================================
 
 function ModalEchange({
-  ouvert, vente, ligne, articles, onFermer, onConfirmer,
+  ouvert, vente, ligne, articles, comptant, onFermer, onConfirmer,
 }: {
   ouvert: boolean;
   vente: Vente | null;
   ligne: LigneVente | null;
   articles: ArticleAchat[];
+  // Client de passage : le reliquat repart en especes, jamais en avoir.
+  comptant: boolean;
   onFermer: () => void;
   onConfirmer: () => void;
 }) {
@@ -320,6 +322,11 @@ function ModalEchange({
 
   // Reliquat
   const [modeReliquatPositif, setModeReliquatPositif] = useState<"remboursement" | "avoir">("remboursement");
+  // Garde-fou d'etat : un changement de vente ne doit pas laisser
+  // "avoir" selectionne sur un client de passage.
+  useEffect(() => {
+    if (comptant) setModeReliquatPositif("remboursement");
+  }, [comptant, ouvert]);
   const [modeEncaissementReliquat, setModeEncaissementReliquat] = useState("especes");
   const [modeEncaissementComplement, setModeEncaissementComplement] = useState("especes");
 
@@ -539,8 +546,12 @@ function ModalEchange({
               {/* Reliquat positif — client reçoit de l'argent */}
               {reliquat > 0 && (
                 <div className="space-y-2 pt-1 border-t border-green-200">
-                  <p className="text-xs text-muted-foreground">Comment restituer le reliquat ?</p>
-                  <div className="flex gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    {comptant
+                      ? "Reliquat remboursé — pas d'avoir pour un client comptant."
+                      : "Comment restituer le reliquat ?"}
+                  </p>
+                  <div className={cn("flex gap-2", comptant && "hidden")}>
                     {[
                       { value: "remboursement", label: "Rembourser", icone: Wallet },
                       { value: "avoir", label: "Avoir", icone: Gift },
@@ -635,6 +646,8 @@ export function Retours() {
   const [chargement, setChargement] = useState(true);
   const [onglet, setOnglet] = useState<"retours" | "avoirs" | "fournisseur">("retours");
   const [venteExpandee, setVenteExpandee] = useState<string | null>(null);
+  // D40 — le client de passage ne peut pas recevoir d'avoir.
+  const [clientGeneriqueId, setClientGeneriqueId] = useState<string | null>(null);
 
   // Modals
   const [venteSelectionnee, setVenteSelectionnee] = useState<Vente | null>(null);
@@ -646,14 +659,16 @@ export function Retours() {
   async function charger() {
     setChargement(true);
     try {
-      const [v, a, arts] = await Promise.all([
+      const [v, a, arts, gen] = await Promise.all([
         invoke<Vente[]>("lire_ventes_recentes"),
         invoke<Avoir[]>("lire_avoirs_ouverts_tous"),
         invoke<ArticleAchat[]>("lire_articles_avec_unites"),
+        invoke<{ id: string }>("lire_client_generique"),
       ]);
       setVentes(v);
       setAvoirs(a);
       setArticles(arts);
+      setClientGeneriqueId(gen?.id ?? null);
     } catch (e) {
       console.error("Erreur chargement retours :", e);
     } finally {
@@ -662,6 +677,11 @@ export function Retours() {
   }
 
   useEffect(() => { charger(); }, []);
+
+  // Un avoir au comptant part sur le client generique, commun a tous
+  // les clients de passage : il serait inutilisable (D40).
+  const estComptant = (vente: Vente) =>
+    clientGeneriqueId !== null && vente.client_id === clientGeneriqueId;
 
   function ouvrirModal(
     vente: Vente,
@@ -819,12 +839,14 @@ export function Retours() {
                                 <ArrowLeftRight className="h-3 w-3 mr-1" />
                                 Échanger
                               </Button>
-                              <Button size="sm" variant="outline"
-                                onClick={() => ouvrirModal(vente, ligne, "avoir")}
-                                className="h-7 text-xs px-2">
-                                <Gift className="h-3 w-3 mr-1" />
-                                Avoir
-                              </Button>
+                              {!estComptant(vente) && (
+                                <Button size="sm" variant="outline"
+                                  onClick={() => ouvrirModal(vente, ligne, "avoir")}
+                                  className="h-7 text-xs px-2">
+                                  <Gift className="h-3 w-3 mr-1" />
+                                  Avoir
+                                </Button>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -886,6 +908,7 @@ export function Retours() {
 
       <ModalEchange
         ouvert={modalEchange}
+        comptant={venteSelectionnee ? estComptant(venteSelectionnee) : false}
         vente={venteSelectionnee}
         ligne={ligneSelectionnee}
         articles={articles}

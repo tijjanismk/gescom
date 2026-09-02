@@ -296,6 +296,103 @@ pc2, pcl2 = retour(10_000, 10_000, 5_000, "remboursement",
 check("T10 second retour apres remboursement complet", pcl2 == 0, f"pcl2={pcl2}")
 
 # =====================================================================
+#  T11 — Seuil de solde : absorbe les residus, jamais un vrai impaye
+# =====================================================================
+print("T11 Seuil de solde — residus d'arrondi")
+SEUIL = 5
+
+def reste_exigible(total, paye):
+    """coeur/calcul.rs — D41."""
+    reste = total - paye
+    if reste <= 0:
+        return 0
+    if paye > 0 and reste <= SEUIL:
+        return 0
+    return reste
+
+def statut_vente_seuil(total, paye):
+    if reste_exigible(total, paye) == 0: return "payee"
+    if paye > 0: return "partiellement_payee"
+    return "creance_ouverte"
+
+n_faux_solde = n_residu = 0
+random.seed(11)
+for _ in range(200_000):
+    total = random.randint(1000, 10_000_000)
+    # Un vrai impaye : au moins 10x le seuil reste du
+    reste_vrai = random.randint(SEUIL * 10, max(total // 2, SEUIL * 10 + 1))
+    paye = max(total - reste_vrai, 0)
+    if statut_vente_seuil(total, paye) == "payee":
+        n_faux_solde += 1
+    # Un residu d'arrondi APRES encaissement
+    residu = random.randint(1, SEUIL)
+    if statut_vente_seuil(total, total - residu) != "payee":
+        n_residu += 1
+check("T11 aucun impaye reel solde par le seuil", n_faux_solde == 0,
+      f"{n_faux_solde} cas")
+check("T11 tout residu <= seuil est solde", n_residu == 0, f"{n_residu} cas")
+print(f"    200 000 ventes — faux soldes : {n_faux_solde}, "
+      f"residus non absorbes : {n_residu}")
+
+# Le seuil ne mord qu'apres un encaissement
+check("T11 petite vente impayee reste une creance", reste_exigible(3, 0) == 3)
+check("T11 statut d'une petite vente impayee",
+      statut_vente_seuil(3, 0) == "creance_ouverte")
+# Frontieres exactes
+check("T11 reste == seuil absorbe", reste_exigible(10_000, 9_995) == 0)
+check("T11 reste == seuil+1 exigible", reste_exigible(10_000, 9_994) == 6)
+# Trop-percu : absorbe, mais ce n'est pas un residu
+check("T11 trop-percu -> exigible nul", reste_exigible(10_000, 12_000) == 0)
+# Le seuil ne cree pas d'argent : le montant paye est inchange
+check("T11 seuil ne cree aucun paiement",
+      reste_exigible(10_000, 9_997) == 0 and (10_000 - 9_997) == 3)
+
+# =====================================================================
+#  T12 — Client comptant : ni credit, ni avoir
+# =====================================================================
+print("T12 Client comptant — D40")
+
+def vente_autorisee(mode_reglement, generique):
+    """ventes.rs — creer_vente."""
+    return not (mode_reglement == "credit" and generique)
+
+def avoir_demande_effectif(avoir_montant, total, generique):
+    """ventes.rs — pot commun jamais consomme au comptant."""
+    return 0 if generique else min(avoir_montant, total)
+
+def retour_autorise(mode_resolution, generique):
+    """retours.rs — enregistrer_retour."""
+    return not (generique and mode_resolution == "avoir_conserve")
+
+def reliquat_cree_un_avoir(mode_reliquat, generique):
+    """retours.rs — la branche par defaut est l'avoir : au comptant
+    un mode absent NE DOIT PAS retomber dessus."""
+    if generique:
+        return False
+    return mode_reliquat != "remboursement"
+
+n_gen = 0
+for generique in (True, False):
+    for mode in ("comptant", "credit"):
+        attendu = not (mode == "credit" and generique)
+        if vente_autorisee(mode, generique) != attendu: n_gen += 1
+    for mr in ("remboursement", "avoir_conserve", "echange"):
+        if retour_autorise(mr, generique) != (not (generique and mr == "avoir_conserve")):
+            n_gen += 1
+    # None inclus : c'est le cas que la branche `_ =>` rattrapait en avoir
+    for mrp in (None, "avoir", "remboursement"):
+        if generique and reliquat_cree_un_avoir(mrp, generique): n_gen += 1
+    if avoir_demande_effectif(50_000, 80_000, generique) != (0 if generique else 50_000):
+        n_gen += 1
+
+check("T12 gardes comptant coherentes", n_gen == 0, f"{n_gen} violations")
+check("T12 reliquat sans mode ne cree pas d'avoir au comptant",
+      not reliquat_cree_un_avoir(None, True))
+check("T12 client identifie garde ses avoirs",
+      reliquat_cree_un_avoir(None, False))
+print(f"    modes x type de client — violations : {n_gen}")
+
+# =====================================================================
 print()
 print("="*62)
 if ECHECS:

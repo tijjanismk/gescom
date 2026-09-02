@@ -27,9 +27,11 @@ pub struct LigneAchat {
 
 /// Enregistre un achat complet : stock, mouvements, facture fournisseur.
 ///
-/// - `mode_reglement` = "comptant" → un paiement du total est enregistré,
-///   la dette retombe à zéro immédiatement.
-/// - `mode_reglement` = "credit"   → la dette reste ouverte.
+/// - `mode_reglement` = "comptant" → le total est réglé immédiatement,
+///   la dette retombe à zéro.
+/// - `mode_reglement` = "credit"   → la dette reste ouverte, sauf si un
+///   `acompte` est donné : montant réglé tout de suite, le reste reste dû.
+///   Même logique que `valider_facture` côté vente (D30 étendu).
 ///
 /// Sans `fournisseur_id`, le stock est mis à jour mais aucune facture
 /// n'est créée (régularisation interne).
@@ -40,10 +42,15 @@ pub fn enregistrer_achat(
     depot_id: Option<String>,
     lignes: Vec<LigneAchat>,
     mode_reglement: Option<String>,
-    // especes | orange_money | moov_money | cheque — pour le comptant
+    // especes | orange_money | moov_money | cheque — pour le comptant/acompte
     mode_paiement: Option<String>,
+    // N'a de sens que si mode_reglement = "credit". Ignoré sinon.
+    acompte: Option<i64>,
     note: Option<String>,
     utilisateur_role: Option<String>,
+    // Trace la piece d'origine (bon_reception) quand cet achat en decoule.
+    // Optionnel : un achat direct (sans BCF/BRF prealable) n'en a pas.
+    piece_origine_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     if lignes.is_empty() {
         return Err("Aucune ligne à enregistrer".to_string());
@@ -73,6 +80,9 @@ pub fn enregistrer_achat(
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let op_id = uuid::Uuid::new_v4().to_string();
     let mut total: i64 = 0;
+
+    // Calcule apres coup (total connu seulement une fois les lignes lues) —
+    // voir plus bas, juste avant la creation de la facture.
 
     // ---- 1. Stock et mouvements ----
     for l in &lignes {
@@ -117,6 +127,17 @@ pub fn enregistrer_achat(
         ).ok();
     }
 
+    // Montant reellement regle a cet instant — meme principe que
+    // valider_facture cote vente (pieces.rs) : le statut se DEDUIT de ce
+    // qui est encaisse, jamais du mode declare seul.
+    //   comptant -> tout le total.
+    //   credit   -> l'acompte donne, plafonne au total (0 si absent).
+    let montant_regle: i64 = if mode_reglement.as_deref() == Some("comptant") {
+        total
+    } else {
+        acompte.unwrap_or(0).clamp(0, total)
+    };
+
     // ---- 2. Facture fournisseur ----
     let mut piece_id_retour = serde_json::Value::Null;
     let mut numero_retour = serde_json::Value::Null;
@@ -127,10 +148,10 @@ pub fn enregistrer_achat(
         // Une facture fournisseur arrive du fournisseur : elle est ferme
         // des sa reception. Son statut reflete donc le REGLEMENT, pas un
         // cycle de validation interne.
-        //   comptant -> "paye"  (soldee immediatement)
-        //   credit   -> "emis"  (recue, non reglee)
+        //   soldee (comptant, ou acompte >= total) -> "paye"
+        //   sinon (credit sec ou acompte partiel)   -> "emis"
         // "validee" n'a de sens que cote client (brouillon -> vente creee).
-        let statut_piece = if mode_reglement.as_deref() == Some("comptant") {
+        let statut_piece = if montant_regle >= total && total > 0 {
             "paye"
         } else {
             "emis"
@@ -139,13 +160,13 @@ pub fn enregistrer_achat(
         tx.execute(
             "INSERT INTO piece_commerciale
              (id, type_piece, numero, statut, tiers_type, tiers_id, depot_id,
-              auteur_id, date_piece, remise_globale, note,
+              piece_origine_id, auteur_id, date_piece, remise_globale, note,
               cree_le, modifie_le, origine)
              VALUES (?1,'facture_fournisseur',?2,?3,'fournisseur',?4,?5,
-                     ?6,?7,0.0,?8,?9,?10,'achat')",
+                     ?6,?7,?8,0.0,?9,?10,?11,'achat')",
             rusqlite::params![
                 piece_id, num, statut_piece, f_id, depot_id,
-                auteur, now, note, now, now
+                piece_origine_id, auteur, now, note, now, now
             ],
         ).map_err(|e| e.to_string())?;
 
@@ -165,17 +186,22 @@ pub fn enregistrer_achat(
             ).map_err(|e| e.to_string())?;
         }
 
-        // ---- 3. Solde de la dette (comptant) ----
+        // ---- 3. Solde de la dette (comptant OU acompte credit) ----
         // Uniquement ici : sans fournisseur, il n'y a pas de dette a solder.
-        if mode_reglement.as_deref() == Some("comptant") && total > 0 {
+        // C'est CE paiement_fournisseur, et lui seul, que lit le calcul de
+        // dette (fournisseurs.rs) — s'il manque, la FAF reste "paye" en
+        // apparence mais la dette affichee ne bouge pas : reglement double
+        // possible au prochain "Encaisser". D'ou l'ecriture ici, toujours
+        // couplee au statut, jamais separee.
+        if montant_regle > 0 {
             tx.execute(
                 "INSERT INTO paiement_fournisseur
-                 (id, fournisseur_id, montant, mode, note,
+                 (id, fournisseur_id, piece_id, montant, mode, note,
                   auteur_id, date_paiement, cree_le, origine)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'achat')",
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'achat')",
                 rusqlite::params![
                     uuid::Uuid::new_v4().to_string(),
-                    f_id, total,
+                    f_id, piece_id, montant_regle,
                     mode_paiement.as_deref().unwrap_or("especes"),
                     format!("Achat {}", num),
                     auteur, now, now
@@ -191,7 +217,10 @@ pub fn enregistrer_achat(
     // HORS du bloc fournisseur : l'argent quitte le tiroir meme sans
     // tiers identifie (regularisation, achat de depannage). Sans ce
     // mouvement, la cloture affiche un excedent egal aux achats comptant.
-    if mode_reglement.as_deref() == Some("comptant") && total > 0 {
+    // Montant = montant_regle (comptant OU acompte), jamais `total` seul —
+    // sinon un acompte partiel ferait sortir plus de caisse que ce qui est
+    // reellement paye.
+    if montant_regle > 0 {
         let mode_p = mode_paiement.as_deref().unwrap_or("especes");
         let session: Option<String> = tx.query_row(
             "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
@@ -205,7 +234,7 @@ pub fn enregistrer_achat(
                  VALUES (?1,?2,'sortie',?3,?4,'achat',?5,?6,?7,?8,'app')",
                 rusqlite::params![
                     uuid::Uuid::new_v4().to_string(),
-                    sid, mode_p, total, op_id, now, now, auteur
+                    sid, mode_p, montant_regle, op_id, now, now, auteur
                 ],
             ).map_err(|e| e.to_string())?;
         }
@@ -229,8 +258,8 @@ pub fn enregistrer_achat(
         "piece_id": piece_id_retour,
         "numero":   numero_retour,
         "total":    total,
-        "statut":   if mode_reglement.as_deref() == Some("comptant")
-                    { "paye" } else { "emis" },
+        "regle":    montant_regle,
+        "statut":   if montant_regle >= total && total > 0 { "paye" } else { "emis" },
     }))
 }
 

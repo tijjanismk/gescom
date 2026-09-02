@@ -6,6 +6,7 @@ pub mod transferts;
 pub mod depots;
 pub mod codebarre;
 pub mod cheques;
+pub mod catalogue;
 pub mod parametres;
 pub mod retours;
 pub mod pagination;

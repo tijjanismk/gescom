@@ -19,6 +19,7 @@ import type {
 } from "@/lib/types-api";
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
+import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 
 // =====================================================================
 //  Types
@@ -138,17 +139,20 @@ function ModalNouveauFournisseur({
 // =====================================================================
 
 function ModalConfirmationAchat({
-  ouvert, total, modeReglement, fournisseur,
+  ouvert, total, modeReglement, acompte, fournisseur,
   chargement, onFermer, onConfirmer,
 }: {
   ouvert: boolean;
   total: number;
   modeReglement: "comptant" | "credit";
+  acompte: number; // 0 si comptant ou pas d'acompte saisi
   fournisseur: Fournisseur | null;
   chargement: boolean;
   onFermer: () => void;
   onConfirmer: () => void;
 }) {
+  const regle = modeReglement === "comptant" ? total : acompte;
+  const reste = Math.max(total - regle, 0);
   return (
     <Dialog open={ouvert} onOpenChange={onFermer}>
       <DialogContent className="max-w-sm">
@@ -180,10 +184,27 @@ function ModalConfirmationAchat({
               </Badge>
             </div>
 
-            {/* Note importante : pas d'impact caisse */}
+            {regle > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {modeReglement === "comptant" ? "Réglé" : "Acompte réglé"}
+                </span>
+                <span className="font-medium text-green-600">{formaterMontant(regle)}</span>
+              </div>
+            )}
+
+            {reste > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Reste dû</span>
+                <span className="font-medium text-red-600">{formaterMontant(reste)}</span>
+              </div>
+            )}
+
+            {/* Le montant réglé ci-dessus sort réellement de la caisse. */}
             <div className="bg-muted rounded-md px-3 py-2 text-xs text-muted-foreground mt-2">
-              ℹ️ Cet achat met à jour le stock uniquement.
-              Le paiement fournisseur se gère séparément.
+              ℹ️ {regle > 0
+                ? "Le stock est mis à jour et le montant réglé sort de la caisse."
+                : "Cet achat met à jour le stock. Aucun règlement immédiat."}
             </div>
           </div>
 
@@ -228,6 +249,9 @@ export function Achats() {
   // Panier
   const [panier, setPanier] = useState<LignePanierAchat[]>([]);
   const [modeReglement, setModeReglement] = useState<"comptant" | "credit">("comptant");
+  // N'a de sens que si modeReglement === "credit" — ignoré côté serveur sinon.
+  const [acompte, setAcompte] = useState("");
+  const [modeAcompte, setModeAcompte] = useState("especes");
 
   // Modal
   const [modalConfirmation, setModalConfirmation] = useState(false);
@@ -338,6 +362,8 @@ export function Achats() {
     setPanier([]);
     setFournisseur(null);
     setModeReglement("comptant");
+    setAcompte("");
+    setModeAcompte("especes");
   }
 
   // ---- Confirmation achat ----
@@ -351,8 +377,13 @@ export function Achats() {
           fournisseurId: fournisseur?.id ?? null,
           depotId: null, // dépôt par défaut résolu côté Rust
           modeReglement,
-          // Comptant : sortie de caisse enregistrée avec ce moyen.
-          modePaiement: "especes",
+          // Comptant → toujours espèces (caisse) ; crédit avec acompte →
+          // moyen choisi pour l'acompte. Ignoré si aucun règlement immédiat.
+          modePaiement: modeReglement === "comptant" ? "especes" : modeAcompte,
+          // Ignoré côté serveur si modeReglement !== "credit".
+          acompte: modeReglement === "credit"
+            ? (parseMontant(acompte) || null)
+            : null,
           note: null,
           lignes: panier.map(l => ({
             article_id:     l.article.id,
@@ -394,7 +425,7 @@ export function Achats() {
         <div className="flex items-center gap-2">
           <Button size="sm"
             variant={modeReglement === "comptant" ? "default" : "outline"}
-            onClick={() => setModeReglement("comptant")}>
+            onClick={() => { setModeReglement("comptant"); setAcompte(""); }}>
             Comptant
           </Button>
           <Button size="sm"
@@ -639,16 +670,46 @@ export function Achats() {
             )}
           </div>
 
+          {/* Acompte crédit */}
+          {modeReglement === "credit" && (
+            <div className="border-t border-border pt-3 mt-3 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Label className="text-xs text-muted-foreground">Acompte (optionnel)</Label>
+                  <MoneyInput value={acompte} onChange={setAcompte}
+                    placeholder="0" className="h-8 mt-0.5" />
+                </div>
+                <div className="flex-1">
+                  <Label className="text-xs text-muted-foreground">Mode</Label>
+                  <Select value={modeAcompte} onValueChange={v => { if (v) setModeAcompte(v); }}>
+                    <SelectTrigger className="h-8 text-sm mt-0.5"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="especes">Espèces</SelectItem>
+                      <SelectItem value="orange_money">Orange Money</SelectItem>
+                      <SelectItem value="moov_money">Moov Money</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Total + bouton */}
-          <div className="border-t border-border pt-3 mt-3 space-y-2">
+          <div className={cn(
+            "border-t border-border pt-3 space-y-2",
+            modeReglement === "credit" ? "mt-0" : "mt-3"
+          )}>
             <div className="flex items-center justify-between">
               <span className="font-medium">Total achat</span>
               <span className="text-xl font-bold">{formaterMontant(total)}</span>
             </div>
 
-            {/* Rappel : pas d'impact caisse */}
             <p className="text-xs text-muted-foreground text-center">
-              Le stock sera mis à jour — aucun impact sur la caisse
+              {modeReglement === "comptant"
+                ? "Stock mis à jour, réglé immédiatement — sort de la caisse"
+                : parseMontant(acompte) > 0
+                  ? "Stock mis à jour, acompte réglé — sort de la caisse, reste dû conservé"
+                  : "Stock mis à jour — aucun règlement immédiat, dette conservée"}
             </p>
 
             <Button className="w-full" size="lg"
@@ -678,6 +739,7 @@ export function Achats() {
         ouvert={modalConfirmation}
         total={total}
         modeReglement={modeReglement}
+        acompte={modeReglement === "credit" ? parseMontant(acompte) : 0}
         fournisseur={fournisseur}
         chargement={chargementAchat}
         onFermer={() => setModalConfirmation(false)}

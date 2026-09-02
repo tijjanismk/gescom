@@ -378,7 +378,9 @@ function genererBonHTML(d: any): string {
     <div style="font-size:15px;font-weight:bold">BON DE TRANSFERT</div>
     <div style="margin-top:4px">N° <strong>${d.bon}</strong></div>
     <div style="font-size:10px;color:#555">
-      Date : ${new Date(d.date).toLocaleDateString("fr-ML")}
+      Date : ${new Date(d.date).toLocaleDateString("fr-ML")} à
+      ${new Date(d.date).toLocaleTimeString("fr-ML", {
+        hour: "2-digit", minute: "2-digit" })}
     </div>
   </div>
 </div>

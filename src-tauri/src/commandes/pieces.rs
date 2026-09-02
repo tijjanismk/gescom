@@ -153,7 +153,7 @@ pub fn lire_toutes_pieces_client(
         let remise_mt = (total_ht as f64 * remise_g / 100.0).round() as i64;
         let total_net = total_ht - remise_mt;
         let total_ttc_calc = total_net + total_tva;
-        let reste = (total_ttc_calc - total_paye).max(0);
+        let reste = crate::coeur::calcul::reste_exigible(total_ttc_calc, total_paye);
         Ok(serde_json::json!({
             "id":               row.get::<_,String>(0)?,
             "type_piece":       row.get::<_,String>(1)?,
@@ -378,6 +378,16 @@ pub fn convertir_piece(
         ("commande_client", "bon_livraison")   => true,
         ("commande_client", "facture")         => true,
         ("bon_livraison",   "facture")         => true,
+
+        // Cote fournisseur : BCF -> BRF est de la paperasse pure (copie de
+        // lignes, ajustables avant facturation), sans effet stock/argent.
+        // BRF -> facture_fournisseur n'est volontairement PAS ici : cette
+        // etape doit produire stock + dette + caisse en une transaction,
+        // ce que fait deja enregistrer_achat (achats.rs). Une conversion
+        // generique ici creerait une FAF sans paiement_fournisseur associe
+        // -> dette fantome, risque de decaissement double au reglement.
+        ("bon_commande_fournisseur", "bon_reception") => true,
+
         _ => false,
     };
 
@@ -410,6 +420,10 @@ pub fn convertir_piece(
         "bon_livraison"   => "emis",
         "facture"         => "brouillon", // jamais validee automatiquement
         "avoir_client"    => "emis",
+        // BRF : les prix du BCF sont indicatifs, ceux factures par le
+        // fournisseur different presque toujours -> brouillon modifiable
+        // le temps de comparer commande vs recu, avant facturation.
+        "bon_reception"   => "brouillon",
         _                 => "brouillon",
     };
 
@@ -739,7 +753,8 @@ pub fn valider_facture(
                 ).map_err(|e| e.to_string())?;
             }
 
-            let statut_v = if ac >= total_net { "payee" } else { "partiellement_payee" };
+            let statut_v = if crate::coeur::calcul::reste_exigible(total_net, ac) == 0
+                { "payee" } else { "partiellement_payee" };
             tx.execute(
                 "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
                 rusqlite::params![statut_v, now, vente_id],
@@ -760,7 +775,8 @@ pub fn valider_facture(
     // 'validee' voulait dire "effets produits", mais toute facture qui
     // existe a produit ses effets — le mot n'apportait rien et faisait
     // doublon avec 'paye'.
-    let statut_piece = if encaisse >= total_net { "paye" } else { "emis" };
+    let statut_piece = if crate::coeur::calcul::reste_exigible(total_net, encaisse) == 0
+        { "paye" } else { "emis" };
 
     tx.execute(
         "UPDATE piece_commerciale
@@ -777,7 +793,8 @@ pub fn valider_facture(
         "numero_facture": numero,
         "total_net":     total_net,
         "statut_piece":  statut_piece,
-        "statut_vente":  if encaisse >= total_net { "payee" }
+        "statut_vente":  if crate::coeur::calcul::reste_exigible(total_net, encaisse) == 0
+                         { "payee" }
                          else if encaisse > 0 { "partiellement_payee" }
                          else { "creance_ouverte" },
     }))
@@ -813,34 +830,69 @@ pub fn lire_donnees_piece(
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
-    let piece = conn.query_row(
+    // La pièce peut être côté client OU fournisseur (BCF/BRF/FAF/AVF) —
+    // `JOIN client c ON c.id = pc.tiers_id` renvoyait ZERO ligne pour un
+    // tiers fournisseur (l'id n'existe pas dans `client`), d'où l'erreur
+    // "Query returned no rows" à l'impression de toute pièce fournisseur.
+    // On lit d'abord la pièce seule, puis le tiers dans la bonne table.
+    let (
+        pc_id, type_piece, numero, statut, date_piece, date_echeance,
+        remise_globale, note, tiers_type, tiers_id, auteur_nom,
+    ): (String, String, String, String, String, Option<String>,
+        f64, Option<String>, String, String, Option<String>) = conn.query_row(
         "SELECT pc.id, pc.type_piece, pc.numero, pc.statut,
                 pc.date_piece, pc.date_echeance, pc.remise_globale, pc.note,
-                c.id, c.nom, c.code, c.telephone, c.adresse, c.nif,
-                u.nom as auteur_nom
+                pc.tiers_type, pc.tiers_id, u.nom
          FROM piece_commerciale pc
-         JOIN client c ON c.id = pc.tiers_id
          LEFT JOIN utilisateur u ON u.id = pc.auteur_id
          WHERE pc.id = ?1",
         rusqlite::params![piece_id],
-        |row| Ok(serde_json::json!({
-            "id":             row.get::<_,String>(0)?,
-            "type_piece":     row.get::<_,String>(1)?,
-            "numero":         row.get::<_,String>(2)?,
-            "statut":         row.get::<_,String>(3)?,
-            "date_piece":     row.get::<_,String>(4)?,
-            "date_echeance":  row.get::<_,Option<String>>(5)?,
-            "remise_globale": row.get::<_,f64>(6).unwrap_or(0.0),
-            "note":           row.get::<_,Option<String>>(7)?,
-            "client_id":      row.get::<_,String>(8)?,
-            "client_nom":     row.get::<_,String>(9)?,
-            "client_code":    row.get::<_,String>(10)?,
-            "client_telephone": row.get::<_,Option<String>>(11)?,
-            "client_adresse": row.get::<_,Option<String>>(12)?,
-            "client_nif":     row.get::<_,Option<String>>(13)?,
-            "auteur_nom":     row.get::<_,Option<String>>(14)?,
-        }))
-    ).map_err(|e| e.to_string())?;
+        |row| Ok((
+            row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?,
+            row.get(4)?, row.get(5)?, row.get::<_,f64>(6).unwrap_or(0.0),
+            row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?,
+        )),
+    ).map_err(|_| "Pièce introuvable".to_string())?;
+
+    // Tiers : `client` et `fournisseur` portent tous deux nom/telephone/
+    // adresse/nif — seul `code` n'existe que côté client.
+    let (tiers_nom, tiers_code, tiers_telephone, tiers_adresse, tiers_nif):
+        (String, Option<String>, Option<String>, Option<String>, Option<String>) =
+        if tiers_type == "client" {
+            conn.query_row(
+                "SELECT nom, code, telephone, adresse, nif FROM client WHERE id = ?1",
+                rusqlite::params![tiers_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            ).map_err(|_| "Client introuvable".to_string())?
+        } else {
+            conn.query_row(
+                "SELECT nom, NULL, telephone, adresse, nif FROM fournisseur WHERE id = ?1",
+                rusqlite::params![tiers_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            ).map_err(|_| "Fournisseur introuvable".to_string())?
+        };
+
+    // Clés conservées `client_*` pour ne pas casser le générateur HTML
+    // frontend (genererPieceHTML/genererTicketThermique), qui ne
+    // distingue pas encore client/fournisseur dans son template.
+    let piece = serde_json::json!({
+        "id":             pc_id,
+        "type_piece":     type_piece,
+        "numero":         numero,
+        "statut":         statut,
+        "date_piece":     date_piece,
+        "date_echeance":  date_echeance,
+        "remise_globale": remise_globale,
+        "note":           note,
+        "tiers_type":     tiers_type,
+        "client_id":      tiers_id,
+        "client_nom":     tiers_nom,
+        "client_code":    tiers_code,
+        "client_telephone": tiers_telephone,
+        "client_adresse": tiers_adresse,
+        "client_nif":     tiers_nif,
+        "auteur_nom":     auteur_nom,
+    });
 
     let mut stmt = conn.prepare(
         "SELECT a.nom, uv.libelle, lp.quantite, lp.prix_unitaire,
@@ -907,22 +959,27 @@ pub fn lire_donnees_piece(
     }
     let total_ttc = somme_ttc as i64;
 
-    // Acompte : montant deja encaisse sur la vente liee a cette piece.
-    // Une facture credit avec acompte doit afficher ce qui a ete verse
-    // et ce qui reste du, sinon le client conteste le montant.
     // Acompte : cherche via la vente liee (POS) OU via un paiement
-    // direct sur la piece (valider_facture avec acompte).
-    // Depuis que valider_facture renseigne vente.piece_id, un seul
-    // chemin suffit. L'UNION ALL precedent comptait DEUX FOIS les
-    // paiements a credit, qui satisfaisaient les deux branches.
-    let total_paye: i64 = conn.query_row(
-        "SELECT CAST(COALESCE(SUM(p.montant), 0) AS INTEGER)
-         FROM paiement p
-         JOIN vente v ON v.id = p.vente_id
-         WHERE v.piece_id = ?1 AND p.mode <> 'avoir'",
-        rusqlite::params![piece_id], |r| r.get(0),
-    ).unwrap_or(0);
-    let reste_du = (total_ttc - total_paye).max(0);
+    // direct sur la piece (valider_facture avec acompte) — cote CLIENT.
+    // Cote FOURNISSEUR, le paiement est imputé directement sur la pièce
+    // via paiement_fournisseur.piece_id (enregistrer_achat, D36/D38) —
+    // jamais via `vente`, qui n'existe pas pour un achat.
+    let total_paye: i64 = if tiers_type == "client" {
+        conn.query_row(
+            "SELECT CAST(COALESCE(SUM(p.montant), 0) AS INTEGER)
+             FROM paiement p
+             JOIN vente v ON v.id = p.vente_id
+             WHERE v.piece_id = ?1 AND p.mode <> 'avoir'",
+            rusqlite::params![piece_id], |r| r.get(0),
+        ).unwrap_or(0)
+    } else {
+        conn.query_row(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
+             FROM paiement_fournisseur WHERE piece_id = ?1",
+            rusqlite::params![piece_id], |r| r.get(0),
+        ).unwrap_or(0)
+    };
+    let reste_du = crate::coeur::calcul::reste_exigible(total_ttc, total_paye);
 
     let societe = conn.query_row(
         "SELECT nom, adresse, telephone, telephone2, email, nif, rccm,
@@ -1135,7 +1192,7 @@ pub fn lire_toutes_pieces_fournisseur(
         let remise_mt = (total_ht as f64 * remise_g / 100.0).round() as i64;
         let total_net = total_ht - remise_mt;
         let total_ttc_calc = total_net + total_tva;
-        let reste = (total_ttc_calc - total_paye).max(0);
+        let reste = crate::coeur::calcul::reste_exigible(total_ttc_calc, total_paye);
         Ok(serde_json::json!({
             "id":               row.get::<_,String>(0)?,
             "type_piece":       row.get::<_,String>(1)?,

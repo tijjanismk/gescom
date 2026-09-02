@@ -300,7 +300,16 @@ pub fn lire_stocks_pagines(
 
     let offset = page * limite;
     let sql = format!(
-        "SELECT a.id, a.nom, a.unite_base, d.nom, sd.quantite, sd.depot_id
+        // Les unites sont agregees en JSON par SQLite : une seule
+        // requete au lieu d'une par article. Sur 400 references,
+        // la difference est visible a l'ouverture de l'ecran.
+        "SELECT a.id, a.nom, a.unite_base, d.nom, sd.quantite, sd.depot_id,
+                (SELECT json_group_array(json_object(
+                          'id', uv.id, 'libelle', uv.libelle,
+                          'facteur', uv.facteur))
+                 FROM unite_vente uv
+                 WHERE uv.article_id = a.id AND uv.actif = 1
+                 ORDER BY uv.facteur) as unites
          FROM stock_depot sd
          JOIN article a ON a.id = sd.article_id
          JOIN depot d ON d.id = sd.depot_id
@@ -321,6 +330,11 @@ pub fn lire_stocks_pagines(
                 "depot_nom":   row.get::<_, String>(3)?,
                 "quantite":    row.get::<_, f64>(4)?,
                 "depot_id":    row.get::<_, String>(5)?,
+                // json_group_array renvoie du texte : on le reparse pour
+                // que le front recoive un vrai tableau, pas une chaine.
+                "unites": row.get::<_, Option<String>>(6)?
+                    .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+                    .unwrap_or(serde_json::Value::Null),
             }))
         })
         .map_err(|e| e.to_string())?

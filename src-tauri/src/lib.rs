@@ -13,6 +13,7 @@ use commandes::ventes::EtatApp;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()
                 .expect("Impossible de trouver le répertoire de données");
@@ -130,6 +131,10 @@ pub fn run() {
             commandes::cheques::enregistrer_cheque,
             commandes::cheques::lire_cheques,
             commandes::cheques::changer_statut_cheque,
+            // ---- Catalogue : import / export / etat du stock ----
+            commandes::catalogue::exporter_articles_csv,
+            commandes::catalogue::importer_articles_csv,
+            commandes::catalogue::lire_etat_stock,
             // ---- Dashboard ----
             commandes::dashboard::lire_resume_dashboard,
             commandes::dashboard::lire_ventes_du_jour,
@@ -142,6 +147,7 @@ pub fn run() {
             // ---- Créances ----
             commandes::creances::lire_creances_ouvertes,
             commandes::creances::regler_creance,
+            commandes::creances::solder_residus_creances,
             // ---- Chantiers §14 ----
             commandes::chantiers::lire_taux_tva,
             commandes::chantiers::sauvegarder_tva_article,

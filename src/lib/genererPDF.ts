@@ -20,6 +20,22 @@ function fmtDate(iso: string): string {
   });
 }
 
+/**
+ * Date ET heure.
+ *
+ * Deux ventes du meme jour au meme client se distinguent mal sur une
+ * facture qui ne porte que la date. L'heure permet de retrouver
+ * l'operation dans le journal et de trancher une contestation.
+ */
+function fmtDateHeure(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("fr-ML", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+  }) + " à " + d.toLocaleTimeString("fr-ML", {
+    hour: "2-digit", minute: "2-digit",
+  });
+}
+
 const TITRES: Record<string, string> = {
   devis:                    "DEVIS",
   proforma:                 "FACTURE PROFORMA",
@@ -152,7 +168,7 @@ export function genererPieceHTML(
           <div style="font-size:15px;font-weight:bold;color:#333">${titre}</div>
 
           <div style="margin-top:4px">N° <strong>${piece.numero}</strong></div>
-          <div style="font-size:10px;color:#555">Date : ${fmtDate(piece.date_piece)}</div>
+          <div style="font-size:10px;color:#555">Date : ${fmtDateHeure(piece.date_piece)}</div>
           ${piece.date_echeance
             ? `<div style="font-size:10px;color:#e65c00">Échéance : ${fmtDate(piece.date_echeance)}</div>`
             : ""}
@@ -202,7 +218,7 @@ export function genererPieceHTML(
           ${societe.pied_facture ?? "Merci de votre confiance"}
         </div>
         <div style="font-size:9px;color:#aaa;margin-top:2px">
-          Imprimé le ${fmtDate(new Date().toISOString())}
+          Imprimé le ${fmtDateHeure(new Date().toISOString())}
         </div>
       </div>
     </div>`;
@@ -327,7 +343,7 @@ export function genererTicketThermique(
   <div style="text-align:center;font-weight:bold">${titre}</div>
   <div style="display:flex;justify-content:space-between">
     <span>N° ${piece.numero}</span>
-    <span>${fmtDate(piece.date_piece)}</span>
+    <span>${fmtDateHeure(piece.date_piece)}</span>
   </div>
   <div style="font-size:10px">Client: ${piece.client_nom}</div>
   <div style="border-top:1px dashed #000;margin:4px 0"></div>

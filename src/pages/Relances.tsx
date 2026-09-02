@@ -3,7 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   Phone, MessageCircle, Mail, MapPin,
   Clock, Loader2, ChevronDown, ChevronRight,
-  AlertTriangle, CheckCircle2, History,
+  AlertTriangle, CheckCircle2,
+  // Collision avec window.History — voir Caisse.tsx.
+  History as HistoryIcon,
   Filter, RefreshCw, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -332,7 +334,7 @@ function ModalHistorique({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <History className="h-4 w-4" />
+            <HistoryIcon className="h-4 w-4" />
             Historique — {creance.client_nom}
           </DialogTitle>
         </DialogHeader>
@@ -594,7 +596,7 @@ export function Relances() {
                           title="Voir l'historique"
                           className="h-7 w-7 flex items-center justify-center rounded
                                      text-muted-foreground hover:bg-muted transition-colors">
-                          <History className="h-3.5 w-3.5" />
+                          <HistoryIcon className="h-3.5 w-3.5" />
                         </button>
                       )}
 

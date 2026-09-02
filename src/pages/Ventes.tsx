@@ -481,6 +481,7 @@ export function Ventes() {
   const [uniteSelectionnee, setUniteSelectionnee] = useState<UniteVente | null>(null);
   const [quantite, setQuantite] = useState("1");
   const [prixPratique, setPrixPratique] = useState("");
+  const [remisePct, setRemisePct] = useState("");
 
   // Panier
   const [panier, setPanier] = useState<LignePanier[]>([]);
@@ -683,6 +684,7 @@ export function Ventes() {
     setArticleSelectionne(article);
     setUniteSelectionnee(article.unites[0]);
     setPrixPratique(article.unites[0].prix_reference.toString());
+    setRemisePct("");
     setQuantite("1");
     setRechercheArticle("");
     setArticlesFiltres([]);
@@ -711,6 +713,14 @@ export function Ventes() {
   const completableAilleurs = !!articleSelectionne
     && qteNum > stockIci && qteNum <= stockIci + totalAilleurs;
   const enRupture = !!articleSelectionne && articleSelectionne.stock <= 0;
+
+  // Ecart entre le prix de reference et le prix pratique, sur la
+  // quantite saisie. Positif = remise, negatif = majoration.
+  const ecartUnitaire = uniteSelectionnee
+    ? uniteSelectionnee.prix_reference - (parseMontant(prixPratique) || 0)
+    : 0;
+  const economie   = Math.max(0,  ecartUnitaire) * (parseFloat(quantite) || 1);
+  const majoration = Math.max(0, -ecartUnitaire) * (parseFloat(quantite) || 1);
 
   // Texte affiche au vendeur : « 5 ici · 30 à Djelibougou ».
   const resumeStock = articleSelectionne
@@ -743,7 +753,7 @@ export function Ventes() {
       depot_nom: depotActif?.nom ?? "",
     }]);
     setArticleSelectionne(null); setUniteSelectionnee(null);
-    setQuantite("1"); setPrixPratique("");
+    setQuantite("1"); setPrixPratique(""); setRemisePct("");
     inputArticleRef.current?.focus();
   }
 
@@ -1115,13 +1125,47 @@ export function Ventes() {
                     className="h-8 mt-0.5"
                     onKeyDown={e => e.key === "Enter" && ajouterAuPanier()} />
                 </div>
+                {/* La remise n'est pas stockee a part : elle s'exprime en
+                    baissant prix_pratique. L'ecart avec prix_reference
+                    est deja trace en base. Ce champ evite au vendeur de
+                    calculer de tete. */}
+                <div>
+                  <Label className="text-xs">Remise %</Label>
+                  <Input type="number" min="0" max="100" step="1"
+                    value={remisePct}
+                    onChange={e => {
+                      const v = e.target.value;
+                      setRemisePct(v);
+                      const pct = parseFloat(v) || 0;
+                      const ref = uniteSelectionnee?.prix_reference ?? 0;
+                      if (pct > 0 && pct <= 100) {
+                        setPrixPratique(String(Math.round(ref * (1 - pct / 100))));
+                      } else if (v === "" || pct === 0) {
+                        setPrixPratique(String(ref));
+                      }
+                    }}
+                    className="h-8 mt-0.5 text-sm text-right"
+                    onKeyDown={e => e.key === "Enter" && ajouterAuPanier()} />
+                </div>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  Sous-total : {fmt(Math.round(
-                    (parseMontant(prixPratique) || 0) * (parseFloat(quantite) || 1)
-                  ))}
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-xs text-muted-foreground">
+                    Sous-total : {fmt(Math.round(
+                      (parseMontant(prixPratique) || 0) * (parseFloat(quantite) || 1)
+                    ))}
+                  </span>
+                  {economie > 0 && (
+                    <span className="text-xs text-green-600">
+                      Remise accordée : {fmt(economie)}
+                    </span>
+                  )}
+                  {majoration > 0 && (
+                    <span className="text-xs text-orange-500">
+                      Prix majoré de {fmt(majoration)}
+                    </span>
+                  )}
+                </div>
                 <Button size="sm" onClick={ajouterAuPanier}>Ajouter →</Button>
               </div>
             </div>

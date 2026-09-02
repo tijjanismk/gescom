@@ -52,7 +52,7 @@ pub fn lire_creances_ouvertes(
     })
     .map(|(id, date, statut, client_id, client_nom, client_code,
            telephone, numero_facture, total, total_paye)| {
-        let reste = total - total_paye;
+        let reste = crate::coeur::calcul::reste_exigible(total, total_paye);
         serde_json::json!({
             "id":             id.clone(),
             "vente_id":       id,
@@ -68,6 +68,10 @@ pub fn lire_creances_ouvertes(
             "reste":          reste,
         })
     })
+    // Un residu d'arrondi n'est plus une creance : l'afficher a 0 dans
+    // la liste des impayes n'aurait aucun sens. `solder_residus_creances`
+    // remet leur statut a jour.
+    .filter(|v| v["reste"].as_i64().unwrap_or(0) > 0)
     .collect();
 
     Ok(x)
@@ -105,7 +109,7 @@ pub fn regler_creance(
         |row| Ok((row.get(0)?, row.get(1)?)),
     ).map_err(|_| "Vente introuvable".to_string())?;
 
-    let reste_avant = total - total_paye_avant;
+    let reste_avant = crate::coeur::calcul::reste_exigible(total, total_paye_avant);
     if reste_avant <= 0 {
         return Err("Cette vente est déjà entièrement payée".to_string());
     }
@@ -127,11 +131,13 @@ pub fn regler_creance(
 
     // Calculer le nouveau total payé
     let total_paye_apres = total_paye_avant + montant_effectif;
-    let nouveau_statut = if total_paye_apres >= total {
-        "payee"
-    } else {
-        "partiellement_payee"
+    // Regle unique, via le coeur teste — une comparaison locale
+    // `>= total` ignorerait le seuil et rouvrirait la creance.
+    let nouveau_statut = match crate::coeur::calcul::statut_vente(total, total_paye_apres) {
+        crate::coeur::calcul::StatutVente::Payee => "payee",
+        _ => "partiellement_payee",
     };
+    let residu = total - total_paye_apres;
 
     // Mettre à jour le statut de la vente
     conn.execute(
@@ -175,6 +181,23 @@ pub fn regler_creance(
         }
     }
 
+    // Trace obligatoire : sans elle, l'ecart entre CA et encaisse
+    // devient inexplicable au rapprochement (D41).
+    if nouveau_statut == "payee" && residu > 0 {
+        conn.execute(
+            "INSERT INTO journal
+             (id, type_evenement, entite_type, entite_id, auteur_id,
+              nouveau_valeur, origine, date_evenement)
+             VALUES (?1, 'residu_absorbe', 'vente', ?2, ?3, ?4, 'app', ?5)",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                vente_id, auteur_id,
+                format!(r#"{{"residu":{}}}"#, residu),
+                maintenant
+            ],
+        ).ok();
+    }
+
     // Journal
     conn.execute(
         "INSERT INTO journal
@@ -192,8 +215,99 @@ pub fn regler_creance(
 
     Ok(serde_json::json!({
         "montant_encaisse":  montant_effectif,
-        "reste_apres":       total - total_paye_apres,
+        "reste_apres":       crate::coeur::calcul::reste_exigible(total, total_paye_apres),
+        "residu_absorbe":    if nouveau_statut == "payee" { residu.max(0) } else { 0 },
         "statut":            nouveau_statut,
         "soldee":            nouveau_statut == "payee",
+    }))
+}
+
+/// Solde les créances devenues non recouvrables (résidus d'arrondi, D41).
+///
+/// Rattrapage unique : le seuil ne vaut que pour les statuts écrits
+/// après lui. Aucun paiement créé, aucun mouvement de caisse — statut
+/// seul, plus une trace au journal.
+#[tauri::command]
+pub fn solder_residus_creances(
+    etat: State<EtatApp>,
+    utilisateur_role: Option<String>,
+    // true = simulation, rien n'est écrit. À passer d'abord.
+    simulation: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    if utilisateur_role.as_deref() != Some("patron") {
+        return Err("Réservé au patron".to_string());
+    }
+    let simule = simulation.unwrap_or(true);
+    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let maintenant = maintenant_iso();
+    let auteur_id = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
+
+    let candidates: Vec<(String, i64, i64)> = {
+        let mut st = conn.prepare(
+            "SELECT v.id,
+                    CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
+                      FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS INTEGER),
+                    CAST(COALESCE((SELECT SUM(p.montant)
+                      FROM paiement p WHERE p.vente_id = v.id), 0) AS INTEGER)
+             FROM vente v
+             WHERE v.statut IN ('creance_ouverte','partiellement_payee')"
+        ).map_err(|e| e.to_string())?;
+
+        // `let v = …; v` et non la chaine en fin de bloc : sinon le
+        // temporaire de query_map survit a `st` -> E0597.
+        let v = st.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        // `paye > 0` : sans encaissement il n'y a pas de residu, juste
+        // une petite vente impayee. `reste > 0` ecarte le trop-percu,
+        // qui est un autre probleme et ne doit pas se fermer en silence.
+        .filter(|(_, total, paye)| {
+            let reste = total - paye;
+            *paye > 0 && reste > 0 && reste <= crate::coeur::calcul::SEUIL_SOLDE
+        })
+        .map(|(id, total, paye)| (id, total - paye, paye))
+        .collect();
+        v
+    };
+
+    let total_absorbe: i64 = candidates.iter().map(|(_, r, _)| r).sum();
+
+    if !simule {
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        for (vente_id, residu, _) in &candidates {
+            tx.execute(
+                "UPDATE vente SET statut = 'payee', modifie_le = ?1 WHERE id = ?2",
+                rusqlite::params![maintenant, vente_id],
+            ).map_err(|e| e.to_string())?;
+
+            tx.execute(
+                "UPDATE piece_commerciale
+                 SET statut = 'paye', modifie_le = ?1
+                 WHERE id = (SELECT piece_id FROM vente WHERE id = ?2)
+                   AND statut IN ('emis','accepte','brouillon')",
+                rusqlite::params![maintenant, vente_id],
+            ).ok();
+
+            tx.execute(
+                "INSERT INTO journal
+                 (id, type_evenement, entite_type, entite_id, auteur_id,
+                  nouveau_valeur, origine, date_evenement)
+                 VALUES (?1,'residu_absorbe','vente',?2,?3,?4,'maintenance',?5)",
+                rusqlite::params![
+                    uuid::Uuid::new_v4().to_string(), vente_id, auteur_id,
+                    format!(r#"{{"residu":{}}}"#, residu), maintenant
+                ],
+            ).ok();
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    Ok(serde_json::json!({
+        "simulation":    simule,
+        "concernees":    candidates.len(),
+        "total_absorbe": total_absorbe,
+        "seuil":         crate::coeur::calcul::SEUIL_SOLDE,
     }))
 }
