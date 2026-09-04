@@ -212,8 +212,27 @@ pub fn creer_article_rapide(
     nom: String,
     unite_base: String,
     prix_reference: i64,
+    // Renseigne depuis l'ecran Achats : on connait le prix d'ACHAT bien
+    // avant le prix de vente. Le prix de vente peut alors rester a 0 et
+    // se fixer plus tard, dans Parametres.
+    prix_achat: Option<i64>,
 ) -> Result<serde_json::Value, String> {
+    let nom = nom.trim().to_string();
+    if nom.is_empty() {
+        return Err("Le nom de l'article est obligatoire".to_string());
+    }
+
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    // Un doublon de nom casse l'import CSV, qui rapproche les articles
+    // par `lower(nom)` et en mettrait deux a jour a la fois.
+    let existant: Option<(String, String)> = conn.query_row(
+        "SELECT id, nom FROM article WHERE lower(nom) = lower(?1) AND actif = 1",
+        rusqlite::params![nom], |r| Ok((r.get(0)?, r.get(1)?)),
+    ).ok();
+    if let Some((_, nom_existant)) = existant {
+        return Err(format!("L'article « {} » existe déjà.", nom_existant));
+    }
     let now = maintenant_iso();
     let art_id = uuid::Uuid::new_v4().to_string();
     let auteur = id_utilisateur_courant_pub(&conn);
@@ -221,9 +240,11 @@ pub fn creer_article_rapide(
     conn.execute(
         "INSERT INTO article
          (id, nom, unite_base, gere_en_stock, attributs, actif,
+          dernier_prix_achat,
           cree_le, modifie_le, cree_par, modifie_par, origine)
-         VALUES (?1,?2,?3,1,'{}',1,?4,?5,?6,?7,'app')",
-        rusqlite::params![art_id, nom, unite_base, now, now, auteur, auteur],
+         VALUES (?1,?2,?3,1,'{}',1,?4,?5,?6,?7,?8,'app')",
+        rusqlite::params![art_id, nom, unite_base, prix_achat,
+                          now, now, auteur, auteur],
     ).map_err(|e| e.to_string())?;
 
     let unite_id = uuid::Uuid::new_v4().to_string();
@@ -240,7 +261,10 @@ pub fn creer_article_rapide(
     let depot_id: String = conn.query_row(
         "SELECT id FROM depot WHERE est_defaut = 1 LIMIT 1",
         [], |r| r.get(0)
-    ).map_err(|e| e.to_string())?;
+    ).or_else(|_| conn.query_row(
+        "SELECT id FROM depot WHERE actif = 1 ORDER BY nom LIMIT 1",
+        [], |r| r.get(0)
+    )).map_err(|_| "Aucun dépôt actif".to_string())?;
 
     conn.execute(
         "INSERT OR IGNORE INTO stock_depot (id, article_id, depot_id, quantite)
@@ -294,6 +318,14 @@ pub fn creer_vente(
     let vente_id = uuid::Uuid::new_v4().to_string();
 
     let client_generique = crate::utils::est_client_generique(&conn, &client_id);
+
+    // Un encaissement reel exige une caisse ouverte : sans session,
+    // l'argent entre dans le tiroir sans `mouvement_caisse`, et la
+    // cloture du soir affiche un excedent inexplicable. Verifie AVANT
+    // la transaction, comme les autres refus.
+    if montant_paye.unwrap_or(0) > 0 {
+        crate::utils::exiger_session_caisse(&conn)?;
+    }
 
     // D40 — refus AVANT d'ouvrir la transaction : rien a defaire.
     if mode_reglement == "credit" && client_generique {
@@ -398,20 +430,21 @@ pub fn creer_vente(
         avoir_montant.unwrap_or(0).min(total)
     };
     if avoir_demande > 0 {
-        let avoirs: Vec<(String, i64)> = {
+        let avoirs: Vec<(String, i64, Option<String>)> = {
             let mut st = tx.prepare(
-                "SELECT id, montant FROM avoir
+                "SELECT id, montant, piece_id FROM avoir
                  WHERE client_id = ?1 AND statut = 'ouvert'
                  ORDER BY cree_le ASC"
             ).map_err(|e| e.to_string())?;
             let v = st.query_map(rusqlite::params![client_id], |r| {
-                Ok((r.get::<_,String>(0)?, r.get::<_,i64>(1)?))
+                Ok((r.get::<_,String>(0)?, r.get::<_,i64>(1)?,
+                    r.get::<_,Option<String>>(2)?))
             }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
             v
         };
 
         let mut reste = avoir_demande;
-        for (avoir_id, montant_avoir) in avoirs {
+        for (avoir_id, montant_avoir, piece_avoir) in avoirs {
             if reste <= 0 { break; }
             tx.execute(
                 "UPDATE avoir SET statut = 'consomme', vente_utilisation_id = ?1
@@ -422,11 +455,14 @@ pub fn creer_vente(
             if montant_avoir > reste {
                 // Solde non consomme : nouvel avoir ouvert.
                 tx.execute(
-                    "INSERT INTO avoir (id, client_id, montant, statut, cree_le, origine)
-                     VALUES (?1,?2,?3,'ouvert',?4,'avoir_solde')",
+                    // `piece_id` herite : l'AVC d'origine continue
+                    // d'afficher le credit restant (bug #8).
+                    "INSERT INTO avoir
+                     (id, client_id, piece_id, montant, statut, cree_le, origine)
+                     VALUES (?1,?2,?3,?4,'ouvert',?5,'avoir_solde')",
                     rusqlite::params![
                         uuid::Uuid::new_v4().to_string(),
-                        client_id, montant_avoir - reste, now
+                        client_id, piece_avoir, montant_avoir - reste, now
                     ],
                 ).map_err(|e| e.to_string())?;
                 total_regle += reste;
@@ -539,6 +575,12 @@ pub fn enregistrer_paiement(
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur_id = id_utilisateur_par_role(&conn, role);
     let now = maintenant_iso();
+
+    // AVANT l'insert : cette fonction n'ouvre pas de transaction, un
+    // refus plus bas laisserait un paiement sans mouvement de caisse.
+    if mode != "avoir" {
+        crate::utils::exiger_session_caisse(&conn)?;
+    }
 
     // Insérer le paiement
     conn.execute(

@@ -7,7 +7,9 @@
 //!      du jour mais bien de l'argent reçu aujourd'hui
 //!   3. Situation non payée — reste dû par client
 //!   4. Entrées / achats marchandises
-//!   5. Retours marchandises (client et fournisseur)
+//!   5. Retours marchandises (client, fournisseur, echange)
+//!   5 bis. Mouvements de stock sans effet monetaire —
+//!      entrees manuelles, ajustements, transferts
 //!   6. Dépenses, ventilées par poste
 //!   7. Récapitulatif de caisse
 //!
@@ -194,7 +196,11 @@ pub fn lire_journal_du_jour(
     //  5. Retours marchandises — client et fournisseur
     // -----------------------------------------------------------------
     let mut st = conn.prepare(
-        "SELECT CASE WHEN ms.type_mouvement = 'retour' THEN 'client'
+        // 'echange' inclus : la sortie du remplacement n'apparaissait
+        // nulle part, on ne voyait que l'article rendu.
+        "SELECT CASE ms.type_mouvement
+                     WHEN 'retour' THEN 'client'
+                     WHEN 'echange' THEN 'echange'
                      ELSE 'fournisseur' END,
                 COALESCE(f.nom, c.nom, '—'), a.nom,
                 ABS(ms.quantite_delta),
@@ -206,7 +212,7 @@ pub fn lire_journal_du_jour(
          LEFT JOIN retour ret ON ret.id = ms.operation_id
          LEFT JOIN vente v ON v.id = ret.vente_id
          LEFT JOIN client c ON c.id = v.client_id
-         WHERE ms.type_mouvement IN ('retour','retour_fournisseur')
+         WHERE ms.type_mouvement IN ('retour','retour_fournisseur','echange')
            AND DATE(ms.date_mouvement) = ?1
            AND (?2 IS NULL OR ms.depot_id = ?2)
          ORDER BY ms.date_mouvement"
@@ -224,6 +230,48 @@ pub fn lire_journal_du_jour(
                 "prix_unitaire": pu,
                 "montant":     (pu as f64 * qte).round() as i64,
                 "date":        r.get::<_, String>(5)?,
+            }))
+        }
+    ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    // -----------------------------------------------------------------
+    //  5 bis. Mouvements de stock sans effet monetaire
+    //
+    //  Entrees manuelles, ajustements d'inventaire, transferts. Aucun
+    //  n'apparaissait dans le journal : de la marchandise bougeait sans
+    //  laisser de trace de la journee. Ils sont tenus a l'ecart des
+    //  totaux — rien n'a ete facture, ni encaisse, ni decaisse.
+    // -----------------------------------------------------------------
+    let mut st = conn.prepare(
+        "SELECT ms.type_mouvement, a.nom, ms.quantite_delta,
+                COALESCE(ms.motif, ''), d.nom,
+                COALESCE(u.nom, '—'), ms.date_mouvement
+         FROM mouvement_stock ms
+         JOIN article a ON a.id = ms.article_id
+         JOIN depot d ON d.id = ms.depot_id
+         LEFT JOIN utilisateur u ON u.id = ms.auteur_id
+         WHERE ms.type_mouvement IN ('entree','ajustement','transfert')
+           AND DATE(ms.date_mouvement) = ?1
+           AND (?2 IS NULL OR ms.depot_id = ?2)
+         ORDER BY ms.date_mouvement"
+    ).map_err(|e| e.to_string())?;
+
+    let mouvements: Vec<serde_json::Value> = st.query_map(
+        rusqlite::params![j, dep], |r| {
+            let t: String = r.get(0)?;
+            let delta: f64 = r.get(2)?;
+            Ok(serde_json::json!({
+                "type":        t,
+                "libelle":     crate::coeur::stock::libelle(&t),
+                "description": r.get::<_, String>(1)?,
+                "quantite":    delta.abs(),
+                // Le signe tranche pour l'ajustement et le transfert :
+                // leur type ne dit pas le sens (coeur::stock).
+                "entrant":     delta > 0.0,
+                "motif":       r.get::<_, String>(3)?,
+                "depot":       r.get::<_, String>(4)?,
+                "auteur":      r.get::<_, String>(5)?,
+                "date":        r.get::<_, String>(6)?,
             }))
         }
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
@@ -311,6 +359,7 @@ pub fn lire_journal_du_jour(
         "impayes":    impayes,
         "achats":     achats,
         "retours":    retours,
+        "mouvements": mouvements,
         "depenses":   depenses,
         "depenses_par_categorie": depenses_par_categorie,
         "caisse_par_moyen": caisse_par_moyen,

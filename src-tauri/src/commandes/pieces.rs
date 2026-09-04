@@ -134,7 +134,13 @@ pub fn lire_toutes_pieces_client(
                    WHERE pf.piece_id = pc.id)
                   , 0) AS INTEGER) as total_paye,
                 u.nom as auteur_nom,
-                pc.piece_origine_id
+                pc.piece_origine_id,
+                -- Un AVC ne recoit jamais de paiement : son « reste »
+                -- est le credit encore ouvert, pas un impaye (bug #8).
+                CAST(COALESCE(
+                  (SELECT SUM(av.montant) FROM avoir av
+                   WHERE av.piece_id = pc.id AND av.statut = 'ouvert')
+                  , 0) AS INTEGER) as credit_ouvert
          FROM piece_commerciale pc
          JOIN client c ON c.id = pc.tiers_id
          LEFT JOIN utilisateur u ON u.id = pc.auteur_id
@@ -153,10 +159,18 @@ pub fn lire_toutes_pieces_client(
         let remise_mt = (total_ht as f64 * remise_g / 100.0).round() as i64;
         let total_net = total_ht - remise_mt;
         let total_ttc_calc = total_net + total_tva;
-        let reste = crate::coeur::calcul::reste_exigible(total_ttc_calc, total_paye);
+        let type_piece: String = row.get(1)?;
+        // Le reste d'un AVC est le credit non consomme. `total_paye`
+        // y vaut zero pour toujours : ni `paiement` (aucune vente liee)
+        // ni `paiement_fournisseur` ne s'imputent a un avoir client.
+        let reste = if type_piece == "avoir_client" {
+            row.get::<_, i64>(16).unwrap_or(0)
+        } else {
+            crate::coeur::calcul::reste_exigible(total_ttc_calc, total_paye)
+        };
         Ok(serde_json::json!({
             "id":               row.get::<_,String>(0)?,
-            "type_piece":       row.get::<_,String>(1)?,
+            "type_piece":       type_piece.clone(),
             "numero":           row.get::<_,String>(2)?,
             "statut":           row.get::<_,String>(3)?,
             "date_piece":       row.get::<_,String>(4)?,
@@ -701,11 +715,9 @@ pub fn valider_facture(
             rusqlite::params![now, vente_id],
         ).map_err(|e| e.to_string())?;
 
-        // Caisse
-        if let Ok(session_id) = tx.query_row::<String, _, _>(
-            "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
-            [], |r| r.get(0),
-        ) {
+        // Caisse — encaissement reel, session exigee.
+        let session_id = crate::utils::exiger_session_caisse(&tx)?;
+        {
             tx.execute(
                 "INSERT INTO mouvement_caisse
                  (id, session_id, sens, moyen, montant, motif,
@@ -736,11 +748,9 @@ pub fn valider_facture(
             // branche comptant le faisait, pas celle-ci — l'acompte
             // n'apparaissait donc jamais dans le tiroir et la cloture
             // affichait un manque de ce montant.
-            let session: Option<String> = tx.query_row(
-                "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
-                [], |r| r.get(0),
-            ).ok();
-            if let Some(sid) = session {
+            // Acompte reellement encaisse : caisse ouverte exigee.
+            let sid = crate::utils::exiger_session_caisse(&tx)?;
+            {
                 tx.execute(
                     "INSERT INTO mouvement_caisse
                      (id, session_id, sens, moyen, montant, motif,
@@ -1372,10 +1382,9 @@ pub fn annuler_piece(
         rusqlite::params![piece_id], |r| r.get(0),
     ).unwrap_or(0);
     if acompte > 0 {
-        if let Ok(Some(sid)) = conn.query_row::<Option<String>, _, _>(
-            "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
-            [], |r| r.get(0),
-        ) {
+        // Acompte rendu au client : sortie reelle du tiroir.
+        let sid = crate::utils::exiger_session_caisse(&conn)?;
+        {
             conn.execute(
                 "INSERT INTO mouvement_caisse
                  (id, session_id, sens, moyen, montant, motif, libelle,
@@ -1550,9 +1559,14 @@ pub fn annuler_facture_par_avoir(
          VALUES (?1,'avoir_client',?2,?3,'client',?4,?5,?6,?7,0.0,?8,?9,?10,'annulation')",
         rusqlite::params![
             avoir_piece_id, numero_avoir,
-            // 'paye' si l'acompte est rendu, 'emis' si le client garde
-            // un credit a consommer. Meme regle que les factures.
-            if rembourse { "paye" } else { "emis" },
+            // Toujours 'paye' : une AVC d'annulation est close des son
+            // emission. Elle vaut le total de la FACTURE, alors que le
+            // credit eventuel ne porte que sur l'acompte — les lier
+            // afficherait un « reste » qui ne veut rien dire. Le credit
+            // vit dans `avoir`, sans `piece_id` (bug #8).
+            // 'emis' la rendait aussi modifiable, ce qu'un document
+            // d'annulation ne doit jamais etre (invariant 4).
+            "paye",
             client_id, piece_id, auteur, now,
             motif.clone().unwrap_or_else(|| format!("Annulation de {}", numero_src)),
             now, now

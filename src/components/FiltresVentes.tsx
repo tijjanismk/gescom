@@ -1,4 +1,4 @@
-import { Filter, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -44,7 +44,7 @@ export function FiltresVentes({ filtres, onChanger, onReset }: FiltresVentesProp
       />
 
       <Select value={filtres.statut || "tous"}
-        onValueChange={v => set("statut", v === "tous" ? "" : v)}>
+        onValueChange={v => { if (v) set("statut", v === "tous" ? "" : v); }}>
         <SelectTrigger className="h-8 text-sm w-36">
           <SelectValue placeholder="Statut" />
         </SelectTrigger>
@@ -57,7 +57,7 @@ export function FiltresVentes({ filtres, onChanger, onReset }: FiltresVentesProp
       </Select>
 
       <Select value={filtres.periode || "tout"}
-        onValueChange={v => set("periode", v === "tout" ? "" : v)}>
+        onValueChange={v => { if (v) set("periode", v === "tout" ? "" : v); }}>
         <SelectTrigger className="h-8 text-sm w-36">
           <SelectValue placeholder="Période" />
         </SelectTrigger>

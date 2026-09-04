@@ -158,6 +158,12 @@ pub fn regler_dette_fournisseur(
     let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
     let now = maintenant_iso();
 
+    // AVANT toute ecriture : cette fonction n'ouvre pas de transaction,
+    // donc un refus plus bas laisserait un paiement fournisseur
+    // enregistre sans mouvement de caisse en face — pire que le mal
+    // qu'on corrige.
+    let sid = crate::utils::exiger_session_caisse(&conn)?;
+
     conn.execute(
         "INSERT INTO paiement_fournisseur
          (id, fournisseur_id, montant, mode, note, auteur_id,
@@ -174,11 +180,7 @@ pub fn regler_dette_fournisseur(
 
     // SORTIE de caisse : le reglement d'une dette sort de l'argent du
     // tiroir. Sans ce mouvement, la cloture affiche un excedent.
-    let session: Option<String> = conn.query_row(
-        "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
-        [], |r| r.get(0),
-    ).ok();
-    if let Some(sid) = session {
+    {
         conn.execute(
             "INSERT INTO mouvement_caisse
              (id, session_id, sens, moyen, montant, motif,

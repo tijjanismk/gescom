@@ -3,7 +3,7 @@ import type { CreanceOuverteApi } from "@/lib/types-api";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowLeft, User, Phone, MapPin, Mail, FileText,
-  Loader2, Plus, Printer, ChevronRight, ArrowRight,
+  Loader2, Plus, Printer, ArrowRight,
   Receipt, Package, Truck, ClipboardList, Gift,
   AlertTriangle, TrendingUp, Clock,
 } from "lucide-react";
@@ -44,6 +44,11 @@ interface Piece {
 }
 interface Article {
   id: string; nom: string; unite_base: string;
+  // `stock` et `taux_tva_defaut` sont bien renvoyes par
+  // lire_articles_avec_unites (ventes.rs) : c'est le type qui etait
+  // incomplet. Sixieme ecart de cle front/back du projet.
+  stock: number;
+  taux_tva_defaut?: number;
   unites: { id: string; libelle: string; facteur: number; prix_reference: number }[];
 }
 interface LignePieceInput {

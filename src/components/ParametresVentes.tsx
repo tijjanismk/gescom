@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Scan, Loader2, Save, Package } from "lucide-react";
+import { Scan, Loader2, Save, Package, PackageCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +19,9 @@ interface ArticleAvecCode {
 
 export function OngletVentes() {
   const [scannerActif, setScannerActif] = useState(false);
+  // Bon de sortie : le magasin est séparé de la caisse (quincaillerie,
+  // dépôt de matériaux). Celui qui encaisse ne délivre pas.
+  const [bonSortieActif, setBonSortieActif] = useState(false);
   const [articles, setArticles] = useState<ArticleAvecCode[]>([]);
   const [chargement, setChargement] = useState(true);
   const [sauvegarde, setSauvegarde] = useState(false);
@@ -28,11 +31,13 @@ export function OngletVentes() {
     async function charger() {
       setChargement(true);
       try {
-        const [config, arts] = await Promise.all([
+        const [config, bonSortie, arts] = await Promise.all([
           invoke<boolean>("lire_config_scanner"),
+          invoke<boolean>("lire_config_bon_sortie"),
           invoke<ArticleAvecCode[]>("lire_articles_avec_codes_barres"),
         ]);
         setScannerActif(config);
+        setBonSortieActif(bonSortie);
         setArticles(arts);
         // Pré-remplir les codes existants
         const codes: Record<string, string> = {};
@@ -56,6 +61,18 @@ export function OngletVentes() {
         actif ? "Scanner activé ✓" : "Scanner désactivé ✓",
         { title: "Succès", kind: "info" }
       );
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    } finally {
+      setSauvegarde(false);
+    }
+  }
+
+  async function handleSauvegarderBonSortie(actif: boolean) {
+    setSauvegarde(true);
+    try {
+      await invoke("sauvegarder_config_bon_sortie", { actif });
+      setBonSortieActif(actif);
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
     } finally {
@@ -130,6 +147,52 @@ export function OngletVentes() {
         <p className="text-xs text-muted-foreground">
           Le scanner doit être configuré pour envoyer un retour chariot (Enter) 
           après chaque code. La plupart des scanners USB font ça par défaut.
+        </p>
+      </div>
+
+      {/* Bon de sortie */}
+      <div className="border border-border rounded-lg p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <PackageCheck className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium">Bon de sortie magasin</p>
+              <p className="text-xs text-muted-foreground">
+                Document sans montants, remis au magasinier
+              </p>
+            </div>
+          </div>
+          <Badge variant={bonSortieActif ? "default" : "outline"}>
+            {bonSortieActif ? "Activé" : "Désactivé"}
+          </Badge>
+        </div>
+
+        <div className="flex gap-2">
+          <Button
+            variant={bonSortieActif ? "outline" : "default"}
+            size="sm"
+            disabled={sauvegarde || bonSortieActif}
+            onClick={() => handleSauvegarderBonSortie(true)}
+            className="flex-1"
+          >
+            Activer
+          </Button>
+          <Button
+            variant={!bonSortieActif ? "outline" : "destructive"}
+            size="sm"
+            disabled={sauvegarde || !bonSortieActif}
+            onClick={() => handleSauvegarderBonSortie(false)}
+            className="flex-1"
+          >
+            Désactiver
+          </Button>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          À activer si votre magasin est séparé de la caisse. Le client
+          paie au comptoir, repart avec le bon, et le magasinier ne
+          délivre la marchandise que contre ce papier signé. Le bon porte
+          le numéro de la facture mais aucun prix.
         </p>
       </div>
 

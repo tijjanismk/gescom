@@ -153,13 +153,15 @@ pub fn enregistrer_entree_stock(
         ],
     ).map_err(|e| e.to_string())?;
 
-    // Mouvement stock
+    // 'entree' et non 'achat' (D42) : cette commande ne cree ni facture
+    // fournisseur, ni dette, ni mouvement de caisse. Les confondre
+    // gonflait les achats du jour d'un montant que personne ne doit.
     conn.execute(
         "INSERT INTO mouvement_stock
          (id, article_id, depot_id, type_mouvement, quantite_delta,
           operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine,
           fournisseur_id, prix_achat_unitaire)
-         VALUES (?1,?2,?3,'achat',?4,?5,?6,?7,?8,?9,'app',?10,?11)",
+         VALUES (?1,?2,?3,'entree',?4,?5,?6,?7,?8,?9,'app',?10,?11)",
         rusqlite::params![
             uuid::Uuid::new_v4().to_string(),
             article_id, depot_id, quantite,
@@ -196,7 +198,6 @@ pub fn enregistrer_ajustement_inventaire(
     utilisateur_role: Option<String>,
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    let _ = motif; // réservé pour journal des ajustements v1.1
 
     let quantite_actuelle: f64 = conn.query_row(
         "SELECT COALESCE(quantite, 0) FROM stock_depot
@@ -224,11 +225,15 @@ pub fn enregistrer_ajustement_inventaire(
     conn.execute(
         "INSERT INTO mouvement_stock
          (id, article_id, depot_id, type_mouvement, quantite_delta,
-          operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine)
-         VALUES (?1,?2,?3,'ajustement',?4,?5,?6,?7,?8,?9,'app')",
+          motif, operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine)
+         VALUES (?1,?2,?3,'ajustement',?4,?5,?6,?7,?8,?9,?10,'app')",
         rusqlite::params![
             uuid::Uuid::new_v4().to_string(),
             article_id, depot_id, delta,
+            // Le motif etait saisi par le patron puis jete. La colonne
+            // existe depuis l'origine ; un ecart sans raison n'est pas
+            // exploitable a l'inventaire suivant.
+            motif,
             op_id, auteur, now, now, auteur
         ],
     ).map_err(|e| e.to_string())?;
@@ -277,9 +282,11 @@ pub fn lire_fiche_fournisseur(
 
     let (_qte, nb_achats, derniere_cmd): (f64, i64, Option<String>) =
         conn.query_row(
-            "SELECT COALESCE(SUM(quantite_delta), 0), COUNT(*), MAX(date_mouvement)
+            // 'entree' incluse : marchandise recue de ce fournisseur,
+             // facturee ou non. Le montant du, lui, vient des pieces.
+             "SELECT COALESCE(SUM(quantite_delta), 0), COUNT(*), MAX(date_mouvement)
              FROM mouvement_stock
-             WHERE type_mouvement = 'achat' AND quantite_delta > 0
+             WHERE type_mouvement IN ('achat','entree') AND quantite_delta > 0
                AND fournisseur_id = ?1",
             rusqlite::params![fournisseur_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
@@ -336,7 +343,7 @@ pub fn lire_fiche_fournisseur(
                 ms.date_mouvement
          FROM mouvement_stock ms
          JOIN article a ON a.id = ms.article_id
-         WHERE ms.type_mouvement = 'achat' AND ms.quantite_delta > 0
+         WHERE ms.type_mouvement IN ('achat','entree') AND ms.quantite_delta > 0
            AND ms.fournisseur_id = ?1
          ORDER BY ms.date_mouvement DESC LIMIT 50"
     ).map_err(|e| e.to_string())?;

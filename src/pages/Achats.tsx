@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  Plus, Trash2, ShoppingBag, User, Search,
-  Loader2, Warehouse, AlertTriangle, Truck
+  Plus, Trash2, ShoppingBag, Search,
+  Loader2, Truck, PackagePlus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import type {
 } from "@/lib/types-api";
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
+import { SelectUnite } from "@/components/SelectUnite";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 
 // =====================================================================
@@ -240,6 +241,13 @@ export function Achats() {
 
   // Article
   const [rechercheArticle, setRechercheArticle] = useState("");
+  // Création rapide : le fournisseur livre un article absent du
+  // catalogue. Le saisir ici évite d'interrompre la réception pour
+  // aller dans Paramètres — c'est là qu'on perd les lignes.
+  const [modalNouvelArticle, setModalNouvelArticle] = useState(false);
+  const [naNom, setNaNom] = useState("");
+  const [naUnite, setNaUnite] = useState("");
+  const [naEnCours, setNaEnCours] = useState(false);
   const [articlesFiltres, setArticlesFiltres] = useState<ArticleAchat[]>([]);
   const [articleSelectionne, setArticleSelectionne] = useState<ArticleAchat | null>(null);
   const [uniteSelectionnee, setUniteSelectionnee] = useState<UniteVente | null>(null);
@@ -313,6 +321,38 @@ export function Achats() {
     setArticlesFiltres(
       tousArticles.filter(a => a.nom.toLowerCase().includes(val.toLowerCase()))
     );
+  }
+
+  function ouvrirNouvelArticle() {
+    setNaNom(rechercheArticle.trim());
+    setNaUnite("");
+    setModalNouvelArticle(true);
+  }
+
+  async function handleCreerArticle() {
+    if (!naNom.trim() || !naUnite.trim()) return;
+    setNaEnCours(true);
+    try {
+      // Le prix de VENTE reste à 0 : à l'achat on ne le connaît pas
+      // encore. Le prix d'achat saisi juste après alimente
+      // `dernier_prix_achat` via enregistrer_achat.
+      await invoke("creer_article_rapide", {
+        nom: naNom.trim(),
+        uniteBase: naUnite.trim(),
+        prixReference: 0,
+        prixAchat: null,
+      });
+      const articles = await invoke<ArticleAchat[]>("lire_articles_avec_unites");
+      setTousArticles(articles);
+      const cree = articles.find(
+        a => a.nom.toLowerCase() === naNom.trim().toLowerCase());
+      setModalNouvelArticle(false);
+      if (cree) selectionnerArticle(cree);
+    } catch (e) {
+      await message(`${e}`, { title: "Création impossible", kind: "error" });
+    } finally {
+      setNaEnCours(false);
+    }
   }
 
   function selectionnerArticle(article: ArticleAchat) {
@@ -501,7 +541,7 @@ export function Achats() {
                 onChange={e => handleRechercheArticle(e.target.value)}
                 placeholder="Rechercher un article..."
                 className="pl-8 h-8 text-sm" />
-              {articlesFiltres.length > 0 && (
+              {rechercheArticle.trim().length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-md">
                   {articlesFiltres.map(a => (
                     <button key={a.id} onClick={() => selectionnerArticle(a)}
@@ -514,6 +554,16 @@ export function Achats() {
                       </div>
                     </button>
                   ))}
+                  {/* Toujours proposé, même quand la recherche trouve :
+                      « Sucre » existe peut-être déjà en 50kg alors qu'on
+                      reçoit du 1kg. */}
+                  <button onClick={ouvrirNouvelArticle}
+                    className="w-full text-left px-3 py-2 text-sm border-t border-border
+                               hover:bg-accent transition-colors flex items-center gap-2
+                               text-primary">
+                    <PackagePlus className="h-3.5 w-3.5 shrink-0" />
+                    Créer « {rechercheArticle.trim()} »
+                  </button>
                 </div>
               )}
             </div>
@@ -532,7 +582,10 @@ export function Achats() {
                 </Badge>
               </div>
 
-              {articleSelectionne.unites.length > 1 && (
+              {/* Toujours affiché : avec les conditionnements, masquer le
+                  choix quand il n'y a qu'une unité faisait vendre un carton
+                  au prix d'une pièce sans que personne ne le voie. */}
+              {articleSelectionne.unites.length >= 1 && (
                 <div>
                   <Label className="text-xs">Unité reçue</Label>
                   <Select
@@ -734,6 +787,48 @@ export function Achats() {
           setModalNouveauFournisseur(false);
         }}
       />
+
+      <Dialog open={modalNouvelArticle}
+        onOpenChange={o => !o && setModalNouvelArticle(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Nouvel article</DialogTitle></DialogHeader>
+          <div className="space-y-3 pt-2">
+            <div>
+              <Label>Nom *</Label>
+              <Input value={naNom} onChange={e => setNaNom(e.target.value)}
+                placeholder="Ciment CPA 45" autoFocus className="mt-1" />
+            </div>
+            <div>
+              <Label>Unité de base *</Label>
+              <div className="mt-1">
+                <SelectUnite valeur={naUnite} onChange={setNaUnite}
+                  onEnter={handleCreerArticle} />
+              </div>
+              {/* D39 : les conditionnements se déclarent ensuite, avec un
+                  facteur exprimé dans cette unité. Partir du carton
+                  rendrait la vente au détail impossible sans fraction. */}
+              <p className="text-xs text-muted-foreground mt-1">
+                La plus petite unité que vous vendez. Un carton de 12 se
+                déclare après, dans Paramètres.
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Le prix de vente reste à définir dans Paramètres — ici on
+              n'enregistre que ce qui entre en stock.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1"
+                onClick={() => setModalNouvelArticle(false)}>Annuler</Button>
+              <Button className="flex-1" onClick={handleCreerArticle}
+                disabled={naEnCours || !naNom.trim() || !naUnite.trim()}>
+                {naEnCours
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : "Créer et continuer"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <ModalConfirmationAchat
         ouvert={modalConfirmation}

@@ -34,6 +34,17 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     conn.execute(
         "ALTER TABLE parametres_societe ADD COLUMN logo_chemin TEXT", []
     ).ok();
+    // Bandeau d'en-tete : remplace logo + coordonnees a l'impression.
+    // Beaucoup de commercants ont deja leur papier a en-tete chez
+    // l'imprimeur et veulent le retrouver a l'ecran.
+    conn.execute(
+        "ALTER TABLE parametres_societe ADD COLUMN entete_chemin TEXT", []
+    ).ok();
+    // Pendant du bandeau d'en-tete, en bas de page : mentions legales,
+    // coordonnees bancaires. Remplace la ligne `pied_facture`.
+    conn.execute(
+        "ALTER TABLE parametres_societe ADD COLUMN pied_chemin TEXT", []
+    ).ok();
     conn.execute(
         "ALTER TABLE article ADD COLUMN taux_tva_defaut REAL NOT NULL DEFAULT 0.0", []
     ).ok();
@@ -56,6 +67,33 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     conn.execute(
         "ALTER TABLE paiement_fournisseur ADD COLUMN piece_id TEXT", []
     ).ok();
+    // Bug #8 — lien avoir -> AVC. Sans lui, un avoir entierement
+    // consomme continuait d'afficher son montant plein en « reste »
+    // dans l'ecran Pieces : `total_paye` ne trouve jamais de paiement
+    // pour un avoir, ni via `paiement`, ni via `paiement_fournisseur`.
+    // Les avoirs anterieurs restent NULL — leur AVC affichera 0, ce qui
+    // est degrade mais juste : un avoir deja consomme ne doit rien
+    // montrer.
+    conn.execute(
+        "ALTER TABLE avoir ADD COLUMN piece_id TEXT", []
+    ).ok();
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_avoir_piece ON avoir(piece_id)"
+    ).ok();
+
+    // D45 — code-barres PAR UNITE de vente. En boutique le carton porte
+    // son propre EAN, different de celui de la piece. La colonne sur
+    // `article` ne permettait qu'un seul code : scanner un carton etait
+    // impossible par construction. `article.code_barre` reste en place
+    // pour l'unite de base et l'historique.
+    conn.execute(
+        "ALTER TABLE unite_vente ADD COLUMN code_barre TEXT", []
+    ).ok();
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_unite_code_barre
+            ON unite_vente(code_barre)"
+    ).ok();
+
     // Depenses : un mouvement de caisse libre a besoin d'un libelle.
     // motif reste la categorie technique ('vente', 'achat', 'depense'),
     // libelle porte le texte saisi par le commercant.

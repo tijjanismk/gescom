@@ -369,18 +369,20 @@ pub fn enregistrer_retour(
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 ).map_err(|_| "Unité de remplacement introuvable".to_string())?;
 
-                // Le remplacement sort du depot d'origine de la vente,
-                // pas d'un depot par defaut arbitraire : la marchandise
-                // rendue y est reintegree juste au-dessus.
-                let depot_defaut: String = conn.query_row(
-                    "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
-                    [], |r| r.get(0),
-                ).or_else(|_| conn.query_row(
+                // Le remplacement sort du depot ou se tient le client —
+                // celui de la vente d'origine, ou l'article rendu vient
+                // d'etre reintegre. Prendre le depot par defaut faussait
+                // DEUX stocks a la fois en multi-depot : entree ici,
+                // sortie ailleurs.
+                let depot_remplacement: String = conn.query_row(
                     "SELECT id FROM depot WHERE id = ?1 AND actif = 1",
                     rusqlite::params![depot_source_id], |r| r.get(0),
+                ).or_else(|_| conn.query_row(
+                    "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
+                    [], |r| r.get(0),
                 )).map_err(|_| {
-                    "Aucun dépôt par défaut actif. Désigner un dépôt \
-                     par défaut dans Paramètres → Dépôts.".to_string()
+                    "Aucun dépôt actif pour sortir le remplacement. \
+                     Vérifier Paramètres → Dépôts.".to_string()
                 })?;
 
                 let qte_base_remp = qte_remp * facteur_remp;
@@ -394,7 +396,7 @@ pub fn enregistrer_retour(
                      VALUES (?4, ?2, ?3, 0 - ?1)
                      ON CONFLICT(article_id, depot_id)
                      DO UPDATE SET quantite = quantite - ?1",
-                    rusqlite::params![qte_base_remp, art_remp_id, depot_defaut,
+                    rusqlite::params![qte_base_remp, art_remp_id, depot_remplacement,
                                       uuid::Uuid::new_v4().to_string()],
                 ).map_err(|e| e.to_string())?;
 
@@ -406,7 +408,7 @@ pub fn enregistrer_retour(
                      VALUES (?1, ?2, ?3, 'echange', ?4, ?5, ?6, ?7, ?8, ?9, 'app')",
                     rusqlite::params![
                         uuid::Uuid::new_v4().to_string(),
-                        art_remp_id, depot_defaut, -qte_base_remp,
+                        art_remp_id, depot_remplacement, -qte_base_remp,
                         retour_id, utilisateur_id,
                         maintenant, maintenant, utilisateur_id
                     ],
@@ -450,10 +452,9 @@ pub fn enregistrer_retour(
                 } else if reliquat < 0 {
                     // Client paie la différence — entrée de caisse.
                     let mode = mode_encaissement.as_deref().unwrap_or("especes");
-                    let session_id: Option<String> = conn.query_row(
-                        "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
-                        [], |row| row.get(0),
-                    ).ok();
+                    // Le client verse la difference : entree reelle.
+                    let session_id: Option<String> =
+                        Some(crate::utils::exiger_session_caisse(&conn)?);
 
                     if let Some(sid) = session_id {
                         conn.execute(
@@ -517,12 +518,10 @@ fn enregistrer_sortie_caisse(
     utilisateur_id: &str,
     maintenant: &str,
 ) -> Result<(), String> {
-    let session_id: Option<String> = conn.query_row(
-        "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
-        [], |row| row.get(0),
-    ).ok();
-
-    if let Some(sid) = session_id {
+    // Refus plutot qu'ecriture manquante : rendre de l'argent sans
+    // mouvement de caisse cree un manque inexplicable a la cloture.
+    let sid = crate::utils::exiger_session_caisse(conn)?;
+    {
         conn.execute(
             "INSERT INTO mouvement_caisse
              (id, session_id, sens, moyen, montant, motif,
@@ -557,16 +556,21 @@ fn creer_avoir_client(
 ) -> Result<String, String> {
     let avoir_id = uuid::Uuid::new_v4().to_string();
 
-    conn.execute(
-        "INSERT INTO avoir
-         (id, client_id, retour_id, montant, statut, cree_le, origine)
-         VALUES (?1, ?2, ?3, ?4, 'ouvert', ?5, 'app')",
-        rusqlite::params![avoir_id, client_id, retour_id, montant, maintenant],
-    ).map_err(|e| e.to_string())?;
-
     // ---- Piece commerciale AVC ----
+    // La piece est creee AVANT l'avoir pour que celui-ci porte son
+    // `piece_id`. Les deux existaient cote a cote sans aucun lien : un
+    // avoir entierement consomme affichait son montant plein en
+    // « reste » sur l'ecran Pieces, pour toujours (bug #8).
     let numero = crate::commandes::pieces::prochain_numero(conn, "avoir_client");
     let piece_id = uuid::Uuid::new_v4().to_string();
+
+    conn.execute(
+        "INSERT INTO avoir
+         (id, client_id, retour_id, piece_id, montant, statut, cree_le, origine)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'ouvert', ?6, 'app')",
+        rusqlite::params![avoir_id, client_id, retour_id, piece_id,
+                          montant, maintenant],
+    ).map_err(|e| e.to_string())?;
 
     conn.execute(
         "INSERT INTO piece_commerciale

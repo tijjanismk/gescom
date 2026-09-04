@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  Plus, Printer, Loader2, Search, X, Wallet,
+  Plus, Printer, Loader2, Search, X, Wallet, PackageCheck, MoreHorizontal,
+  RotateCcw, ArrowLeftRight,
   ArrowRight, FileText, ClipboardList,
   Package, Truck, Receipt, Gift,
   ShoppingBag, CheckCircle2, Copy, Ban, Edit2,
@@ -18,7 +19,15 @@ import {
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
-import { genererPieceHTML, genererTicketThermique } from "@/lib/genererPDF";
+import { genererImpression, type FormatImpression } from "@/lib/genererPDF";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  ModalRemboursement, ModalAvoirConserve, ModalEchange,
+} from "@/components/ModalsRetour";
+import type { ArticleAchat, LigneVente, Vente } from "@/components/ModalsRetour";
 import {
   FiltresAvances, FILTRES_VIDES, type FiltresState,
 } from "@/components/FiltresAvances";
@@ -645,6 +654,26 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
   const [pieceAModifier, setPieceAModifier] = useState<Piece | null>(null);
   const [pieceAEncaisser, setPieceAEncaisser] = useState<Piece | null>(null);
   const [impressionEnCours, setImpressionEnCours] = useState<string | null>(null);
+  // Bon de sortie : réglage d'atelier. Inutile pour un commerce où le
+  // vendeur remet lui-même la marchandise ; indispensable quand le
+  // magasin est séparé de la caisse.
+  const [bonSortieActif, setBonSortieActif] = useState(false);
+
+  // Retours depuis Pièces : l'écran devient le point unique où l'on
+  // agit sur une facture. Les modals sont ceux de l'écran Retours,
+  // extraits dans components/ — pas une copie.
+  const [venteRetour, setVenteRetour] = useState<Vente | null>(null);
+  const [ligneRetour, setLigneRetour] = useState<LigneVente | null>(null);
+  const [modeRetour, setModeRetour] =
+    useState<"remboursement" | "avoir" | "echange" | null>(null);
+  const [articlesRetour, setArticlesRetour] = useState<ArticleAchat[]>([]);
+  const [choixLigne, setChoixLigne] = useState<Vente | null>(null);
+  const [clientGeneriqueId, setClientGeneriqueId] = useState<string | null>(null);
+  // Conversion d'un avoir en espèces : le client renonce à son crédit.
+  const [avoirARembourser, setAvoirARembourser] = useState<Piece | null>(null);
+  const [montantRembours, setMontantRembours] = useState("");
+  const [modeRembours, setModeRembours] = useState("especes");
+  const [remboursEnCours, setRemboursEnCours] = useState(false);
 
   // Type effectif
   const filtreTypeEffectif = filtresAvances.type_piece !== "tous"
@@ -744,22 +773,127 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
     }
   }
 
-  async function handleImprimer(p: Piece, thermique = false, format: "a4"|"a5" = "a4") {
+  // `genererImpression` est le point d'entree unique : il dispatche
+  // A4, A5, thermique et bon de sortie. L'ancien couple
+  // genererPieceHTML / genererTicketThermique laissait chaque appelant
+  // choisir, et le bon de sortie leur aurait echappe.
+  // Lu une fois : le réglage ne change pas pendant qu'on imprime.
+  useEffect(() => {
+    invoke<boolean>("lire_config_bon_sortie")
+      .then(setBonSortieActif)
+      .catch(() => setBonSortieActif(false));
+    invoke<{ id: string }>("lire_client_generique")
+      .then(c => setClientGeneriqueId(c?.id ?? null))
+      .catch(() => setClientGeneriqueId(null));
+  }, []);
+
+  async function handleImprimer(p: Piece, format: FormatImpression = "a4") {
     setImpressionEnCours(p.id);
     try {
-      const [donnees, logo] = await Promise.all([
+      const [donnees, logo, entete, pied] = await Promise.all([
         invoke<any>("lire_donnees_piece", { pieceId: p.id }),
         invoke<string | null>("lire_logo_base64"),
+        invoke<string | null>("lire_entete_base64").catch(() => null),
+        invoke<string | null>("lire_pied_base64").catch(() => null),
       ]);
-      const html = thermique
-        ? genererTicketThermique(donnees, logo)
-        : genererPieceHTML(donnees, logo, format);
+      const suffixe = format === "bon_sortie" ? "-BS" : "";
       await invoke("imprimer_piece", {
-        html, nomFichier: `${p.numero.replace(/\//g, "-")}.html`,
+        html: genererImpression(donnees, format, logo, entete, pied),
+        nomFichier: `${p.numero.replace(/\//g, "-")}${suffixe}.html`,
       });
     } catch (e) {
       await message(`Erreur impression : ${e}`, { title: "Erreur", kind: "error" });
     } finally { setImpressionEnCours(null); }
+  }
+
+  /**
+   * Ouvre le choix de ligne pour un retour depuis une facture.
+   *
+   * Une facture porte plusieurs lignes ; le retour en vise UNE. On
+   * charge donc la vente et ses lignes, puis on demande laquelle.
+   */
+  async function ouvrirRetour(
+    p: Piece, mode: "remboursement" | "avoir" | "echange",
+  ) {
+    try {
+      const venteId = await invoke<string | null>("lire_vente_de_piece", {
+        pieceId: p.id,
+      });
+      if (!venteId) {
+        await message(
+          "Cette facture est en brouillon : aucune vente n'existe encore, " +
+          "il n'y a donc rien à retourner. La valider d'abord.",
+          { title: "Retour impossible", kind: "warning" },
+        );
+        return;
+      }
+      const [ventes, arts] = await Promise.all([
+        invoke<Vente[]>("lire_ventes_recentes"),
+        invoke<ArticleAchat[]>("lire_articles_avec_unites"),
+      ]);
+      const v = ventes.find(x => x.id === venteId);
+      if (!v) {
+        await message(
+          "Vente introuvable dans les ventes récentes. Passer par l'écran " +
+          "Retours pour une vente ancienne.",
+          { title: "Retour impossible", kind: "warning" },
+        );
+        return;
+      }
+      setArticlesRetour(arts);
+      setModeRetour(mode);
+      // Une seule ligne : inutile de la faire choisir.
+      if (v.lignes.length === 1) {
+        setVenteRetour(v);
+        setLigneRetour(v.lignes[0]);
+      } else {
+        setChoixLigne(v);
+      }
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    }
+  }
+
+  async function handleRembourserAvoir() {
+    if (!avoirARembourser) return;
+    setRemboursEnCours(true);
+    try {
+      const r = await invoke<{ montant_rembourse: number; solde: boolean }>(
+        "rembourser_avoir", {
+          pieceId: avoirARembourser.id,
+          montant: parseMontant(montantRembours),
+          mode: modeRembours,
+          utilisateurRole: UTILISATEUR_ACTIF?.role ?? "employe",
+        });
+      setAvoirARembourser(null);
+      await charger();
+      await message(
+        `${fmt(r.montant_rembourse)} remis au client.` +
+        (r.solde ? "" : " Le solde reste disponible en avoir."),
+        { title: "Avoir remboursé", kind: "info" },
+      );
+    } catch (e) {
+      await message(`${e}`, { title: "Remboursement impossible", kind: "error" });
+    } finally {
+      setRemboursEnCours(false);
+    }
+  }
+
+  function fermerRetour() {
+    setVenteRetour(null); setLigneRetour(null);
+    setModeRetour(null); setChoixLigne(null);
+  }
+
+  /**
+   * Facture ET bon de sortie : UN document de deux pages.
+   *
+   * Pas deux impressions enchaînées — `imprimer_facture` ferme toute
+   * fenêtre `impression_*` avant d'ouvrir la sienne, donc la seconde
+   * tuait la boîte de dialogue de la première avant que le caissier
+   * ait cliqué. Une impression, deux pages.
+   */
+  async function handleImprimerLesDeux(p: Piece) {
+    await handleImprimer(p, "a4_et_bon");
   }
 
   async function handleConvertir(p: Piece) {
@@ -1027,7 +1161,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1">
                         {/* Imprimer A4 — 1 copie */}
-                        <button onClick={() => handleImprimer(p, false, "a4")}
+                        <button onClick={() => handleImprimer(p, "a4")}
                           disabled={impressionEnCours === p.id}
                           title="Imprimer A4"
                           className="p-1.5 rounded hover:bg-muted transition-colors
@@ -1037,7 +1171,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                             : <Printer className="h-3.5 w-3.5" />}
                         </button>
                         {/* A5 */}
-                        <button onClick={() => handleImprimer(p, false, "a5")}
+                        <button onClick={() => handleImprimer(p, "a5")}
                           disabled={impressionEnCours === p.id}
                           title="Imprimer A5"
                           className="p-1.5 rounded hover:bg-muted transition-colors
@@ -1045,15 +1179,91 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                                      text-[10px] font-bold px-1">
                           A5
                         </button>
-                        {/* Ticket thermique 80mm */}
-                        <button onClick={() => handleImprimer(p, true)}
-                          disabled={impressionEnCours === p.id}
-                          title="Ticket thermique 80mm"
-                          className="p-1.5 rounded hover:bg-muted transition-colors
-                                     text-muted-foreground hover:text-foreground text-[10px]
-                                     font-bold leading-none">
-                          🧾
-                        </button>
+                        {/* Tout le reste dans un menu : la ligne portait
+                            déjà six boutons, et les retours en ajoutent
+                            trois. Seul A4 reste en accès direct, c'est
+                            le geste courant. */}
+                        <DropdownMenu>
+                          {/* Pas de `asChild` : ce build de base-ui rend
+                              son propre <button>, d'où un bouton dans un
+                              bouton. On style le trigger directement. */}
+                          <DropdownMenuTrigger
+                            title="Autres actions"
+                            className="p-1.5 rounded hover:bg-muted transition-colors
+                                       text-muted-foreground hover:text-foreground">
+                            <MoreHorizontal className="h-3.5 w-3.5" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuItem onClick={() => handleImprimer(p, "a5")}>
+                              <Printer className="h-3.5 w-3.5 mr-2" /> Imprimer A5
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleImprimer(p, "thermique_80")}>
+                              <Printer className="h-3.5 w-3.5 mr-2" /> Ticket 80 mm
+                            </DropdownMenuItem>
+
+                            {bonSortieActif && p.type_piece === "facture" && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleImprimer(p, "bon_sortie")}>
+                                  <PackageCheck className="h-3.5 w-3.5 mr-2" />
+                                  Bon de sortie
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleImprimerLesDeux(p)}>
+                                  <PackageCheck className="h-3.5 w-3.5 mr-2" />
+                                  Facture + bon de sortie
+                                </DropdownMenuItem>
+                              </>
+                            )}
+
+                            {/* Le « reste » d'un AVC est son crédit non
+                                consommé (D44) : à zéro, il n'y a plus
+                                rien à rembourser. */}
+                            {p.type_piece === "avoir_client" && p.reste > 0 && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => {
+                                  setAvoirARembourser(p);
+                                  setMontantRembours(String(p.reste));
+                                  setModeRembours("especes");
+                                }}>
+                                  <Wallet className="h-3.5 w-3.5 mr-2" />
+                                  Rembourser en espèces
+                                </DropdownMenuItem>
+                              </>
+                            )}
+
+                            {/* Retours : facture seulement. Un devis n'a
+                                rien livré, un avoir corrige déjà. */}
+                            {p.type_piece === "facture" && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => ouvrirRetour(p, "remboursement")}>
+                                  <RotateCcw className="h-3.5 w-3.5 mr-2" />
+                                  Retour — rembourser
+                                </DropdownMenuItem>
+                                {/* Pas d'avoir au comptant (D40) : le
+                                    crédit partirait sur le pot commun
+                                    `client0000`, inutilisable. */}
+                                {p.tiers_id !== clientGeneriqueId && (
+                                  <DropdownMenuItem
+                                    onClick={() => ouvrirRetour(p, "avoir")}>
+                                    <Gift className="h-3.5 w-3.5 mr-2" />
+                                    Retour — avoir
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                  onClick={() => ouvrirRetour(p, "echange")}>
+                                  <ArrowLeftRight className="h-3.5 w-3.5 mr-2" />
+                                  Échanger un article
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                         {peutTransferer && (
                           <button onClick={() => handleConvertir(p)}
                             title={conv!.label}
@@ -1179,6 +1389,112 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
         piece={factureAValider}
         onFermer={() => setFactureAValider(null)}
         onValide={() => { setFactureAValider(null); charger(); }}
+      />
+
+      <Dialog open={!!avoirARembourser}
+        onOpenChange={o => !o && setAvoirARembourser(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rembourser l'avoir {avoirARembourser?.numero}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <div className="flex justify-between text-sm px-3 py-2 rounded-md bg-muted">
+              <span className="text-muted-foreground">Crédit disponible</span>
+              <strong>{fmt(avoirARembourser?.reste ?? 0)}</strong>
+            </div>
+            <div>
+              <Label>Montant remis au client *</Label>
+              <MoneyInput value={montantRembours} onChange={setMontantRembours}
+                className="mt-1" />
+              {/* Le serveur replafonne de toute façon : le front peut
+                  afficher un crédit périmé si un autre poste l'a
+                  entamé entre-temps. */}
+              <p className="text-xs text-muted-foreground mt-1">
+                Un montant partiel laisse le solde disponible en avoir.
+              </p>
+            </div>
+            <div>
+              <Label>Moyen</Label>
+              <Select value={modeRembours}
+                onValueChange={v => { if (v) setModeRembours(v); }}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="especes">Espèces</SelectItem>
+                  <SelectItem value="orange_money">Orange Money</SelectItem>
+                  <SelectItem value="moov_money">Moov Money</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              L'argent sort de la caisse : une session doit être ouverte.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1"
+                onClick={() => setAvoirARembourser(null)}>Annuler</Button>
+              <Button className="flex-1" onClick={handleRembourserAvoir}
+                disabled={remboursEnCours || !montantRembours
+                          || parseMontant(montantRembours) <= 0}>
+                {remboursEnCours
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : "Rembourser"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Choix de la ligne : une facture en porte plusieurs, le retour
+          en vise une seule. Sauté quand il n'y en a qu'une. */}
+      <Dialog open={!!choixLigne} onOpenChange={o => !o && fermerRetour()}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Quel article retourner ?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1.5 pt-2">
+            {choixLigne?.lignes.map(l => (
+              <button key={l.id}
+                onClick={() => {
+                  setVenteRetour(choixLigne);
+                  setLigneRetour(l);
+                  setChoixLigne(null);
+                }}
+                className="w-full text-left px-3 py-2 rounded-md border
+                           border-border hover:bg-accent transition-colors">
+                <p className="text-sm font-medium">{l.article_nom}</p>
+                <p className="text-xs text-muted-foreground">
+                  {l.quantite} {l.unite_libelle} · {fmt(l.montant)}
+                </p>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <ModalRemboursement
+        ouvert={modeRetour === "remboursement" && !!ligneRetour}
+        vente={venteRetour}
+        ligne={ligneRetour}
+        onFermer={fermerRetour}
+        onConfirmer={() => { fermerRetour(); charger(); }}
+      />
+
+      <ModalAvoirConserve
+        ouvert={modeRetour === "avoir" && !!ligneRetour}
+        vente={venteRetour}
+        ligne={ligneRetour}
+        onFermer={fermerRetour}
+        onConfirmer={() => { fermerRetour(); charger(); }}
+      />
+
+      <ModalEchange
+        ouvert={modeRetour === "echange" && !!ligneRetour}
+        vente={venteRetour}
+        ligne={ligneRetour}
+        articles={articlesRetour}
+        comptant={venteRetour?.client_id === clientGeneriqueId}
+        bonSortieActif={bonSortieActif}
+        onFermer={fermerRetour}
+        onConfirmer={() => { fermerRetour(); charger(); }}
       />
     </div>
   );

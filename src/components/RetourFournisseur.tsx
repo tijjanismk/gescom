@@ -167,7 +167,8 @@ export function RetourFournisseur({ onTermine }: { onTermine: () => void }) {
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-[240px]">
           <Label className="text-xs mb-1 block">Fournisseur</Label>
-          <Select value={fournisseurId} onValueChange={setFournisseurId}>
+          <Select value={fournisseurId}
+            onValueChange={v => { if (v) setFournisseurId(v); }}>
             <SelectTrigger className="h-9">
               <SelectValue placeholder="Choisir un fournisseur…" />
             </SelectTrigger>
@@ -286,7 +287,7 @@ export function RetourFournisseur({ onTermine }: { onTermine: () => void }) {
                     <div className="min-w-[200px]">
                       <Label className="text-xs mb-1 block">Résolution</Label>
                       <Select value={mode}
-                        onValueChange={v => setMode(v as typeof mode)}>
+                        onValueChange={v => { if (v) setMode(v as typeof mode); }}>
                         <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="avoir">
@@ -303,7 +304,7 @@ export function RetourFournisseur({ onTermine }: { onTermine: () => void }) {
                       <div className="min-w-[160px]">
                         <Label className="text-xs mb-1 block">Encaissement</Label>
                         <Select value={modeEncaissement}
-                          onValueChange={setModeEncaissement}>
+                          onValueChange={v => { if (v) setModeEncaissement(v); }}>
                           <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="especes">Espèces</SelectItem>

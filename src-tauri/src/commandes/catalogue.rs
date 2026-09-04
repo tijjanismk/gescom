@@ -6,15 +6,31 @@
 //! abîmés, et le commerçant conclut que l'export ne marche pas.
 //!
 //! L'import est TOLÉRANT sur la forme et STRICT sur le fond : il
-//! accepte les colonnes dans le désordre, les espaces, les prix écrits
-//! « 12 500 » ou « 12500 » — mais refuse un article sans nom ou sans
-//! prix, et signale chaque ligne rejetée avec son numéro.
+//! accepte les colonnes dans le désordre (l'en-tête les indexe par
+//! nom), les espaces, les prix écrits « 12 500 » ou « 12500 » — mais
+//! refuse un article sans nom ou sans prix, et signale chaque ligne
+//! rejetée avec son numéro.
+//!
+//! Un article à plusieurs unités de vente sort sur PLUSIEURS lignes de
+//! même nom, une par unité, distinguées par la colonne `Facteur`. La
+//! première (facteur 1) crée l'article ; les suivantes ajoutent leurs
+//! unités. Sans en-tête, l'ordre v1.3 s'applique et `Facteur` vaut 1.
+//!
+//! ⚠️ `Prix achat` et `Stock` appartiennent à l'ARTICLE, pas à l'unité :
+//! ils sont répétés sur chaque ligne à l'export et seule la première
+//! est lue à l'import. Modifier le stock sur une ligne de pack dans
+//! Excel n'a donc aucun effet.
 
 use tauri::State;
 use crate::commandes::ventes::EtatApp;
 use crate::utils::maintenant_iso;
 
-const ENTETE: &str = "Nom;Categorie;Unite;Prix;Prix achat;TVA %;Code barre;Stock";
+// `Facteur` ajoutee en v1.4 : sans elle, un article a plusieurs unites
+// sortait sur plusieurs lignes de meme nom et revenait avec toutes ses
+// unites ecrasees a facteur 1. Colonne facultative a l'import — un
+// fichier au format v1.3 reste lisible, facteur 1 par defaut.
+const ENTETE: &str =
+    "Nom;Categorie;Unite;Facteur;Prix;Prix achat;TVA %;Code barre;Stock";
 
 fn echapper(v: &str) -> String {
     // Un champ commencant par =, +, -, @ (ou tab/CR) est interprete
@@ -45,10 +61,13 @@ pub fn exporter_articles_csv(
 
     let mut st = conn.prepare(
         "SELECT a.nom, COALESCE(c.nom, ''), COALESCE(uv.libelle, a.unite_base),
+                COALESCE(uv.facteur, 1.0),
                 CAST(COALESCE(uv.prix_reference, 0) AS INTEGER),
                 CAST(COALESCE(a.dernier_prix_achat, 0) AS INTEGER),
                 COALESCE(a.taux_tva_defaut, 0.0),
-                COALESCE(a.code_barre, ''),
+                -- Code de l'UNITE de la ligne, avec repli sur celui de
+                -- l'article pour l'unite de base (D45).
+                COALESCE(uv.code_barre, a.code_barre, ''),
                 COALESCE((SELECT SUM(sd.quantite) FROM stock_depot sd
                           WHERE sd.article_id = a.id), 0)
          FROM article a
@@ -60,17 +79,25 @@ pub fn exporter_articles_csv(
     ).map_err(|e| e.to_string())?;
 
     let lignes: Vec<String> = st.query_map([], |r| {
-        let taux: f64 = r.get(5)?;
+        let facteur: f64 = r.get(3)?;
+        let taux: f64 = r.get(6)?;
         Ok(format!(
-            "{};{};{};{};{};{};{};{}",
-            echapper(&r.get::<_, String>(0)?),
-            echapper(&r.get::<_, String>(1)?),
-            echapper(&r.get::<_, String>(2)?),
-            r.get::<_, i64>(3)?,
-            r.get::<_, i64>(4)?,
-            (taux * 100.0).round() as i64,
-            echapper(&r.get::<_, String>(6)?),
-            r.get::<_, f64>(7)?,
+            "{};{};{};{};{};{};{};{};{}",
+            echapper(&r.get::<_, String>(0)?),   // Nom
+            echapper(&r.get::<_, String>(1)?),   // Categorie
+            echapper(&r.get::<_, String>(2)?),   // Unite
+            // Entier quand c'est un entier : « 12 » et non « 12.0 »,
+            // qu'Excel francophone rendrait « 12,0 » puis relirait mal.
+            if facteur.fract() == 0.0 {
+                format!("{}", facteur as i64)
+            } else {
+                format!("{}", facteur)
+            },
+            r.get::<_, i64>(4)?,                 // Prix
+            r.get::<_, i64>(5)?,                 // Prix achat
+            (taux * 100.0).round() as i64,       // TVA %
+            echapper(&r.get::<_, String>(7)?),   // Code barre
+            r.get::<_, f64>(8)?,                 // Stock
         ))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
@@ -101,6 +128,30 @@ fn decouper(ligne: &str) -> Vec<String> {
     }
     champs.push(courant.trim().to_string());
     champs
+}
+
+/// Entete normalisee : sans accents, minuscules, sans espaces.
+/// « Prix achat » et « prix_achat » designent la meme colonne.
+fn normaliser_entete(v: &str) -> String {
+    v.trim().to_lowercase()
+        .replace(['é', 'è', 'ê'], "e")
+        .replace('à', "a")
+        .replace([' ', '_', '%'], "")
+}
+
+/// Valeur d'une colonne : par nom si l'entete existe, par position
+/// sinon (ordre historique v1.3, sans `Facteur`).
+fn champ<'a>(
+    ch: &'a [String],
+    cols: &std::collections::HashMap<String, usize>,
+    nom: &str,
+    position_v13: Option<usize>,
+) -> Option<&'a str> {
+    let i = match cols.get(nom) {
+        Some(i) => *i,
+        None => position_v13?,
+    };
+    ch.get(i).map(|s| s.trim())
 }
 
 /// « 12 500 », « 12500 », « 12.500 » -> 12500
@@ -137,10 +188,24 @@ pub fn importer_articles_csv(
     let contenu = contenu.trim_start_matches('\u{FEFF}');
     let mut lignes = contenu.lines();
 
-    // Premiere ligne : entete si elle commence par "Nom".
+    // Premiere ligne : entete si elle commence par "Nom". On s'en sert
+    // pour INDEXER les colonnes par nom, et non par position — c'est ce
+    // qui rend l'import tolerant au desordre (promesse du module) et
+    // permet a `Facteur`, ajoutee en v1.4, d'etre absente d'un ancien
+    // fichier sans decaler tout le reste.
     let premiere = lignes.next().unwrap_or("");
+    let a_entete = premiere.to_lowercase().starts_with("nom");
+
+    let cols: std::collections::HashMap<String, usize> = if a_entete {
+        decouper(premiere).iter().enumerate()
+            .map(|(i, c)| (normaliser_entete(c), i))
+            .collect()
+    } else {
+        std::collections::HashMap::new()
+    };
+
     let mut a_traiter: Vec<&str> = Vec::new();
-    if !premiere.to_lowercase().starts_with("nom") {
+    if !a_entete {
         a_traiter.push(premiere);
     }
     a_traiter.extend(lignes);
@@ -157,37 +222,50 @@ pub fn importer_articles_csv(
         let ch = decouper(ligne);
         if ch.len() < 4 {
             erreurs.push(format!("Ligne {} : {} colonne(s), 4 minimum \
-                (Nom;Categorie;Unite;Prix)", num, ch.len()));
+                (Nom;Categorie;Unite;Prix). Colonne Facteur facultative.",
+                num, ch.len()));
             continue;
         }
 
-        let nom = ch[0].trim();
+        let nom = champ(&ch, &cols, "nom", Some(0)).unwrap_or("");
         if nom.is_empty() {
             erreurs.push(format!("Ligne {} : nom vide", num));
             continue;
         }
 
-        let prix = match parser_montant(&ch[3]) {
+        let brut_prix = champ(&ch, &cols, "prix", Some(3)).unwrap_or("");
+        let prix = match parser_montant(brut_prix) {
             Some(p) if p > 0 => p,
             _ => {
                 erreurs.push(format!(
                     "Ligne {} « {} » : prix illisible ou nul (« {} »)",
-                    num, nom, ch[3]));
+                    num, nom, brut_prix));
                 continue;
             }
         };
 
-        let categorie = ch.get(1).map(|s| s.trim()).unwrap_or("");
+        let categorie = champ(&ch, &cols, "categorie", Some(1)).unwrap_or("");
         let unite = {
-            let u = ch.get(2).map(|s| s.trim()).unwrap_or("");
+            let u = champ(&ch, &cols, "unite", Some(2)).unwrap_or("");
             if u.is_empty() { "unité" } else { u }
         };
-        let prix_achat = ch.get(4).and_then(|v| parser_montant(v));
-        let tva = ch.get(5).and_then(|v| parser_decimal(v))
+
+        // Facteur absent (fichier v1.3) = 1.0 : l'unite est la base.
+        let facteur = champ(&ch, &cols, "facteur", None)
+            .and_then(parser_decimal)
+            .filter(|f| *f > 0.0)
+            .unwrap_or(1.0);
+
+        let prix_achat = champ(&ch, &cols, "prixachat", Some(4))
+            .and_then(parser_montant);
+        let tva = champ(&ch, &cols, "tva", Some(5))
+            .and_then(parser_decimal)
             .map(|t| if t > 1.0 { t / 100.0 } else { t })
             .unwrap_or(0.0);
-        let code_barre = ch.get(6).map(|s| s.trim()).filter(|s| !s.is_empty());
-        let stock = ch.get(7).and_then(|v| parser_decimal(v)).unwrap_or(0.0);
+        let code_barre = champ(&ch, &cols, "codebarre", Some(6))
+            .filter(|s| !s.is_empty());
+        let stock = champ(&ch, &cols, "stock", Some(7))
+            .and_then(parser_decimal).unwrap_or(0.0);
 
         // Categorie : creee si absente.
         let cat_id: Option<String> = if categorie.is_empty() {
@@ -238,11 +316,32 @@ pub fn importer_articles_csv(
                     ).ok();
                 }
 
-                tx.execute(
-                    "UPDATE unite_vente SET prix_reference = ?1
-                     WHERE article_id = ?2 AND lower(libelle) = lower(?3)",
-                    rusqlite::params![prix, art_id, unite],
-                ).ok();
+                // Une unite absente est CREEE, pas ignoree. Sans ca, un
+                // export puis reimport perdait tous les packs en
+                // silence : l'article a plusieurs unites sort sur
+                // plusieurs lignes de meme nom, et seule la premiere
+                // trouvait sa cible.
+                let touchees = tx.execute(
+                    "UPDATE unite_vente
+                     SET prix_reference = ?1, facteur = ?2,
+                         code_barre = COALESCE(?3, code_barre), modifie_le = ?4
+                     WHERE article_id = ?5 AND lower(libelle) = lower(?6)",
+                    rusqlite::params![prix, facteur, code_barre, now, art_id, unite],
+                ).unwrap_or(0);
+
+                if touchees == 0 {
+                    tx.execute(
+                        "INSERT INTO unite_vente
+                         (id, article_id, libelle, facteur, prix_reference,
+                          code_barre, actif,
+                          cree_le, modifie_le, cree_par, modifie_par, origine)
+                         VALUES (?1,?2,?3,?4,?5,?6,1,?7,?8,'import','import','import')",
+                        rusqlite::params![
+                            uuid::Uuid::new_v4().to_string(), art_id,
+                            unite, facteur, prix, code_barre, now, now
+                        ],
+                    ).map_err(|e| e.to_string())?;
+                }
 
                 majs += 1;
             }
@@ -266,9 +365,10 @@ pub fn importer_articles_csv(
                     "INSERT INTO unite_vente
                      (id, article_id, libelle, facteur, prix_reference, actif,
                       cree_le, modifie_le, cree_par, modifie_par, origine)
-                     VALUES (?1,?2,?3,1.0,?4,1,?5,?6,'import','import','import')",
+                     VALUES (?1,?2,?3,?4,?5,1,?6,?7,'import','import','import')",
                     rusqlite::params![
-                        uuid::Uuid::new_v4().to_string(), art_id, unite, prix, now, now
+                        uuid::Uuid::new_v4().to_string(), art_id, unite,
+                        facteur, prix, now, now
                     ],
                 ).map_err(|e| e.to_string())?;
 

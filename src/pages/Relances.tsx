@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Phone, MessageCircle, Mail, MapPin,
-  Clock, Loader2, ChevronDown, ChevronRight,
+  Loader2, ChevronDown, ChevronRight,
   AlertTriangle, CheckCircle2,
   // Collision avec window.History — voir Caisse.tsx.
   History as HistoryIcon,
-  Filter, RefreshCw, X,
+  Copy, RefreshCw, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -119,15 +119,18 @@ function ModalRelancer({
   }, [ouvert]);
 
   if (!creance) return null;
+  // Capture apres la garde : TypeScript ne propage pas le retrecissement
+  // d'un prop destructure a l'interieur des fonctions imbriquees.
+  const fiche = creance;
 
-  const msgWA = genererMessageWhatsApp(creance, societe, messagePerso);
+  const msgWA = genererMessageWhatsApp(fiche, societe, messagePerso);
 
   // window.open ne fonctionne pas dans une webview Tauri : le lien
   // s'ouvre dans l'application, ou ne fait rien. On passe par le
   // systeme, qui lance WhatsApp Desktop ou le navigateur.
   async function ouvrirWhatsApp() {
-    if (!creance.telephone) return;
-    const tel = creance.telephone.replace(/\D/g, "");
+    if (!fiche.telephone) return;
+    const tel = fiche.telephone.replace(/\D/g, "");
     // Numero malien : 8 chiffres. On prefixe 223 s'il manque.
     const telMali = tel.startsWith("223") ? tel : `223${tel}`;
     const url = `https://wa.me/${telMali}?text=${encodeURIComponent(msgWA)}`;
@@ -144,8 +147,8 @@ function ModalRelancer({
   }
 
   async function ouvrirSMS() {
-    if (!creance.telephone) return;
-    const tel = creance.telephone.replace(/\D/g, "");
+    if (!fiche.telephone) return;
+    const tel = fiche.telephone.replace(/\D/g, "");
     try {
       await invoke("ouvrir_avec_systeme", {
         chemin: `sms:${tel}?body=${encodeURIComponent(msgWA)}`,
@@ -277,6 +280,13 @@ function ModalRelancer({
                     {envoye && <CheckCircle2 className="h-4 w-4 text-green-600" />}
                   </Button>
                 )}
+                {/* Recours quand WhatsApp ou les SMS n'ouvrent pas :
+                    la fonction existait deja, sans bouton pour l'appeler. */}
+                <Button size="sm" variant="outline" onClick={copierMessage}
+                  className="gap-2" title="Copier le message">
+                  <Copy className="h-4 w-4" />
+                  Copier
+                </Button>
               </div>
             </div>
           )}

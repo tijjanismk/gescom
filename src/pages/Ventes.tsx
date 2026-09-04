@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Plus, Trash2, ShoppingCart, User, Search,
-  Loader2, Warehouse, AlertTriangle, Printer, Gift, Scan
+  Loader2, Warehouse, AlertTriangle, Gift, Scan, PackagePlus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
+import { SelectUnite } from "@/components/SelectUnite";
 import { ModalImpression } from "@/components/ModalImpression";
 import { useScanner } from "@/lib/useScanner";
 import { UTILISATEUR_ACTIF, DEPOT_ACTIF, definirDepotActif } from "@/App";
@@ -33,6 +34,9 @@ interface Article {
   id: string; nom: string; unite_base: string; stock: number;
   taux_tva_defaut?: number;
   unites: UniteVente[];
+  // Renseigne uniquement par le scan : l'unite dont le code-barres
+  // a ete lu. null si le code designait l'article (D45).
+  unite_scannee_id?: string | null;
 }
 interface Client {
   id: string; code: string; nom: string; telephone?: string;
@@ -55,10 +59,6 @@ interface StockDepot {
   article_id: string; depot_id: string; depot_nom: string;
   est_defaut: boolean; quantite: number;
 }
-interface Avoir {
-  id: string; montant: number; cree_le: string;
-}
-
 // =====================================================================
 //  Utilitaires
 // =====================================================================
@@ -322,7 +322,9 @@ function ModalRepartition({
   depotActif: Depot | null;
   stockDepots: StockDepot[];
   onAnnuler: () => void;
-  onValider: (parts: { depot_id: string; depot_nom: string; qte: number }[]) => void;
+  onValider: (parts: {
+    depot_id: string; depot_nom: string; qte: number; a_decouvert: boolean;
+  }[]) => void;
 }) {
   const [parts, setParts] = useState<Record<string, string>>({});
 
@@ -415,14 +417,32 @@ function ModalRepartition({
             <span>Réparti</span>
             <strong>
               {total} / {demande.quantite}
-              {manque > 0 && ` — manque ${manque}`}
+              {manque > 0 && ` — ${manque} à découvert`}
               {manque < 0 && ` — ${-manque} en trop`}
             </strong>
           </div>
 
+          {/* Le manque n'est plus une erreur : c'est une vente à
+              découvert, autorisée comme en mono-dépôt. Elle est imputée
+              au dépôt où se tient le vendeur. */}
+          {manque > 0 && (
+            <p className="text-xs text-orange-700">
+              {manque} unité(s) au-delà du stock — imputée(s) à{" "}
+              {depotActif?.nom ?? "ce dépôt"}. À régulariser par une entrée
+              ou un achat.
+            </p>
+          )}
+
+          {manque < 0 && (
+            <p className="text-xs text-destructive">
+              Le total dépasse la quantité demandée.
+            </p>
+          )}
+
           {depassements.length > 0 && (
             <p className="text-xs text-destructive">
-              Une quantité dépasse le stock disponible d'un dépôt.
+              Une quantité dépasse le stock d'un dépôt. Laisser le manque
+              en découvert plutôt que de le cacher dans une ligne.
             </p>
           )}
 
@@ -431,13 +451,21 @@ function ModalRepartition({
               Annuler
             </Button>
             <Button
-              disabled={manque !== 0 || depassements.length > 0}
-              onClick={() => onValider(sources.map(sd => ({
-                depot_id: sd.depot_id, depot_nom: sd.depot_nom,
-                qte: parseFloat(parts[sd.depot_id] || "0") || 0,
-              })))}
+              disabled={manque < 0 || depassements.length > 0 || total <= 0}
+              onClick={() => onValider(
+                sources.map(sd => ({
+                  depot_id: sd.depot_id, depot_nom: sd.depot_nom,
+                  qte: parseFloat(parts[sd.depot_id] || "0") || 0,
+                  a_decouvert: false,
+                })).concat(manque > 0 && depotActif ? [{
+                  // Le reliquat sort du depot du vendeur, marque comme
+                  // decouvert pour que le panier l'affiche en orange.
+                  depot_id: depotActif.id, depot_nom: depotActif.nom,
+                  qte: manque, a_decouvert: true,
+                }] : [])
+              )}
               className="flex-1">
-              Marchandise réunie — valider
+              {manque > 0 ? "Valider — dont découvert" : "Marchandise réunie — valider"}
             </Button>
           </div>
         </div>
@@ -470,13 +498,21 @@ export function Ventes() {
   const [rechercheClient, setRechercheClient] = useState("");
   const [clientsFiltres, setClientsFiltres] = useState<Client[]>([]);
   const [modalNouveauClient, setModalNouveauClient] = useState(false);
-  const [avoirs, setAvoirs] = useState<Avoir[]>([]);
+
   const [totalAvoirs, setTotalAvoirs] = useState(0);
   const [avoirAAppliquer, setAvoirAAppliquer] = useState(0);
 
   // Article
   const [rechercheArticle, setRechercheArticle] = useState("");
   const [articlesFiltres, setArticlesFiltres] = useState<Article[]>([]);
+  // Création rapide : un client demande un article absent du catalogue.
+  // L'envoyer dans Paramètres au milieu d'une vente, c'est la vente
+  // qu'on perd.
+  const [modalNouvelArticle, setModalNouvelArticle] = useState(false);
+  const [naNom, setNaNom] = useState("");
+  const [naUnite, setNaUnite] = useState("");
+  const [naPrix, setNaPrix] = useState("");
+  const [naEnCours, setNaEnCours] = useState(false);
   const [articleSelectionne, setArticleSelectionne] = useState<Article | null>(null);
   const [uniteSelectionnee, setUniteSelectionnee] = useState<UniteVente | null>(null);
   const [quantite, setQuantite] = useState("1");
@@ -577,28 +613,39 @@ export function Ventes() {
     };
   }, []);
 
+  // ---- Client de passage : ni crédit, ni avoir (D40) ----
+  const estComptant = !client || client.id === clientGenerique?.id;
+
+  // Repasser en comptant si le client redevient générique : sinon
+  // l'état reste "credit" jusqu'au refus serveur, en pleine vente.
+  useEffect(() => {
+    if (estComptant && modeReglement === "credit") {
+      setModeReglement("comptant");
+      setAcompte("");
+    }
+  }, [estComptant, modeReglement]);
+
   // ---- Charger les avoirs quand le client change ----
   useEffect(() => {
     async function chargerAvoirs() {
-      if (!client || client.id === clientGenerique?.id) {
-        setAvoirs([]);
+      // `!client` en plus de estComptant : TS ne deduit pas le non-null.
+      if (estComptant || !client) {
         setTotalAvoirs(0);
         setAvoirAAppliquer(0);
         return;
       }
       try {
-        const [listeAvoirs, total] = await Promise.all([
-          invoke<Avoir[]>("lire_avoirs_client", { clientId: client.id }),
-          invoke<number>("total_avoirs_client", { clientId: client.id }),
-        ]);
-        setAvoirs(listeAvoirs);
+        // Seul le TOTAL est affiche ; la liste detaillee n'etait lue
+        // nulle part, on ne la demande plus.
+        const total = await invoke<number>(
+          "total_avoirs_client", { clientId: client.id });
         setTotalAvoirs(total);
       } catch (e) {
         console.error("Erreur avoirs :", e);
       }
     }
     chargerAvoirs();
-  }, [client, clientGenerique]);
+  }, [client, clientGenerique, estComptant]);
 
   // ---- Scanner code-barres ----
   const handleScan = useCallback(async (code: string) => {
@@ -608,8 +655,26 @@ export function Ventes() {
       );
       if (article) {
         selectionnerArticle(article);
-        // Auto-ajouter au panier si une seule unité
-        if (article.unites.length === 1) {
+        // Le code peut designer un CONDITIONNEMENT precis (D45) : on
+        // ajoute alors ce carton-la, pas l'unite de base. Sinon le
+        // carton partait au prix de la piece.
+        const scannee = article.unite_scannee_id
+          ? article.unites.find(u => u.id === article.unite_scannee_id)
+          : null;
+        if (scannee) {
+          setPanier(prev => [...prev, {
+            id: genId(), article, unite: scannee,
+            quantite: 1,
+            prix_pratique: scannee.prix_reference,
+            montant: scannee.prix_reference,
+            a_decouvert: 1 > stockUV(article.stock, scannee.facteur)
+                         && article.stock >= 0,
+            depot_id: depotActif?.id ?? "",
+            depot_nom: depotActif?.nom ?? "",
+          }]);
+          setArticleSelectionne(null);
+          setScannerNotification(`✓ ${article.nom} — ${scannee.libelle}`);
+        } else if (article.unites.length === 1) {
           const unite = article.unites[0];
           setPanier(prev => [...prev, {
             id: genId(), article, unite,
@@ -617,6 +682,10 @@ export function Ventes() {
             prix_pratique: unite.prix_reference,
             montant: unite.prix_reference,
             a_decouvert: 1 > stockUV(article.stock, unite.facteur) && article.stock >= 0,
+            // Sans ces deux champs la ligne partait sans depot_source_id :
+            // creer_vente decrementait un depot vide.
+            depot_id: depotActif?.id ?? "",
+            depot_nom: depotActif?.nom ?? "",
           }]);
           setArticleSelectionne(null);
           setScannerNotification(`✓ ${article.nom} ajouté`);
@@ -672,6 +741,39 @@ export function Ventes() {
   }
 
   // ---- Article ----
+  function ouvrirNouvelArticle() {
+    setNaNom(rechercheArticle.trim());
+    setNaUnite(""); setNaPrix("");
+    setModalNouvelArticle(true);
+  }
+
+  async function handleCreerArticle() {
+    if (!naNom.trim() || !naUnite.trim() || !naPrix) return;
+    setNaEnCours(true);
+    try {
+      await invoke("creer_article_rapide", {
+        nom: naNom.trim(),
+        uniteBase: naUnite.trim(),
+        prixReference: parseMontant(naPrix),
+        prixAchat: null,
+      });
+      const role = UTILISATEUR_ACTIF?.role ?? "employe";
+      const articles = await invoke<Article[]>(
+        "lire_articles_avec_unites", { role });
+      setTousArticles(articles);
+      const cree = articles.find(
+        a => a.nom.toLowerCase() === naNom.trim().toLowerCase());
+      setModalNouvelArticle(false);
+      // Le stock est à zéro : la vente partira à découvert, ce qui est
+      // le comportement voulu (D32 ne restreint que les transferts).
+      if (cree) selectionnerArticle(cree);
+    } catch (e) {
+      await message(`${e}`, { title: "Création impossible", kind: "error" });
+    } finally {
+      setNaEnCours(false);
+    }
+  }
+
   function handleRechercheArticle(val: string) {
     setRechercheArticle(val);
     if (val.length < 1) { setArticlesFiltres([]); return; }
@@ -712,6 +814,13 @@ export function Ventes() {
   // c'est le cas ou l'on envoie quelqu'un chercher.
   const completableAilleurs = !!articleSelectionne
     && qteNum > stockIci && qteNum <= stockIci + totalAilleurs;
+  // Le modal s'ouvre des qu'un AUTRE depot a du stock, meme si le total
+  // ne suffit pas. Sinon la vente entiere etait imputee au depot actif
+  // et le stock des autres restait faux — un decouvert etait possible
+  // en mono-depot mais pas en multi-depot, ce qui n'a pas de sens :
+  // seul le TRANSFERT refuse le decouvert (D32), pas la vente.
+  const repartitionNecessaire = !!articleSelectionne
+    && qteNum > stockIci && totalAilleurs > 0;
   const enRupture = !!articleSelectionne && articleSelectionne.stock <= 0;
 
   // Ecart entre le prix de reference et le prix pratique, sur la
@@ -737,7 +846,7 @@ export function Ventes() {
     // Le depot actif ne suffit pas mais un autre a le complement :
     // on met la vente EN PAUSE et on demande la repartition. Quelqu'un
     // va chercher la marchandise, puis on valide.
-    if (completableAilleurs) {
+    if (repartitionNecessaire) {
       setRepartition({
         article: articleSelectionne, unite: uniteSelectionnee,
         quantite: qte, prix,
@@ -872,17 +981,32 @@ export function Ventes() {
   }
 
   // Confirme la repartition : une ligne de panier PAR depot.
-  function validerRepartition(parts: { depot_id: string; depot_nom: string; qte: number }[]) {
+  function validerRepartition(parts: {
+    depot_id: string; depot_nom: string; qte: number; a_decouvert: boolean;
+  }[]) {
     if (!repartition) return;
     const { article, unite, prix } = repartition;
-    const nouvelles: LignePanier[] = parts
-      .filter(p => p.qte > 0)
-      .map(p => ({
+    // Le decouvert s'impute au depot actif, qui a deja sa propre ligne :
+    // deux lignes sur le meme depot passeraient deux fois en base et
+    // fausseraient le stock. On les cumule, en gardant le drapeau.
+    const cumul = new Map<string, { nom: string; qte: number; dec: boolean }>();
+    for (const p of parts) {
+      if (p.qte <= 0) continue;
+      const e = cumul.get(p.depot_id);
+      if (e) {
+        e.qte += p.qte;
+        e.dec = e.dec || p.a_decouvert;
+      } else {
+        cumul.set(p.depot_id, { nom: p.depot_nom, qte: p.qte, dec: p.a_decouvert });
+      }
+    }
+    const nouvelles: LignePanier[] = [...cumul.entries()]
+      .map(([depot_id, e]) => ({
         id: genId(), article, unite,
-        quantite: p.qte, prix_pratique: prix,
-        montant: Math.round(prix * p.qte),
-        a_decouvert: false,
-        depot_id: p.depot_id, depot_nom: p.depot_nom,
+        quantite: e.qte, prix_pratique: prix,
+        montant: Math.round(prix * e.qte),
+        a_decouvert: e.dec,
+        depot_id, depot_nom: e.nom,
       }));
     setPanier(prev => [...prev, ...nouvelles]);
     setRepartition(null);
@@ -942,6 +1066,10 @@ export function Ventes() {
             Comptant
           </Button>
           <Button size="sm" variant={modeReglement === "credit" ? "default" : "outline"}
+            disabled={estComptant}
+            title={estComptant
+              ? "Sélectionner ou créer un client pour vendre à crédit"
+              : undefined}
             onClick={() => setModeReglement("credit")}>
             Crédit
           </Button>
@@ -1026,7 +1154,7 @@ export function Ventes() {
                 onChange={e => handleRechercheArticle(e.target.value)}
                 placeholder="Rechercher un article..."
                 className="pl-8 h-8 text-sm" />
-              {articlesFiltres.length > 0 && (
+              {rechercheArticle.trim().length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-md max-h-48 overflow-auto">
                   {articlesFiltres.map(a => (
                     <button key={a.id} onClick={() => selectionnerArticle(a)}
@@ -1045,6 +1173,15 @@ export function Ventes() {
                       </div>
                     </button>
                   ))}
+                  {/* Proposé même quand la recherche trouve : « Sucre »
+                      existe peut-être en sac alors qu'on vend du détail. */}
+                  <button onClick={ouvrirNouvelArticle}
+                    className="w-full text-left px-3 py-2 text-sm border-t border-border
+                               hover:bg-accent transition-colors flex items-center gap-2
+                               text-primary sticky bottom-0 bg-card">
+                    <PackagePlus className="h-3.5 w-3.5 shrink-0" />
+                    Créer « {rechercheArticle.trim()} »
+                  </button>
                 </div>
               )}
             </div>
@@ -1080,12 +1217,21 @@ export function Ventes() {
                   Complément disponible ailleurs — la répartition sera demandée
                 </p>
               )}
-              {aDecouvert && !completableAilleurs && (
+              {repartitionNecessaire && !completableAilleurs && (
+                <p className="text-xs text-orange-500 flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  Stock insuffisant partout — répartition puis découvert
+                </p>
+              )}
+              {aDecouvert && !repartitionNecessaire && (
                 <p className="text-xs text-orange-500 flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3" /> Vente à découvert autorisée
                 </p>
               )}
-              {articleSelectionne.unites.length > 1 && (
+              {/* Toujours affiché : avec les conditionnements, masquer le
+                  choix quand il n'y a qu'une unité faisait vendre un carton
+                  au prix d'une pièce sans que personne ne le voie. */}
+              {articleSelectionne.unites.length >= 1 && (
                 <div>
                   <Label className="text-xs">Unité</Label>
                   <Select value={uniteSelectionnee?.id ?? ""}
@@ -1372,6 +1518,51 @@ export function Ventes() {
       <ModalImpression ouvert={modalImpression}
         venteId={venteIdPourImpression}
         onFermer={() => setModalImpression(false)} />
+
+      <Dialog open={modalNouvelArticle}
+        onOpenChange={o => !o && setModalNouvelArticle(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Nouvel article</DialogTitle></DialogHeader>
+          <div className="space-y-3 pt-2">
+            <div>
+              <Label>Nom *</Label>
+              <Input value={naNom} onChange={e => setNaNom(e.target.value)}
+                placeholder="Sucre en poudre" autoFocus className="mt-1" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label>Unité de base *</Label>
+                <div className="mt-1">
+                  <SelectUnite valeur={naUnite} onChange={setNaUnite} />
+                </div>
+              </div>
+              <div>
+                <Label>Prix de vente *</Label>
+                <MoneyInput value={naPrix} onChange={setNaPrix}
+                  placeholder="0" className="mt-1" />
+              </div>
+            </div>
+            {/* D39 : les conditionnements se déclarent ensuite, avec un
+                facteur exprimé dans cette unité. Partir du carton rend
+                la vente au détail impossible sans fraction. */}
+            <p className="text-xs text-muted-foreground">
+              La plus petite unité que vous vendez. Un carton de 12 se
+              déclare après, dans Paramètres. Le stock démarre à zéro —
+              la vente partira à découvert.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1"
+                onClick={() => setModalNouvelArticle(false)}>Annuler</Button>
+              <Button className="flex-1" onClick={handleCreerArticle}
+                disabled={naEnCours || !naNom.trim() || !naUnite.trim() || !naPrix}>
+                {naEnCours
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : "Créer et vendre"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

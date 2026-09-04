@@ -3,9 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   Package, Tag, Building2, Users, HardDrive,
-  Plus, Loader2, Save, Eye, EyeOff, ShoppingCart,
+  Plus, Loader2, Eye, EyeOff, ShoppingCart,
   FolderOpen, ChevronDown, ChevronRight,
-  Percent, Banknote, XCircle, Clock, Warehouse, Barcode,
+  Percent, Banknote, XCircle, Clock, Warehouse, Barcode, Pencil,
   FileSpreadsheet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { ParametresSociete } from "@/components/ParametresSociete";
 import { OngletVentes } from "@/components/ParametresVentes";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
+import { SelectUnite } from "@/components/SelectUnite";
 import { OngletTVA, OngletDettes, OngletIrrecouvrable, OngletAvoirs } from "@/components/OngletChantiers";
 import { OngletDepots } from "@/components/OngletDepots";
 import { OngletCodesBarres } from "@/components/OngletCodesBarres";
@@ -33,7 +34,11 @@ import { UTILISATEUR_ACTIF } from "@/App";
 // =====================================================================
 
 interface Categorie { id: string; nom: string; }
-interface Unite { id: string; libelle: string; facteur: number; prix_reference: number; }
+interface Unite {
+  id: string; libelle: string; facteur: number; prix_reference: number;
+  // EAN propre au conditionnement : le carton a le sien (D45).
+  code_barre?: string | null;
+}
 interface ArticleComplet {
   id: string; nom: string; unite_base: string;
   dernier_prix_achat?: number; unites: Unite[];
@@ -379,9 +384,20 @@ function OngletArticles() {
   const [expandeId, setExpandeId] = useState<string | null>(null);
   const [modalArticle, setModalArticle] = useState(false);
 
+  // Packs (D39) : facteur TOUJOURS en unités de base, jamais emboîté.
+  // Base = pièce, carton de 12, pack de 6 cartons -> 1, 12, 72. Pas 6.
+  const [modalUnite, setModalUnite] = useState<ArticleComplet | null>(null);
+  const [uLibelle, setULibelle] = useState("");
+  const [uFacteur, setUFacteur] = useState("");
+  const [uPrix, setUPrix] = useState("");
+  const [uCodeBarre, setUCodeBarre] = useState("");
+  const [uEnCours, setUEnCours] = useState(false);
+  // Non-null = on modifie cette unité au lieu d'en créer une.
+  const [uEdition, setUEdition] = useState<Unite | null>(null);
+
   const [nom, setNom] = useState("");
   const [categorieId, setCategorieId] = useState("");
-  const [uniteBase, setUniteBase] = useState("unite");
+  const [uniteBase, setUniteBase] = useState("pièce");
   const [prixVente, setPrixVente] = useState("");
   const [chargementCreer, setChargementCreer] = useState(false);
 
@@ -413,13 +429,81 @@ function OngletArticles() {
         uniteBase,
         prixReference: parseMontant(prixVente),
       });
-      setNom(""); setCategorieId(""); setUniteBase("unite"); setPrixVente("");
+      setNom(""); setCategorieId(""); setUniteBase("pièce"); setPrixVente("");
       setModalArticle(false);
       await charger();
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
     } finally {
       setChargementCreer(false);
+    }
+  }
+
+  function ouvrirModalUnite(a: ArticleComplet) {
+    setUEdition(null);
+    setULibelle(""); setUFacteur(""); setUPrix(""); setUCodeBarre("");
+    setModalUnite(a);
+  }
+
+  function ouvrirModalEdition(a: ArticleComplet, u: Unite) {
+    setUEdition(u);
+    setULibelle(u.libelle);
+    setUFacteur(String(u.facteur));
+    setUPrix(String(u.prix_reference));
+    setUCodeBarre(u.code_barre ?? "");
+    setModalUnite(a);
+  }
+
+  async function handleAjouterUnite() {
+    if (!modalUnite || !uLibelle.trim() || !uFacteur || !uPrix) return;
+    const facteur = parseFloat(uFacteur.replace(",", "."));
+    if (!(facteur > 0)) {
+      await message("Le facteur doit être supérieur à zéro.",
+        { title: "Facteur invalide", kind: "error" });
+      return;
+    }
+    setUEnCours(true);
+    try {
+      if (uEdition) {
+        await invoke("modifier_unite_vente", {
+          uniteId: uEdition.id,
+          libelle: uLibelle.trim(),
+          // Le serveur refuse de changer le facteur de l'unité de base.
+          facteur: uEdition.facteur === 1 ? null : facteur,
+          prixReference: parseMontant(uPrix),
+          codeBarre: uCodeBarre.trim() || null,
+        });
+        setModalUnite(null);
+        await charger();
+      } else {
+        const r = await invoke<{ id: string; alerte: string | null }>(
+          "ajouter_unite_vente", {
+            articleId: modalUnite.id,
+            libelle: uLibelle.trim(),
+            facteur,
+            prixReference: parseMontant(uPrix),
+            codeBarre: uCodeBarre.trim() || null,
+          });
+        setModalUnite(null);
+        await charger();
+        // Avertissement, pas un refus : les remises de gros sont réelles.
+        if (r?.alerte) {
+          await message(r.alerte, { title: "Prix à vérifier", kind: "warning" });
+        }
+      }
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    } finally {
+      setUEnCours(false);
+    }
+  }
+
+  async function handleDesactiverUnite(u: Unite) {
+    try {
+      await invoke("desactiver_unite_vente", { uniteId: u.id });
+      await charger();
+    } catch (e) {
+      await message(`${e}`, { title: "Impossible", kind: "error" });
     }
   }
 
@@ -464,21 +548,136 @@ function OngletArticles() {
               <div className="border-t border-border bg-muted/20 px-4 py-3 space-y-1">
                 {a.unites.map(u => (
                   <div key={u.id}
-                    className="flex justify-between text-sm py-1 border-b border-border last:border-0">
+                    className="flex items-center justify-between text-sm py-1 border-b border-border last:border-0">
                     <div>
                       <span className="text-muted-foreground">{u.libelle}</span>
                       <span className="text-xs text-muted-foreground ml-2">
                         × {u.facteur} {a.unite_base}
                       </span>
+                      {u.facteur === 1 && (
+                        <Badge variant="outline" className="ml-2 text-[10px] py-0">
+                          base
+                        </Badge>
+                      )}
+                      {u.code_barre && (
+                        <span className="block text-[10px] text-muted-foreground
+                                         font-mono mt-0.5">
+                          <Barcode className="h-2.5 w-2.5 inline mr-1" />
+                          {u.code_barre}
+                        </span>
+                      )}
                     </div>
-                    <span className="font-medium">{fmt(u.prix_reference)}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{fmt(u.prix_reference)}</span>
+                      <button
+                        onClick={() => ouvrirModalEdition(a, u)}
+                        title="Modifier"
+                        className="text-muted-foreground hover:text-foreground
+                                   transition-colors">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      {/* L'unité de base porte le stock et les états :
+                          le serveur refuse de la désactiver, autant ne
+                          pas proposer le bouton. */}
+                      {u.facteur !== 1 && (
+                        <button
+                          onClick={() => handleDesactiverUnite(u)}
+                          title="Retirer ce conditionnement"
+                          className="text-muted-foreground hover:text-destructive transition-colors">
+                          <XCircle className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
+                <Button size="sm" variant="outline" className="mt-2 h-7 text-xs"
+                  onClick={() => ouvrirModalUnite(a)}>
+                  <Plus className="h-3 w-3 mr-1" /> Conditionnement
+                </Button>
               </div>
             )}
           </div>
         ))}
       </div>
+
+      <Dialog open={!!modalUnite} onOpenChange={o => !o && setModalUnite(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {uEdition ? "Modifier" : "Conditionnement"} — {modalUnite?.nom}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <div>
+              <Label>Nom du conditionnement *</Label>
+              <Input value={uLibelle} onChange={e => setULibelle(e.target.value)}
+                placeholder="carton, sac 25kg, palette…" autoFocus className="mt-1" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {/* Facteur figé sur l'unité de base : le serveur refuse de
+                  le changer, les états de stock la cherchent par
+                  facteur = 1. */}
+              <div>
+                <Label>Combien de {modalUnite?.unite_base} *</Label>
+                <Input value={uFacteur} onChange={e => setUFacteur(e.target.value)}
+                  type="number" step="any" min="0" placeholder="12"
+                  disabled={uEdition?.facteur === 1}
+                  className="mt-1" />
+              </div>
+              <div>
+                <Label>Prix de vente (F) *</Label>
+                <MoneyInput value={uPrix} onChange={setUPrix}
+                  placeholder="0" className="mt-1" />
+              </div>
+            </div>
+
+            <div>
+              <Label>Code-barres (optionnel)</Label>
+              <Input value={uCodeBarre} onChange={e => setUCodeBarre(e.target.value)}
+                placeholder="EAN du conditionnement"
+                className="mt-1 font-mono text-sm" />
+              <p className="text-xs text-muted-foreground mt-1">
+                Le carton a souvent son propre code, différent de celui
+                de l'unité. Scanné, il vend directement ce conditionnement.
+              </p>
+            </div>
+
+            {/* Rendre l'incohérence visible AVANT de valider : le
+                serveur avertit après coup, c'est trop tard au comptoir. */}
+            {(() => {
+              const f = parseFloat(uFacteur.replace(",", "."));
+              const base = modalUnite?.unites.find(u => u.facteur === 1);
+              if (!base || !(f > 0)) return null;
+              const attendu = base.prix_reference * f;
+              const saisi = parseMontant(uPrix) || 0;
+              const ecart = saisi > 0 ? Math.abs(saisi - attendu) / attendu : 0;
+              return (
+                <p className={`text-xs ${ecart > 0.3
+                  ? "text-orange-600 font-medium" : "text-muted-foreground"}`}>
+                  {f} × {fmt(base.prix_reference)} = {fmt(attendu)}
+                  {saisi > 0 && ecart > 0.3 && " — écart important, à vérifier"}
+                </p>
+              );
+            })()}
+
+            <p className="text-xs text-muted-foreground">
+              Le nombre s'exprime toujours en {modalUnite?.unite_base}, jamais
+              par rapport à un autre conditionnement.
+            </p>
+
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1"
+                onClick={() => setModalUnite(null)}>Annuler</Button>
+              <Button className="flex-1" onClick={handleAjouterUnite}
+                disabled={uEnCours || !uLibelle.trim() || !uFacteur || !uPrix}>
+                {uEnCours
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : uEdition ? "Enregistrer" : "Ajouter"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={modalArticle} onOpenChange={setModalArticle}>
         <DialogContent className="max-w-sm">
@@ -492,17 +691,13 @@ function OngletArticles() {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label>Unité de base</Label>
-                <Select value={uniteBase} onValueChange={v => { if (v) setUniteBase(v); }}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unite">Unité</SelectItem>
-                    <SelectItem value="kg">Kg</SelectItem>
-                    <SelectItem value="litre">Litre</SelectItem>
-                    <SelectItem value="metre">Mètre</SelectItem>
-                    <SelectItem value="carton">Carton</SelectItem>
-                    <SelectItem value="sachet">Sachet</SelectItem>
-                  </SelectContent>
-                </Select>
+                {/* Même liste que le POS et les Achats. Les cinq valeurs
+                    codées ici ("unite", "metre" sans accent) divergeaient
+                    de celles créées ailleurs : deux orthographes pour la
+                    même unité sur deux articles. */}
+                <div className="mt-1">
+                  <SelectUnite valeur={uniteBase} onChange={setUniteBase} />
+                </div>
               </div>
               <div>
                 <Label>Prix de vente (F)</Label>

@@ -109,6 +109,12 @@ pub fn regler_creance(
         |row| Ok((row.get(0)?, row.get(1)?)),
     ).map_err(|_| "Vente introuvable".to_string())?;
 
+    // Encaissement reel : la caisse doit etre ouverte. Un avoir ne
+    // touche pas au tiroir et reste autorise.
+    if mode != "avoir" {
+        crate::utils::exiger_session_caisse(&conn)?;
+    }
+
     let reste_avant = crate::coeur::calcul::reste_exigible(total, total_paye_avant);
     if reste_avant <= 0 {
         return Err("Cette vente est déjà entièrement payée".to_string());

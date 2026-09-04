@@ -40,8 +40,15 @@ interface Achat {
   quantite: number; prix_unitaire: number; montant: number; date: string;
 }
 interface Retour {
-  sens: "client" | "fournisseur"; tiers: string; description: string;
+  sens: "client" | "fournisseur" | "echange"; tiers: string; description: string;
   quantite: number; prix_unitaire: number; montant: number; date: string;
+}
+// Mouvements sans effet monétaire : entrées manuelles, ajustements
+// d'inventaire, transferts. Hors des totaux, mais la marchandise a bougé.
+interface Mouvement {
+  type: string; libelle: string; description: string;
+  quantite: number; entrant: boolean; motif: string;
+  depot: string; auteur: string; date: string;
 }
 interface Depense {
   libelle: string; categorie: string; moyen: string;
@@ -54,6 +61,7 @@ interface Journal {
   impayes: Impaye[];
   achats: Achat[];
   retours: Retour[];
+  mouvements: Mouvement[];
   depenses: Depense[];
   depenses_par_categorie: { categorie: string; montant: number }[];
   caisse_par_moyen: { moyen: string; entrees: number; sorties: number }[];
@@ -305,7 +313,7 @@ export function Journal() {
       </Section>
 
       {/* ── 3. Achats ── */}
-      <Section titre="Entrées / achats marchandises" couleur="bg-green-50"
+      <Section titre="Achats fournisseur (facturés)" couleur="bg-green-50"
         vide={!data?.achats.length}>
         <table className="w-full">
           <thead className="border-b border-border">
@@ -358,7 +366,9 @@ export function Journal() {
             {data?.retours.map((r, i) => (
               <tr key={i} className="hover:bg-muted/30">
                 <td className={`${TD} text-xs`}>
-                  {r.sens === "client" ? "Retour client" : "Retour fournisseur"}
+                  {r.sens === "client" ? "Retour client"
+                    : r.sens === "echange" ? "Sortie échange"
+                    : "Retour fournisseur"}
                 </td>
                 <td className={TD}>{r.tiers}</td>
                 <td className={TD}>{r.description}</td>
@@ -370,6 +380,44 @@ export function Journal() {
             ))}
           </tbody>
         </table>
+      </Section>
+
+      {/* ── 4 bis. Mouvements de stock sans effet monétaire ── */}
+      <Section titre="Mouvements de stock" couleur="bg-amber-50"
+        vide={!data?.mouvements?.length}>
+        <table className="w-full">
+          <thead className="border-b border-border">
+            <tr>
+              <th className={TH}>Type</th>
+              <th className={TH}>Article</th>
+              <th className={TH}>Dépôt</th>
+              <th className={TH}>Motif</th>
+              <th className={`${TH} text-right`}>Qté</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {data?.mouvements?.map((m, i) => (
+              <tr key={i} className="hover:bg-muted/30">
+                <td className={`${TD} text-xs`}>{m.libelle}</td>
+                <td className={TD}>{m.description}</td>
+                <td className={`${TD} text-xs`}>{m.depot}</td>
+                <td className={`${TD} text-xs text-muted-foreground`}>
+                  {m.motif || "—"}
+                </td>
+                {/* Le signe porte le sens : un ajustement ou un
+                    transfert va dans les deux sens selon le cas. */}
+                <td className={`${TD} text-right font-semibold ${
+                  m.entrant ? "text-green-700" : "text-red-700"}`}>
+                  {m.entrant ? "+" : "−"} {fmtQte(m.quantite)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="px-3 py-2 text-xs text-muted-foreground">
+          Ni vente ni achat : ces mouvements n'entrent dans aucun total
+          de la journée.
+        </p>
       </Section>
 
       {/* ── 5. Dépenses ── */}

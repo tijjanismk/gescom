@@ -19,3 +19,26 @@ pub fn est_client_generique(conn: &rusqlite::Connection, client_id: &str) -> boo
     .map(|v| v != 0)
     .unwrap_or(false)
 }
+
+/// Session de caisse ouverte, ou une erreur explicite.
+///
+/// Sans session, `mouvement_caisse` n'est pas alimente : l'argent entre
+/// ou sort du tiroir sans laisser de trace. Le journal diverge alors de
+/// lui-meme — `encaisse_jour` lit la table `paiement`, `caisse_par_moyen`
+/// lit `mouvement_caisse` — et la cloture suivante affiche un excedent
+/// inexplicable.
+///
+/// Le refus vaut mieux que l'ecriture manquante : une operation
+/// bloquee se voit, une ecriture absente ne se voit jamais.
+pub fn exiger_session_caisse(conn: &rusqlite::Connection) -> Result<String, String> {
+    conn.query_row(
+        "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
+        [],
+        |r| r.get(0),
+    )
+    .map_err(|_| {
+        "CAISSE_FERMEE — la caisse n'est pas ouverte. \
+         L'ouvrir pour enregistrer cette opération."
+            .to_string()
+    })
+}

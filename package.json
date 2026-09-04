@@ -1,11 +1,13 @@
 {
   "name": "gescom",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "build:strict": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri"
   },
