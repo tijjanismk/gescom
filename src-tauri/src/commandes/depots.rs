@@ -302,3 +302,128 @@ pub fn lire_stock_multi_depots(
 
     Ok(x)
 }
+
+/// Historique GLOBAL des mouvements de stock.
+///
+/// Le journal ne montre que la journee : des le lendemain, un
+/// ajustement ou un transfert devient invisible. Or c'est justement
+/// l'historique qui permet de comprendre un stock faux — « qui a sorti
+/// ces 12 sacs, et quand ».
+///
+/// Filtres tous optionnels. `limite` borne le retour : la table grossit
+/// d'une ligne par vente et par article.
+#[tauri::command]
+pub fn lire_mouvements_stock(
+    etat: State<EtatApp>,
+    article_id: Option<String>,
+    depot_id: Option<String>,
+    type_mouvement: Option<String>,
+    date_debut: Option<String>,
+    date_fin: Option<String>,
+    limite: Option<i64>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let lim = limite.unwrap_or(300).clamp(1, 2000);
+
+    // Parametres lies, jamais de `format!` sur des valeurs : chaque
+    // filtre est neutralise par un NULL cote SQL plutot que par une
+    // concatenation (cf. lire_fournisseurs_pagines, encore a corriger).
+    let vide = |o: Option<String>| o.filter(|s| !s.is_empty());
+
+    let mut st = conn.prepare(
+        "SELECT ms.date_mouvement, ms.type_mouvement, a.nom, a.unite_base,
+                ms.quantite_delta, d.nom, COALESCE(ms.motif, ''),
+                COALESCE(u.nom, '—'),
+                COALESCE(f.nom, ''),
+                CAST(COALESCE(ms.prix_achat_unitaire, 0) AS INTEGER)
+         FROM mouvement_stock ms
+         JOIN article a ON a.id = ms.article_id
+         JOIN depot d ON d.id = ms.depot_id
+         LEFT JOIN utilisateur u ON u.id = ms.auteur_id
+         LEFT JOIN fournisseur f ON f.id = ms.fournisseur_id
+         WHERE (?1 IS NULL OR ms.article_id = ?1)
+           AND (?2 IS NULL OR ms.depot_id = ?2)
+           AND (?3 IS NULL OR ms.type_mouvement = ?3)
+           AND (?4 IS NULL OR DATE(ms.date_mouvement) >= ?4)
+           AND (?5 IS NULL OR DATE(ms.date_mouvement) <= ?5)
+         ORDER BY ms.date_mouvement DESC
+         LIMIT ?6"
+    ).map_err(|e| e.to_string())?;
+
+    let x = st.query_map(
+        rusqlite::params![
+            vide(article_id), vide(depot_id), vide(type_mouvement),
+            vide(date_debut), vide(date_fin), lim
+        ],
+        |r| {
+            let t: String = r.get(1)?;
+            let delta: f64 = r.get(4)?;
+            Ok(serde_json::json!({
+                "date":        r.get::<_, String>(0)?,
+                "type":        t,
+                "libelle":     crate::coeur::stock::libelle(&t),
+                "article":     r.get::<_, String>(2)?,
+                "unite_base":  r.get::<_, String>(3)?,
+                "quantite":    delta.abs(),
+                // Le signe tranche : ajustement et transfert n'ont pas
+                // de sens fixe (coeur::stock::est_entrant).
+                "entrant":     delta > 0.0,
+                "depot":       r.get::<_, String>(5)?,
+                "motif":       r.get::<_, String>(6)?,
+                "auteur":      r.get::<_, String>(7)?,
+                "fournisseur": r.get::<_, String>(8)?,
+                "prix_achat":  r.get::<_, i64>(9)?,
+            }))
+        }
+    ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    Ok(x)
+}
+
+/// Ventes a decouvert sur une periode — marchandise sortie au-dela du
+/// stock connu. Chacune signale soit un stock faux, soit une entree non
+/// saisie : c'est le compteur qui dit quand aller regulariser.
+#[tauri::command]
+pub fn lire_ventes_a_decouvert(
+    etat: State<EtatApp>,
+    date_debut: Option<String>,
+    date_fin: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let d1 = date_debut.filter(|s| !s.is_empty());
+    let d2 = date_fin.filter(|s| !s.is_empty());
+
+    let mut st = conn.prepare(
+        "SELECT a.nom, a.unite_base, lv.quantite, v.date_vente,
+                COALESCE(c.nom, '—'), COALESCE(d.nom, '—')
+         FROM ligne_vente lv
+         JOIN vente v ON v.id = lv.vente_id
+         JOIN article a ON a.id = lv.article_id
+         LEFT JOIN client c ON c.id = v.client_id
+         LEFT JOIN depot d ON d.id = lv.depot_source_id
+         WHERE lv.vente_a_decouvert = 1
+           AND v.statut <> 'annulee'
+           AND (?1 IS NULL OR DATE(v.date_vente) >= ?1)
+           AND (?2 IS NULL OR DATE(v.date_vente) <= ?2)
+         ORDER BY v.date_vente DESC
+         LIMIT 200"
+    ).map_err(|e| e.to_string())?;
+
+    let lignes: Vec<serde_json::Value> = st.query_map(
+        rusqlite::params![d1, d2], |r| {
+            Ok(serde_json::json!({
+                "article":    r.get::<_, String>(0)?,
+                "unite_base": r.get::<_, String>(1)?,
+                "quantite":   r.get::<_, f64>(2)?,
+                "date":       r.get::<_, String>(3)?,
+                "client":     r.get::<_, String>(4)?,
+                "depot":      r.get::<_, String>(5)?,
+            }))
+        }
+    ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    Ok(serde_json::json!({
+        "nb":     lignes.len(),
+        "lignes": lignes,
+    }))
+}

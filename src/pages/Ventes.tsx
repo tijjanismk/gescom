@@ -18,6 +18,9 @@ import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { SelectUnite } from "@/components/SelectUnite";
+import {
+  ModalOuvrirCaisse, estCaisseFermee,
+} from "@/components/ModalOuvrirCaisse";
 import { ModalImpression } from "@/components/ModalImpression";
 import { useScanner } from "@/lib/useScanner";
 import { UTILISATEUR_ACTIF, DEPOT_ACTIF, definirDepotActif } from "@/App";
@@ -509,6 +512,9 @@ export function Ventes() {
   // L'envoyer dans Paramètres au milieu d'une vente, c'est la vente
   // qu'on perd.
   const [modalNouvelArticle, setModalNouvelArticle] = useState(false);
+  // Caisse fermée : on propose de l'ouvrir plutôt que de renvoyer le
+  // vendeur ailleurs avec un client au comptoir (D46).
+  const [modalCaisse, setModalCaisse] = useState(false);
   const [naNom, setNaNom] = useState("");
   const [naUnite, setNaUnite] = useState("");
   const [naPrix, setNaPrix] = useState("");
@@ -904,6 +910,10 @@ export function Ventes() {
         ),
         prix_pratique: puTTC(l),
         taux_tva: l.article.taux_tva_defaut ?? 0.0,
+        // Le drapeau était calculé et affiché en orange, mais jamais
+        // transmis : la colonne `ligne_vente.vente_a_decouvert` restait
+        // à 0 partout, et rien ne permettait de compter ces ventes.
+        a_decouvert: l.a_decouvert,
       }));
 
       const { vente_id } = await invoke<CreerVenteResultat>("creer_vente", {
@@ -974,7 +984,14 @@ export function Ventes() {
 
     } catch (e) {
       setModalConfirmation(false);
-      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+      // Le panier est intact : après ouverture de la caisse, il suffit
+      // de revalider. Rien n'a été écrit, creer_vente refuse AVANT
+      // d'ouvrir sa transaction.
+      if (estCaisseFermee(e)) {
+        setModalCaisse(true);
+      } else {
+        await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+      }
     } finally {
       setChargementVente(false);
     }
@@ -1514,6 +1531,17 @@ export function Ventes() {
         chargement={chargementVente}
         onFermer={() => setModalConfirmation(false)}
         onConfirmer={handleConfirmerVente} />
+
+      <ModalOuvrirCaisse
+        ouvert={modalCaisse}
+        onFermer={() => setModalCaisse(false)}
+        onOuverte={() => {
+          setModalCaisse(false);
+          // Rouvrir la confirmation : le vendeur reprend son geste là
+          // où il l'avait laissé.
+          setModalConfirmation(true);
+        }}
+      />
 
       <ModalImpression ouvert={modalImpression}
         venteId={venteIdPourImpression}

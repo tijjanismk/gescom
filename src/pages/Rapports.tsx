@@ -47,11 +47,6 @@ interface CreanceRapport {
 function fmt(n: number) {
   return new Intl.NumberFormat("fr-ML").format(n) + " F";
 }
-function fmtCompact(n: number) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M F";
-  if (n >= 1_000) return (n / 1_000).toFixed(0) + "k F";
-  return fmt(n);
-}
 function nomMois(ym: string) {
   const [y, m] = ym.split("-");
   return new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString("fr-ML", {
@@ -204,7 +199,6 @@ export function Rapports() {
   // ---- Actions export ----
 
   async function handleImprimerCA() {
-    const maxCA = Math.max(...moisCA.map(m => m.ca), 1);
     const lignes = moisCA.map(m => `
       <tr>
         <td>${nomMois(m.mois)}</td>

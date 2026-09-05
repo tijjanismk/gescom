@@ -94,20 +94,6 @@ const LABELS_TYPE: Record<string, string> = {
   avoir_fournisseur:        "Avoir fourn.",
 };
 
-const LABELS_TYPE_CREATION_CLIENT: Record<string, string> = {
-  devis:                    "Devis",
-  proforma:                 "Proforma",
-  commande_client:          "Commande client",
-  bon_livraison:            "Bon de livraison",
-  facture:                  "Facture",
-};
-
-const LABELS_TYPE_CREATION_FOURNISSEUR: Record<string, string> = {
-  bon_commande_fournisseur: "Bon de commande",
-  bon_reception:            "Bon de réception",
-  facture_fournisseur:      "Facture fournisseur",
-};
-
 const COULEURS_STATUT: Record<string, string> = {
   brouillon: "bg-gray-100 text-gray-600",
   emis:      "bg-blue-100 text-blue-700",
@@ -1319,8 +1305,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                           <Copy className="h-3.5 w-3.5" />
                         </button>
 
-                        {/* Annuler — si pas validée/annulée */}
-                        {!["validee","annule"].includes(p.statut) && (
+                        {/* Annuler — `peut_annuler` refuse aussi `paye`
+                            et `transfere`. Les proposer donnait un
+                            bouton qui échoue à tous les coups, ce qui
+                            est pire que pas de bouton. */}
+                        {!["validee","annule","paye","transfere"]
+                          .includes(p.statut) && (
                           <button onClick={() => handleAnnuler(p)}
                             title="Annuler"
                             className="p-1.5 rounded hover:bg-muted transition-colors

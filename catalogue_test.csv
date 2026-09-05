@@ -1,0 +1,182 @@
+﻿Nom;Categorie;Unite;Facteur;Prix;Prix achat;TVA %;Code barre;Stock
+Ciment CPA 45;Construction;sac;1;5500;4911;0;2000000000015;12
+Ciment CPA 45;Construction;palette;40;209886;4911;0;2000000000022;12
+Ciment CPJ 35;Construction;sac;1;4900;4375;0;2000000000039;12
+Ciment CPJ 35;Construction;palette;40;181456;4375;0;2000000000046;12
+Fer à béton 6mm;Construction;barre;1;2200;1913;0;2000000000053;250
+Fer à béton 6mm;Construction;botte;20;40957;1913;0;2000000000060;250
+Fer à béton 8mm;Construction;barre;1;3100;2696;0;2000000000077;500
+Fer à béton 8mm;Construction;botte;20;57812;2696;0;2000000000084;500
+Fer à béton 10mm;Construction;barre;1;4200;3652;0;2000000000091;500
+Fer à béton 10mm;Construction;botte;20;80472;3652;0;2000000000107;500
+Fer à béton 12mm;Construction;barre;1;5800;5043;0;2000000000114;12
+Fer à béton 12mm;Construction;botte;20;111878;5043;0;2000000000121;12
+Fil d'attache;Construction;kg;1;1200;1000;0;2000000000138;12
+Fil d'attache;Construction;rouleau;25;28426;1000;0;2000000000145;12
+Brique creuse 15;Construction;pièce;1;350;280;0;2000000000152;500
+Brique creuse 15;Construction;palette;200;65522;280;0;2000000000169;500
+Brique pleine 20;Construction;pièce;1;480;384;0;2000000000176;40
+Brique pleine 20;Construction;palette;150;68410;384;0;2000000000183;40
+Sable fin;Construction;m³;1;18000;13846;0;2000000000190;120
+Gravier 5/15;Construction;m³;1;22000;16923;0;2000000000206;120
+Tôle bac alu 3m;Construction;pièce;1;8500;7203;0;2000000000213;250
+Tôle bac alu 3m;Construction;paquet;10;78201;7203;0;2000000000220;250
+Tôle ondulée 2m;Construction;pièce;1;6200;5254;0;2000000000237;12
+Tôle ondulée 2m;Construction;paquet;10;57898;5254;0;2000000000244;12
+Chaux hydraulique;Construction;sac;1;3800;3304;0;2000000000251;12
+Chaux hydraulique;Construction;palette;40;143203;3304;0;2000000000268;12
+Enduit de façade;Construction;sac;1;4200;3652;0;2000000000275;60
+Enduit de façade;Construction;palette;40;160544;3652;0;2000000000282;60
+Tuyau PVC 63mm;Plomberie;mètre;1;1800;1475;18;2000000000299;25
+Tuyau PVC 63mm;Plomberie;barre 6m;6;10003;1475;18;2000000000305;25
+Tuyau PVC 90mm;Plomberie;mètre;1;2600;2131;18;2000000000312;60
+Tuyau PVC 90mm;Plomberie;barre 6m;6;15113;2131;18;2000000000329;60
+Tuyau PVC 110mm;Plomberie;mètre;1;3400;2787;18;2000000000336;120
+Tuyau PVC 110mm;Plomberie;barre 6m;6;19417;2787;18;2000000000343;120
+Coude PVC 90°;Plomberie;pièce;1;900;692;18;2000000000350;250
+Coude PVC 90°;Plomberie;carton;25;21723;692;18;2000000000367;250
+Té PVC 63mm;Plomberie;pièce;1;1200;923;18;2000000000374;500
+Té PVC 63mm;Plomberie;carton;25;27799;923;18;2000000000381;500
+Colle PVC 250g;Plomberie;pot;1;2800;2240;18;2000000000398;250
+Colle PVC 250g;Plomberie;carton;12;31741;2240;18;2000000000404;250
+Robinet laiton 1/2;Plomberie;pièce;1;3500;2734;18;2000000000411;500
+Robinet laiton 1/2;Plomberie;carton;20;66506;2734;18;2000000000428;500
+Siphon lavabo;Plomberie;pièce;1;2400;1875;18;2000000000435;60
+Siphon lavabo;Plomberie;carton;12;26720;1875;18;2000000000442;60
+Joint téflon;Plomberie;rouleau;1;350;250;18;2000000000459;500
+Joint téflon;Plomberie;boîte;50;16526;250;18;2000000000466;500
+Réservoir 500L;Plomberie;pièce;1;68000;59130;18;2000000000473;0
+Réservoir 1000L;Plomberie;pièce;1;115000;100000;18;2000000000480;40
+Pompe immergée 1CV;Plomberie;pièce;1;145000;129464;18;2000000000497;25
+Câble 1.5mm²;Électricité;mètre;1;320;246;18;2000000000503;0
+Câble 1.5mm²;Électricité;rouleau 100m;100;29500;246;18;2000000000510;0
+Câble 2.5mm²;Électricité;mètre;1;480;369;18;2000000000527;12
+Câble 2.5mm²;Électricité;rouleau 100m;100;44838;369;18;2000000000534;12
+Câble 4mm²;Électricité;mètre;1;750;577;18;2000000000541;250
+Câble 4mm²;Électricité;rouleau 100m;100;70987;577;18;2000000000558;250
+Câble 6mm²;Électricité;mètre;1;1100;846;18;2000000000565;500
+Câble 6mm²;Électricité;rouleau 100m;100;101836;846;18;2000000000572;500
+Interrupteur simple;Électricité;pièce;1;850;630;18;2000000000589;12
+Interrupteur simple;Électricité;carton;50;39893;630;18;2000000000596;12
+Prise 2P+T;Électricité;pièce;1;1100;815;18;2000000000602;500
+Prise 2P+T;Électricité;carton;50;51496;815;18;2000000000619;500
+Disjoncteur 16A;Électricité;pièce;1;3200;2560;18;2000000000626;60
+Disjoncteur 16A;Électricité;carton;12;36173;2560;18;2000000000633;60
+Disjoncteur 32A;Électricité;pièce;1;4500;3600;18;2000000000640;60
+Disjoncteur 32A;Électricité;carton;12;50900;3600;18;2000000000657;60
+Tableau 12 modules;Électricité;pièce;1;12000;10000;18;2000000000664;500
+Ampoule LED 9W;Électricité;pièce;1;900;643;18;2000000000671;250
+Ampoule LED 9W;Électricité;carton;100;85351;643;18;2000000000688;250
+Ampoule LED 15W;Électricité;pièce;1;1400;1000;18;2000000000695;60
+Ampoule LED 15W;Électricité;carton;100;129977;1000;18;2000000000701;60
+Réglette LED 1.2m;Électricité;pièce;1;4800;3750;18;2000000000718;0
+Réglette LED 1.2m;Électricité;carton;20;92961;3750;18;2000000000725;0
+Gaine ICTA 20mm;Électricité;mètre;1;280;207;18;2000000000732;500
+Gaine ICTA 20mm;Électricité;couronne 50m;50;13018;207;18;2000000000749;500
+Boîte de dérivation;Électricité;pièce;1;700;507;18;2000000000756;500
+Boîte de dérivation;Électricité;carton;50;33320;507;18;2000000000763;500
+Panneau solaire 150W;Électricité;pièce;1;78000;67826;18;2000000000770;40
+Batterie solaire 100Ah;Électricité;pièce;1;125000;111607;18;2000000000787;60
+Régulateur 30A;Électricité;pièce;1;22000;18644;18;2000000000794;500
+Peinture blanche mate;Peinture;litre;1;2200;1760;18;2000000000800;500
+Peinture blanche mate;Peinture;bidon 20L;20;41555;1760;18;2000000000817;500
+Peinture blanche satinée;Peinture;litre;1;2800;2240;18;2000000000824;500
+Peinture blanche satinée;Peinture;bidon 20L;20;52058;2240;18;2000000000831;500
+Peinture bleue;Peinture;litre;1;3100;2480;18;2000000000848;0
+Peinture bleue;Peinture;bidon 20L;20;57563;2480;18;2000000000855;0
+Peinture verte;Peinture;litre;1;3100;2480;18;2000000000862;120
+Peinture verte;Peinture;bidon 20L;20;58721;2480;18;2000000000879;120
+Peinture rouge;Peinture;litre;1;3400;2720;18;2000000000886;12
+Peinture rouge;Peinture;bidon 20L;20;64469;2720;18;2000000000893;12
+Diluant synthétique;Peinture;litre;1;1800;1406;18;2000000000909;60
+Diluant synthétique;Peinture;bidon 5L;5;8526;1406;18;2000000000916;60
+Rouleau peinture 22cm;Peinture;pièce;1;1500;1071;18;2000000000923;25
+Rouleau peinture 22cm;Peinture;carton;24;33179;1071;18;2000000000930;25
+Pinceau 50mm;Peinture;pièce;1;800;552;18;2000000000947;500
+Pinceau 50mm;Peinture;carton;24;17721;552;18;2000000000954;500
+Papier abrasif;Peinture;feuille;1;250;167;18;2000000000961;60
+Papier abrasif;Peinture;paquet;50;11560;167;18;2000000000978;60
+Enduit de lissage;Peinture;sac;1;5200;4333;18;2000000000985;120
+Enduit de lissage;Peinture;palette;40;200755;4333;18;2000000000992;120
+Pointe 40mm;Quincaillerie;kg;1;1300;1040;18;2000000001005;250
+Pointe 40mm;Quincaillerie;carton;25;31287;1040;18;2000000001012;250
+Pointe 60mm;Quincaillerie;kg;1;1300;1040;18;2000000001029;0
+Pointe 60mm;Quincaillerie;carton;25;31375;1040;18;2000000001036;0
+Pointe 80mm;Quincaillerie;kg;1;1400;1120;18;2000000001043;500
+Pointe 80mm;Quincaillerie;carton;25;32934;1120;18;2000000001050;500
+Vis à bois 4x40;Quincaillerie;pièce;1;25;16;18;2000000001067;12
+Vis à bois 4x40;Quincaillerie;boîte 200;200;4697;16;18;2000000001074;12
+Vis à bois 5x60;Quincaillerie;pièce;1;40;25;18;2000000001081;40
+Vis à bois 5x60;Quincaillerie;boîte 200;200;7661;25;18;2000000001098;40
+Cheville 8mm;Quincaillerie;pièce;1;30;19;18;2000000001104;0
+Cheville 8mm;Quincaillerie;boîte 100;100;2797;19;18;2000000001111;0
+Boulon M10;Quincaillerie;pièce;1;180;124;18;2000000001128;60
+Boulon M10;Quincaillerie;boîte 50;50;8429;124;18;2000000001135;60
+Cadenas 50mm;Quincaillerie;pièce;1;2500;1852;18;2000000001142;120
+Cadenas 50mm;Quincaillerie;carton;12;28868;1852;18;2000000001159;120
+Serrure encastrée;Quincaillerie;pièce;1;8500;6641;18;2000000001166;120
+Serrure encastrée;Quincaillerie;carton;10;79626;6641;18;2000000001173;120
+Charnière 100mm;Quincaillerie;paire;1;1200;857;18;2000000001180;500
+Charnière 100mm;Quincaillerie;carton;25;28065;857;18;2000000001197;500
+Chaîne galvanisée 6mm;Quincaillerie;mètre;1;900;692;18;2000000001203;25
+Chaîne galvanisée 6mm;Quincaillerie;rouleau 30m;30;25453;692;18;2000000001210;25
+Cadenas à code;Quincaillerie;pièce;1;4200;3182;18;2000000001227;500
+Cadenas à code;Quincaillerie;carton;12;47406;3182;18;2000000001234;500
+Marteau 500g;Outillage;pièce;1;3500;2593;18;2000000001241;60
+Marteau 500g;Outillage;carton;12;40563;2593;18;2000000001258;60
+Truelle 200mm;Outillage;pièce;1;2200;1571;18;2000000001265;25
+Truelle 200mm;Outillage;carton;12;24374;1571;18;2000000001272;25
+Niveau à bulle 60cm;Outillage;pièce;1;4500;3333;18;2000000001289;60
+Niveau à bulle 60cm;Outillage;carton;10;42508;3333;18;2000000001296;60
+Mètre ruban 5m;Outillage;pièce;1;1800;1241;18;2000000001302;250
+Mètre ruban 5m;Outillage;carton;24;40159;1241;18;2000000001319;250
+Scie égoïne;Outillage;pièce;1;3800;2815;18;2000000001326;40
+Scie égoïne;Outillage;carton;12;43375;2815;18;2000000001333;40
+Pelle ronde;Outillage;pièce;1;4200;3231;18;2000000001340;12
+Pelle ronde;Outillage;paquet;10;39922;3231;18;2000000001357;12
+Pioche;Outillage;pièce;1;5500;4231;18;2000000001364;12
+Pioche;Outillage;paquet;10;53209;4231;18;2000000001371;12
+Brouette 100L;Outillage;pièce;1;32000;26667;18;2000000001388;120
+Bétonnière 350L;Outillage;pièce;1;850000;758929;18;2000000001395;120
+Perceuse 750W;Outillage;pièce;1;42000;34426;18;2000000001401;0
+Meuleuse 125mm;Outillage;pièce;1;38000;31148;18;2000000001418;0
+Disque à tronçonner;Outillage;pièce;1;1200;828;18;2000000001425;500
+Disque à tronçonner;Outillage;carton;25;28608;828;18;2000000001432;500
+Échelle alu 3m;Outillage;pièce;1;55000;46610;18;2000000001449;60
+Escabeau 5 marches;Outillage;pièce;1;28000;23333;18;2000000001456;500
+Planche coffrage 3m;Menuiserie;pièce;1;4500;3750;0;2000000001463;120
+Planche coffrage 3m;Menuiserie;paquet;10;41594;3750;0;2000000001470;120
+Chevron 7x7;Menuiserie;mètre;1;1600;1311;0;2000000001487;500
+Chevron 7x7;Menuiserie;botte;12;17713;1311;0;2000000001494;500
+Contreplaqué 5mm;Menuiserie;plaque;1;12000;10169;0;2000000001500;25
+Contreplaqué 5mm;Menuiserie;paquet;10;115477;10169;0;2000000001517;25
+Contreplaqué 10mm;Menuiserie;plaque;1;19000;16102;0;2000000001524;40
+Contreplaqué 10mm;Menuiserie;paquet;10;180181;16102;0;2000000001531;40
+Porte isoplane;Menuiserie;pièce;1;35000;29167;0;2000000001548;120
+Fenêtre alu 1m20;Menuiserie;pièce;1;68000;57627;0;2000000001555;500
+Colle à bois 1kg;Menuiserie;pot;1;3200;2462;0;2000000001562;40
+Colle à bois 1kg;Menuiserie;carton;12;35945;2462;0;2000000001579;40
+Vernis incolore;Menuiserie;litre;1;4200;3360;0;2000000001586;12
+Vernis incolore;Menuiserie;bidon 5L;5;19795;3360;0;2000000001593;12
+Bâche 4x5m;Divers;pièce;1;8500;6538;18;2000000001609;0
+Bâche 4x5m;Divers;paquet;10;81619;6538;18;2000000001616;0
+Corde nylon 10mm;Divers;mètre;1;450;321;18;2000000001623;25
+Corde nylon 10mm;Divers;rouleau 50m;50;21774;321;18;2000000001630;25
+Sac poubelle 100L;Divers;pièce;1;150;97;18;2000000001647;0
+Sac poubelle 100L;Divers;rouleau 20;20;2842;97;18;2000000001654;0
+Gants de chantier;Divers;paire;1;900;600;18;2000000001661;40
+Gants de chantier;Divers;carton;60;51074;600;18;2000000001678;40
+Casque de chantier;Divers;pièce;1;4500;3333;18;2000000001685;0
+Casque de chantier;Divers;carton;12;52031;3333;18;2000000001692;0
+Masque anti-poussière;Divers;pièce;1;350;226;18;2000000001708;40
+Masque anti-poussière;Divers;boîte 50;50;16288;226;18;2000000001715;40
+Lunettes de protection;Divers;pièce;1;2200;1517;18;2000000001722;25
+Lunettes de protection;Divers;carton;24;50793;1517;18;2000000001739;25
+Bottes de sécurité;Divers;paire;1;12000;9231;18;2000000001746;25
+Ruban adhésif large;Divers;rouleau;1;800;533;18;2000000001753;250
+Ruban adhésif large;Divers;carton;36;27543;533;18;2000000001760;250
+Bombe de peinture;Divers;pièce;1;2400;1714;18;2000000001777;250
+Bombe de peinture;Divers;carton;12;26686;1714;18;2000000001784;250
+Extincteur 6kg;Divers;pièce;1;28000;22400;18;2000000001791;250
+Cadenas antivol vélo;Divers;pièce;1;3800;2754;18;2000000001807;60
+Cadenas antivol vélo;Divers;carton;12;43805;2754;18;2000000001814;60

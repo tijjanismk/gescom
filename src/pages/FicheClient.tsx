@@ -7,6 +7,8 @@ import {
   Receipt, Package, Truck, ClipboardList, Gift,
   AlertTriangle, TrendingUp, Clock,
 } from "lucide-react";
+import { GlassHalos } from "@/components/ui/GlassIcon";
+import { KpiLigne, CARTE, GRILLE } from "@/components/ui/KpiVerre";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -19,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
-import { genererPieceHTML } from "@/lib/genererPDF";
+import { genererImpression } from "@/lib/genererPDF";
 import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================
@@ -542,11 +544,19 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
   async function handleImprimer(piece: Piece) {
     setImpressionEnCours(piece.id);
     try {
-      const donnees = await invoke<any>("lire_donnees_piece", { pieceId: piece.id });
-      const logo = await invoke<string | null>("lire_logo_base64");
-      const html = genererPieceHTML(donnees, logo);
-      await invoke("imprimer_piece", { html,
-        nomFichier: `${piece.numero.replace(/\//g, "-")}.html` });
+      // `genererImpression` et non `genererPieceHTML` : cet écran
+      // appelait le générateur directement et sortait donc sans
+      // en-tête ni pied de page, contrairement à Pièces et au POS.
+      const [donnees, logo, entete, pied] = await Promise.all([
+        invoke<any>("lire_donnees_piece", { pieceId: piece.id }),
+        invoke<string | null>("lire_logo_base64").catch(() => null),
+        invoke<string | null>("lire_entete_base64").catch(() => null),
+        invoke<string | null>("lire_pied_base64").catch(() => null),
+      ]);
+      await invoke("imprimer_piece", {
+        html: genererImpression(donnees, "a4", logo, entete, pied),
+        nomFichier: `${piece.numero.replace(/\//g, "-")}.html`,
+      });
     } catch (e) {
       await message(`Erreur impression : ${e}`, { title: "Erreur", kind: "error" });
     } finally { setImpressionEnCours(null); }
@@ -628,13 +638,15 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
         ))}
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-6 relative">
+        {/* Le verre a besoin d'un fond non uni. */}
+        <GlassHalos />
 
         {/* ---- Résumé ---- */}
         {onglet === "resume" && (
           <div className="space-y-6">
             {/* Infos client */}
-            <div className="border border-border rounded-lg p-4 space-y-2">
+            <div className={`${CARTE} p-4 space-y-2`}>
               <p className="text-sm font-medium mb-3">Informations</p>
               {client.telephone && (
                 <div className="flex items-center gap-2 text-sm">
@@ -666,27 +678,29 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
             </div>
 
             {/* KPIs */}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div style={GRILLE}>
               {[
-                { label: "CA total", val: fmt(stats.ca_total), icone: TrendingUp, color: "text-primary" },
-                { label: "Nb ventes", val: stats.nb_ventes.toString(), icone: Receipt, color: "text-blue-600" },
-                { label: "Encours", val: fmt(stats.encours), icone: AlertTriangle, color: stats.encours > 0 ? "text-orange-600" : "text-green-600" },
-                { label: "Avoirs disponibles", val: fmt(stats.avoirs_total), icone: Gift, color: "text-green-600" },
-                { label: "Pièces", val: stats.nb_pieces.toString(), icone: FileText, color: "text-muted-foreground" },
-                { label: "Dernière vente", val: stats.derniere_vente ? fmtDate(stats.derniere_vente) : "—", icone: Clock, color: "text-muted-foreground" },
-              ].map(k => {
-                const Icone = k.icone;
-                return (
-                  <div key={k.label}
-                    className="border border-border rounded-lg p-3 flex items-center gap-3">
-                    <Icone className={`h-5 w-5 shrink-0 ${k.color}`} />
-                    <div>
-                      <p className="text-xs text-muted-foreground">{k.label}</p>
-                      <p className="text-sm font-semibold">{k.val}</p>
-                    </div>
-                  </div>
-                );
-              })}
+                { label: "CA total", val: fmt(stats.ca_total),
+                  icone: TrendingUp, variante: "tinted" as const, inactif: false },
+                { label: "Nb ventes", val: stats.nb_ventes.toString(),
+                  icone: Receipt, variante: "neutral" as const, inactif: false },
+                { label: "Encours", val: fmt(stats.encours),
+                  icone: AlertTriangle,
+                  variante: (stats.encours > 0 ? "tinted" : "clear") as const, inactif: false },
+                { label: "Avoirs disponibles", val: fmt(stats.avoirs_total),
+                  icone: Gift, variante: "neutral" as const, inactif: false },
+                { label: "Pièces", val: stats.nb_pieces.toString(),
+                  icone: FileText, variante: "clear" as const, inactif: false },
+                // Pas de vente : la tuile s'eteint plutot que d'afficher
+                // un tiret dans le meme relief que les chiffres reels.
+                { label: "Dernière vente",
+                  val: stats.derniere_vente ? fmtDate(stats.derniere_vente) : "—",
+                  icone: Clock, variante: "clear" as const,
+                  inactif: !stats.derniere_vente },
+              ].map(k => (
+                <KpiLigne key={k.label} label={k.label} valeur={k.val}
+                  icone={k.icone} variante={k.variante} inactif={k.inactif} />
+              ))}
             </div>
           </div>
         )}

@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Loader2, X, Plus, UserPlus, Package } from "lucide-react";
+import { Loader2, X, UserPlus, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,6 +47,9 @@ const TYPES_CLIENT: Record<string, string> = {
   commande_client: "Commande client",
   bon_livraison:   "Bon de livraison",
   facture:         "Facture",
+  // Geste commercial : remise après coup, erreur de facturation,
+  // dédommagement. Crée la pièce ET le crédit du client.
+  avoir_client:    "Avoir (geste commercial)",
 };
 
 const TYPES_FOURNISSEUR: Record<string, string> = {

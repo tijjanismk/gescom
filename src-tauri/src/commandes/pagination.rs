@@ -36,6 +36,55 @@ use chrono::Datelike;
 //  VENTES PAGINÉES
 // =====================================================================
 
+// =====================================================================
+//  Construction des filtres
+// =====================================================================
+//
+// Les conditions WHERE etaient assemblees par `format!`, avec au mieux
+// un doublement des quotes — et RIEN du tout sur les dates, qui
+// viennent pourtant du filtre « personnalise ». Une commande Tauri est
+// appelable directement : la valeur n'a pas a etre de confiance.
+//
+// `Filtres` accumule condition + valeur liee. Le SQL ne contient plus
+// que des `?N`, la valeur ne touche jamais la requete.
+
+struct Filtres {
+    conditions: Vec<String>,
+    valeurs: Vec<Box<dyn rusqlite::ToSql>>,
+}
+
+impl Filtres {
+    fn new(base: &str) -> Self {
+        Filtres { conditions: vec![base.to_string()], valeurs: Vec::new() }
+    }
+
+    /// `gabarit` porte un seul `{}`, remplace par le prochain `?N`.
+    fn ajouter<T: rusqlite::ToSql + 'static>(&mut self, gabarit: &str, valeur: T) {
+        let n = self.valeurs.len() + 1;
+        self.conditions.push(gabarit.replace("{}", &format!("?{}", n)));
+        self.valeurs.push(Box::new(valeur));
+    }
+
+    /// Ignore une valeur absente ou vide, sans consommer de numero.
+    fn ajouter_si<T: rusqlite::ToSql + 'static>(
+        &mut self, gabarit: &str, valeur: Option<T>,
+    ) where T: AsRef<str> {
+        if let Some(v) = valeur {
+            if !v.as_ref().is_empty() {
+                self.ajouter(gabarit, v.as_ref().to_string());
+            }
+        }
+    }
+
+    fn clause(&self) -> String {
+        self.conditions.join(" AND ")
+    }
+
+    fn params(&self) -> Vec<&dyn rusqlite::ToSql> {
+        self.valeurs.iter().map(|b| b.as_ref()).collect()
+    }
+}
+
 #[tauri::command]
 pub fn lire_ventes_paginees(
     etat: State<EtatApp>,
@@ -55,34 +104,21 @@ pub fn lire_ventes_paginees(
         _ => (date_debut, date_fin),
     };
 
-    // Construire les conditions WHERE dynamiquement.
-    let mut conditions = vec!["v.id IS NOT NULL".to_string()];
-
-    if let Some(ref s) = statut {
-        if !s.is_empty() {
-            conditions.push(format!("v.statut = '{}'", s.replace('\'', "''")));
-        }
-    }
-    if let Some(ref d) = date_debut_calc {
-        if !d.is_empty() {
-            conditions.push(format!("DATE(v.date_vente) >= '{}'", d));
-        }
-    }
-    if let Some(ref d) = date_fin_calc {
-        if !d.is_empty() {
-            conditions.push(format!("DATE(v.date_vente) <= '{}'", d));
-        }
-    }
+    // Conditions WHERE : gabarits + valeurs liees, jamais de valeur
+    // dans la requete elle-meme.
+    let mut f = Filtres::new("v.id IS NOT NULL");
+    f.ajouter_si("v.statut = {}", statut.clone());
+    f.ajouter_si("DATE(v.date_vente) >= {}", date_debut_calc.clone());
+    f.ajouter_si("DATE(v.date_vente) <= {}", date_fin_calc.clone());
     if let Some(ref r) = recherche {
         if !r.is_empty() {
-            conditions.push(format!(
-                "c.nom LIKE '%{}%'",
-                r.replace('\'', "''")
-            ));
+            // Le `%` entoure la VALEUR liee, pas le gabarit : sinon il
+            // faudrait le concatener dans le SQL.
+            f.ajouter("c.nom LIKE {}", format!("%{}%", r));
         }
     }
 
-    let where_clause = conditions.join(" AND ");
+    let where_clause = f.clause();
 
     // Compter le total.
     let total: i64 = conn.query_row(
@@ -92,7 +128,7 @@ pub fn lire_ventes_paginees(
              JOIN client c ON c.id = v.client_id
              WHERE {}", where_clause
         ),
-        [],
+        f.params().as_slice(),
         |row| row.get(0),
     ).unwrap_or(0);
 
@@ -117,7 +153,7 @@ pub fn lire_ventes_paginees(
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
 
     let donnees: Vec<serde_json::Value> = {
-        let x = stmt.query_map([], |row| {
+        let x = stmt.query_map(f.params().as_slice(), |row| {
             Ok(serde_json::json!({
                 "id":             row.get::<_, String>(0)?,
                 "date_vente":     row.get::<_, String>(1)?,
@@ -156,6 +192,8 @@ pub fn lire_clients_pagines(
     limite: i64,
     recherche: Option<String>,
     avec_creances_seulement: bool,
+    ventes_filtre: Option<String>,
+    tri: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
@@ -173,19 +211,37 @@ pub fn lire_clients_pagines(
         }
     }
 
-    if avec_creances_seulement {
-        conditions.push("total_creances > 0".to_string());
-    }
+    // avec_creances_seulement et ventes_filtre portent sur des colonnes
+    // calculées (agrégats) : elles ne peuvent pas entrer dans ce WHERE,
+    // elles sont appliquées plus bas via HAVING / le WHERE externe de la
+    // sous-requête.
+    let where_base = conditions.join(" AND ");
 
-    let where_base = conditions[..2].join(" AND ");
-    let _where_full = conditions.join(" AND ");
+    let mut having = vec!["1=1".to_string()];
+    if avec_creances_seulement {
+        having.push("total_creances > 0".to_string());
+    }
+    match ventes_filtre.as_deref() {
+        Some("avec") => having.push("nb_ventes > 0".to_string()),
+        Some("sans") => having.push("nb_ventes = 0".to_string()),
+        _ => {}
+    }
+    let having_clause = having.join(" AND ");
+
+    let order_by = match tri.as_deref() {
+        Some("creance") => "total_creances DESC, c.nom ASC",
+        Some("ventes") => "nb_ventes DESC, c.nom ASC",
+        Some("nom") => "c.nom ASC",
+        _ => "total_creances DESC, c.nom ASC",
+    };
 
     let sql_count = format!(
         "SELECT COUNT(*) FROM (
            SELECT c.id,
              COALESCE(SUM(CASE WHEN v.statut != 'payee'
                THEN CAST(lv_sum.total AS INTEGER) - CAST(p_sum.paye AS INTEGER)
-               ELSE 0 END), 0) as total_creances
+               ELSE 0 END), 0) as total_creances,
+             COUNT(DISTINCT v.id) as nb_ventes
            FROM client c
            LEFT JOIN vente v ON v.client_id = c.id
            LEFT JOIN (SELECT vente_id, SUM(prix_pratique * quantite) as total
@@ -194,8 +250,8 @@ pub fn lire_clients_pagines(
                       FROM paiement GROUP BY vente_id) p_sum ON p_sum.vente_id = v.id
            WHERE {}
            GROUP BY c.id
-         ) WHERE {}", where_base,
-        if avec_creances_seulement { "total_creances > 0" } else { "1=1" }
+           HAVING {}
+         ) WHERE 1=1", where_base, having_clause
     );
 
     let total: i64 = conn.query_row(&sql_count, [], |row| row.get(0)).unwrap_or(0);
@@ -216,11 +272,9 @@ pub fn lire_clients_pagines(
          WHERE {}
          GROUP BY c.id
          HAVING {}
-         ORDER BY total_creances DESC, c.nom ASC
+         ORDER BY {}
          LIMIT {} OFFSET {}",
-        where_base,
-        if avec_creances_seulement { "total_creances > 0" } else { "1=1" },
-        limite, offset
+        where_base, having_clause, order_by, limite, offset
     );
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -481,25 +535,18 @@ pub fn lire_ventes_recentes_paginee(
         _ => (date_debut, date_fin),
     };
 
-    let mut conditions = vec!["v.id IS NOT NULL".to_string()];
-
-    if let Some(ref d) = date_debut_calc {
-        if !d.is_empty() {
-            conditions.push(format!("DATE(v.date_vente) >= '{}'", d));
-        }
-    }
-    if let Some(ref d) = date_fin_calc {
-        if !d.is_empty() {
-            conditions.push(format!("DATE(v.date_vente) <= '{}'", d));
-        }
-    }
+    // Idem : valeurs liees, jamais concatenees (les dates n'etaient
+    // meme pas echappees).
+    let mut f = Filtres::new("v.id IS NOT NULL");
+    f.ajouter_si("DATE(v.date_vente) >= {}", date_debut_calc.clone());
+    f.ajouter_si("DATE(v.date_vente) <= {}", date_fin_calc.clone());
     if let Some(ref r) = recherche {
         if !r.is_empty() {
-            conditions.push(format!("c.nom LIKE '%{}%'", r.replace('\'', "''")));
+            f.ajouter("c.nom LIKE {}", format!("%{}%", r));
         }
     }
 
-    let where_clause = conditions.join(" AND ");
+    let where_clause = f.clause();
 
     let total: i64 = conn.query_row(
         &format!(
@@ -507,7 +554,7 @@ pub fn lire_ventes_recentes_paginee(
              FROM vente v JOIN client c ON c.id = v.client_id
              WHERE {}", where_clause
         ),
-        [],
+        f.params().as_slice(),
         |row| row.get(0),
     ).unwrap_or(0);
 
@@ -527,7 +574,7 @@ pub fn lire_ventes_recentes_paginee(
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
 
     let ventes_base: Vec<(String, String, String, String, String, String, Option<String>)> = {
-        let x = stmt.query_map([], |row| {
+        let x = stmt.query_map(f.params().as_slice(), |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,

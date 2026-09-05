@@ -63,6 +63,8 @@ pub fn run() {
             commandes::parametres::ajouter_unite_vente,
             commandes::parametres::modifier_unite_vente,
             commandes::parametres::desactiver_unite_vente,
+            commandes::parametres::diagnostiquer_base,
+            commandes::parametres::entretenir_base,
             commandes::parametres::lire_config_bon_sortie,
             commandes::parametres::sauvegarder_config_bon_sortie,
             // ---- Retours & avoirs ----
@@ -129,6 +131,8 @@ pub fn run() {
             commandes::depots::lire_resume_par_depot,
             commandes::depots::lire_stock_article_depots,
             commandes::depots::lire_stock_multi_depots,
+            commandes::depots::lire_mouvements_stock,
+            commandes::depots::lire_ventes_a_decouvert,
             // ---- Caisse : historique et rapports ----
             commandes::caisse::lire_sessions_caisse,
             commandes::caisse::lire_mouvements_session,
@@ -172,6 +176,8 @@ pub fn run() {
             commandes::chantiers::lire_config_avoirs,
             commandes::chantiers::sauvegarder_config_avoirs,
             commandes::chantiers::expirer_avoirs,
+            commandes::chantiers::reactiver_avoir,
+            commandes::chantiers::lire_avoirs_expires,
             // ---- Pièces commerciales ----
             commandes::pieces::lire_toutes_pieces_client,
             commandes::pieces::lire_toutes_pieces_fournisseur,

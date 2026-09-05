@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Loader2, Save, RefreshCw, AlertTriangle,
-  CheckCircle2, Clock, Percent, Banknote, XCircle
+  CheckCircle2, Clock, XCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { message } from "@tauri-apps/plugin-dialog";
+import { UTILISATEUR_ACTIF } from "@/App";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("fr-ML").format(n) + " F";
@@ -600,11 +601,21 @@ export function OngletIrrecouvrable() {
 //  Onglet Expiration avoirs
 // =====================================================================
 
+interface AvoirExpire {
+  id: string; client: string; montant: number; cree_le: string;
+  piece_id: string | null;
+}
+
 export function OngletAvoirs() {
   const [config, setConfig] = useState({ active: false, duree_jours: 90 });
   const [chargement, setChargement] = useState(true);
   const [saving, setSaving] = useState(false);
   const [expiration, setExpiration] = useState(false);
+  // Expirer est irréversible côté données : sans ce chemin de retour,
+  // une activation par erreur perdait des avoirs que le client a en
+  // main, et il fallait éditer la base.
+  const [expires, setExpires] = useState<AvoirExpire[]>([]);
+  const [chargeExpires, setChargeExpires] = useState(false);
 
   async function charger() {
     setChargement(true);
@@ -634,6 +645,29 @@ export function OngletAvoirs() {
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
     } finally { setSaving(false); }
+  }
+
+  async function chargerExpires() {
+    setChargeExpires(true);
+    try {
+      setExpires(await invoke<AvoirExpire[]>("lire_avoirs_expires"));
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    } finally { setChargeExpires(false); }
+  }
+
+  async function handleReactiver(a: AvoirExpire) {
+    if (!window.confirm(
+      `Rendre ${fmt(a.montant)} de crédit à ${a.client} ?`)) return;
+    try {
+      await invoke("reactiver_avoir", {
+        avoirId: a.id,
+        utilisateurRole: UTILISATEUR_ACTIF?.role ?? "employe",
+      });
+      await chargerExpires();
+    } catch (e) {
+      await message(`${e}`, { title: "Réactivation impossible", kind: "error" });
+    }
   }
 
   async function handleExpirer() {
@@ -713,6 +747,48 @@ export function OngletAvoirs() {
             : <><Clock className="h-4 w-4 mr-2" /> Expirer maintenant</>
           }
         </Button>
+      </div>
+
+      {/* Rattrapage : l'expiration est un traitement de masse. Activer
+          par erreur, lancer, puis désactiver laissait les avoirs perdus
+          alors que le client a son papier. */}
+      <div className="border-t border-border pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Avoirs expirés</p>
+            <p className="text-xs text-muted-foreground">
+              Un avoir expiré par erreur peut être remis en circulation.
+            </p>
+          </div>
+          <Button variant="outline" size="sm"
+            onClick={chargerExpires} disabled={chargeExpires}>
+            {chargeExpires
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : "Afficher"}
+          </Button>
+        </div>
+
+        {expires.length > 0 && (
+          <div className="space-y-1.5">
+            {expires.map(a => (
+              <div key={a.id}
+                className="flex items-center justify-between gap-3 px-3 py-2
+                           border border-border rounded-md text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium truncate">{a.client}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(a.cree_le).toLocaleDateString("fr-ML")}
+                  </p>
+                </div>
+                <span className="font-semibold shrink-0">{fmt(a.montant)}</span>
+                <Button size="sm" variant="outline" className="shrink-0"
+                  onClick={() => handleReactiver(a)}>
+                  Réactiver
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

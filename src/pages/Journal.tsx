@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { message } from "@tauri-apps/plugin-dialog";
 import {
   BookOpen, RefreshCw, Loader2, Printer, ChevronLeft, ChevronRight,
 } from "lucide-react";
@@ -45,6 +46,9 @@ interface Retour {
 }
 // Mouvements sans effet monétaire : entrées manuelles, ajustements
 // d'inventaire, transferts. Hors des totaux, mais la marchandise a bougé.
+interface Decouvert {
+  article: string; unite_base: string; quantite: number; client: string;
+}
 interface Mouvement {
   type: string; libelle: string; description: string;
   quantite: number; entrant: boolean; motif: string;
@@ -62,6 +66,7 @@ interface Journal {
   achats: Achat[];
   retours: Retour[];
   mouvements: Mouvement[];
+  decouverts: Decouvert[];
   depenses: Depense[];
   depenses_par_categorie: { categorie: string; montant: number }[];
   caisse_par_moyen: { moyen: string; entrees: number; sorties: number }[];
@@ -157,7 +162,28 @@ export function Journal() {
 
   useEffect(() => { charger(date); }, [date, charger]);
 
-  function imprimer() { window.print(); }
+  /**
+   * Impression du journal.
+   *
+   * `window.print()` imprimait TOUTE la fenêtre, sidebar comprise :
+   * le document sortait avec le menu de l'application dessus. Les
+   * `print:hidden` de cet écran ne pouvaient rien pour `Layout.tsx`.
+   *
+   * On génère donc le HTML et on l'ouvre dans une fenêtre Tauri, comme
+   * les factures (D3). C'est aussi ce qui garantit qu'aucun en-tête de
+   * navigateur ne s'ajoute au document.
+   */
+  async function imprimer() {
+    if (!data) return;
+    try {
+      await invoke("imprimer_facture", {
+        html: genererJournalHTML(data),
+        nomFichier: `journal_${data.date}.html`,
+      });
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Impression", kind: "error" });
+    }
+  }
 
   if (chargement && !data) {
     return (
@@ -381,6 +407,37 @@ export function Journal() {
           </tbody>
         </table>
       </Section>
+
+      {/* ── Ventes à découvert : un signal, pas un total ── */}
+      {!!data?.decouverts?.length && (
+        <div className="mb-6 border border-orange-300 bg-orange-50 rounded-lg
+                        overflow-hidden print:rounded-none">
+          <div className="px-4 py-2 border-b border-orange-200">
+            <p className="text-sm font-medium text-orange-900">
+              ⚠ {data.decouverts.length} vente(s) à découvert
+            </p>
+          </div>
+          <table className="w-full">
+            <tbody className="divide-y divide-orange-200">
+              {data.decouverts.map((d, i) => (
+                <tr key={i}>
+                  <td className={TD}>{d.article}</td>
+                  <td className={`${TD} text-xs text-muted-foreground`}>{d.client}</td>
+                  <td className={`${TD} text-right font-semibold`}>
+                    {d.quantite} {d.unite_base}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {/* Dire quoi faire, pas seulement qu'il y a un problème. */}
+          <p className="px-4 py-2 text-xs text-orange-800">
+            Marchandise sortie au-delà du stock connu : soit le stock est
+            faux, soit une entrée n'a pas été saisie. À régulariser par
+            une entrée, un achat ou un ajustement d'inventaire.
+          </p>
+        </div>
+      )}
 
       {/* ── 4 bis. Mouvements de stock sans effet monétaire ── */}
       <Section titre="Mouvements de stock" couleur="bg-amber-50"
@@ -618,4 +675,163 @@ export function Journal() {
       )}
     </div>
   );
+}
+
+/**
+ * Journal du jour en HTML imprimable.
+ *
+ * Reprend l'ordre de l'écran, qui est celui du cahier tenu sous Excel :
+ * ventes, hors du jour, mouvements, dépenses, récapitulatif. Le patron
+ * relit dans cet ordre le soir ; changer l'ordre à l'impression le
+ * ferait chercher.
+ */
+function genererJournalHTML(d: Journal): string {
+  const f = (n: number) => new Intl.NumberFormat("fr-ML").format(n) + " F";
+  const h = (iso: string) =>
+    new Date(iso).toLocaleTimeString("fr-ML", {
+      hour: "2-digit", minute: "2-digit",
+    });
+  const dc = (iso: string) =>
+    new Date(iso).toLocaleDateString("fr-ML", {
+      day: "2-digit", month: "2-digit",
+    });
+  const t = d.totaux;
+
+  const section = (titre: string, entetes: string[], lignes: string[]) =>
+    lignes.length === 0 ? "" : `
+      <h2>${titre}</h2>
+      <table>
+        <thead><tr>${entetes.map(e => `<th>${e}</th>`).join("")}</tr></thead>
+        <tbody>${lignes.join("")}</tbody>
+      </table>`;
+
+  return `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8">
+<title>Journal du ${d.date}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:Arial,sans-serif; font-size:11px; padding:10mm; }
+  h1 { font-size:17px; border-bottom:2px solid #000; padding-bottom:5px; }
+  h2 { font-size:12px; margin:12px 0 4px; background:#eee;
+       padding:4px 6px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:10px; border-bottom:1px solid #000;
+       padding:3px 5px; }
+  td { padding:3px 5px; border-bottom:1px solid #eee; }
+  .d { text-align:right; }
+  .recap td { padding:4px 6px; font-size:12px; }
+  .recap .cle { color:#555; }
+  .recap .val { text-align:right; font-weight:bold; }
+  @media print { body { margin:0; } @page { size:A4; margin:8mm; } }
+</style></head>
+<body>
+  <h1>Journal du ${d.date}</h1>
+
+  ${section("Ventes du jour",
+    ["Heure", "Client", "Article", "P.U.", "Qté", "Montant", "Règlement"],
+    (d.ventes ?? []).map(v => `<tr>
+      <td>${h(v.date)}</td><td>${v.client}</td>
+      <td>${v.description}</td>
+      <td class="d">${f(v.prix_unitaire)}</td>
+      <td class="d">${v.quantite} ${v.unite}</td>
+      <td class="d">${f(v.montant_ttc)}</td>
+      <td>${v.mode === "comptant" ? "Comptant" : "Crédit"}</td></tr>`))}
+
+  ${section("Hors du jour — encaissé sur ventes antérieures",
+    ["Client", "Vente du", "Nature", "Moyen", "Montant"],
+    (d.hors_jour ?? []).map(x => `<tr>
+      <td>${x.client}</td><td>${dc(x.date_vente)}</td>
+      <td>${x.type === "solde" ? "Solde" : "Acompte"}</td>
+      <td>${fmtMoyen(x.mode)}</td>
+      <td class="d">${f(x.montant)}</td></tr>`))}
+
+  ${section("Achats fournisseur (facturés)",
+    ["Fournisseur", "Description", "P.U.", "Qté", "Montant"],
+    (d.achats ?? []).map(a => `<tr>
+      <td>${a.fournisseur}</td><td>${a.description}</td>
+      <td class="d">${f(a.prix_unitaire)}</td>
+      <td class="d">${a.quantite}</td>
+      <td class="d">${f(a.montant)}</td></tr>`))}
+
+  ${section("Retours marchandises",
+    ["Sens", "Tiers", "Description", "Qté", "Montant"],
+    (d.retours ?? []).map(r => `<tr>
+      <td>${r.sens === "client" ? "Retour client"
+        : r.sens === "echange" ? "Sortie échange" : "Retour fournisseur"}</td>
+      <td>${r.tiers}</td><td>${r.description}</td>
+      <td class="d">${r.quantite}</td>
+      <td class="d">${f(r.montant)}</td></tr>`))}
+
+  ${section("Ventes à découvert",
+    ["Article", "Client", "Quantité"],
+    (d.decouverts ?? []).map(x => `<tr>
+      <td>${x.article}</td><td>${x.client}</td>
+      <td class="d">${x.quantite} ${x.unite_base}</td></tr>`))}
+
+  ${section("Mouvements de stock",
+    ["Type", "Article", "Dépôt", "Motif", "Qté"],
+    (d.mouvements ?? []).map(m => `<tr>
+      <td>${m.libelle}</td><td>${m.description}</td>
+      <td>${m.depot}</td><td>${m.motif || "—"}</td>
+      <td class="d">${m.entrant ? "+" : "−"} ${m.quantite}</td></tr>`))}
+
+  ${section("Dépenses",
+    ["Heure", "Libellé", "Poste", "Moyen", "Montant"],
+    (d.depenses ?? []).map(x => `<tr>
+      <td>${h(x.date)}</td><td>${x.libelle}</td><td>${fmtCategorie(x.categorie)}</td>
+      <td>${fmtMoyen(x.moyen)}</td>
+      <td class="d">${f(x.montant)}</td></tr>`))}
+
+  ${section("Situation non payée",
+    ["Client", "Vente du", "Total", "Payé", "Reste dû"],
+    (d.impayes ?? []).map(im => `<tr>
+      <td>${im.client}</td><td>${dc(im.date_vente)}</td>
+      <td class="d">${f(im.total)}</td>
+      <td class="d">${f(im.paye)}</td>
+      <td class="d">${f(im.reste)}</td></tr>`))}
+
+  <h2>Récapitulatif</h2>
+  <table class="recap">
+    <tr><td class="cle">Chiffre d'affaires du jour</td>
+        <td class="val">${f(t?.ca_jour ?? 0)}</td></tr>
+    <tr><td class="cle">Encaissé du jour</td>
+        <td class="val">${f(t?.encaisse_jour ?? 0)}</td></tr>
+    <tr><td class="cle">Dont hors du jour</td>
+        <td class="val">${f(t?.hors_jour ?? 0)}</td></tr>
+    <tr><td class="cle">Achats marchandises</td>
+        <td class="val">− ${f(t?.achats ?? 0)}</td></tr>
+    <tr><td class="cle">Règlements fournisseur</td>
+        <td class="val">− ${f(t?.reglement_fournisseur ?? 0)}</td></tr>
+    <tr><td class="cle">Dépenses</td>
+        <td class="val">− ${f(t?.depenses ?? 0)}</td></tr>
+    <tr><td class="cle">Impayés clients (cumul)</td>
+        <td class="val">${f(t?.impayes ?? 0)}</td></tr>
+  </table>
+
+  ${(d.caisse_par_moyen ?? []).length === 0 ? "" : `
+  <h2>Mouvements de caisse par moyen</h2>
+  <table>
+    <thead><tr><th>Moyen</th><th>Entrées</th><th>Sorties</th><th>Solde</th></tr></thead>
+    <tbody>${d.caisse_par_moyen.map(c => `<tr>
+      <td>${fmtMoyen(c.moyen)}</td>
+      <td class="d">+ ${f(c.entrees)}</td>
+      <td class="d">− ${f(c.sorties)}</td>
+      <td class="d">${f(c.entrees - c.sorties)}</td></tr>`).join("")}</tbody>
+  </table>`}
+
+  <p style="margin-top:8px;font-size:10px;color:#666">
+    Le chiffre d'affaires et l'encaissé ne s'additionnent pas : l'un
+    mesure ce qui a été vendu, l'autre l'argent reçu, y compris sur des
+    ventes anciennes.
+  </p>
+
+  <div style="display:flex;justify-content:space-between;margin-top:28px">
+    <div style="width:45%;border-top:1px solid #000;padding-top:5px;
+                text-align:center">Le caissier</div>
+    <div style="width:45%;border-top:1px solid #000;padding-top:5px;
+                text-align:center">Le patron</div>
+  </div>
+
+  <script>window.onload = () => { window.focus(); window.print(); }</script>
+</body></html>`;
 }

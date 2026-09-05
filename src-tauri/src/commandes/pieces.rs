@@ -321,6 +321,33 @@ pub fn creer_piece(
 
     inserer_lignes(&conn, &piece_id, &lignes, &now)?;
 
+    // Un AVC cree a la main est un GESTE COMMERCIAL : remise accordee
+    // apres coup, erreur de facturation, dedommagement. Aucune
+    // marchandise n'est rendue, donc aucun retour ne passe par ici —
+    // c'etait pourtant le seul chemin qui creait du credit.
+    //
+    // Sans ces lignes, le client repartait avec un document de
+    // 50 000 F et rien a depenser : la piece existait, le credit non.
+    if type_piece == "avoir_client" {
+        let montant: i64 = conn.query_row(
+            "SELECT CAST(COALESCE(SUM(montant_ht + montant_tva), 0) AS INTEGER)
+             FROM ligne_piece WHERE piece_id = ?1",
+            rusqlite::params![piece_id], |r| r.get(0),
+        ).unwrap_or(0);
+
+        if montant > 0 {
+            conn.execute(
+                "INSERT INTO avoir
+                 (id, client_id, piece_id, montant, statut, cree_le, origine)
+                 VALUES (?1, ?2, ?3, ?4, 'ouvert', ?5, 'geste_commercial')",
+                rusqlite::params![
+                    uuid::Uuid::new_v4().to_string(), client_id, piece_id,
+                    montant, now
+                ],
+            ).map_err(|e| e.to_string())?;
+        }
+    }
+
     Ok(serde_json::json!({
         "id": piece_id, "numero": numero, "statut": statut,
     }))
@@ -1369,6 +1396,29 @@ pub fn annuler_piece(
     ).unwrap_or(0) != 0;
 
     crate::coeur::pieces::peut_annuler(&type_piece, &statut, a_produit_effets)?;
+
+    // Un AVC porte un CREDIT dans la table `avoir` (D44), qui n'est ni
+    // une vente, ni un paiement, ni une piece derivee : le controle
+    // ci-dessus ne le voyait pas. Annuler la piece laissait donc le
+    // credit ouvert — le client gardait son avoir alors que le document
+    // qui le justifie venait d'etre annule.
+    //
+    // On refuse plutot que de fermer le credit d'office : effacer en
+    // silence de l'argent du client est pire que le lui laisser.
+    let credit_ouvert: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER) FROM avoir
+         WHERE piece_id = ?1 AND statut = 'ouvert'",
+        rusqlite::params![piece_id], |r| r.get(0),
+    ).unwrap_or(0);
+
+    if credit_ouvert > 0 {
+        return Err(format!(
+            "Cet avoir porte encore {} F de crédit non consommé. \
+             Le rembourser au client, ou attendre qu'il l'utilise, \
+             avant d'annuler la pièce.",
+            credit_ouvert
+        ));
+    }
 
     let now = maintenant_iso();
     let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);

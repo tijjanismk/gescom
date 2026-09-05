@@ -8,6 +8,58 @@ pub fn ouvrir_base(chemin: &str) -> Result<Connection> {
     Ok(conn)
 }
 
+/// Etat de sante de la base, lu au demarrage.
+///
+/// `quick_check` et non `integrity_check` : le premier saute la
+/// verification des index, dix fois plus rapide, et suffit a detecter
+/// une base tronquee ou corrompue — le cas reel apres une coupure de
+/// courant en pleine ecriture, frequent a Bamako.
+///
+/// La verification ne repare RIEN. Elle dit au commercant qu'il doit
+/// restaurer sa sauvegarde AVANT de saisir la journee par-dessus une
+/// base abimee, ce qui rendrait la restauration inutile.
+pub fn verifier_integrite(conn: &Connection) -> Result<Option<String>> {
+    let resultat: String = conn.query_row(
+        "PRAGMA quick_check(1)", [], |r| r.get(0),
+    )?;
+    if resultat == "ok" {
+        Ok(None)
+    } else {
+        Ok(Some(resultat))
+    }
+}
+
+/// Ecritures orphelines — coherence METIER, pas structurelle.
+///
+/// `quick_check` valide le fichier SQLite ; il ne dit rien d'une vente
+/// dont les lignes ont disparu, ni d'un paiement sans vente. Ces cas
+/// naissent d'une transaction interrompue, pas d'une corruption.
+///
+/// Retourne un compte par anomalie. Zero partout = base saine.
+pub fn anomalies_metier(conn: &Connection) -> Vec<(String, i64)> {
+    let controles: [(&str, &str); 5] = [
+        ("Ventes sans aucune ligne",
+         "SELECT COUNT(*) FROM vente v WHERE v.statut <> 'annulee'
+            AND NOT EXISTS (SELECT 1 FROM ligne_vente WHERE vente_id = v.id)"),
+        ("Paiements rattaches a une vente inexistante",
+         "SELECT COUNT(*) FROM paiement p
+            WHERE NOT EXISTS (SELECT 1 FROM vente WHERE id = p.vente_id)"),
+        ("Lignes de piece sans piece",
+         "SELECT COUNT(*) FROM ligne_piece lp
+            WHERE NOT EXISTS (SELECT 1 FROM piece_commerciale WHERE id = lp.piece_id)"),
+        ("Mouvements de caisse hors session",
+         "SELECT COUNT(*) FROM mouvement_caisse mc
+            WHERE NOT EXISTS (SELECT 1 FROM session_caisse WHERE id = mc.session_id)"),
+        ("Stock negatif",
+         "SELECT COUNT(*) FROM stock_depot WHERE quantite < 0"),
+    ];
+
+    controles.iter().filter_map(|(libelle, sql)| {
+        let n: i64 = conn.query_row(sql, [], |r| r.get(0)).unwrap_or(0);
+        if n > 0 { Some((libelle.to_string(), n)) } else { None }
+    }).collect()
+}
+
 pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     let schema = include_str!("schema.sql");
     conn.execute_batch(schema)?;
@@ -239,4 +291,35 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     ).ok();
 
     Ok(())
+}
+/// Entretien de la base : reconstruction des index et compactage.
+///
+/// C'est l'equivalent de la « reparation » des vieux logiciels de
+/// gestion — et ce que ce mot recouvrait vraiment : une REINDEXATION.
+/// Les bases Paradox de l'epoque perdaient leurs index bien plus
+/// souvent que leurs donnees.
+///
+/// Ce que ca corrige reellement :
+///   - un index desynchronise (recherches qui ne trouvent plus)
+///   - un fichier qui a grossi apres beaucoup de suppressions
+///
+/// Ce que ca NE corrige PAS : une page de donnees corrompue. Aucune
+/// commande SQL ne recree une donnee perdue. C'est pour ca qu'on exige
+/// une copie AVANT — VACUUM reecrit tout le fichier, et sur une base
+/// deja abimee cette reecriture peut aggraver les degats.
+pub fn entretenir(conn: &Connection, copie_avant: &str) -> Result<u64> {
+    // `VACUUM INTO` produit une copie COHERENTE, contenu du WAL inclus.
+    // Une copie de fichier a la main donnerait une base amputee des
+    // ecritures recentes — le piege documente dans MANUEL.md §13.
+    //
+    // Chemin en PARAMETRE LIE, jamais interpole : une apostrophe dans
+    // un nom d'utilisateur Windows cassait la requete (cf. le meme
+    // commentaire dans sauvegarde.rs).
+    conn.execute("VACUUM INTO ?1", rusqlite::params![copie_avant])?;
+
+    conn.execute_batch("REINDEX; VACUUM;")?;
+
+    let pages: i64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+    let taille: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+    Ok((pages * taille) as u64)
 }

@@ -294,6 +294,12 @@ pub struct ParamsLigneInput {
     pub prix_reference: i64,
     pub prix_pratique: i64,
     pub taux_tva: Option<f64>,
+    /// Vente au-dela du stock disponible. Le POS calcule le drapeau et
+    /// l'affiche en orange, mais il n'etait pas transmis : la colonne
+    /// `ligne_vente.vente_a_decouvert` existait depuis l'origine et
+    /// restait a 0 partout. Sans elle, impossible de compter les ventes
+    /// a decouvert apres coup.
+    pub a_decouvert: Option<bool>,
 }
 
 #[tauri::command]
@@ -360,13 +366,15 @@ pub fn creer_vente(
             "INSERT INTO ligne_vente
              (id, vente_id, article_id, unite_vente_id, depot_source_id,
               source_approvisionnement, quantite, prix_reference, prix_pratique,
-              taux_tva, montant_tva, cree_le, origine)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'app')",
+              taux_tva, montant_tva, vente_a_decouvert, cree_le, origine)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,'app')",
             rusqlite::params![
                 ligne_id, vente_id, ligne.article_id, ligne.unite_vente_id,
                 ligne.depot_source_id, ligne.source_approvisionnement,
                 ligne.quantite, ligne.prix_reference, ligne.prix_pratique,
-                taux_tva, montant_tva, now
+                taux_tva, montant_tva,
+                ligne.a_decouvert.unwrap_or(false) as i64,
+                now
             ],
         ).map_err(|e| e.to_string())?;
 

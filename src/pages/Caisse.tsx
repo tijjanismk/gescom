@@ -8,7 +8,8 @@ import {
   Lock, Unlock, AlertTriangle, CheckCircle2, MinusCircle
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { GlassIcon, GlassHalos } from "@/components/ui/GlassIcon";
+import { KpiPetit, GRILLE } from "@/components/ui/KpiVerre";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -442,8 +443,11 @@ export function Caisse() {
   const sessionOuverte = resume?.statut === "ouverte";
 
   return (
-    <div className="flex-1 overflow-auto p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="flex-1 overflow-auto p-6 relative"
+         style={{ fontFamily: '"Archivo Variable", Archivo, system-ui, sans-serif' }}>
+      {/* Le verre a besoin d'un fond non uni. */}
+      <GlassHalos />
+      <div className="relative z-[1] flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Caisse</h1>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={charger}>
@@ -469,21 +473,20 @@ export function Caisse() {
       </div>
 
       {/* Onglets */}
-      <div className="flex gap-1 border-b border-border mb-6">
+      <div className="relative z-[1] flex gap-2 border-b border-border mb-6 pb-2">
         {[
           { key: "jour",       label: "Aujourd'hui", icone: Wallet },
           { key: "historique", label: "Historique",  icone: HistoryIcon },
         ].map(o => {
-          const Icone = o.icone;
           const actif = onglet === o.key;
           return (
             <button key={o.key} onClick={() => setOnglet(o.key as typeof onglet)}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium
-                          border-b-2 -mb-px transition-colors
-                ${actif
-                  ? "border-foreground text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-              <Icone className="h-4 w-4" /> {o.label}
+              className={`flex items-center gap-2.5 pr-3 text-sm transition-colors
+                ${actif ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              style={{ fontWeight: actif ? 700 : 500 }}>
+              <GlassIcon icone={o.icone} taille="sm"
+                variante="clear" actif={actif} />
+              {o.label}
             </button>
           );
         })}
@@ -495,7 +498,7 @@ export function Caisse() {
 
       {/* Statut de la session */}
       {resume?.statut === "aucune" && (
-        <div className="flex items-center gap-3 p-4 bg-muted rounded-lg mb-6">
+        <div className="relative z-[1] flex items-center gap-3 p-4 bg-muted/70 border border-border mb-6">
           <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0" />
           <div>
             <p className="text-sm font-medium">Aucune session ouverte</p>
@@ -507,8 +510,8 @@ export function Caisse() {
       )}
 
       {sessionOuverte && resume && (
-        <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-950/20
-          border border-green-200 rounded-lg mb-6 text-sm">
+        <div className="relative z-[1] flex items-center gap-3 p-3 bg-green-50/70 dark:bg-green-950/20
+          border border-green-200 mb-6 text-sm">
           <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
           <span className="text-green-700 dark:text-green-400">
             Session ouverte le {fmtDate(resume.ouvert_le!)}
@@ -517,46 +520,46 @@ export function Caisse() {
         </div>
       )}
 
-      {/* KPIs */}
+      {/* KPIs
+          Session fermee : les tuiles s'eteignent. D46 — plus aucune
+          operation d'argent n'est acceptee, le chiffre reste lisible
+          mais ne se donne plus pour un etat courant. */}
       {resume && resume.statut !== "aucune" && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="pt-4">
-              <p className="text-xs text-muted-foreground">Fond ouverture</p>
-              <p className="text-lg font-bold mt-1">{fmt(resume.fond_ouverture)}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <p className="text-xs text-green-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" /> Entrées
-              </p>
-              <p className="text-lg font-bold mt-1 text-green-600">
-                + {fmt(resume.total_entrees)}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <p className="text-xs text-red-500 flex items-center gap-1">
-                <TrendingDown className="h-3 w-3" /> Sorties
-              </p>
-              <p className="text-lg font-bold mt-1 text-red-500">
-                - {fmt(resume.total_sorties)}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <p className="text-xs text-muted-foreground">Solde théorique</p>
-              <p className="text-lg font-bold mt-1">{fmt(resume.solde_theorique)}</p>
-            </CardContent>
-          </Card>
+        <div style={{ ...GRILLE, marginBottom: "1.5rem" }}>
+          <KpiPetit
+            titre="Fond d'ouverture"
+            valeur={fmt(resume.fond_ouverture)}
+            icone={Unlock}
+            variante="clear"
+            inactif={!sessionOuverte}
+          />
+          <KpiPetit
+            titre="Entrées"
+            valeur={`+ ${fmt(resume.total_entrees)}`}
+            sous={`${resume.nb_transactions} mouvement${resume.nb_transactions > 1 ? "s" : ""}`}
+            icone={TrendingUp}
+            variante="neutral"
+            inactif={!sessionOuverte}
+          />
+          <KpiPetit
+            titre="Sorties"
+            valeur={`- ${fmt(resume.total_sorties)}`}
+            icone={TrendingDown}
+            variante="neutral"
+            inactif={!sessionOuverte}
+          />
+          <KpiPetit
+            titre="Solde théorique"
+            valeur={fmt(resume.solde_theorique)}
+            icone={Wallet}
+            variante="tinted"
+            inactif={!sessionOuverte}
+          />
         </div>
       )}
 
       {/* Mouvements du jour */}
-      <Card>
+      <Card className="relative z-[1] rounded-none bg-card/70">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
             <Wallet className="h-4 w-4" />

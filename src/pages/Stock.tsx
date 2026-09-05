@@ -52,9 +52,6 @@ function formaterQuantite(q: number, unite: string): string {
   return `${q % 1 === 0 ? q : q.toFixed(2)} ${unite}`;
 }
 
-function formaterMontant(n: number): string {
-  return new Intl.NumberFormat("fr-ML").format(n) + " F";
-}
 
 function ModalEntreeStock({
   ouvert, article, onFermer, onConfirmer,
@@ -320,6 +317,133 @@ function ModalAjustement({
   );
 }
 
+interface MouvementStock {
+  date: string; type: string; libelle: string;
+  article: string; unite_base: string; quantite: number; entrant: boolean;
+  depot: string; motif: string; auteur: string;
+  fournisseur: string; prix_achat: number;
+}
+
+/**
+ * Historique global des mouvements.
+ *
+ * Le journal ne montre que la journée : dès le lendemain, un ajustement
+ * ou un transfert devient invisible. C'est pourtant l'historique qui
+ * permet de comprendre un stock faux — qui a sorti ces 12 sacs, et quand.
+ */
+function OngletMouvements() {
+  const [lignes, setLignes] = useState<MouvementStock[]>([]);
+  const [chargement, setChargement] = useState(true);
+  const [type, setType] = useState("tous");
+  const [recherche, setRecherche] = useState("");
+
+  useEffect(() => {
+    setChargement(true);
+    invoke<MouvementStock[]>("lire_mouvements_stock", {
+      typeMouvement: type === "tous" ? null : type,
+      limite: 300,
+    })
+      .then(setLignes)
+      .catch(e => console.error("Erreur mouvements :", e))
+      .finally(() => setChargement(false));
+  }, [type]);
+
+  const filtrees = lignes.filter(m =>
+    !recherche || m.article.toLowerCase().includes(recherche.toLowerCase()));
+
+  if (chargement) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <Input value={recherche} onChange={e => setRecherche(e.target.value)}
+          placeholder="Rechercher un article..." className="h-8 text-sm w-48" />
+        <Button variant="outline" size="sm" className="h-8"
+          disabled={filtrees.length === 0}
+          onClick={() => invoke("imprimer_facture", {
+            // On imprime CE QUI EST AFFICHÉ, filtres compris : la liste
+            // sert à justifier un écart sur un article précis.
+            html: genererMouvementsHTML(filtrees, { type, recherche }),
+            nomFichier: `mouvements_${new Date().toISOString().slice(0,10)}.html`,
+          }).catch(e => message(`Erreur : ${e}`,
+            { title: "Impression", kind: "error" }))}>
+          <Printer className="h-4 w-4 mr-2" /> Imprimer
+        </Button>
+        <Select value={type} onValueChange={v => { if (v) setType(v); }}>
+          <SelectTrigger className="h-8 text-sm w-44"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="tous">Tous les types</SelectItem>
+            <SelectItem value="achat">Achat facturé</SelectItem>
+            <SelectItem value="entree">Entrée</SelectItem>
+            <SelectItem value="vente">Vente</SelectItem>
+            <SelectItem value="retour">Retour client</SelectItem>
+            <SelectItem value="retour_fournisseur">Retour fournisseur</SelectItem>
+            <SelectItem value="echange">Échange</SelectItem>
+            <SelectItem value="ajustement">Ajustement</SelectItem>
+            <SelectItem value="transfert">Transfert</SelectItem>
+          </SelectContent>
+        </Select>
+        <span className="text-xs text-muted-foreground ml-auto">
+          {filtrees.length} mouvement(s) · 300 plus récents
+        </span>
+      </div>
+
+      {filtrees.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">
+          Aucun mouvement.
+        </p>
+      ) : (
+        <div className="border border-border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 border-b border-border">
+              <tr>
+                <th className="text-left px-3 py-2 font-medium">Date</th>
+                <th className="text-left px-3 py-2 font-medium">Type</th>
+                <th className="text-left px-3 py-2 font-medium">Article</th>
+                <th className="text-left px-3 py-2 font-medium">Dépôt</th>
+                <th className="text-left px-3 py-2 font-medium">Motif</th>
+                <th className="text-right px-3 py-2 font-medium">Qté</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filtrees.map((m, i) => (
+                <tr key={i} className="hover:bg-muted/30">
+                  <td className="px-3 py-2 text-xs text-muted-foreground
+                                 whitespace-nowrap">
+                    {new Date(m.date).toLocaleString("fr-ML", {
+                      day: "2-digit", month: "2-digit", year: "2-digit",
+                      hour: "2-digit", minute: "2-digit",
+                    })}
+                  </td>
+                  <td className="px-3 py-2 text-xs">{m.libelle}</td>
+                  <td className="px-3 py-2 font-medium">{m.article}</td>
+                  <td className="px-3 py-2 text-xs">{m.depot}</td>
+                  <td className="px-3 py-2 text-xs text-muted-foreground">
+                    {m.motif || m.fournisseur || "—"}
+                  </td>
+                  {/* Le signe porte le sens : ajustement et transfert
+                      vont dans les deux sens selon le cas. */}
+                  <td className={cn("px-3 py-2 text-right font-semibold",
+                    m.entrant ? "text-green-700" : "text-red-700")}>
+                    {m.entrant ? "+" : "−"} {m.quantite % 1 === 0
+                      ? m.quantite : m.quantite.toFixed(2)} {m.unite_base}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Stock() {
   const [resultat, setResultat] = useState<PageResult>({
     donnees: [], total: 0, pages: 0, page: 0,
@@ -330,6 +454,7 @@ export function Stock() {
   const [aRegulariserSeulement, setARegulariserSeulement] = useState(false);
   const [articleEntree, setArticleEntree] = useState<StockRow | null>(null);
   const [articleAjustement, setArticleAjustement] = useState<StockRow | null>(null);
+  const [onglet, setOnglet] = useState<"stock" | "mouvements">("stock");
 
   const charger = useCallback(async (p: number) => {
     setChargement(true);
@@ -390,6 +515,25 @@ export function Stock() {
           </Button>
         </div>
       </div>
+
+      {/* Onglets */}
+      <div className="flex gap-1 border-b border-border mb-4">
+        {([
+          { k: "stock", l: "État du stock" },
+          { k: "mouvements", l: "Mouvements" },
+        ] as const).map(o => (
+          <button key={o.k} onClick={() => setOnglet(o.k)}
+            className={cn(
+              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+              onglet === o.k
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground")}>
+            {o.l}
+          </button>
+        ))}
+      </div>
+
+      {onglet === "mouvements" ? <OngletMouvements /> : <>
 
       {/* Filtres */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -481,6 +625,8 @@ export function Stock() {
           </CardContent>
         </Card>
       )}
+
+      </>}
 
       <ModalEntreeStock
         ouvert={articleEntree !== null}
@@ -595,5 +741,95 @@ function genererEtatStockHTML(d: any): string {
 </div>
 
 <script>window.onload = () => { window.focus(); window.print(); }</script>
+</body></html>`;
+}
+
+/**
+ * Historique des mouvements, imprimable.
+ *
+ * Sert à justifier un écart : le patron sort la liste, la compare aux
+ * bons de livraison ou aux bons de sortie, et retrouve d'où vient la
+ * différence. C'est le document qu'on emporte au magasin, pas celui
+ * qu'on lit à l'écran — d'où le format A4 dense et les signatures.
+ *
+ * Aucun montant : les mouvements de stock ne sont pas des mouvements
+ * d'argent, et mélanger les deux fait chercher au mauvais endroit.
+ */
+function genererMouvementsHTML(
+  lignes: MouvementStock[],
+  filtre: { type: string; recherche: string },
+): string {
+  const fmtQ = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(2));
+  const fmtD = (iso: string) =>
+    new Date(iso).toLocaleString("fr-ML", {
+      day: "2-digit", month: "2-digit", year: "2-digit",
+      hour: "2-digit", minute: "2-digit",
+    });
+
+  const corps = lignes.map(m => `
+    <tr style="border-bottom:1px solid #eee">
+      <td style="padding:4px 6px;font-size:10px;white-space:nowrap">${fmtD(m.date)}</td>
+      <td style="padding:4px 6px;font-size:10px">${m.libelle}</td>
+      <td style="padding:4px 6px;font-weight:600">${m.article}</td>
+      <td style="padding:4px 6px;font-size:10px">${m.depot}</td>
+      <td style="padding:4px 6px;font-size:10px;color:#666">
+        ${m.motif || m.fournisseur || ""}
+      </td>
+      <td style="padding:4px 6px;font-size:10px">${m.auteur}</td>
+      <td style="padding:4px 6px;text-align:right;font-weight:bold">
+        ${m.entrant ? "+" : "−"} ${fmtQ(m.quantite)} ${m.unite_base}
+      </td>
+    </tr>`).join("");
+
+  const entrees = lignes.filter(m => m.entrant).length;
+  const criteres = [
+    filtre.type !== "tous" ? `type : ${filtre.type}` : null,
+    filtre.recherche ? `article : « ${filtre.recherche} »` : null,
+  ].filter(Boolean).join(" · ");
+
+  return `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8">
+<title>Mouvements de stock</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:Arial,sans-serif; font-size:11px; padding:12mm; }
+  table { width:100%; border-collapse:collapse; }
+  th { background:#eee; border-bottom:2px solid #000; padding:5px 6px;
+       text-align:left; font-size:10px; }
+  @media print { body { margin:0; } @page { size:A4; margin:8mm; } }
+</style></head>
+<body>
+  <div style="border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:10px">
+    <div style="font-size:16px;font-weight:bold">MOUVEMENTS DE STOCK</div>
+    <div style="font-size:10px;color:#555">
+      ${lignes.length} mouvement(s) · ${entrees} entrée(s),
+      ${lignes.length - entrees} sortie(s)
+      ${criteres ? " · " + criteres : ""}
+      · édité le ${new Date().toLocaleString("fr-ML")}
+    </div>
+  </div>
+
+  <table>
+    <thead><tr>
+      <th>Date</th><th>Type</th><th>Article</th><th>Dépôt</th>
+      <th>Motif</th><th>Auteur</th><th style="text-align:right">Quantité</th>
+    </tr></thead>
+    <tbody>${corps}</tbody>
+  </table>
+
+  <div style="margin-top:10px;font-size:10px;color:#666;
+              border-top:1px solid #ddd;padding-top:6px">
+    Quantités exprimées dans l'unité de base de chaque article.
+    Ce document ne porte aucun montant.
+  </div>
+
+  <div style="display:flex;justify-content:space-between;margin-top:30px">
+    <div style="width:45%;border-top:1px solid #000;padding-top:6px;
+                text-align:center">Établi par</div>
+    <div style="width:45%;border-top:1px solid #000;padding-top:6px;
+                text-align:center">Vérifié par</div>
+  </div>
+
+  <script>window.onload = () => { window.focus(); window.print(); }</script>
 </body></html>`;
 }

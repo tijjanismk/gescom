@@ -519,3 +519,84 @@ pub fn lire_factures_fournisseur_ouvertes(
 
     Ok(x)
 }
+/// Rouvre un avoir expire.
+///
+/// L'expiration est un traitement de masse declenche par un reglage :
+/// activer par erreur, lancer, puis desactiver laisse les avoirs
+/// perdus, alors que le client a son papier en main. Sans ce chemin de
+/// retour, la seule issue etait d'editer la base a la main.
+///
+/// Reserve au patron : c'est une remise en circulation de credit.
+#[tauri::command]
+pub fn reactiver_avoir(
+    etat: State<EtatApp>,
+    avoir_id: String,
+    utilisateur_role: Option<String>,
+) -> Result<(), String> {
+    if utilisateur_role.as_deref() != Some("patron") {
+        return Err("Réservé au patron".to_string());
+    }
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    // Seul un avoir EXPIRE se rouvre. Un avoir consomme ou rembourse a
+    // deja produit ses effets — le rouvrir creerait du credit a partir
+    // de rien.
+    let statut: String = conn.query_row(
+        "SELECT statut FROM avoir WHERE id = ?1",
+        rusqlite::params![avoir_id], |r| r.get(0),
+    ).map_err(|_| "Avoir introuvable".to_string())?;
+
+    if statut != "expire" {
+        return Err(format!(
+            "Cet avoir est « {} », pas expiré : il ne peut pas être rouvert.",
+            statut
+        ));
+    }
+
+    let maintenant = maintenant_iso();
+    let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
+
+    conn.execute(
+        "UPDATE avoir SET statut = 'ouvert' WHERE id = ?1",
+        rusqlite::params![avoir_id],
+    ).map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1,'avoir_reactive','avoir',?2,?3,'{}','app',?4)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), avoir_id, auteur, maintenant
+        ],
+    ).ok();
+
+    Ok(())
+}
+
+/// Avoirs expires, pour pouvoir en rouvrir un.
+#[tauri::command]
+pub fn lire_avoirs_expires(
+    etat: State<EtatApp>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let mut st = conn.prepare(
+        "SELECT a.id, COALESCE(c.nom, '—'), a.montant, a.cree_le, a.piece_id
+         FROM avoir a
+         LEFT JOIN client c ON c.id = a.client_id
+         WHERE a.statut = 'expire'
+         ORDER BY a.cree_le DESC LIMIT 200"
+    ).map_err(|e| e.to_string())?;
+
+    let x = st.query_map([], |r| {
+        Ok(serde_json::json!({
+            "id":       r.get::<_, String>(0)?,
+            "client":   r.get::<_, String>(1)?,
+            "montant":  r.get::<_, i64>(2)?,
+            "cree_le":  r.get::<_, String>(3)?,
+            "piece_id": r.get::<_, Option<String>>(4)?,
+        }))
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    Ok(x)
+}

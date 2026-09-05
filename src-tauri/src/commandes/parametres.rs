@@ -382,3 +382,93 @@ pub fn lire_stocks(etat: State<EtatApp>) -> Result<Vec<serde_json::Value>, Strin
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
     Ok(x)
 }
+
+// =====================================================================
+//  SANTE DE LA BASE
+// =====================================================================
+
+/// Diagnostic complet : structure SQLite + coherence metier.
+///
+/// A appeler au demarrage et depuis Parametres. Ne repare rien — dire
+/// au commercant qu'il doit restaurer AVANT de saisir sa journee
+/// par-dessus une base abimee, c'est tout l'interet.
+#[tauri::command]
+pub fn diagnostiquer_base(
+    etat: State<EtatApp>,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let corruption = crate::persistance::verifier_integrite(&conn)
+        .map_err(|e| e.to_string())?;
+    let anomalies = crate::persistance::anomalies_metier(&conn);
+
+    Ok(serde_json::json!({
+        // null = fichier sain. Non-null = base corrompue, RESTAURER.
+        "corruption": corruption,
+        "anomalies": anomalies.iter().map(|(libelle, n)| serde_json::json!({
+            "libelle": libelle, "nombre": n,
+        })).collect::<Vec<_>>(),
+        "sain": corruption.is_none() && anomalies.is_empty(),
+    }))
+}
+
+/// Entretien de la base — reindexation et compactage.
+///
+/// L'equivalent de la « reparation » des anciens logiciels de gestion.
+/// Ne recree AUCUNE donnee perdue : si `quick_check` signale une
+/// corruption, la seule issue est la restauration d'une sauvegarde, et
+/// cette commande refuse plutot que de donner un faux espoir.
+///
+/// Une copie horodatee est faite AVANT, systematiquement : VACUUM
+/// reecrit tout le fichier, et sur une base fragile cette reecriture
+/// peut aggraver les degats.
+#[tauri::command]
+pub fn entretenir_base(
+    app: tauri::AppHandle,
+    etat: State<EtatApp>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if utilisateur_role.as_deref() != Some("patron") {
+        return Err("Réservé au patron".to_string());
+    }
+
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    // Refus si la base est deja corrompue : REINDEX et VACUUM
+    // supposent un fichier sain. Les lancer dessus, c'est risquer de
+    // perdre ce qui restait lisible.
+    if let Some(detail) = crate::persistance::verifier_integrite(&conn)
+        .map_err(|e| e.to_string())?
+    {
+        return Err(format!(
+            "Base endommagée — l'entretien ne peut rien réparer. \
+             Restaurer la dernière sauvegarde. Détail : {}",
+            detail
+        ));
+    }
+
+    use tauri::Manager;
+    let dossier = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let copie = dossier.join(format!(
+        "gescom_avant_entretien_{}.db",
+        chrono::Local::now().format("%Y%m%d_%H%M%S")
+    ));
+    // Une copie de la veille ne sert a rien si l'entretien casse
+    // quelque chose : on veut celle d'il y a trente secondes.
+    let _ = std::fs::remove_file(&copie);
+
+    let avant: i64 = conn.query_row(
+        "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
+        [], |r| r.get(0),
+    ).unwrap_or(0);
+
+    let apres = crate::persistance::entretenir(&conn, &copie.to_string_lossy())
+        .map_err(|e| format!("Entretien interrompu : {}", e))?;
+
+    Ok(serde_json::json!({
+        "copie":        copie.to_string_lossy(),
+        "taille_avant": avant,
+        "taille_apres": apres as i64,
+        "gagne":        (avant - apres as i64).max(0),
+    }))
+}

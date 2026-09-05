@@ -274,10 +274,53 @@ function OngletUtilisateurs() {
 //  Onglet : Sauvegarde
 // =====================================================================
 
+interface Diagnostic {
+  corruption: string | null;
+  anomalies: { libelle: string; nombre: number }[];
+  sain: boolean;
+}
+
 function OngletSauvegarde() {
   const [config, setConfig] = useState<ConfigSauvegarde>({ sauvegarde_auto: false });
   const [chargement, setChargement] = useState(true);
   const [enCours, setEnCours] = useState(false);
+  const [diag, setDiag] = useState<Diagnostic | null>(null);
+  const [diagEnCours, setDiagEnCours] = useState(false);
+  const [entretienEnCours, setEntretienEnCours] = useState(false);
+
+  async function entretenirBase() {
+    if (!window.confirm(
+      "Reconstruire les index et compacter le fichier ?\n\n" +
+      "Une copie de sécurité est faite avant. L'opération ne récupère " +
+      "aucune donnée perdue — elle corrige les index et réduit la taille."
+    )) return;
+    setEntretienEnCours(true);
+    try {
+      const r = await invoke<{ gagne: number; copie: string }>(
+        "entretenir_base",
+        { utilisateurRole: UTILISATEUR_ACTIF?.role ?? "employe" });
+      await message(
+        `Terminé. ${Math.round(r.gagne / 1024)} Ko récupérés.\n\n` +
+        `Copie de sécurité : ${r.copie}`,
+        { title: "Entretien", kind: "info" });
+      setDiag(null);
+    } catch (e) {
+      await message(`${e}`, { title: "Entretien impossible", kind: "error" });
+    } finally {
+      setEntretienEnCours(false);
+    }
+  }
+
+  async function verifierBase() {
+    setDiagEnCours(true);
+    try {
+      setDiag(await invoke<Diagnostic>("diagnostiquer_base"));
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Vérification", kind: "error" });
+    } finally {
+      setDiagEnCours(false);
+    }
+  }
 
   async function charger() {
     setChargement(true);
@@ -340,6 +383,76 @@ function OngletSauvegarde() {
         <p className="font-medium text-foreground mb-1">Protection de vos données</p>
         <p>La sauvegarde copie la base de données complète vers le dossier de votre choix
           (clé USB, disque externe, autre partition).</p>
+      </div>
+
+      {/* Vérification — à faire AVANT de saisir la journée si l'ordinateur
+          s'est éteint brutalement. Saisir par-dessus une base abîmée rend
+          la restauration inutile. */}
+      <div className="border border-border rounded-lg p-4 space-y-3">
+        <div>
+          <p className="text-sm font-medium">État de la base</p>
+          <p className="text-xs text-muted-foreground">
+            À vérifier après une coupure de courant, avant de saisir quoi
+            que ce soit.
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm"
+            onClick={verifierBase} disabled={diagEnCours}>
+            {diagEnCours
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : "Vérifier la base"}
+          </Button>
+          {/* Proposé seulement après une vérification réussie : lancer
+              un VACUUM sur une base abîmée peut aggraver les dégâts,
+              et le serveur refuse de toute façon. */}
+          {diag?.sain && (
+            <Button variant="outline" size="sm"
+              onClick={entretenirBase} disabled={entretienEnCours}>
+              {entretienEnCours
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : "Réindexer et compacter"}
+            </Button>
+          )}
+        </div>
+
+        {diag && diag.sain && (
+          <p className="text-sm text-green-700">
+            ✓ Base saine — aucune anomalie détectée.
+          </p>
+        )}
+
+        {diag?.corruption && (
+          <div className="p-3 rounded-md bg-destructive/10 border
+                          border-destructive text-sm">
+            <p className="font-medium text-destructive">
+              Base endommagée
+            </p>
+            <p className="text-xs mt-1">
+              Ne saisissez plus rien. Restaurez la dernière sauvegarde,
+              puis appelez. Détail : {diag.corruption}
+            </p>
+          </div>
+        )}
+
+        {diag && !diag.corruption && diag.anomalies.length > 0 && (
+          <div className="p-3 rounded-md bg-orange-50 border border-orange-300
+                          text-sm text-orange-900">
+            <p className="font-medium">Écritures incomplètes</p>
+            <ul className="text-xs mt-1 space-y-0.5">
+              {diag.anomalies.map((a, i) => (
+                <li key={i}>• {a.libelle} : {a.nombre}</li>
+              ))}
+            </ul>
+            {/* Le fichier est sain : c'est une opération interrompue,
+                pas une corruption. Le dire évite la panique. */}
+            <p className="text-xs mt-2">
+              Le fichier n'est pas endommagé — une opération s'est
+              interrompue en cours de route. Signalez ces chiffres.
+            </p>
+          </div>
+        )}
       </div>
 
       <div>

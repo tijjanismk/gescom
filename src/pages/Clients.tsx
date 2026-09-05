@@ -288,6 +288,8 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
   const [page, setPage] = useState(0);
   const [recherche, setRecherche] = useState("");
   const [avecCreancesSeulement, setAvecCreancesSeulement] = useState(false);
+  const [ventesFiltre, setVentesFiltre] = useState<"tous" | "avec" | "sans">("tous");
+  const [tri, setTri] = useState<"creance" | "nom" | "ventes">("creance");
   const [onglet, setOnglet] = useState<"clients" | "creances">("clients");
   const [creanceSelectionnee, setCreanceSelectionnee] = useState<Creance | null>(null);
   const [modalRegler, setModalRegler] = useState(false);
@@ -301,12 +303,14 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
         page: p, limite: LIMITE,
         recherche: recherche || null,
         avecCreancesSeulement,
+        ventesFiltre: ventesFiltre === "tous" ? null : ventesFiltre,
+        tri,
       });
       setResultat(data);
     } catch (e) {
       console.error("Erreur clients :", e);
     } finally { setChargement(false); }
-  }, [recherche, avecCreancesSeulement]);
+  }, [recherche, avecCreancesSeulement, ventesFiltre, tri]);
 
   const chargerCreances = useCallback(async () => {
     setChargement(true);
@@ -324,7 +328,7 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
     setPage(0);
     if (onglet === "clients") chargerClients(0);
     else chargerCreances();
-  }, [recherche, avecCreancesSeulement, onglet]);
+  }, [recherche, avecCreancesSeulement, ventesFiltre, tri, onglet]);
 
   useEffect(() => {
     if (onglet === "clients") chargerClients(page);
@@ -393,19 +397,52 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
             className="h-8 text-sm w-48 pl-8" />
         </div>
         {onglet === "clients" && (
-          <button
-            onClick={() => setAvecCreancesSeulement(!avecCreancesSeulement)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
-              avecCreancesSeulement
-                ? "border-orange-400 bg-orange-50 text-orange-700"
-                : "border-border text-muted-foreground hover:bg-muted"
-            }`}>
-            <TrendingUp className="h-3 w-3" /> Avec créances
-          </button>
+          <>
+            <button
+              onClick={() => setAvecCreancesSeulement(!avecCreancesSeulement)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
+                avecCreancesSeulement
+                  ? "border-orange-400 bg-orange-50 text-orange-700"
+                  : "border-border text-muted-foreground hover:bg-muted"
+              }`}>
+              <TrendingUp className="h-3 w-3" /> Avec créances
+            </button>
+            <button
+              onClick={() => setVentesFiltre(f => f === "avec" ? "tous" : "avec")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
+                ventesFiltre === "avec"
+                  ? "border-blue-400 bg-blue-50 text-blue-700"
+                  : "border-border text-muted-foreground hover:bg-muted"
+              }`}>
+              Avec ventes
+            </button>
+            <button
+              onClick={() => setVentesFiltre(f => f === "sans" ? "tous" : "sans")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
+                ventesFiltre === "sans"
+                  ? "border-blue-400 bg-blue-50 text-blue-700"
+                  : "border-border text-muted-foreground hover:bg-muted"
+              }`}>
+              Sans vente
+            </button>
+            <Select value={tri} onValueChange={v => { if (v) setTri(v as typeof tri); }}>
+              <SelectTrigger className="h-8 text-xs w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="creance">Trier : créance</SelectItem>
+                <SelectItem value="nom">Trier : nom</SelectItem>
+                <SelectItem value="ventes">Trier : nb ventes</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
         )}
-        {(recherche || avecCreancesSeulement) && (
+        {(recherche || avecCreancesSeulement || ventesFiltre !== "tous" || tri !== "creance") && (
           <Button variant="ghost" size="sm" className="h-8 text-xs"
-            onClick={() => { setRecherche(""); setAvecCreancesSeulement(false); }}>
+            onClick={() => {
+              setRecherche(""); setAvecCreancesSeulement(false);
+              setVentesFiltre("tous"); setTri("creance");
+            }}>
             <X className="h-3 w-3 mr-1" /> Réinitialiser
           </Button>
         )}

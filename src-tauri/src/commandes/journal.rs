@@ -277,6 +277,37 @@ pub fn lire_journal_du_jour(
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
     // -----------------------------------------------------------------
+    //  5 ter. Ventes a decouvert du jour
+    //
+    //  Marchandise sortie au-dela du stock connu. Chacune signale soit
+    //  un stock faux, soit une entree non saisie — c'est le signal qui
+    //  dit quand aller regulariser, avant que l'ecart ne grossisse.
+    // -----------------------------------------------------------------
+    let mut st = conn.prepare(
+        "SELECT a.nom, a.unite_base, lv.quantite, COALESCE(c.nom, '—')
+         FROM ligne_vente lv
+         JOIN vente v ON v.id = lv.vente_id
+         JOIN article a ON a.id = lv.article_id
+         LEFT JOIN client c ON c.id = v.client_id
+         WHERE lv.vente_a_decouvert = 1
+           AND DATE(v.date_vente) = ?1
+           AND v.statut <> 'annulee'
+           AND (?2 IS NULL OR lv.depot_source_id = ?2)
+         ORDER BY v.date_vente"
+    ).map_err(|e| e.to_string())?;
+
+    let decouverts: Vec<serde_json::Value> = st.query_map(
+        rusqlite::params![j, dep], |r| {
+            Ok(serde_json::json!({
+                "article":    r.get::<_, String>(0)?,
+                "unite_base": r.get::<_, String>(1)?,
+                "quantite":   r.get::<_, f64>(2)?,
+                "client":     r.get::<_, String>(3)?,
+            }))
+        }
+    ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    // -----------------------------------------------------------------
     //  6. Dépenses du jour, ventilées
     // -----------------------------------------------------------------
     let mut st = conn.prepare(
@@ -360,6 +391,7 @@ pub fn lire_journal_du_jour(
         "achats":     achats,
         "retours":    retours,
         "mouvements": mouvements,
+        "decouverts": decouverts,
         "depenses":   depenses,
         "depenses_par_categorie": depenses_par_categorie,
         "caisse_par_moyen": caisse_par_moyen,
@@ -377,6 +409,7 @@ pub fn lire_journal_du_jour(
             "depenses":       total_depenses,
             "reglement_fournisseur": reglements_fournisseur,
             "nb_ventes":      ventes.len(),
+            "nb_decouverts":  decouverts.len(),
         }
     }))
 }

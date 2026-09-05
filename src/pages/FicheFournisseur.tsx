@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowLeft, Truck, Phone, MapPin, Mail, FileText,
-  Loader2, Plus, Printer, TrendingDown, Clock,
-  Package, Banknote, History, CheckCircle2,
+  Loader2, TrendingDown, Clock,
+  Package, Banknote, CheckCircle2
 } from "lucide-react";
+import { GlassHalos } from "@/components/ui/GlassIcon";
+import { KpiLigne, CARTE, GRILLE } from "@/components/ui/KpiVerre";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -258,14 +260,16 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
         ))}
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-6 relative">
+        {/* Le verre a besoin d'un fond non uni. */}
+        <GlassHalos />
 
         {/* ---- Résumé ---- */}
         {onglet === "resume" && (
           <div className="space-y-6">
 
             {/* Infos fournisseur */}
-            <div className="border border-border rounded-lg p-4 space-y-2">
+            <div className={`${CARTE} p-4 space-y-2`}>
               <p className="text-sm font-medium mb-3">Informations</p>
               {fournisseur.telephone && (
                 <div className="flex items-center gap-2 text-sm">
@@ -297,38 +301,32 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
             </div>
 
             {/* KPIs */}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div style={GRILLE}>
               {[
-                { label: "Total achats",      val: fmt(stats.total_achats),
-                  icone: TrendingDown, color: "text-primary" },
-                { label: "Nb commandes",      val: stats.nb_achats.toString(),
-                  icone: Package, color: "text-blue-600" },
-                { label: "Dette actuelle",    val: fmt(stats.dette),
+                { label: "Total achats", val: fmt(stats.total_achats),
+                  icone: TrendingDown, variante: "tinted" as const, inactif: false },
+                { label: "Nb commandes", val: stats.nb_achats.toString(),
+                  icone: Package, variante: "neutral" as const, inactif: false },
+                // D9 : la dette se lit dans les paiements, pas dans le
+                // statut — la tuile ne fait que refleter stats.dette.
+                { label: "Dette actuelle", val: fmt(stats.dette),
                   icone: Banknote,
-                  color: stats.dette > 0 ? "text-orange-600" : "text-green-600" },
-                { label: "Total payé",        val: fmt(stats.total_paye),
-                  icone: CheckCircle2, color: "text-green-600" },
-                { label: "Dernière commande", val: stats.derniere_commande
-                    ? fmtDate(stats.derniere_commande) : "—",
-                  icone: Clock, color: "text-muted-foreground" },
-              ].map(k => {
-                const Icone = k.icone;
-                return (
-                  <div key={k.label}
-                    className="border border-border rounded-lg p-3 flex items-center gap-3">
-                    <Icone className={`h-5 w-5 shrink-0 ${k.color}`} />
-                    <div>
-                      <p className="text-xs text-muted-foreground">{k.label}</p>
-                      <p className="text-sm font-semibold">{k.val}</p>
-                    </div>
-                  </div>
-                );
-              })}
+                  variante: (stats.dette > 0 ? "tinted" : "clear") as const, inactif: false },
+                { label: "Total payé", val: fmt(stats.total_paye),
+                  icone: CheckCircle2, variante: "neutral" as const, inactif: false },
+                { label: "Dernière commande",
+                  val: stats.derniere_commande ? fmtDate(stats.derniere_commande) : "—",
+                  icone: Clock, variante: "clear" as const,
+                  inactif: !stats.derniere_commande },
+              ].map(k => (
+                <KpiLigne key={k.label} label={k.label} valeur={k.val}
+                  icone={k.icone} variante={k.variante} inactif={k.inactif} />
+              ))}
             </div>
 
             {/* Barre dette */}
             {stats.total_achats > 0 && (
-              <div className="border border-border rounded-lg p-4">
+              <div className={`${CARTE} p-4`}>
                 <div className="flex justify-between text-sm mb-2">
                   <span className="text-muted-foreground">Taux de paiement</span>
                   <span className="font-medium">

@@ -10,7 +10,7 @@
 
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, Wallet, Gift } from "lucide-react";
 import { genererBonEchangeHTML } from "@/lib/genererPDF";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -686,3 +686,4 @@ export function ModalEchange({
     </Dialog>
   );
 }
+

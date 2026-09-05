@@ -2,11 +2,13 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   TrendingUp, ShoppingCart, Users, Wallet,
-  AlertTriangle, FileText, Clock, CheckCircle2,
+  AlertTriangle, FileText, Clock,
   Package, ArrowUpRight, ArrowDownRight,
   Receipt, Gift, Loader2, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GlassHalos } from "@/components/ui/GlassIcon";
+import { KpiCard, KpiPetit, CARTE, GRILLE } from "@/components/ui/KpiVerre";
 import { UTILISATEUR_ACTIF, DEPOT_ACTIF } from "@/App";
 
 // =====================================================================
@@ -67,47 +69,6 @@ function pct(a: number, b: number) {
 }
 
 // =====================================================================
-//  KPI Card
-// =====================================================================
-
-function KpiCard({
-  titre, valeur, sous, icone: Icone, couleur, tendance, onClick,
-}: {
-  titre: string; valeur: string; sous?: string;
-  icone: React.ElementType; couleur: string;
-  tendance?: number; onClick?: () => void;
-}) {
-  return (
-    <div
-      onClick={onClick}
-      className={`bg-card border border-border rounded-xl p-4 space-y-3
-                  ${onClick ? "cursor-pointer hover:shadow-md hover:border-primary/30 transition-all" : ""}`}>
-      <div className="flex items-start justify-between">
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${couleur}`}>
-          <Icone className="h-5 w-5" />
-        </div>
-        {tendance !== undefined && (
-          <div className={`flex items-center gap-1 text-xs font-medium ${
-            tendance >= 0 ? "text-green-600" : "text-red-500"
-          }`}>
-            {tendance >= 0
-              ? <ArrowUpRight className="h-3.5 w-3.5" />
-              : <ArrowDownRight className="h-3.5 w-3.5" />
-            }
-            {Math.abs(tendance)}%
-          </div>
-        )}
-      </div>
-      <div>
-        <p className="text-2xl font-bold tracking-tight">{valeur}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{titre}</p>
-        {sous && <p className="text-xs text-muted-foreground">{sous}</p>}
-      </div>
-    </div>
-  );
-}
-
-// =====================================================================
 //  Mini barre de graphe
 // =====================================================================
 
@@ -131,6 +92,9 @@ function MiniBar({ valeur, max, couleur = "bg-primary" }: {
 
 export function Dashboard() {
   const [resume, setResume] = useState<ResumeDashboard | null>(null);
+  // Ventes à découvert : marchandise sortie au-delà du stock connu.
+  // Chacune signale soit un stock faux, soit une entrée non saisie.
+  const [nbDecouverts, setNbDecouverts] = useState(0);
   const [ventesJour, setVentesJour] = useState<VenteJour[]>([]);
   const [topClients, setTopClients] = useState<TopClient[]>([]);
   const [topArticles, setTopArticles] = useState<TopArticle[]>([]);
@@ -142,13 +106,18 @@ export function Dashboard() {
   async function charger() {
     setChargement(true);
     try {
-      const [res, vj, tc, ta] = await Promise.all([
+      const auj = new Date().toISOString().slice(0, 10);
+      const [res, vj, tc, ta, dec] = await Promise.all([
         invoke<ResumeDashboard>("lire_resume_dashboard", { depotId: DEPOT_ACTIF }),
         invoke<VenteJour[]>("lire_ventes_du_jour"),
         estPatron ? invoke<TopClient[]>("lire_top_clients") : Promise.resolve([]),
         estPatron ? invoke<TopArticle[]>("lire_top_articles") : Promise.resolve([]),
+        invoke<{ nb: number }>("lire_ventes_a_decouvert", {
+          dateDebut: auj, dateFin: auj,
+        }).catch(() => ({ nb: 0 })),
       ]);
       setResume(res);
+      setNbDecouverts(dec?.nb ?? 0);
       setVentesJour(vj);
       setTopClients(tc);
       setTopArticles(ta);
@@ -196,8 +165,11 @@ export function Dashboard() {
   const maxArticle = Math.max(...topArticles.map(a => a.ca), 1);
 
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="flex-1 overflow-auto relative"
+         style={{ fontFamily: '"Archivo Variable", Archivo, system-ui, sans-serif' }}>
+      {/* Le verre ne se lit pas sur du blanc plat. */}
+      <GlassHalos />
+      <div className="relative z-[1] p-6 space-y-6 max-w-7xl mx-auto">
 
         {/* ── En-tête ── */}
         <div className="flex items-center justify-between">
@@ -226,31 +198,44 @@ export function Dashboard() {
 
         {/* ── Alertes ── */}
         {(r.nb_creances_en_retard > 0 || r.stock_ruptures > 0 ||
-          r.factures_brouillon > 0) && (
+          r.factures_brouillon > 0 || nbDecouverts > 0) && (
           <div className="flex gap-2 flex-wrap">
             {r.nb_creances_en_retard > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg
+              <div className="flex items-center gap-2 px-3 py-2
                               bg-red-50 border border-red-200 text-sm text-red-700">
                 <AlertTriangle className="h-4 w-4" />
                 <span><strong>{r.nb_creances_en_retard}</strong> créance{r.nb_creances_en_retard > 1 ? "s" : ""} en retard</span>
               </div>
             )}
             {r.factures_brouillon > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg
+              <div className="flex items-center gap-2 px-3 py-2
                               bg-orange-50 border border-orange-200 text-sm text-orange-700">
                 <FileText className="h-4 w-4" />
                 <span><strong>{r.factures_brouillon}</strong> facture{r.factures_brouillon > 1 ? "s" : ""} à valider</span>
               </div>
             )}
             {r.commandes_en_attente > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg
+              <div className="flex items-center gap-2 px-3 py-2
                               bg-blue-50 border border-blue-200 text-sm text-blue-700">
                 <Clock className="h-4 w-4" />
                 <span><strong>{r.commandes_en_attente}</strong> commande{r.commandes_en_attente > 1 ? "s" : ""} en attente</span>
               </div>
             )}
+            {/* Juste avant les ruptures : les deux disent la même
+                chose du stock, mais le découvert est plus grave — la
+                marchandise est déjà partie. */}
+            {nbDecouverts > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2
+                              bg-orange-50 border border-orange-300 text-sm text-orange-800"
+                title="Vendu au-delà du stock connu : régulariser par une entrée, un achat ou un ajustement">
+                <AlertTriangle className="h-4 w-4" />
+                <span>
+                  <strong>{nbDecouverts}</strong> vente{nbDecouverts > 1 ? "s" : ""} à découvert
+                </span>
+              </div>
+            )}
             {r.stock_ruptures > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg
+              <div className="flex items-center gap-2 px-3 py-2
                               bg-yellow-50 border border-yellow-200 text-sm text-yellow-700">
                 <Package className="h-4 w-4" />
                 <span><strong>{r.stock_ruptures}</strong> article{r.stock_ruptures > 1 ? "s" : ""} en rupture</span>
@@ -260,21 +245,22 @@ export function Dashboard() {
         )}
 
         {/* ── KPIs principaux ── */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div style={GRILLE}>
           <KpiCard
             titre="CA aujourd'hui"
             valeur={fmtCompact(r.ca_jour)}
             sous={`${r.nb_ventes_jour} vente${r.nb_ventes_jour > 1 ? "s" : ""}`}
             icone={ShoppingCart}
-            couleur="bg-primary/10 text-primary"
+            variante="tinted"
           />
           <KpiCard
             titre="CA ce mois"
             valeur={fmtCompact(r.ca_mois)}
             sous={`${r.nb_ventes_mois} ventes`}
             icone={TrendingUp}
-            couleur="bg-green-100 text-green-700"
+            variante="neutral"
             tendance={tendanceMois}
+            tendanceIcones={[ArrowUpRight, ArrowDownRight]}
           />
           {estPatron && (
             <KpiCard
@@ -282,70 +268,59 @@ export function Dashboard() {
               valeur={fmtCompact(r.total_creances)}
               sous={`${r.nb_creances_ouvertes} client${r.nb_creances_ouvertes > 1 ? "s" : ""}`}
               icone={r.nb_creances_en_retard > 0 ? AlertTriangle : Users}
-              couleur={r.nb_creances_en_retard > 0
-                ? "bg-red-100 text-red-600"
-                : "bg-orange-100 text-orange-700"
-              }
+              variante={r.nb_creances_en_retard > 0 ? "tinted" : "clear"}
             />
           )}
+          {/* Session fermee = tuile inactive : D46, aucune operation
+              d'argent n'est acceptee dans cet etat. */}
           <KpiCard
             titre="Caisse"
             valeur={fmtCompact(r.caisse_solde)}
             sous={r.caisse_session_ouverte ? "Session ouverte" : "Session fermée"}
             icone={Wallet}
-            couleur={r.caisse_session_ouverte
-              ? "bg-green-100 text-green-700"
-              : "bg-gray-100 text-gray-500"
-            }
+            variante="neutral"
+            inactif={!r.caisse_session_ouverte}
           />
         </div>
 
         {/* ── KPIs secondaires ── */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="bg-card border border-border rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Receipt className="h-4 w-4 text-purple-600" />
-              <p className="text-xs font-medium text-muted-foreground">Factures brouillon</p>
-            </div>
-            <p className="text-2xl font-bold">{r.factures_brouillon}</p>
-            <p className="text-xs text-muted-foreground">à valider</p>
-          </div>
-          <div className="bg-card border border-border rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <FileText className="h-4 w-4 text-blue-600" />
-              <p className="text-xs font-medium text-muted-foreground">Commandes</p>
-            </div>
-            <p className="text-2xl font-bold">{r.commandes_en_attente}</p>
-            <p className="text-xs text-muted-foreground">en attente de transfert</p>
-          </div>
+        <div style={GRILLE}>
+          <KpiPetit
+            titre="Factures brouillon"
+            valeur={String(r.factures_brouillon)}
+            sous="à valider"
+            icone={Receipt}
+          />
+          <KpiPetit
+            titre="Commandes"
+            valeur={String(r.commandes_en_attente)}
+            sous="en attente de transfert"
+            icone={FileText}
+          />
           {estPatron && (
-            <div className="bg-card border border-border rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Gift className="h-4 w-4 text-green-600" />
-                <p className="text-xs font-medium text-muted-foreground">Avoirs disponibles</p>
-              </div>
-              <p className="text-2xl font-bold">{fmtCompact(r.total_avoirs_ouverts)}</p>
-              <p className="text-xs text-muted-foreground">à appliquer</p>
-            </div>
+            <KpiPetit
+              titre="Avoirs disponibles"
+              valeur={fmtCompact(r.total_avoirs_ouverts)}
+              sous="à appliquer"
+              icone={Gift}
+            />
           )}
-          <div className="bg-card border border-border rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Package className={`h-4 w-4 ${r.stock_ruptures > 0 ? "text-red-500" : "text-gray-400"}`} />
-              <p className="text-xs font-medium text-muted-foreground">Stock</p>
-            </div>
-            <p className={`text-2xl font-bold ${r.stock_ruptures > 0 ? "text-red-500" : ""}`}>
-              {r.stock_ruptures}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              rupture{r.stock_ruptures > 1 ? "s" : ""}
-              {r.stock_alertes > 0 ? ` · ${r.stock_alertes} alerte${r.stock_alertes > 1 ? "s" : ""}` : ""}
-            </p>
-          </div>
+          <KpiPetit
+            titre="Stock"
+            valeur={String(r.stock_ruptures)}
+            sous={`rupture${r.stock_ruptures > 1 ? "s" : ""}` +
+                  (r.stock_alertes > 0
+                    ? ` · ${r.stock_alertes} alerte${r.stock_alertes > 1 ? "s" : ""}`
+                    : "")}
+            icone={Package}
+            variante={r.stock_ruptures > 0 ? "tinted" : "clear"}
+            alerte={r.stock_ruptures > 0}
+          />
         </div>
 
         {/* ── Graphe ventes du jour ── */}
         {ventesJour.length > 0 && (
-          <div className="bg-card border border-border rounded-xl p-5">
+          <div className={`${CARTE} p-5`}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold">Ventes aujourd'hui par heure</h2>
               <span className="text-xs text-muted-foreground">
@@ -386,7 +361,7 @@ export function Dashboard() {
 
             {/* Top clients */}
             {topClients.length > 0 && (
-              <div className="bg-card border border-border rounded-xl p-5">
+              <div className={`${CARTE} p-5`}>
                 <h2 className="text-sm font-semibold mb-4">Top clients — ce mois</h2>
                 <div className="space-y-3">
                   {topClients.slice(0, 5).map((c, i) => (
@@ -417,7 +392,7 @@ export function Dashboard() {
 
             {/* Top articles */}
             {topArticles.length > 0 && (
-              <div className="bg-card border border-border rounded-xl p-5">
+              <div className={`${CARTE} p-5`}>
                 <h2 className="text-sm font-semibold mb-4">Top articles — ce mois</h2>
                 <div className="space-y-3">
                   {topArticles.slice(0, 5).map((a, i) => (
@@ -450,7 +425,7 @@ export function Dashboard() {
 
         {/* ── CA semaine ── */}
         {estPatron && (
-          <div className="bg-card border border-border rounded-xl p-5">
+          <div className={`${CARTE} p-5`}>
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold">Résumé de la semaine</h2>
