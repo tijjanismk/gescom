@@ -152,6 +152,332 @@ pub fn lire_etat_creances_global(
     }))
 }
 
+/// Historique des reglements d'un client — ce qu'on lui montre quand il
+/// conteste.
+///
+/// Les annulations y figurent comme des lignes a part entiere, montant
+/// negatif : le client voit ce qui avait ete enregistre ET la
+/// correction. C'est tout l'interet de ne jamais supprimer.
+#[tauri::command]
+pub fn lire_reglements_client(
+    etat: State<EtatApp>,
+    client_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut st = conn.prepare(
+        "SELECT p.id, p.montant, p.mode, p.date_paiement,
+                COALESCE(u.nom, '—'),
+                v.id, COALESCE(pc.numero, ''), v.date_vente,
+                p.annule_paiement_id,
+                -- Un reglement deja annule porte une contre-passation
+                -- qui le designe : on ne l'annule pas deux fois.
+                EXISTS (SELECT 1 FROM paiement a
+                        WHERE a.annule_paiement_id = p.id) AS deja_annule
+         FROM paiement p
+         JOIN vente v ON v.id = p.vente_id
+         LEFT JOIN piece_commerciale pc ON pc.id = v.piece_id
+         LEFT JOIN utilisateur u ON u.id = p.auteur_id
+         WHERE v.client_id = ?1
+         ORDER BY p.date_paiement DESC"
+    ).map_err(|e| e.to_string())?;
+
+    let x = st.query_map(rusqlite::params![client_id], |r| {
+        let montant: i64 = r.get(1)?;
+        Ok(serde_json::json!({
+            "id":             r.get::<_, String>(0)?,
+            "montant":        montant,
+            "mode":           r.get::<_, String>(2)?,
+            "date_paiement":  r.get::<_, String>(3)?,
+            "auteur_nom":     r.get::<_, String>(4)?,
+            "vente_id":       r.get::<_, String>(5)?,
+            "numero_facture": r.get::<_, String>(6)?,
+            "date_vente":     r.get::<_, String>(7)?,
+            // Cette ligne EST une annulation.
+            "est_annulation": r.get::<_, Option<String>>(8)?.is_some(),
+            // Cette ligne A ETE annulee par une autre.
+            "deja_annule":    r.get::<_, i64>(9)? != 0,
+        }))
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    Ok(x)
+}
+
+/// Annule un reglement par contre-passation — jamais par suppression.
+///
+/// `remboursement` distingue les deux seuls cas reels :
+///   - `false` : erreur de saisie, l'argent n'est jamais entre.
+///   - `true`  : le client est rembourse, l'argent ressort du tiroir.
+///
+/// C'est `coeur::calcul::effet_caisse_annulation` qui tranche ce que la
+/// caisse doit encaisser de tout ca — regle pure, testee.
+#[tauri::command]
+pub fn annuler_reglement(
+    etat: State<EtatApp>,
+    paiement_id: String,
+    motif: String,
+    remboursement: bool,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if motif.trim().is_empty() {
+        return Err("Le motif est obligatoire : c'est lui qui explique \
+                    la correction au client et au controle.".to_string());
+    }
+
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let role = utilisateur_role.as_deref().unwrap_or("patron");
+    let auteur_id = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);
+    let maintenant = maintenant_iso();
+
+    let (montant, mode, vente_id, date_paiement, est_annulation):
+        (i64, String, String, String, bool) = conn.query_row(
+        "SELECT montant, mode, vente_id, date_paiement,
+                annule_paiement_id IS NOT NULL
+         FROM paiement WHERE id = ?1",
+        rusqlite::params![paiement_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get::<_, i64>(4)? != 0)),
+    ).map_err(|_| "Règlement introuvable".to_string())?;
+
+    if est_annulation {
+        return Err("Cette ligne est déjà une annulation — on n'annule \
+                    pas une annulation.".to_string());
+    }
+
+    let deja: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM paiement WHERE annule_paiement_id = ?1",
+        rusqlite::params![paiement_id], |r| r.get(0),
+    ).unwrap_or(0);
+    if deja > 0 {
+        return Err("Ce règlement a déjà été annulé.".to_string());
+    }
+
+    // Le paiement a-t-il ete saisi pendant la session encore ouverte ?
+    // C'est ce qui decide si sa ligne de caisse est encore corrigeable
+    // ou si la cloture l'a deja absorbee.
+    let dans_session_ouverte: bool = conn.query_row(
+        "SELECT COUNT(*) FROM session_caisse
+         WHERE statut = 'ouverte' AND ?1 >= cree_le",
+        rusqlite::params![date_paiement], |r| r.get::<_, i64>(0),
+    ).map(|n| n > 0).unwrap_or(false);
+
+    let effet = crate::coeur::calcul::effet_caisse_annulation(
+        remboursement, dans_session_ouverte, mode != "avoir");
+    let sort_de_caisse = effet == crate::coeur::calcul::EffetCaisse::Sortie;
+
+    // Caisse ouverte exigee UNIQUEMENT si de l'argent bouge (D46) :
+    // corriger une erreur de saisie sur une session close ne touche pas
+    // au tiroir, et ne doit donc pas etre bloque par une caisse fermee.
+    let session_id = if sort_de_caisse {
+        Some(crate::utils::exiger_session_caisse(&conn)?)
+    } else {
+        None
+    };
+
+    // ---- La contre-passation ----
+    conn.execute(
+        "INSERT INTO paiement
+         (id, vente_id, montant, mode, date_paiement, auteur_id,
+          cree_le, cree_par, origine, annule_paiement_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'annulation', ?9)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), vente_id, -montant, mode,
+            maintenant, auteur_id, maintenant, auteur_id, paiement_id
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    // ---- Statuts recalcules sur les paiements REELS (D36) ----
+    let (total, total_paye): (i64, i64) = conn.query_row(
+        "SELECT
+            CAST(COALESCE(SUM(lv.prix_pratique * lv.quantite), 0) AS INTEGER),
+            CAST(COALESCE((SELECT SUM(montant) FROM paiement
+                           WHERE vente_id = v.id), 0) AS INTEGER)
+         FROM vente v
+         LEFT JOIN ligne_vente lv ON lv.vente_id = v.id
+         WHERE v.id = ?1 GROUP BY v.id",
+        rusqlite::params![vente_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).map_err(|e| e.to_string())?;
+
+    let statut = match crate::coeur::calcul::statut_vente(total, total_paye) {
+        crate::coeur::calcul::StatutVente::Payee => "payee",
+        crate::coeur::calcul::StatutVente::PartiellementPayee => "partiellement_payee",
+        crate::coeur::calcul::StatutVente::CreanceOuverte => "creance_ouverte",
+    };
+    conn.execute(
+        "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
+        rusqlite::params![statut, maintenant, vente_id],
+    ).map_err(|e| e.to_string())?;
+
+    // La facture soldee redevient due. Sans ca elle resterait 'paye'
+    // avec un reste au tableau : les deux ecrans se contrediraient.
+    if statut != "payee" {
+        conn.execute(
+            "UPDATE piece_commerciale SET statut = 'emis', modifie_le = ?1
+             WHERE id = (SELECT piece_id FROM vente WHERE id = ?2)
+               AND statut = 'paye'",
+            rusqlite::params![maintenant, vente_id],
+        ).ok();
+    }
+
+    // ---- Caisse ----
+    if let Some(sid) = session_id {
+        conn.execute(
+            "INSERT INTO mouvement_caisse
+             (id, session_id, sens, moyen, montant, motif, libelle,
+              operation_id, date_mouvement, cree_le, cree_par, origine)
+             VALUES (?1,?2,'sortie',?3,?4,'remboursement',?5,?6,?7,?8,?9,'annulation')",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(), sid, mode, montant,
+                format!("Annulation règlement — {}", motif.trim()),
+                vente_id, maintenant, maintenant, auteur_id
+            ],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    conn.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          ancien_valeur, nouveau_valeur, origine, date_evenement)
+         VALUES (?1,'reglement_annule','paiement',?2,?3,?4,?5,'app',?6)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), paiement_id, auteur_id,
+            format!(r#"{{"montant":{}}}"#, montant),
+            format!(
+                r#"{{"motif":"{}","remboursement":{},"caisse":"{}"}}"#,
+                motif.trim().replace('"', "'"), remboursement,
+                if sort_de_caisse { "sortie" } else { "aucune" }),
+            maintenant
+        ],
+    ).ok();
+
+    Ok(serde_json::json!({
+        "montant_annule":  montant,
+        "sortie_de_caisse": sort_de_caisse,
+        "nouveau_statut":  statut,
+        "reste_du":        crate::coeur::calcul::reste_exigible(total, total_paye),
+    }))
+}
+
+/// Donnees d'un recu de reglement — client ou fournisseur.
+///
+/// Le recu n'est PAS une piece commerciale de plus : ni numero de serie,
+/// ni ligne en base. C'est une VUE d'un paiement qui existe deja, comme
+/// le bon de sortie est une vue d'une facture. Le numeroter en ferait un
+/// document a serie continue (D28), avec tout ce que ca impose — pour
+/// un papier qui ne fait que constater ce que `paiement` enregistre.
+///
+/// Une seule commande pour les deux cotes : la difference tient au sens
+/// de l'argent, pas au calcul. Le `reste_du` est celui de la facture
+/// APRES ce reglement — c'est le chiffre que le tiers vient verifier.
+#[tauri::command]
+pub fn lire_donnees_recu(
+    etat: State<EtatApp>,
+    paiement_id: String,
+    // "client" | "fournisseur"
+    cote: String,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    if cote == "fournisseur" {
+        let (montant, mode, date_p, note, auteur, f_nom, f_tel, f_adr, numero):
+            (i64, String, String, Option<String>, Option<String>,
+             String, Option<String>, Option<String>, Option<String>) =
+            conn.query_row(
+                "SELECT pf.montant, pf.mode, pf.date_paiement, pf.note,
+                        u.nom, f.nom, f.telephone, f.adresse, pc.numero
+                 FROM paiement_fournisseur pf
+                 JOIN fournisseur f ON f.id = pf.fournisseur_id
+                 LEFT JOIN utilisateur u ON u.id = pf.auteur_id
+                 LEFT JOIN piece_commerciale pc ON pc.id = pf.piece_id
+                 WHERE pf.id = ?1",
+                rusqlite::params![paiement_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+                        r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)),
+            ).map_err(|_| "Règlement introuvable".to_string())?;
+
+        // Reste du sur LA FACTURE imputee, s'il y en a une. Un reglement
+        // non impute (avance) n'a pas de facture a solder.
+        let reste: Option<i64> = conn.query_row(
+            "SELECT CAST(COALESCE(SUM(lp.montant_ht + lp.montant_tva), 0)
+                    - COALESCE((SELECT SUM(montant) FROM paiement_fournisseur
+                                WHERE piece_id = pc.id), 0) AS INTEGER)
+             FROM piece_commerciale pc
+             JOIN ligne_piece lp ON lp.piece_id = pc.id
+             WHERE pc.id = (SELECT piece_id FROM paiement_fournisseur WHERE id = ?1)
+             GROUP BY pc.id",
+            rusqlite::params![paiement_id], |r| r.get(0),
+        ).ok();
+
+        return Ok(serde_json::json!({
+            "cote":      "fournisseur",
+            "montant":   montant,
+            "mode":      mode,
+            "date":      date_p,
+            "note":      note,
+            "auteur":    auteur.unwrap_or_else(|| "—".into()),
+            "reference": numero.unwrap_or_default(),
+            "reste_du":  reste,
+            "tiers": {
+                "nom": f_nom, "code": "",
+                "telephone": f_tel, "adresse": f_adr,
+            },
+            "societe":   societe(&conn),
+        }));
+    }
+
+    // ---- Cote client ----
+    let (montant, mode, date_p, auteur, vente_id, numero, c_nom, c_code,
+         c_tel, c_adr, est_annulation):
+        (i64, String, String, Option<String>, String, Option<String>,
+         String, String, Option<String>, Option<String>, bool) =
+        conn.query_row(
+            "SELECT p.montant, p.mode, p.date_paiement, u.nom,
+                    v.id, pc.numero, c.nom, c.code, c.telephone, c.adresse,
+                    p.annule_paiement_id IS NOT NULL
+             FROM paiement p
+             JOIN vente v ON v.id = p.vente_id
+             JOIN client c ON c.id = v.client_id
+             LEFT JOIN piece_commerciale pc ON pc.id = v.piece_id
+             LEFT JOIN utilisateur u ON u.id = p.auteur_id
+             WHERE p.id = ?1",
+            rusqlite::params![paiement_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+                    r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
+                    r.get::<_, i64>(10)? != 0)),
+        ).map_err(|_| "Règlement introuvable".to_string())?;
+
+    // Reste du sur la vente, tous paiements confondus — donc APRES
+    // celui-ci, et net de toute annulation (D36).
+    let (total, paye): (i64, i64) = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(lv.prix_pratique * lv.quantite), 0) AS INTEGER),
+                CAST(COALESCE((SELECT SUM(montant) FROM paiement
+                               WHERE vente_id = v.id), 0) AS INTEGER)
+         FROM vente v
+         LEFT JOIN ligne_vente lv ON lv.vente_id = v.id
+         WHERE v.id = ?1 GROUP BY v.id",
+        rusqlite::params![vente_id], |r| Ok((r.get(0)?, r.get(1)?)),
+    ).unwrap_or((0, 0));
+
+    Ok(serde_json::json!({
+        "cote":      "client",
+        "montant":   montant,
+        "mode":      mode,
+        "date":      date_p,
+        "note":      serde_json::Value::Null,
+        "auteur":    auteur.unwrap_or_else(|| "—".into()),
+        "reference": numero.unwrap_or_default(),
+        "reste_du":  crate::coeur::calcul::reste_exigible(total, paye),
+        // Un recu tire d'une annulation doit le dire : c'est un
+        // justificatif de correction, pas un encaissement.
+        "est_annulation": est_annulation,
+        "tiers": {
+            "nom": c_nom, "code": c_code,
+            "telephone": c_tel, "adresse": c_adr,
+        },
+        "societe":   societe(&conn),
+    }))
+}
+
 /// En-tete societe, commun aux documents imprimes.
 pub(crate) fn societe(conn: &rusqlite::Connection) -> serde_json::Value {
     conn.query_row(

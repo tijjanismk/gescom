@@ -73,6 +73,8 @@ pub fn run() {
             commandes::parametres::sauvegarder_config_bon_sortie,
             commandes::parametres::lire_config_suivi_livraison,
             commandes::parametres::sauvegarder_config_suivi_livraison,
+            commandes::parametres::lire_config_signatures,
+            commandes::parametres::sauvegarder_config_signatures,
             // ---- Retours & avoirs ----
             commandes::retours::lire_ventes_recentes,
             commandes::retours::enregistrer_retour,
@@ -173,6 +175,9 @@ pub fn run() {
             commandes::creances::solder_residus_creances,
             commandes::creances::lire_etat_creances_client,
             commandes::creances::lire_etat_creances_global,
+            commandes::creances::lire_reglements_client,
+            commandes::creances::annuler_reglement,
+            commandes::creances::lire_donnees_recu,
             // ---- Chantiers §14 ----
             commandes::chantiers::lire_taux_tva,
             commandes::chantiers::sauvegarder_tva_article,

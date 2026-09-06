@@ -22,7 +22,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { genererImpression } from "@/lib/genererPDF";
-import type { FormatImpression, DonneesPiece } from "@/lib/genererPDF";
+import type {
+  FormatImpression, DonneesPiece, Signatures,
+} from "@/lib/genererPDF";
 
 interface ApercuPieceProps {
   /** `null` ferme l'aperçu. */
@@ -63,6 +65,7 @@ export function ApercuPiece({
   const [logo, setLogo] = useState<string | null>(null);
   const [entete, setEntete] = useState<string | null>(null);
   const [pied, setPied] = useState<string | null>(null);
+  const [signatures, setSignatures] = useState<Signatures | null>(null);
   const [format, setFormat] = useState<FormatImpression>("a4");
   const [bonSortieActif, setBonSortieActif] = useState(false);
   const [chargement, setChargement] = useState(false);
@@ -87,11 +90,12 @@ export function ApercuPiece({
       invoke<string | null>("lire_entete_base64").catch(() => null),
       invoke<string | null>("lire_pied_base64").catch(() => null),
       invoke<boolean>("lire_config_bon_sortie").catch(() => false),
+      invoke<Signatures>("lire_config_signatures").catch(() => null),
     ])
-      .then(([d, l, e, p, bs]) => {
+      .then(([d, l, e, p, bs, sig]) => {
         if (annule) return;
         setDonnees(d); setLogo(l); setEntete(e); setPied(p);
-        setBonSortieActif(bs);
+        setBonSortieActif(bs); setSignatures(sig);
       })
       .catch(e => {
         if (!annule) setErreur(typeof e === "string" ? e : JSON.stringify(e));
@@ -103,8 +107,10 @@ export function ApercuPiece({
 
   // Le même appel que l'impression : ce qui est affiché EST ce qui sort.
   const html = useMemo(
-    () => (donnees ? genererImpression(donnees, format, logo, entete, pied) : ""),
-    [donnees, format, logo, entete, pied],
+    () => (donnees
+      ? genererImpression(donnees, format, logo, entete, pied, signatures)
+      : ""),
+    [donnees, format, logo, entete, pied, signatures],
   );
 
   // Hauteur réelle du contenu. Sans mesure, un document de deux pages

@@ -69,6 +69,50 @@ pub fn repartir_reglement<T: Clone>(
     parts
 }
 
+/// Ce qu'une annulation de règlement doit faire au tiroir.
+///
+/// Deux situations que tout oppose, et les confondre fausse soit les
+/// livres, soit la caisse :
+///
+///   - **Erreur de saisie** : l'argent n'est jamais entré. Le paiement
+///     était une fiction, la ligne de caisse aussi.
+///   - **Remboursement** : l'argent est bien entré, le client conteste
+///     et on le lui rend. De l'argent sort réellement aujourd'hui.
+///
+/// Le cas subtil est l'erreur de saisie sur une session DÉJÀ CLÔTURÉE :
+/// le caissier a compté le tiroir ce soir-là, et l'écart a absorbé la
+/// ligne fantôme. Poster une sortie aujourd'hui compterait le problème
+/// une seconde fois et créerait un manque qui n'existe pas.
+#[derive(Debug, PartialEq)]
+pub enum EffetCaisse {
+    /// Une sortie à enregistrer dans la session ouverte.
+    Sortie,
+    /// Rien : soit l'argent n'a jamais touché le tiroir (avoir), soit
+    /// la clôture a déjà réglé la question.
+    Aucun,
+}
+
+/// `touche_la_caisse` : faux pour un règlement par avoir, qui n'a jamais
+/// fait entrer un franc dans le tiroir.
+/// `dans_session_ouverte` : le paiement annulé a-t-il été saisi pendant
+/// la session de caisse encore ouverte aujourd'hui.
+pub fn effet_caisse_annulation(
+    remboursement: bool,
+    dans_session_ouverte: bool,
+    touche_la_caisse: bool,
+) -> EffetCaisse {
+    if !touche_la_caisse {
+        return EffetCaisse::Aucun;
+    }
+    if remboursement {
+        // L'argent ressort physiquement, quelle que soit la session
+        // d'origine.
+        return EffetCaisse::Sortie;
+    }
+    // Erreur de saisie : ne corriger que ce qui est encore corrigeable.
+    if dans_session_ouverte { EffetCaisse::Sortie } else { EffetCaisse::Aucun }
+}
+
 /// Sous ce seuil, un reste dû n'est plus recouvrable : la plus petite
 /// pièce en circulation vaut 5 F. `CAST` tronquant en SQLite (D31), un
 /// résidu d'arrondi laisserait sinon la créance ouverte pour toujours.
@@ -220,6 +264,44 @@ mod tests {
     }
 
     // ---- Repartition d'un reglement fournisseur global ----
+
+    // ---- Effet caisse d'une annulation de reglement ----
+
+    #[test]
+    fn remboursement_sort_toujours_de_la_caisse() {
+        // L'argent est rendu au client : il quitte le tiroir, que le
+        // paiement date d'aujourd'hui ou du mois dernier.
+        assert_eq!(effet_caisse_annulation(true, true, true), EffetCaisse::Sortie);
+        assert_eq!(effet_caisse_annulation(true, false, true), EffetCaisse::Sortie);
+    }
+
+    #[test]
+    fn erreur_de_saisie_sur_session_ouverte_corrige_le_tiroir() {
+        // La ligne fantome est dans la caisse encore ouverte : elle y
+        // gonfle le solde theorique, il faut la neutraliser.
+        assert_eq!(effet_caisse_annulation(false, true, true), EffetCaisse::Sortie);
+    }
+
+    #[test]
+    fn erreur_de_saisie_sur_session_close_ne_touche_rien() {
+        // Le tiroir a ete compte ce soir-la : l'ecart a deja absorbe la
+        // ligne fantome. Poster une sortie aujourd'hui creerait un
+        // manque qui n'existe pas.
+        assert_eq!(effet_caisse_annulation(false, false, true), EffetCaisse::Aucun);
+    }
+
+    #[test]
+    fn un_avoir_ne_touche_jamais_le_tiroir() {
+        // Regle par avoir : aucun franc n'est entre, aucun ne sort.
+        for remb in [true, false] {
+            for session in [true, false] {
+                assert_eq!(
+                    effet_caisse_annulation(remb, session, false),
+                    EffetCaisse::Aucun,
+                );
+            }
+        }
+    }
 
     #[test]
     fn repartition_solde_la_plus_ancienne_d_abord() {

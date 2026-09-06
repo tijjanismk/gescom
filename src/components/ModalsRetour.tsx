@@ -415,9 +415,10 @@ export function ModalEchange({
       // ne doit pas laisser croire qu'il a échoué.
       if (bonSortieActif) {
         try {
-          const [societe, logo] = await Promise.all([
+          const [societe, logo, signatures] = await Promise.all([
             invoke<any>("lire_parametres_societe"),
             invoke<string | null>("lire_logo_base64").catch(() => null),
+            invoke<any>("lire_config_signatures").catch(() => null),
           ]);
           await invoke("imprimer_facture", {
             html: genererBonEchangeHTML({
@@ -435,7 +436,7 @@ export function ModalEchange({
                 quantite: quantiteRemplacementNum,
               },
               societe,
-            }, logo),
+            }, logo, signatures),
             nomFichier: `echange_${vente.id.slice(0, 8)}.html`,
           });
         } catch (e) {

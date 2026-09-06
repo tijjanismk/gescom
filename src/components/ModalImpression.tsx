@@ -59,10 +59,11 @@ export function ModalImpression({ ouvert, venteId, onFermer }: ModalImpressionPr
       const donnees = await invoke<DonneesPiece>("lire_donnees_piece", {
         pieceId,
       });
-      const [logo, entete, pied] = await Promise.all([
+      const [logo, entete, pied, signatures] = await Promise.all([
         invoke<string | null>("lire_logo_base64").catch(() => null),
         invoke<string | null>("lire_entete_base64").catch(() => null),
         invoke<string | null>("lire_pied_base64").catch(() => null),
+        invoke<any>("lire_config_signatures").catch(() => null),
       ]);
 
       const numero = donnees.piece?.numero ?? venteId;
@@ -77,7 +78,8 @@ export function ModalImpression({ ouvert, venteId, onFermer }: ModalImpressionPr
         : format;
 
       await invoke<string>("imprimer_facture", {
-        html: genererImpression(donnees, formatFinal, logo, entete, pied),
+        html: genererImpression(
+          donnees, formatFinal, logo, entete, pied, signatures),
         nomFichier: `gescom_${numero}.html`,
       });
 

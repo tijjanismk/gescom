@@ -830,15 +830,16 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
   async function handleImprimer(p: Piece, format: FormatImpression = "a4") {
     setImpressionEnCours(p.id);
     try {
-      const [donnees, logo, entete, pied] = await Promise.all([
+      const [donnees, logo, entete, pied, signatures] = await Promise.all([
         invoke<any>("lire_donnees_piece", { pieceId: p.id }),
         invoke<string | null>("lire_logo_base64"),
         invoke<string | null>("lire_entete_base64").catch(() => null),
         invoke<string | null>("lire_pied_base64").catch(() => null),
+        invoke<any>("lire_config_signatures").catch(() => null),
       ]);
       const suffixe = format === "bon_sortie" ? "-BS" : "";
       await invoke("imprimer_piece", {
-        html: genererImpression(donnees, format, logo, entete, pied),
+        html: genererImpression(donnees, format, logo, entete, pied, signatures),
         nomFichier: `${p.numero.replace(/\//g, "-")}${suffixe}.html`,
       });
     } catch (e) {

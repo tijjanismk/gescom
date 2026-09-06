@@ -142,6 +142,21 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     conn.execute(
         "ALTER TABLE ligne_piece ADD COLUMN quantite_livree REAL NOT NULL DEFAULT 0", []
     ).ok();
+    // Annulation d'un reglement — la contre-passation pointe le paiement
+    // qu'elle annule.
+    //
+    // Un reglement conteste ne se SUPPRIME pas : on inscrit une seconde
+    // ligne, de montant negatif, qui le neutralise. Toutes les requetes
+    // font deja SUM(montant) (D36), donc la dette se recalcule seule.
+    // Et le client qui conteste voit les deux lignes : ce qui avait ete
+    // enregistre, et la correction.
+    //
+    // Sans ce lien, impossible de savoir qu'un paiement a deja ete
+    // annule — on pourrait l'annuler deux fois et creer un avoir de
+    // nulle part.
+    conn.execute(
+        "ALTER TABLE paiement ADD COLUMN annule_paiement_id TEXT", []
+    ).ok();
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_avoir_piece ON avoir(piece_id)"
     ).ok();

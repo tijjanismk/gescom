@@ -3,7 +3,7 @@ import type { CreanceOuverteApi } from "@/lib/types-api";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowLeft, User, Phone, MapPin, Mail, FileText,
-  Loader2, Plus, Printer, ArrowRight, Eye, Pencil,
+  Loader2, Plus, Printer, ArrowRight, Eye, Pencil, RotateCcw,
   Receipt, Package, Truck, ClipboardList, Gift,
   AlertTriangle, TrendingUp, Clock,
 } from "lucide-react";
@@ -24,6 +24,7 @@ import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { genererImpression } from "@/lib/genererPDF";
 import { genererReleveHTML, type DonneesReleve } from "@/lib/genererReleve";
 import { ApercuPiece } from "@/components/ApercuPiece";
+import { ApercuRecu } from "@/components/ApercuRecu";
 import { ModalModifierTiers } from "@/components/ModalModifierTiers";
 import { UTILISATEUR_ACTIF } from "@/App";
 
@@ -68,6 +69,22 @@ interface Avoir {
 interface CreanceVente {
   vente_id: string; numero_facture?: string; date_vente: string; reste: number;
 }
+/**
+ * Une ligne de l'historique des règlements.
+ *
+ * Une annulation est une ligne comme une autre, de montant négatif :
+ * c'est ce qu'on montre au client qui conteste — ce qui avait été
+ * enregistré, et la correction, côte à côte.
+ */
+interface Reglement {
+  id: string; montant: number; mode: string; date_paiement: string;
+  auteur_nom: string; vente_id: string;
+  numero_facture: string; date_vente: string;
+  /** Cette ligne EST une annulation. */
+  est_annulation: boolean;
+  /** Cette ligne A ÉTÉ annulée par une autre. */
+  deja_annule: boolean;
+}
 
 // =====================================================================
 //  Utilitaires
@@ -76,6 +93,11 @@ interface CreanceVente {
 function fmt(n: number) {
   return new Intl.NumberFormat("fr-ML").format(n) + " F";
 }
+
+const MOYENS: Record<string, string> = {
+  especes: "Espèces", orange_money: "Orange Money",
+  moov_money: "Moov Money", cheque: "Chèque", avoir: "Avoir",
+};
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("fr-ML", {
     day: "2-digit", month: "2-digit", year: "numeric",
@@ -417,6 +439,146 @@ function ModalNouvellePiece({
 }
 
 // =====================================================================
+//  Modal : Annuler un règlement
+// =====================================================================
+//
+// La question posée ici n'est pas de la paperasse : elle décide si de
+// l'argent sort du tiroir ou non. Une erreur de saisie corrige une
+// écriture ; un remboursement fait sortir des billets. Les confondre
+// fausse soit les livres, soit la caisse.
+
+function ModalAnnulerReglement({
+  reglement, onFermer, onAnnule,
+}: {
+  reglement: Reglement | null;
+  onFermer: () => void; onAnnule: () => void;
+}) {
+  const [motif, setMotif] = useState("");
+  const [remboursement, setRemboursement] = useState(false);
+  const [chargement, setChargement] = useState(false);
+
+  useEffect(() => {
+    if (reglement) { setMotif(""); setRemboursement(false); }
+  }, [reglement]);
+
+  async function handleAnnuler() {
+    if (!reglement || !motif.trim()) return;
+    setChargement(true);
+    try {
+      const r = await invoke<{
+        montant_annule: number; sortie_de_caisse: boolean; reste_du: number;
+      }>("annuler_reglement", {
+        paiementId: reglement.id,
+        motif: motif.trim(),
+        remboursement,
+        utilisateurRole: UTILISATEUR_ACTIF?.role ?? "patron",
+      });
+      await message(
+        `Règlement de ${fmt(r.montant_annule)} annulé.\n\n`
+        + (r.sortie_de_caisse
+            ? "L'argent est sorti de la caisse."
+            : "Aucun mouvement de caisse.")
+        + `\nReste dû sur cette facture : ${fmt(r.reste_du)}`,
+        { title: "Règlement annulé", kind: "info" });
+      onAnnule();
+    } catch (e) {
+      await message(`${e}`, { title: "Annulation impossible", kind: "error" });
+    } finally { setChargement(false); }
+  }
+
+  return (
+    <Dialog open={reglement !== null} onOpenChange={o => { if (!o) onFermer(); }}>
+      <DialogContent style={{ width: "460px", maxWidth: "94vw" }}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <RotateCcw className="h-4 w-4" />
+            Annuler un règlement
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-1">
+          <div className="bg-muted rounded-md px-3 py-2 text-sm space-y-1">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Montant</span>
+              <span className="font-semibold">
+                {reglement ? fmt(reglement.montant) : ""}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Facture</span>
+              <span className="font-mono text-xs">
+                {reglement?.numero_facture || "—"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Encaissé le</span>
+              <span>{reglement ? fmtDate(reglement.date_paiement) : ""}</span>
+            </div>
+          </div>
+
+          {/* Le choix qui décide du sort de la caisse. */}
+          <div className="space-y-2">
+            <Label>Que s'est-il passé ?</Label>
+            {([
+              { val: false, titre: "Erreur de saisie",
+                detail: "L'argent n'est jamais entré : mauvais montant, "
+                      + "mauvais client, ligne saisie deux fois." },
+              { val: true, titre: "Remboursement au client",
+                detail: "L'argent était bien entré. Il ressort du tiroir "
+                      + "maintenant — la caisse doit être ouverte." },
+            ] as const).map(o => (
+              <button key={String(o.val)}
+                onClick={() => setRemboursement(o.val)}
+                className={`w-full text-left px-3 py-2.5 rounded-lg border-2
+                            transition-colors ${
+                  remboursement === o.val
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-muted-foreground"
+                }`}>
+                <p className={`text-sm font-medium ${
+                  remboursement === o.val ? "text-primary" : ""}`}>
+                  {o.titre}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">{o.detail}</p>
+              </button>
+            ))}
+          </div>
+
+          <div>
+            <Label>Motif *</Label>
+            <Input value={motif} onChange={e => setMotif(e.target.value)}
+              placeholder="Ex : montant saisi 50 000 au lieu de 5 000"
+              className="mt-1" autoFocus />
+            <p className="text-xs text-muted-foreground mt-1">
+              C'est ce que verra le client s'il conteste, et ce qui
+              explique la correction au contrôle.
+            </p>
+          </div>
+
+          <p className="text-xs text-muted-foreground border-t border-border pt-3">
+            Le règlement n'est pas supprimé : une ligne de correction
+            vient l'annuler. Les deux restent visibles dans l'historique.
+          </p>
+
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onFermer} className="flex-1">
+              Renoncer
+            </Button>
+            <Button onClick={handleAnnuler}
+              disabled={!motif.trim() || chargement}
+              variant="destructive" className="flex-1">
+              {chargement
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : "Annuler le règlement"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// =====================================================================
 //  Modal : Règlement créance
 // =====================================================================
 
@@ -518,6 +680,9 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
   const [pieceApercue, setPieceApercue] = useState<Piece | null>(null);
   const [modalModifier, setModalModifier] = useState(false);
   const [releveEnCours, setReleveEnCours] = useState(false);
+  const [reglements, setReglements] = useState<Reglement[]>([]);
+  const [reglementAAnnuler, setReglementAAnnuler] = useState<Reglement | null>(null);
+  const [recuApercu, setRecuApercu] = useState<string | null>(null);
 
   /**
    * État de créance — le relevé qu'on remet au client.
@@ -558,6 +723,8 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
             (c.client_id ?? c.vente_id) && true
           )),
         invoke<Avoir[]>("lire_avoirs_client", { clientId }),
+        invoke<Reglement[]>("lire_reglements_client", { clientId })
+          .then(setReglements).catch(() => setReglements([])),
       ]);
       setFiche(ficheData);
       setPieces(piecesData);
@@ -581,14 +748,15 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
       // `genererImpression` et non `genererPieceHTML` : cet écran
       // appelait le générateur directement et sortait donc sans
       // en-tête ni pied de page, contrairement à Pièces et au POS.
-      const [donnees, logo, entete, pied] = await Promise.all([
+      const [donnees, logo, entete, pied, signatures] = await Promise.all([
         invoke<any>("lire_donnees_piece", { pieceId: piece.id }),
         invoke<string | null>("lire_logo_base64").catch(() => null),
         invoke<string | null>("lire_entete_base64").catch(() => null),
         invoke<string | null>("lire_pied_base64").catch(() => null),
+        invoke<any>("lire_config_signatures").catch(() => null),
       ]);
       await invoke("imprimer_piece", {
-        html: genererImpression(donnees, "a4", logo, entete, pied),
+        html: genererImpression(donnees, "a4", logo, entete, pied, signatures),
         nomFichier: `${piece.numero.replace(/\//g, "-")}.html`,
       });
     } catch (e) {
@@ -670,6 +838,7 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
           { key: "resume", label: "Résumé" },
           { key: "pieces", label: `Pièces (${pieces.length})` },
           { key: "creances", label: `Créances (${creances.length})` },
+          { key: "reglements", label: `Règlements (${reglements.length})` },
           { key: "avoirs", label: `Avoirs` },
         ].map(o => (
           <button key={o.key} onClick={() => setOnglet(o.key)}
@@ -893,6 +1062,91 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
           </div>
         )}
 
+        {/* ---- Règlements ---- */}
+        {onglet === "reglements" && (
+          <div className="space-y-3">
+            {reglements.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                Aucun règlement enregistré pour ce client.
+              </p>
+            ) : (
+              <div className="border border-border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 border-b border-border">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Date</th>
+                      <th className="text-left px-3 py-2 font-medium">Facture</th>
+                      <th className="text-left px-3 py-2 font-medium">Moyen</th>
+                      <th className="text-left px-3 py-2 font-medium">Saisi par</th>
+                      <th className="text-right px-3 py-2 font-medium">Montant</th>
+                      <th className="px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {reglements.map(r => (
+                      <tr key={r.id}
+                        className={r.deja_annule ? "bg-muted/30" : ""}>
+                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                          {fmtDate(r.date_paiement)}
+                        </td>
+                        <td className="px-3 py-2 text-xs font-mono">
+                          {r.numero_facture || "—"}
+                        </td>
+                        <td className="px-3 py-2 text-xs">
+                          {MOYENS[r.mode] ?? r.mode}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
+                          {r.auteur_nom}
+                        </td>
+                        {/* Une annulation s'affiche en négatif, en rouge :
+                            le client doit voir la correction, pas une
+                            ligne qui a disparu. */}
+                        <td className={`px-3 py-2 text-right font-semibold
+                                        whitespace-nowrap ${
+                          r.est_annulation ? "text-red-600"
+                            : r.deja_annule ? "text-muted-foreground line-through"
+                            : ""}`}>
+                          {fmt(r.montant)}
+                        </td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          {/* Le reçu s'imprime pour n'importe quelle
+                              ligne, y compris une annulation : c'est
+                              alors le justificatif de la correction. */}
+                          <Button size="sm" variant="ghost"
+                            className="h-7 w-7 p-0" title="Reçu de règlement"
+                            onClick={() => setRecuApercu(r.id)}>
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          {r.est_annulation ? (
+                            <span className="text-[10px] text-red-600 ml-1">
+                              Annulation
+                            </span>
+                          ) : r.deja_annule ? (
+                            <span className="text-[10px] text-muted-foreground ml-1">
+                              Annulé
+                            </span>
+                          ) : (
+                            <Button size="sm" variant="ghost"
+                              className="h-7 text-xs gap-1"
+                              onClick={() => setReglementAAnnuler(r)}>
+                              <RotateCcw className="h-3 w-3" /> Annuler
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Un règlement annulé n'est jamais effacé : la ligne reste, et
+              une contre-passation vient l'annuler. C'est ce qu'on montre
+              au client qui conteste.
+            </p>
+          </div>
+        )}
+
         {/* ---- Avoirs ---- */}
         {onglet === "avoirs" && (
           <div className="space-y-3">
@@ -961,6 +1215,16 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
         cote="client"
         onFermer={() => setModalModifier(false)}
         onModifie={charger} />
+
+      <ModalAnnulerReglement
+        reglement={reglementAAnnuler}
+        onFermer={() => setReglementAAnnuler(null)}
+        onAnnule={() => { setReglementAAnnuler(null); charger(); }} />
+
+      <ApercuRecu
+        paiementId={recuApercu}
+        cote="client"
+        onFermer={() => setRecuApercu(null)} />
     </div>
   );
 }

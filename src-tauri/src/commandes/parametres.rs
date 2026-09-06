@@ -400,6 +400,74 @@ pub fn sauvegarder_config_suivi_livraison(
     Ok(())
 }
 
+// =====================================================================
+//  SIGNATURES DES DOCUMENTS
+// =====================================================================
+//
+// Deux noms au bas de chaque piece imprimee, avec un trait pour signer
+// dessous. Ce ne sont pas les memes selon le document : une facture se
+// signe « Pour acquit » face au fournisseur, un bon de livraison se
+// signe entre le chauffeur et celui qui receptionne.
+//
+// D'ou une paire PAR FAMILLE, et non une paire unique : mettre
+// « Le chauffeur » au bas d'une facture n'aurait aucun sens.
+//
+// Une paire vide = aucun bloc signature sur cette famille. C'est
+// l'interrupteur : pas besoin d'un reglage on/off en plus.
+
+/// Les six valeurs, avec leurs defauts. Cle -> defaut.
+const SIGNATURES: [(&str, &str); 6] = [
+    ("signature_facture_gauche",   "Pour acquit"),
+    ("signature_facture_droite",   "Le fournisseur"),
+    ("signature_livraison_gauche", "Le chauffeur"),
+    ("signature_livraison_droite", "Le réceptionnaire"),
+    ("signature_defaut_gauche",    "Le vendeur"),
+    ("signature_defaut_droite",    "Le client"),
+];
+
+#[tauri::command]
+pub fn lire_config_signatures(
+    etat: State<EtatApp>,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let mut out = serde_json::Map::new();
+
+    for (cle, defaut) in SIGNATURES {
+        // `unwrap_or(defaut)` seulement si la cle n'existe PAS. Une
+        // chaine vide enregistree volontairement doit le rester : c'est
+        // ainsi qu'on retire le bloc signature d'une famille.
+        let valeur: String = conn.query_row(
+            "SELECT valeur FROM config_app WHERE cle = ?1",
+            rusqlite::params![cle], |r| r.get(0),
+        ).unwrap_or_else(|_| defaut.to_string());
+        out.insert(cle.to_string(), serde_json::json!(valeur));
+    }
+
+    Ok(serde_json::Value::Object(out))
+}
+
+#[tauri::command]
+pub fn sauvegarder_config_signatures(
+    etat: State<EtatApp>,
+    valeurs: std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    for (cle, _) in SIGNATURES {
+        // On n'ecrit QUE les cles connues : un appelant qui enverrait
+        // n'importe quoi ne doit pas pouvoir semer des lignes libres
+        // dans config_app.
+        if let Some(v) = valeurs.get(cle) {
+            conn.execute(
+                "INSERT INTO config_app (cle, valeur) VALUES (?1, ?2)
+                 ON CONFLICT(cle) DO UPDATE SET valeur = ?2",
+                rusqlite::params![cle, v.trim()],
+            ).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn lire_stocks(etat: State<EtatApp>) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;

@@ -1,6 +1,6 @@
 # Gescom — Manuel d'utilisation
 
-*Version 1.10 — à imprimer et garder près de la caisse.*
+*Version 1.11 — à imprimer et garder près de la caisse.*
 
 ---
 
@@ -147,6 +147,24 @@ Sur une commande client, le menu **…** propose aussi **« → Livraison +
 facture »** : les deux documents d'un coup, quand la marchandise part
 avec sa facture.
 
+## Les signatures au bas des documents
+
+**Paramètres → Société → Signatures.** Deux noms, avec un trait pour
+signer dessous, au bas de chaque document imprimé.
+
+Ce ne sont pas les mêmes selon le document, d'où trois réglages :
+
+| Documents | Exemple courant |
+|---|---|
+| Factures et acomptes | Pour acquit · Le fournisseur |
+| Livraison, réception, sortie | Le chauffeur · Le réceptionnaire |
+| Devis, commande, avoir | Le vendeur · Le client |
+
+Laisser une paire vide retire le bloc de ces documents-là.
+
+Sur un document qui tient sur deux pages, la signature part à la fin, sur
+la dernière page — jamais coupée en deux.
+
 ## Voir avant d'imprimer
 
 Le bouton **œil** montre le document exactement tel qu'il sortira. Vous
@@ -201,6 +219,51 @@ liste d'appel du lundi matin.
 
 Côté fournisseur, les mêmes boutons donnent l'**état de dette**.
 
+## Voir tous les règlements d'un client
+
+**Sa fiche → onglet Règlements.** Chaque encaissement y figure : la
+date, la facture, le moyen, le montant, et **qui l'a saisi**.
+
+C'est le premier écran à ouvrir quand un client conteste : vous lui
+montrez ce qui a été enregistré, et par qui.
+
+## Le reçu de règlement
+
+Le bouton **œil** sur une ligne sort un reçu A5 : le montant en chiffres
+**et en toutes lettres**, le moyen, la facture, ce qui reste dû après ce
+versement, et le nom de celui qui a encaissé.
+
+Le montant en lettres n'est pas une décoration : c'est ce qui empêche de
+transformer 5 000 en 50 000 d'un coup de stylo.
+
+Le reçu n'est pas une pièce numérotée : c'est l'impression d'un règlement
+déjà enregistré, comme le bon de sortie l'est d'une facture.
+
+## Corriger un règlement
+
+Un client conteste, ou le caissier s'est trompé de montant. **Onglet
+Règlements → Annuler** sur la ligne concernée.
+
+> **Le règlement n'est jamais effacé.** Une ligne de correction vient
+> l'annuler, et les deux restent visibles. C'est ce qui vous permet de
+> prouver au client ce qui s'est passé.
+
+L'application demande **ce qui s'est réellement passé**, et ce n'est pas
+une formalité — la réponse décide du sort de votre caisse :
+
+**Erreur de saisie.** L'argent n'est jamais entré : montant faux, mauvais
+client, ligne saisie deux fois. On corrige une écriture.
+
+**Remboursement.** L'argent était bien entré, vous le rendez. Des billets
+sortent du tiroir, la caisse doit être ouverte.
+
+Un motif est obligatoire. C'est lui que verra le client, et c'est lui qui
+explique la correction en cas de contrôle.
+
+> Une erreur de saisie sur une journée **déjà clôturée** ne touche pas à
+> la caisse d'aujourd'hui : le tiroir avait été compté ce soir-là, et
+> l'écart avait déjà absorbé la ligne fausse.
+
 ## Relancer
 
 **Relances.** La liste des clients en retard, avec le nombre de jours.
@@ -224,6 +287,12 @@ quand.
 
 Le stock augmente et une facture fournisseur est créée. À crédit, la
 dette apparaît dans **Fournisseurs**.
+
+## Le reçu d'un paiement fournisseur
+
+**Sa fiche → onglet Paiements → bouton œil.** Même document que côté
+client, dans l'autre sens : la preuve de ce que vous lui avez versé, à
+lui opposer s'il prétend n'avoir rien reçu.
 
 ## Régler une dette
 

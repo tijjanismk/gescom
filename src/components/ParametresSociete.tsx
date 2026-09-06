@@ -33,20 +33,27 @@ export function ParametresSociete() {
   const [chargement, setChargement] = useState(true);
   const [sauvegarde, setSauvegarde] = useState(false);
   const [uploadLogo, setUploadLogo] = useState(false);
+  // Les deux noms à signer au bas des documents. Une paire par famille :
+  // une facture se signe « Pour acquit », un bon de livraison entre le
+  // chauffeur et celui qui réceptionne.
+  const [signatures, setSignatures] = useState<Record<string, string>>({});
 
   useEffect(() => {
     async function charger() {
       try {
-        const [data, logo, entete, pied] = await Promise.all([
+        const [data, logo, entete, pied, sig] = await Promise.all([
           invoke<ParamsSociete>("lire_parametres_societe"),
           invoke<string | null>("lire_logo_base64"),
           invoke<string | null>("lire_entete_base64").catch(() => null),
           invoke<string | null>("lire_pied_base64").catch(() => null),
+          invoke<Record<string, string>>("lire_config_signatures")
+            .catch(() => ({})),
         ]);
         setParams(data);
         setLogoBase64(logo);
         setEnteteBase64(entete);
         setPiedBase64(pied);
+        setSignatures(sig);
       } catch (e) {
         console.error("Erreur chargement société :", e);
       } finally {
@@ -75,6 +82,10 @@ export function ParametresSociete() {
         siteWeb: params.site_web || null,
         piedFacture: params.pied_facture || null,
       });
+      // Les signatures vivent dans config_app, pas dans
+      // parametres_societe : deux commandes, un seul bouton — c'est
+      // l'utilisateur qui compte, pas le découpage des tables.
+      await invoke("sauvegarder_config_signatures", { valeurs: signatures });
       await message("Paramètres sauvegardés ✓", { title: "Succès", kind: "info" });
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
@@ -382,6 +393,43 @@ export function ParametresSociete() {
             chaque balise.
             {piedBase64 && " Ignoré tant qu'une image de pied est définie."}
           </p>
+        </div>
+
+        {/* Signatures — au bas de chaque document, un trait sous chaque
+            nom. Une paire par famille : « Pour acquit » n'a rien à faire
+            sur un bon de livraison, ni « Le chauffeur » sur une facture. */}
+        <div className="col-span-2 border-t border-border pt-4 mt-2">
+          <p className="text-sm font-medium">Signatures au bas des documents</p>
+          <p className="text-xs text-muted-foreground mt-0.5 mb-3">
+            Deux noms, avec un trait pour signer dessous. Laisser vide
+            retire le bloc de cette famille de documents.
+          </p>
+
+          <div className="space-y-3">
+            {([
+              { cle: "facture",   titre: "Factures et acomptes" },
+              { cle: "livraison", titre: "Bons de livraison, réception et sortie" },
+              { cle: "defaut",    titre: "Autres pièces (devis, commande, avoir…)" },
+            ] as const).map(f => (
+              <div key={f.cle}>
+                <Label className="text-xs text-muted-foreground">{f.titre}</Label>
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  <Input
+                    value={signatures[`signature_${f.cle}_gauche`] ?? ""}
+                    onChange={e => setSignatures(s => ({
+                      ...s, [`signature_${f.cle}_gauche`]: e.target.value,
+                    }))}
+                    placeholder="Nom à gauche" />
+                  <Input
+                    value={signatures[`signature_${f.cle}_droite`] ?? ""}
+                    onChange={e => setSignatures(s => ({
+                      ...s, [`signature_${f.cle}_droite`]: e.target.value,
+                    }))}
+                    placeholder="Nom à droite" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 

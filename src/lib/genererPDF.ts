@@ -57,6 +57,66 @@ export interface DonneesPiece {
   totaux: any;
 }
 
+/**
+ * Les deux noms au bas des documents, réglés dans Paramètres → Société.
+ *
+ * Une paire par famille : une facture se signe « Pour acquit » face au
+ * fournisseur, un bon de livraison se signe entre le chauffeur et celui
+ * qui réceptionne. Mettre « Le chauffeur » au bas d'une facture n'aurait
+ * aucun sens, d'où trois paires plutôt qu'une.
+ */
+export interface Signatures {
+  signature_facture_gauche: string;
+  signature_facture_droite: string;
+  signature_livraison_gauche: string;
+  signature_livraison_droite: string;
+  signature_defaut_gauche: string;
+  signature_defaut_droite: string;
+}
+
+/** Quelle paire pour quel type de pièce. */
+function paireSignature(
+  signatures: Signatures | null | undefined,
+  typePiece: string,
+): [string, string] {
+  if (!signatures) return ["", ""];
+  const famille =
+    typePiece === "bon_livraison" || typePiece === "bon_reception"
+      ? "livraison"
+      : typePiece === "facture" || typePiece === "facture_acompte"
+        ? "facture"
+        : "defaut";
+  return [
+    (signatures as any)[`signature_${famille}_gauche`] ?? "",
+    (signatures as any)[`signature_${famille}_droite`] ?? "",
+  ];
+}
+
+/**
+ * Bloc de signature — deux noms, un trait sous chacun.
+ *
+ * Rendu vide si les deux noms le sont : c'est ainsi qu'on retire les
+ * signatures d'une famille de documents, sans réglage on/off en plus.
+ *
+ * `page-break-inside:avoid` : sur un document qui déborde sur une
+ * seconde page, le bloc part en entier plutôt que de se couper en deux
+ * — un trait de signature orphelin en haut de page ne se signe pas.
+ */
+function blocSignature(gauche: string, droite: string): string {
+  if (!gauche.trim() && !droite.trim()) return "";
+  const colonne = (nom: string) => `
+    <div style="width:45%">
+      <div style="font-size:10px;color:#333;margin-bottom:26px">${nom}</div>
+      <div style="border-bottom:1px solid #000"></div>
+    </div>`;
+  return `
+    <div style="display:flex;justify-content:space-between;
+                margin-top:18px;padding-top:4px;page-break-inside:avoid">
+      ${gauche.trim() ? colonne(gauche) : "<div style=\"width:45%\"></div>"}
+      ${droite.trim() ? colonne(droite) : "<div style=\"width:45%\"></div>"}
+    </div>`;
+}
+
 function fmt(n: number, devise = "FCFA"): string {
   return new Intl.NumberFormat("fr-ML").format(n) + " " + devise;
 }
@@ -112,6 +172,8 @@ export function genererPieceHTML(
   // Bandeau de bas de page. Present, il remplace la ligne de texte
   // `pied_facture`, qu'il porte deja en general.
   piedBase64?: string | null,
+  // Les deux noms a signer, regles dans Parametres → Societe.
+  signatures?: Signatures | null,
 ): string {
   const { piece, lignes, societe, totaux } = donnees;
   const devise = societe.devise ?? "FCFA";
@@ -280,23 +342,26 @@ export function genererPieceHTML(
           ${piece.note}
         </div>` : ""}
 
-      ${piedBase64
-        ? `<div class="pied-page" style="padding-top:14px;font-size:9px;
-                    color:#aaa;text-align:center">
-             Imprimé le ${fmtDateHeure(new Date().toISOString())}
-           </div>`
-        : `<div class="pied-page" style="border-top:1px solid #ddd;
-                    padding-top:6px;text-align:center">
-          <div style="font-size:10px;color:#555">
-            ${/* Interpole BRUT : le commercant peut y mettre du HTML
-                  (gras, retours a la ligne, petit tableau). Une balise
-                  non fermee casse la mise en page — c'est le prix. */
-              societe.pied_facture ?? "Merci de votre confiance"}
-          </div>
-          <div style="font-size:9px;color:#aaa;margin-top:2px">
-            Imprimé le ${fmtDateHeure(new Date().toISOString())}
-          </div>
-        </div>`}
+      <div class="bas-page">
+        ${blocSignature(...paireSignature(signatures, piece.type_piece))}
+        ${piedBase64
+          ? `<div style="padding-top:14px;font-size:9px;
+                      color:#aaa;text-align:center">
+               Imprimé le ${fmtDateHeure(new Date().toISOString())}
+             </div>`
+          : `<div style="border-top:1px solid #ddd;
+                      padding-top:6px;text-align:center;margin-top:14px">
+            <div style="font-size:10px;color:#555">
+              ${/* Interpole BRUT : le commercant peut y mettre du HTML
+                    (gras, retours a la ligne, petit tableau). Une balise
+                    non fermee casse la mise en page — c'est le prix. */
+                societe.pied_facture ?? "Merci de votre confiance"}
+            </div>
+            <div style="font-size:9px;color:#aaa;margin-top:2px">
+              Imprimé le ${fmtDateHeure(new Date().toISOString())}
+            </div>
+          </div>`}
+      </div>
       </div>
       ${piedBase64
         ? `<img src="${piedBase64}" alt="" style="width:100%;height:auto;display:block"/>`
@@ -339,7 +404,13 @@ export function genererPieceHTML(
       display: flex;
       flex-direction: column;
     }
-    .pied-page { margin-top: auto; }
+    /* Signature et pied descendent ENSEMBLE au bas de la page. Le
+       margin-top:auto est porté par le GROUPE, pas par le pied seul :
+       autrement la signature flotterait au milieu d'une facture courte
+       pendant que le pied, lui, collerait en bas.
+       Sur un document qui déborde sur une seconde page, le groupe suit
+       le contenu et atterrit à la fin — donc sur la dernière page. */
+    .bas-page { margin-top: auto; }
     .page:last-child { page-break-after: avoid; }
     @media print {
       body { margin:0; }
@@ -375,19 +446,27 @@ export function genererImpression(
   // pas de sens sur un ticket de caisse.
   enteteBase64?: string | null,
   piedBase64?: string | null,
+  // Les deux noms a signer. Le ticket thermique les ignore : on ne
+  // signe pas un recu de 58 mm de large.
+  signatures?: Signatures | null,
 ): string {
   switch (format) {
     case "thermique_58": return genererTicketThermique(donnees, logoBase64, 58);
     case "thermique_80": return genererTicketThermique(donnees, logoBase64, 80);
-    case "bon_sortie":   return genererBonSortieHTML(donnees, logoBase64, enteteBase64);
+    case "bon_sortie":
+      return genererBonSortieHTML(donnees, logoBase64, enteteBase64, signatures);
     case "a4_et_bon":
-      return genererFactureEtBonHTML(donnees, "a4", logoBase64, enteteBase64, piedBase64);
+      return genererFactureEtBonHTML(
+        donnees, "a4", logoBase64, enteteBase64, piedBase64, signatures);
     case "a5_et_bon":
-      return genererFactureEtBonHTML(donnees, "a5", logoBase64, enteteBase64, piedBase64);
+      return genererFactureEtBonHTML(
+        donnees, "a5", logoBase64, enteteBase64, piedBase64, signatures);
     case "a5":
-      return genererPieceHTML(donnees, logoBase64, "a5", enteteBase64, piedBase64);
+      return genererPieceHTML(
+        donnees, logoBase64, "a5", enteteBase64, piedBase64, signatures);
     default:
-      return genererPieceHTML(donnees, logoBase64, "a4", enteteBase64, piedBase64);
+      return genererPieceHTML(
+        donnees, logoBase64, "a4", enteteBase64, piedBase64, signatures);
   }
 }
 
@@ -576,6 +655,7 @@ function corpsBonSortie(
   donnees: DonneesPiece,
   logoBase64?: string | null,
   enteteBase64?: string | null,
+  signatures?: Signatures | null,
 ): string {
   const { piece, lignes, societe } = donnees;
   const avecEntete = !!enteteBase64;
@@ -661,8 +741,12 @@ function corpsBonSortie(
 
     <div class="bs-pied">
       <div class="bs-signatures">
-        <div class="bs-sig"><span class="bs-lbl">Le magasinier (nom et signature)</span></div>
-        <div class="bs-sig"><span class="bs-lbl">Le client (reçu la marchandise)</span></div>
+        <div class="bs-sig"><span class="bs-lbl">${
+          (signatures?.signature_livraison_gauche || "Le magasinier").trim()
+        } (nom et signature)</span></div>
+        <div class="bs-sig"><span class="bs-lbl">${
+          (signatures?.signature_livraison_droite || "Le client").trim()
+        } (reçu la marchandise)</span></div>
       </div>
       <div class="bs-mention">
         Ce bon ne vaut pas facture et ne porte aucun montant.
@@ -678,6 +762,7 @@ export function genererBonSortieHTML(
   donnees: DonneesPiece,
   logoBase64?: string | null,
   enteteBase64?: string | null,
+  signatures?: Signatures | null,
 ): string {
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -692,7 +777,7 @@ export function genererBonSortieHTML(
   </style>
 </head>
 <body>
-  ${corpsBonSortie(donnees, logoBase64, enteteBase64)}
+  ${corpsBonSortie(donnees, logoBase64, enteteBase64, signatures)}
   ${SCRIPT_IMPRESSION}
 </body>
 </html>`;
@@ -716,9 +801,10 @@ export function genererFactureEtBonHTML(
   logoBase64?: string | null,
   enteteBase64?: string | null,
   piedBase64?: string | null,
+  signatures?: Signatures | null,
 ): string {
   const facture = genererPieceHTML(
-    donnees, logoBase64, format, enteteBase64, piedBase64);
+    donnees, logoBase64, format, enteteBase64, piedBase64, signatures);
 
   // On reprend le document facture et on lui greffe le bon : styles
   // dans le <head>, corps avant le script d'impression.
@@ -726,7 +812,8 @@ export function genererFactureEtBonHTML(
     .replace("</style>", STYLES_BON_SORTIE + "\n  </style>")
     .replace(
       SCRIPT_IMPRESSION,
-      corpsBonSortie(donnees, logoBase64, enteteBase64) + "\n  " + SCRIPT_IMPRESSION,
+      corpsBonSortie(donnees, logoBase64, enteteBase64, signatures)
+        + "\n  " + SCRIPT_IMPRESSION,
     );
 }
 
@@ -763,6 +850,9 @@ export interface DonneesEchange {
 export function genererBonEchangeHTML(
   d: DonneesEchange,
   logoBase64?: string | null,
+  // Un echange fait bouger de la marchandise : il prend la paire
+  // « livraison » du reglage, comme le bon de sortie.
+  signatures?: Signatures | null,
 ): string {
   const q = (n: number) => (n % 1 === 0 ? n : n.toFixed(2));
 
@@ -854,8 +944,12 @@ export function genererBonEchangeHTML(
 
     <div class="pied">
       <div class="signatures">
-        <div class="sig"><span class="lbl">Le magasinier (nom et signature)</span></div>
-        <div class="sig"><span class="lbl">Le client (échange effectué)</span></div>
+        <div class="sig"><span class="lbl">${
+          (signatures?.signature_livraison_gauche || "Le magasinier").trim()
+        } (nom et signature)</span></div>
+        <div class="sig"><span class="lbl">${
+          (signatures?.signature_livraison_droite || "Le client").trim()
+        } (échange effectué)</span></div>
       </div>
       <div class="mention">
         Ce bon ne porte aucun montant. Toute différence de prix se règle

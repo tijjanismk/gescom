@@ -6,6 +6,7 @@ import {
   Package, Banknote, CheckCircle2
 } from "lucide-react";
 import { ApercuPiece } from "@/components/ApercuPiece";
+import { ApercuRecu } from "@/components/ApercuRecu";
 import { ModalModifierTiers } from "@/components/ModalModifierTiers";
 import { genererReleveHTML, type DonneesReleve } from "@/lib/genererReleve";
 import { GlassHalos } from "@/components/ui/GlassIcon";
@@ -191,6 +192,7 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
     useState<{ id: string; numero: string } | null>(null);
   const [modalModifier, setModalModifier] = useState(false);
   const [releveEnCours, setReleveEnCours] = useState(false);
+  const [recuApercu, setRecuApercu] = useState<string | null>(null);
 
   /**
    * État de dette — le relevé qu'on oppose au fournisseur.
@@ -480,7 +482,18 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
                       <p className="text-xs text-muted-foreground italic">{p.note}</p>
                     )}
                   </div>
-                  <span className="text-sm font-bold text-green-600">{fmt(p.montant)}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-green-600">
+                      {fmt(p.montant)}
+                    </span>
+                    {/* Le reçu du paiement fournisseur : la preuve de ce
+                        qu'on lui a versé, à opposer s'il le conteste. */}
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0"
+                      title="Reçu de paiement"
+                      onClick={() => setRecuApercu(p.id)}>
+                      <Eye className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
               ))
             )}
@@ -509,6 +522,12 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
         cote="fournisseur"
         onFermer={() => setModalModifier(false)}
         onModifie={charger}
+      />
+
+      <ApercuRecu
+        paiementId={recuApercu}
+        cote="fournisseur"
+        onFermer={() => setRecuApercu(null)}
       />
     </div>
   );
