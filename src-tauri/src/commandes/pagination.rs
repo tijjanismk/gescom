@@ -239,7 +239,7 @@ pub fn lire_clients_pagines(
         "SELECT COUNT(*) FROM (
            SELECT c.id,
              COALESCE(SUM(CASE WHEN v.statut != 'payee'
-               THEN CAST(lv_sum.total AS INTEGER) - CAST(p_sum.paye AS INTEGER)
+               THEN CAST(lv_sum.total AS INTEGER) - CAST(COALESCE(p_sum.paye, 0) AS INTEGER)
                ELSE 0 END), 0) as total_creances,
              COUNT(DISTINCT v.id) as nb_ventes
            FROM client c
@@ -260,7 +260,7 @@ pub fn lire_clients_pagines(
     let sql = format!(
         "SELECT c.id, c.code, c.nom, c.telephone,
                 COALESCE(SUM(CASE WHEN v.statut != 'payee'
-                  THEN CAST(lv_sum.total AS INTEGER) - CAST(p_sum.paye AS INTEGER)
+                  THEN CAST(lv_sum.total AS INTEGER) - CAST(COALESCE(p_sum.paye, 0) AS INTEGER)
                   ELSE 0 END), 0) as total_creances,
                 COUNT(DISTINCT v.id) as nb_ventes
          FROM client c
