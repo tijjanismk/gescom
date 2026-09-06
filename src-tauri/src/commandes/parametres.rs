@@ -503,6 +503,12 @@ pub fn entretenir_base(
         [], |r| r.get(0),
     ).unwrap_or(0);
 
+    // Reparation des reglements fournisseur globaux non imputes.
+    // AVANT le VACUUM, tant que la copie de securite vient d'etre faite
+    // et que la base est encore dans son etat d'origine.
+    let reimputes =
+        crate::commandes::chantiers::reimputer_paiements_globaux(&conn)?;
+
     let apres = crate::persistance::entretenir(&conn, &copie.to_string_lossy())
         .map_err(|e| format!("Entretien interrompu : {}", e))?;
 
@@ -511,5 +517,7 @@ pub fn entretenir_base(
         "taille_avant": avant,
         "taille_apres": apres as i64,
         "gagne":        (avant - apres as i64).max(0),
+        // Reglements globaux redistribues sur leurs factures.
+        "reimputes":    reimputes,
     }))
 }

@@ -301,6 +301,29 @@ Même risque avec `Image`, `Text`, `Option`, `Audio`, `Navigator`.
 des créances résiduelles d'un franc, jamais soldables : d'où le seuil
 de D41.
 
+**Une répartition calculée en mémoire n'existe pas.** Un règlement
+fournisseur global s'écrivait avec `piece_id = NULL` ; la répartition
+sur les factures n'était calculée que le temps de poser un statut, puis
+jetée. Or tous les écrans lisent le payé d'une facture par
+`WHERE pf.piece_id = pc.id`. La pièce affichait donc **« Payé » ET un
+reste dû égal au total**, sur la même ligne, pendant que la fiche
+fournisseur — qui somme les paiements du tiers sans filtre — paraissait
+juste. Deux écrans, deux vérités.
+
+La règle générale : **si un calcul décide où va l'argent, il doit
+l'écrire.** Un correctif qui ne traitait que l'écriture des règlements a
+laissé le même trou sur les avances (sur-paiement resté `NULL`, réparti
+en mémoire à la facture suivante). Il a fallu supprimer la logique
+« enveloppe » entièrement pour que les deux vues lisent la même source
+par construction. Voir `repartir_reglement` (`coeur/calcul.rs`, testée)
+et `reallouer_globaux` (`chantiers.rs`).
+
+**Un réglage qui n'est appliqué nulle part est pire qu'absent.**
+`sauvegarde_auto` était stocké, relu, affiché « activé » — et rien ne
+déclenchait jamais de sauvegarde. L'utilisateur se croyait protégé.
+Corollaire : l'échec d'une sauvegarde automatique doit être AFFICHÉ ;
+avalé en silence, il recrée le même mensonge.
+
 **Règle dupliquée à la main.** `reste = total - paye` et `paye >= total`
 étaient réécrits à **neuf** endroits (`pieces.rs` ×6, `chantiers.rs` ×2,
 `pieces_pos.rs`). Une correction sur deux d'entre eux laisse l'écran
@@ -326,7 +349,7 @@ remonter d'un mouvement de stock à sa FAF. Y écrire l'id de la pièce
 ## Tests
 
 ```bash
-cd src-tauri && cargo test     # 43 tests — coeur/ + livraisons
+cd src-tauri && cargo test     # 49 tests — coeur/ + livraisons
 python t_regles.py             # 12 suites, ~500 000 combinaisons
 ```
 
@@ -338,7 +361,11 @@ sur-remboursement.
 Recette manuelle : `RECETTE.md`, `APPLIQUER_V12_COMPLET.md`.
 
 ⚠️ Les commandes Tauri n'ont **aucun** test. C'est le premier endroit où
-en ajouter.
+en ajouter, et ce n'est plus théorique : les deux bugs d'imputation
+fournisseur vivaient dans du code sans filet, tandis que la partie
+couverte par `coeur/` n'a jamais lâché. Priorité à `creer_vente`,
+`valider_facture` et `regler_dette_fournisseur` — les trois commandes
+qui écrivent des créances et de la caisse.
 
 ---
 
@@ -353,6 +380,19 @@ choisir les quantités à la création, plus un `ligne_origine_id` sur
 **Héritage de livraison BL → facture en bloc.** Reporté seulement si le
 BL source est entièrement livré. Un appariement ligne à ligne
 demanderait un `ORDER BY` stable sur `lire_lignes_raw`, qui n'en a pas.
+
+**Un chèque rejeté ne défait pas son mouvement de caisse.**
+`changer_statut_cheque` supprime le paiement et rouvre la créance, mais
+l'entrée de caisse `moyen = 'cheque'` écrite à l'encaissement reste. Le
+tiroir reste juste (le rapprochement ne compte que les espèces, D29),
+mais la ventilation par moyen affiche de l'argent qui n'est jamais
+arrivé. Le correctif propre est un mouvement INVERSE, pas une
+suppression — reste à décider si un rejet exige une caisse ouverte (D46).
+
+**Pas de restauration dans l'application.** Le contrôle d'intégrité dit
+« restaurer la dernière sauvegarde » sans qu'aucun bouton ne le fasse.
+Depuis que les sauvegardes partent vraiment, c'est la moitié manquante
+du filet.
 
 **`ModalImpression` fait doublon avec `ApercuPiece`** depuis que
 l'aperçu porte le choix du format. À fusionner.

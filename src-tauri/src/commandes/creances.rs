@@ -86,6 +86,72 @@ pub fn lire_etat_creances_client(
     }))
 }
 
+/// Etat GLOBAL des creances — un client par ligne, tous confondus.
+///
+/// Le reste se calcule PAR VENTE puis s'additionne, jamais
+/// `SUM(total) - SUM(paye)` : le seuil de solde (D41) s'applique a
+/// chaque vente. Une vente soldee a 3 F pres et une autre a 3 F pres
+/// feraient sinon reapparaitre une creance de 6 F qui n'existe pas.
+#[tauri::command]
+pub fn lire_etat_creances_global(
+    etat: State<EtatApp>,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut st = conn.prepare(
+        "SELECT c.id, c.nom, c.code, c.telephone, v.id,
+                CAST(COALESCE(SUM(lv.prix_pratique * lv.quantite), 0) AS INTEGER),
+                CAST(COALESCE(
+                  (SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0
+                ) AS INTEGER)
+         FROM vente v
+         JOIN client c ON c.id = v.client_id
+         LEFT JOIN ligne_vente lv ON lv.vente_id = v.id
+         WHERE v.statut IN ('creance_ouverte','partiellement_payee')
+         GROUP BY v.id
+         ORDER BY c.nom, v.date_vente"
+    ).map_err(|e| e.to_string())?;
+
+    // (client_id) -> (nom, code, tel, nb_factures, total_du)
+    let mut par_client: Vec<(String, String, String, Option<String>, i64, i64)> = Vec::new();
+
+    let ventes = st.query_map([], |r| {
+        let total: i64 = r.get(5)?;
+        let paye: i64 = r.get(6)?;
+        Ok((
+            r.get::<_, String>(0)?, r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?, r.get::<_, Option<String>>(3)?,
+            crate::coeur::calcul::reste_exigible(total, paye),
+        ))
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok());
+
+    for (id, nom, code, tel, reste) in ventes {
+        if reste <= 0 {
+            continue;
+        }
+        match par_client.iter_mut().find(|l| l.0 == id) {
+            Some(l) => { l.4 += 1; l.5 += reste; }
+            None => par_client.push((id, nom, code, tel, 1, reste)),
+        }
+    }
+
+    // Le plus gros debiteur en premier : c'est celui qu'on appelle.
+    par_client.sort_by(|a, b| b.5.cmp(&a.5));
+
+    let total_general: i64 = par_client.iter().map(|l| l.5).sum();
+    let lignes: Vec<serde_json::Value> = par_client.into_iter()
+        .map(|(_, nom, code, tel, nb, du)| serde_json::json!({
+            "nom": nom, "code": code, "telephone": tel,
+            "nb": nb, "total_du": du,
+        })).collect();
+
+    Ok(serde_json::json!({
+        "lignes":        lignes,
+        "total_general": total_general,
+        "societe":       societe(&conn),
+    }))
+}
+
 /// En-tete societe, commun aux documents imprimes.
 pub(crate) fn societe(conn: &rusqlite::Connection) -> serde_json::Value {
     conn.query_row(

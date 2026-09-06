@@ -22,6 +22,53 @@ pub fn reste_du(total: i64, paiements: &[i64]) -> i64 {
     total - total_paye(paiements)
 }
 
+/// Répartit un règlement global sur des factures, de la plus ancienne
+/// à la plus récente.
+///
+/// Pourquoi cette fonction existe : un paiement fournisseur global était
+/// enregistré avec `piece_id = NULL`, et la répartition n'était calculée
+/// qu'EN MÉMOIRE pour poser un statut. Tous les écrans qui lisent le
+/// payé d'une facture le font par `WHERE pf.piece_id = pc.id` — un
+/// paiement sans `piece_id` n'appartient à aucune facture. Résultat : la
+/// pièce affichait « Payé » et un reste dû égal au total, sur la même
+/// ligne. La fiche fournisseur, elle, sommait tous les paiements du
+/// tiers et paraissait juste : deux écrans, deux vérités.
+///
+/// La répartition doit donc être ÉCRITE, pas devinée à la lecture.
+///
+/// `factures` : (identifiant, reste dû), déjà triées de la plus ancienne
+/// à la plus récente. Retourne les parts à imputer ; un éventuel surplus
+/// revient en `None` — le patron a payé plus qu'il ne devait, l'argent
+/// est bien sorti du tiroir et doit rester enregistré comme avance.
+pub fn repartir_reglement<T: Clone>(
+    montant: i64,
+    factures: &[(T, i64)],
+) -> Vec<(Option<T>, i64)> {
+    let mut parts = Vec::new();
+    let mut reste = montant.max(0);
+
+    for (id, du) in factures {
+        if reste == 0 {
+            break;
+        }
+        // Une facture au reste nul ou négatif ne prend rien : sinon un
+        // sur-paiement ancien absorberait le règlement d'une facture
+        // réellement due.
+        let du = (*du).max(0);
+        if du == 0 {
+            continue;
+        }
+        let part = reste.min(du);
+        parts.push((Some(id.clone()), part));
+        reste -= part;
+    }
+
+    if reste > 0 {
+        parts.push((None, reste));
+    }
+    parts
+}
+
 /// Sous ce seuil, un reste dû n'est plus recouvrable : la plus petite
 /// pièce en circulation vaut 5 F. `CAST` tronquant en SQLite (D31), un
 /// résidu d'arrondi laisserait sinon la créance ouverte pour toujours.
@@ -170,5 +217,57 @@ mod tests {
         assert_eq!(ecart_prix(800, 750), 50);
         assert_eq!(ecart_prix(800, 800), 0);
         assert!(ecart_prix(800, 900) < 0);
+    }
+
+    // ---- Repartition d'un reglement fournisseur global ----
+
+    #[test]
+    fn repartition_solde_la_plus_ancienne_d_abord() {
+        let f = [("A", 10_000), ("B", 5_000)];
+        assert_eq!(
+            repartir_reglement(12_000, &f),
+            vec![(Some("A"), 10_000), (Some("B"), 2_000)]
+        );
+    }
+
+    #[test]
+    fn repartition_partielle_ne_touche_pas_la_suivante() {
+        let f = [("A", 10_000), ("B", 5_000)];
+        assert_eq!(repartir_reglement(4_000, &f), vec![(Some("A"), 4_000)]);
+    }
+
+    #[test]
+    fn repartition_surplus_reste_non_impute() {
+        // Le patron paie plus qu'il ne doit : l'argent est sorti du
+        // tiroir, il doit rester enregistre comme avance.
+        let f = [("A", 3_000)];
+        assert_eq!(
+            repartir_reglement(5_000, &f),
+            vec![(Some("A"), 3_000), (None, 2_000)]
+        );
+    }
+
+    #[test]
+    fn repartition_saute_les_factures_soldees() {
+        // Une facture au reste nul ne doit rien prendre, sinon le
+        // reglement n'atteint jamais celle qui est reellement due.
+        let f = [("A", 0), ("B", 7_000)];
+        assert_eq!(repartir_reglement(7_000, &f), vec![(Some("B"), 7_000)]);
+    }
+
+    #[test]
+    fn repartition_sans_facture_ouverte() {
+        let f: [(&str, i64); 0] = [];
+        assert_eq!(repartir_reglement(9_000, &f), vec![(None, 9_000)]);
+    }
+
+    #[test]
+    fn repartition_conserve_le_montant_total() {
+        // Invariant : on n'invente ni ne perd un franc.
+        let f = [("A", 1_234), ("B", 4_321), ("C", 999)];
+        for m in [0, 1, 500, 1_234, 5_555, 6_554, 10_000] {
+            let somme: i64 = repartir_reglement(m, &f).iter().map(|(_, p)| p).sum();
+            assert_eq!(somme, m, "montant {m} mal reparti");
+        }
     }
 }

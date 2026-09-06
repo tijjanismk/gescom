@@ -56,6 +56,23 @@ const MOTS = {
   },
 } as const;
 
+export interface LigneReleveGlobal {
+  nom: string;
+  code: string;
+  telephone?: string | null;
+  /** Nombre de factures ouvertes. */
+  nb: number;
+  total_du: number;
+}
+
+export interface DonneesReleveGlobal {
+  lignes: LigneReleveGlobal[];
+  total_general: number;
+  societe: {
+    nom: string; adresse?: string | null; telephone?: string | null;
+  };
+}
+
 function fmt(n: number): string {
   return new Intl.NumberFormat("fr-ML").format(n) + " FCFA";
 }
@@ -71,6 +88,134 @@ function esc(s: string): string {
   return s.replace(/[&<>"']/g, c => (
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!
   ));
+}
+
+/**
+ * État GLOBAL — un tiers par ligne, tous confondus.
+ *
+ * C'est le document de pilotage : combien le commerce a dehors, et chez
+ * qui. Il partage la feuille de style du relevé individuel, mais pas sa
+ * structure — ici une ligne est un tiers, pas une facture.
+ *
+ * Trié du plus gros au plus petit : c'est le premier de la liste qu'on
+ * appelle le lundi matin.
+ */
+export function genererReleveGlobalHTML(
+  d: DonneesReleveGlobal,
+  cote: "client" | "fournisseur",
+  logoBase64?: string | null,
+  enteteBase64?: string | null,
+): string {
+  const maintenant = new Date();
+  const titre = cote === "client"
+    ? "ÉTAT GLOBAL DES CRÉANCES" : "ÉTAT GLOBAL DES DETTES";
+  const colTiers = cote === "client" ? "Client" : "Fournisseur";
+  const totalLabel = cote === "client"
+    ? "TOTAL DÛ PAR LES CLIENTS" : "TOTAL DÛ AUX FOURNISSEURS";
+
+  const lignes = d.lignes.map((l, i) => `
+    <tr>
+      <td class="rang">${i + 1}</td>
+      <td>
+        <strong>${esc(l.nom)}</strong>
+        ${l.code ? `<span class="det"> · ${esc(l.code)}</span>` : ""}
+        ${l.telephone ? `<div class="det">${esc(l.telephone)}</div>` : ""}
+      </td>
+      <td class="d">${l.nb}</td>
+      <td class="d fort">${fmt(l.total_du)}</td>
+    </tr>`).join("");
+
+  const entete = enteteBase64
+    ? `<img src="${enteteBase64}" style="width:100%;display:block;margin-bottom:10px">`
+    : `<div class="entete">
+         <div>
+           ${logoBase64
+             ? `<img src="${logoBase64}" style="max-height:52px;margin-bottom:4px">`
+             : ""}
+           <div class="soc">${esc(d.societe.nom)}</div>
+           ${d.societe.adresse
+             ? `<div class="det">${esc(d.societe.adresse)}</div>` : ""}
+         </div>
+         <div style="text-align:right">
+           <div class="titre">${titre}</div>
+           <div class="det">Édité le ${maintenant.toLocaleDateString("fr-ML")}
+             à ${maintenant.toLocaleTimeString("fr-ML",
+               { hour: "2-digit", minute: "2-digit" })}</div>
+           <div class="det">${d.lignes.length} ${
+             cote === "client" ? "client(s)" : "fournisseur(s)"} concerné(s)</div>
+         </div>
+       </div>`;
+
+  return `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8">
+<title>${titre}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:Arial,sans-serif; font-size:12px; padding:12mm; }
+  .entete { display:flex; justify-content:space-between;
+            border-bottom:2px solid #000; padding-bottom:8px;
+            margin-bottom:12px; }
+  .soc { font-size:16px; font-weight:bold; }
+  .titre { font-size:18px; font-weight:bold; letter-spacing:1px; }
+  .det { font-size:10px; color:#555; }
+  table { width:100%; border-collapse:collapse; }
+  th { background:#eee; border-bottom:2px solid #000; padding:6px 8px;
+       text-align:left; font-size:10px; text-transform:uppercase; }
+  td { padding:6px 8px; border-bottom:1px solid #e5e5e5;
+       vertical-align:top; }
+  .rang { color:#999; width:28px; }
+  .d { text-align:right; }
+  .fort { font-weight:bold; }
+  .total { border-top:2px solid #000; background:#f5f5f5; }
+  .total td { padding:9px 8px; font-size:14px; font-weight:bold; }
+  .vide { text-align:center; padding:26px; color:#777; }
+  .mention { margin-top:10px; font-size:10px; color:#666;
+             border-top:1px solid #ddd; padding-top:6px; }
+  .sign { display:flex; justify-content:space-between; margin-top:34px; }
+  .sign > div { width:45%; border-top:1px solid #000; padding-top:6px;
+                text-align:center; font-size:11px; }
+  @media print { body { margin:0; } @page { size:A4; margin:8mm; }
+                 thead { display:table-header-group; } }
+</style></head>
+<body>
+
+${entete}
+
+${d.lignes.length === 0 ? `
+  <p class="vide">${cote === "client"
+    ? "Aucune créance ouverte — tous les clients sont à jour."
+    : "Aucune dette ouverte — tous les fournisseurs sont réglés."}</p>
+` : `
+<table>
+  <thead>
+    <tr>
+      <th></th><th>${colTiers}</th>
+      <th class="d">Factures</th><th class="d">Reste dû</th>
+    </tr>
+  </thead>
+  <tbody>${lignes}</tbody>
+  <tfoot>
+    <tr class="total">
+      <td colspan="3">${totalLabel}</td>
+      <td class="d">${fmt(d.total_general)}</td>
+    </tr>
+  </tfoot>
+</table>
+`}
+
+<p class="mention">
+  Situation arrêtée à la date d'édition. Les règlements postérieurs n'y
+  figurent pas. Montants calculés sur les paiements réellement
+  enregistrés.
+</p>
+
+<div class="sign">
+  <div>Établi par</div>
+  <div>Vérifié par</div>
+</div>
+
+<script>window.onload = () => { window.focus(); window.print(); }</script>
+</body></html>`;
 }
 
 export function genererReleveHTML(

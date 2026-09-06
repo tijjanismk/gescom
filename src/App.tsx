@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { message } from "@tauri-apps/plugin-dialog";
 import { Layout } from "@/components/Layout";
 import { PageLogin, UtilisateurConnecte } from "@/pages/PageLogin";
 import { ModalChangerMdp } from "@/components/ModalChangerMdp";
@@ -130,6 +132,32 @@ function App() {
   useEffect(() => {
     if (utilisateur?.doit_changer_mdp) setModalMdp(true);
   }, []);
+
+  /**
+   * Sauvegarde hebdomadaire.
+   *
+   * Au démarrage, pas sur une minuterie : le poste d'un commerçant est
+   * éteint le soir, une tâche à heure fixe ne partirait jamais.
+   *
+   * L'échec est AFFICHÉ. Une clé USB débranchée fait rater la copie ;
+   * si on l'avalait en silence, l'interrupteur « activé » redeviendrait
+   * le mensonge qu'il était — l'utilisateur se croirait protégé sans
+   * l'être. C'est tout l'intérêt de la fonction.
+   */
+  useEffect(() => {
+    if (!utilisateur) return;
+    invoke<{ effectuee: boolean; chemin?: string; erreur?: string }>(
+      "sauvegarde_auto_si_necessaire",
+    )
+      .then(r => {
+        if (r.erreur) {
+          message(r.erreur, { title: "Sauvegarde automatique", kind: "warning" });
+        } else if (r.effectuee) {
+          console.info("Sauvegarde hebdomadaire effectuée :", r.chemin);
+        }
+      })
+      .catch(e => console.error("Sauvegarde automatique :", e));
+  }, [utilisateur?.id]);
 
   function naviguer(page: string, params?: any) {
     setPageActive(page);

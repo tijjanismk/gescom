@@ -3,8 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   Users, TrendingUp, Loader2, Plus, X,
   Search, Wallet, ChevronDown, ChevronRight,
-  CheckCircle2, FileText,
+  CheckCircle2, FileText, Printer,
 } from "lucide-react";
+import {
+  genererReleveHTML, genererReleveGlobalHTML,
+  type DonneesReleve, type DonneesReleveGlobal,
+} from "@/lib/genererReleve";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -290,6 +294,54 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
   const [avecCreancesSeulement, setAvecCreancesSeulement] = useState(false);
   const [ventesFiltre, setVentesFiltre] = useState<"tous" | "avec" | "sans">("tous");
   const [tri, setTri] = useState<"creance" | "nom" | "ventes">("creance");
+  const [releveEnCours, setReleveEnCours] = useState<string | null>(null);
+
+  /**
+   * État de créance d'un client, sans passer par sa fiche.
+   *
+   * Les montants viennent du backend (D36, D41) : un document ne
+   * recalcule jamais un montant, sinon le papier finit par contredire
+   * l'écran sur un arrondi.
+   */
+  /** État global : ce que le commerce a dehors, et chez qui. */
+  async function imprimerReleveGlobal() {
+    setReleveEnCours("global");
+    try {
+      const [donnees, logo, entete] = await Promise.all([
+        invoke<DonneesReleveGlobal>("lire_etat_creances_global"),
+        invoke<string | null>("lire_logo_base64").catch(() => null),
+        invoke<string | null>("lire_entete_base64").catch(() => null),
+      ]);
+      await invoke("imprimer_facture", {
+        html: genererReleveGlobalHTML(donnees, "client", logo, entete),
+        nomFichier: `etat_creances_${new Date().toISOString().slice(0, 10)}.html`,
+      });
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Impression", kind: "error" });
+    } finally {
+      setReleveEnCours(null);
+    }
+  }
+
+  async function imprimerReleve(c: ClientRow) {
+    setReleveEnCours(c.id);
+    try {
+      const [donnees, logo, entete] = await Promise.all([
+        invoke<DonneesReleve>("lire_etat_creances_client", { clientId: c.id }),
+        invoke<string | null>("lire_logo_base64").catch(() => null),
+        invoke<string | null>("lire_entete_base64").catch(() => null),
+      ]);
+      await invoke("imprimer_facture", {
+        html: genererReleveHTML(donnees, "client", logo, entete),
+        nomFichier: `creance_${c.code || c.nom}`
+          .replace(/[\\/:*?"<>|]/g, "-") + ".html",
+      });
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Impression", kind: "error" });
+    } finally {
+      setReleveEnCours(null);
+    }
+  }
   const [onglet, setOnglet] = useState<"clients" | "creances">("clients");
   const [creanceSelectionnee, setCreanceSelectionnee] = useState<Creance | null>(null);
   const [modalRegler, setModalRegler] = useState(false);
@@ -356,6 +408,13 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
         <h1 className="text-2xl font-semibold">Clients</h1>
         <div className="flex items-center gap-2">
           <Badge variant="secondary">{resultat.total} clients</Badge>
+          <Button size="sm" variant="outline" onClick={imprimerReleveGlobal}
+            disabled={releveEnCours === "global"}>
+            {releveEnCours === "global"
+              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              : <Printer className="h-4 w-4 mr-1" />}
+            État des créances
+          </Button>
           <Button size="sm" onClick={() => setModalNouveauClient(true)}>
             <Plus className="h-4 w-4 mr-1" /> Nouveau
           </Button>
@@ -488,6 +547,22 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
                         <p className="text-xs text-muted-foreground">
                           {c.nb_ventes} vente{c.nb_ventes > 1 ? "s" : ""}
                         </p>
+                        {/* État de créance — seulement s'il y a une
+                            créance : imprimer un relevé vide n'a pas
+                            de sens, et le bouton encombrerait chaque
+                            ligne d'un client à jour. */}
+                        {c.total_creances > 0 && (
+                          <Button
+                            size="sm" variant="ghost"
+                            className="h-7 w-7 p-0"
+                            title="Imprimer l'état de créance"
+                            disabled={releveEnCours === c.id}
+                            onClick={() => imprimerReleve(c)}>
+                            {releveEnCours === c.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Printer className="h-3.5 w-3.5" />}
+                          </Button>
+                        )}
                         {/* ← Bouton Fiche */}
                         <Button
                           size="sm" variant="outline"

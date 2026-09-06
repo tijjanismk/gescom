@@ -3,8 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   Truck, Plus, Search, X, Loader2,
   FileText, Banknote, ChevronDown, ChevronRight,
-  CheckCircle2,
+  CheckCircle2, Printer,
 } from "lucide-react";
+import {
+  genererReleveHTML, genererReleveGlobalHTML,
+  type DonneesReleve, type DonneesReleveGlobal,
+} from "@/lib/genererReleve";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -240,6 +244,54 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
   const [modalNouv, setModalNouv] = useState(false);
   const [modalRegler, setModalRegler] = useState(false);
   const [fournisseurActif, setFournisseurActif] = useState<Fournisseur | null>(null);
+  const [releveEnCours, setReleveEnCours] = useState<string | null>(null);
+
+  /**
+   * État de dette d'un fournisseur, sans passer par sa fiche.
+   *
+   * Les montants viennent du backend : la dette se lit dans
+   * `paiement_fournisseur` (D9, D36), jamais dans le statut des pièces.
+   */
+  /** État global : ce que le commerce doit, et à qui. */
+  async function imprimerReleveGlobal() {
+    setReleveEnCours("global");
+    try {
+      const [donnees, logo, entete] = await Promise.all([
+        invoke<DonneesReleveGlobal>("lire_etat_dettes_global"),
+        invoke<string | null>("lire_logo_base64").catch(() => null),
+        invoke<string | null>("lire_entete_base64").catch(() => null),
+      ]);
+      await invoke("imprimer_facture", {
+        html: genererReleveGlobalHTML(donnees, "fournisseur", logo, entete),
+        nomFichier: `etat_dettes_${new Date().toISOString().slice(0, 10)}.html`,
+      });
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Impression", kind: "error" });
+    } finally {
+      setReleveEnCours(null);
+    }
+  }
+
+  async function imprimerReleve(f: Fournisseur) {
+    setReleveEnCours(f.id);
+    try {
+      const [donnees, logo, entete] = await Promise.all([
+        invoke<DonneesReleve>("lire_etat_dette_fournisseur", {
+          fournisseurId: f.id,
+        }),
+        invoke<string | null>("lire_logo_base64").catch(() => null),
+        invoke<string | null>("lire_entete_base64").catch(() => null),
+      ]);
+      await invoke("imprimer_facture", {
+        html: genererReleveHTML(donnees, "fournisseur", logo, entete),
+        nomFichier: `dette_${f.nom}`.replace(/[\\/:*?"<>|]/g, "-") + ".html",
+      });
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Impression", kind: "error" });
+    } finally {
+      setReleveEnCours(null);
+    }
+  }
   const [expandeId, setExpandeId] = useState<string | null>(null);
 
   const charger = useCallback(async (p = 0) => {
@@ -282,6 +334,13 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
         <h1 className="text-2xl font-semibold">Fournisseurs</h1>
         <div className="flex items-center gap-2">
           <Badge variant="secondary">{total} fournisseurs</Badge>
+          <Button size="sm" variant="outline" onClick={imprimerReleveGlobal}
+            disabled={releveEnCours === "global"}>
+            {releveEnCours === "global"
+              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              : <Printer className="h-4 w-4 mr-1" />}
+            État des dettes
+          </Button>
           <Button size="sm" onClick={() => setModalNouv(true)}>
             <Plus className="h-4 w-4 mr-1" /> Nouveau
           </Button>
@@ -408,6 +467,19 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
                               setModalRegler(true);
                             }}>
                             <Banknote className="h-3 w-3" /> Régler
+                          </Button>
+                        )}
+                        {/* État de dette — seulement s'il y a une dette :
+                            un relevé vide n'a rien à opposer. */}
+                        {(f.dette ?? 0) > 0 && (
+                          <Button size="sm" variant="ghost"
+                            className="h-7 w-7 p-0"
+                            title="Imprimer l'état de dette"
+                            disabled={releveEnCours === f.id}
+                            onClick={e => { e.stopPropagation(); imprimerReleve(f); }}>
+                            {releveEnCours === f.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Printer className="h-3.5 w-3.5" />}
                           </Button>
                         )}
                         <Button size="sm" variant="outline"

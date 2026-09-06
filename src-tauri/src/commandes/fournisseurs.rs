@@ -250,6 +250,83 @@ pub fn lire_etat_dette_fournisseur(
     }))
 }
 
+/// Etat GLOBAL des dettes — un fournisseur par ligne.
+///
+/// D9/D36 : la dette se lit dans `paiement_fournisseur`, jamais dans le
+/// statut. Le reste se calcule PAR FACTURE puis s'additionne, pour la
+/// meme raison que cote client (seuil de solde, D41).
+#[tauri::command]
+pub fn lire_etat_dettes_global(
+    etat: State<EtatApp>,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut st = conn.prepare(
+        "SELECT f.id, f.nom, f.telephone, pc.type_piece, pc.statut,
+                CAST(COALESCE(SUM(lp.montant_ht + lp.montant_tva), 0) AS INTEGER),
+                CAST(COALESCE(
+                  (SELECT SUM(pf.montant) FROM paiement_fournisseur pf
+                   WHERE pf.piece_id = pc.id), 0) AS INTEGER)
+         FROM piece_commerciale pc
+         JOIN fournisseur f ON f.id = pc.tiers_id
+         JOIN ligne_piece lp ON lp.piece_id = pc.id
+         WHERE pc.tiers_type = 'fournisseur'
+           AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
+           AND pc.statut <> 'annule'
+         GROUP BY pc.id
+         ORDER BY f.nom, pc.date_piece"
+    ).map_err(|e| e.to_string())?;
+
+    // (id, nom, tel, nb, total_du)
+    let mut par_f: Vec<(String, String, Option<String>, i64, i64)> = Vec::new();
+
+    let pieces = st.query_map([], |r| {
+        let type_piece: String = r.get(3)?;
+        let statut: String = r.get(4)?;
+        let montant: i64 = r.get(5)?;
+        let paye: i64 = r.get(6)?;
+        // Une AVF deja remboursee en especes est close : elle ne reduit
+        // plus la dette, l'argent est revenu.
+        let du = if type_piece == "avoir_fournisseur" {
+            if statut == "paye" { 0 } else { -montant }
+        } else {
+            crate::coeur::calcul::reste_exigible(montant, paye)
+        };
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?, du))
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok());
+
+    for (id, nom, tel, du) in pieces {
+        if du == 0 {
+            continue;
+        }
+        match par_f.iter_mut().find(|l| l.0 == id) {
+            // Une facture due compte, un avoir ne compte pas comme
+            // « facture » — il ne fait que reduire le total.
+            Some(l) => { if du > 0 { l.3 += 1; } l.4 += du; }
+            None => par_f.push((id, nom, tel, if du > 0 { 1 } else { 0 }, du)),
+        }
+    }
+
+    // Un fournisseur dont les avoirs depassent les factures n'est pas un
+    // creancier : il ne figure pas sur un etat de dette.
+    par_f.retain(|l| l.4 > 0);
+    par_f.sort_by(|a, b| b.4.cmp(&a.4));
+
+    let total_general: i64 = par_f.iter().map(|l| l.4).sum();
+    let lignes: Vec<serde_json::Value> = par_f.into_iter()
+        .map(|(_, nom, tel, nb, du)| serde_json::json!({
+            "nom": nom, "code": "", "telephone": tel,
+            "nb": nb, "total_du": du,
+        })).collect();
+
+    Ok(serde_json::json!({
+        "lignes":        lignes,
+        "total_general": total_general,
+        "societe":       crate::commandes::creances::societe(&conn),
+    }))
+}
+
 // =====================================================================
 //  Enregistrer entrée stock (achat)
 // =====================================================================

@@ -52,6 +52,7 @@ pub fn run() {
             commandes::fournisseurs::creer_fournisseur,
             commandes::fournisseurs::modifier_fournisseur,
             commandes::fournisseurs::lire_etat_dette_fournisseur,
+            commandes::fournisseurs::lire_etat_dettes_global,
             commandes::fournisseurs::enregistrer_entree_stock,
             commandes::fournisseurs::enregistrer_ajustement_inventaire,
             commandes::achats::enregistrer_achat,
@@ -163,6 +164,7 @@ pub fn run() {
             commandes::dashboard::lire_top_articles,
             // ---- Sauvegarde ----
             commandes::sauvegarde::sauvegarder_base,
+            commandes::sauvegarde::sauvegarde_auto_si_necessaire,
             commandes::sauvegarde::lire_config_sauvegarde,
             commandes::sauvegarde::sauvegarder_config_sauvegarde,
             // ---- Créances ----
@@ -170,6 +172,7 @@ pub fn run() {
             commandes::creances::regler_creance,
             commandes::creances::solder_residus_creances,
             commandes::creances::lire_etat_creances_client,
+            commandes::creances::lire_etat_creances_global,
             // ---- Chantiers §14 ----
             commandes::chantiers::lire_taux_tva,
             commandes::chantiers::sauvegarder_tva_article,
