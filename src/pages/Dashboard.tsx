@@ -60,6 +60,17 @@ const PERIODES: { cle: Periode; label: string }[] = [
   { cle: "annee",   label: "Année" },
 ];
 
+/**
+ * Largeur maximale d'une barre.
+ *
+ * Sans plafond, les sept barres de la semaine s'étiraient sur toute la
+ * carte — 150 px chacune, des blocs plutôt qu'un graphe. Avec un
+ * plafond et un centrage, une échelle à peu de points reste lisible, et
+ * celles qui en ont beaucoup (18 heures, 12 mois) remplissent la
+ * largeur comme avant.
+ */
+const LARGEUR_BARRE = 88;
+
 const TITRE_PERIODE: Record<Periode, string> = {
   jour:    "Ventes aujourd'hui, par heure",
   semaine: "Ventes des 7 derniers jours",
@@ -420,12 +431,13 @@ export function Dashboard() {
               {/* Hauteur fixe, barres en POURCENTAGE de ce conteneur.
                   Un pourcentage écrit en `px` faisait déborder la barre
                   du pic hors de la carte. */}
-              <div className="flex items-end gap-[3px] h-48">
+              <div className="flex items-end gap-[3px] h-48 justify-center">
                 {points.map((v, i) => {
                   const pct = (v.montant / maxPoint) * 100;
                   const estPic = v.montant > 0 && v.montant === maxPoint;
                   return (
                     <div key={i}
+                      style={{ maxWidth: LARGEUR_BARRE }}
                       className="flex-1 h-full flex items-end justify-center group
                                  relative min-w-0">
                       {/* Infobulle : montant ET nombre de ventes. Le seul
@@ -466,12 +478,14 @@ export function Dashboard() {
               {/* Axe. Sur la journée, une étiquette sur trois : dix-huit
                   nombres à 9px collés ne se lisent pas. Sur les autres
                   échelles il y a peu de barres, on les nomme toutes. */}
-              <div className="flex gap-[3px] mt-1.5 border-t border-border/60 pt-1.5">
+              <div className="flex gap-[3px] mt-1.5 border-t border-border/60 pt-1.5
+                              justify-center">
                 {points.map((v, i) => {
                   const montrer = periode !== "jour"
                     || i % 3 === 0 || v.label === pic?.label;
                   return (
                     <span key={i}
+                      style={{ maxWidth: LARGEUR_BARRE }}
                       className={`flex-1 text-center text-[9px] tabular-nums min-w-0 ${
                         v.label === pic?.label
                           ? "text-foreground font-medium"
