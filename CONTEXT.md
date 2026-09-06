@@ -1,7 +1,7 @@
 # Gescom — Contexte de développement
 
 **Dernière mise à jour** : 2026-09-06
-**Version** : v1.9.0
+**Version** : v1.10.0
 **Repo** : https://github.com/tijjanismk/gescom.git
 
 > Ce fichier vit désormais **dans le dépôt**. Les copies `CONTEXT (n).md`

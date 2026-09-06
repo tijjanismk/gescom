@@ -1,6 +1,6 @@
 # Gescom — Manuel d'utilisation
 
-*Version 1.9 — à imprimer et garder près de la caisse.*
+*Version 1.10 — à imprimer et garder près de la caisse.*
 
 ---
 
