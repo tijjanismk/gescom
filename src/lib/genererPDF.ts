@@ -124,11 +124,13 @@ export function genererPieceHTML(
     : "";
 
   const avecEntete = !!enteteBase64;
+  // Le bandeau colle au bord PHYSIQUE de la page — c'est le papier à
+  // en-tête du commerçant, il n'a pas de marge chez l'imprimeur non
+  // plus. `margin-bottom` reste : c'est l'espace avant le contenu, pas
+  // une marge autour de l'image elle-même.
   const enteteHtml = avecEntete
-    ? `<div style="margin-bottom:12px">
-         <img src="${enteteBase64}" alt=""
-              style="width:100%;height:auto;display:block"/>
-       </div>`
+    ? `<img src="${enteteBase64}" alt=""
+            style="width:100%;height:auto;display:block;margin-bottom:12px"/>`
     : "";
 
   const hasTVA = lignes.some((l: any) => l.taux_tva && l.taux_tva > 0);
@@ -218,6 +220,7 @@ export function genererPieceHTML(
     return `
     <div class="page">
       ${enteteHtml}
+      <div class="corps">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
         <div>
           ${avecEntete ? "" : `
@@ -278,11 +281,9 @@ export function genererPieceHTML(
         </div>` : ""}
 
       ${piedBase64
-        ? `<div class="pied-page" style="padding-top:14px">
-             <img src="${piedBase64}" alt="" style="width:100%;height:auto;display:block"/>
-             <div style="font-size:9px;color:#aaa;margin-top:2px;text-align:center">
-               Imprimé le ${fmtDateHeure(new Date().toISOString())}
-             </div>
+        ? `<div class="pied-page" style="padding-top:14px;font-size:9px;
+                    color:#aaa;text-align:center">
+             Imprimé le ${fmtDateHeure(new Date().toISOString())}
            </div>`
         : `<div class="pied-page" style="border-top:1px solid #ddd;
                     padding-top:6px;text-align:center">
@@ -296,11 +297,22 @@ export function genererPieceHTML(
             Imprimé le ${fmtDateHeure(new Date().toISOString())}
           </div>
         </div>`}
+      </div>
+      ${piedBase64
+        ? `<img src="${piedBase64}" alt="" style="width:100%;height:auto;display:block"/>`
+        : ""}
     </div>`;
   }
 
   const pageSize = isA5 ? "148mm 210mm" : "210mm 297mm";
-  const padding = isA5 ? "10mm" : "14mm 14mm 10mm 14mm";
+  // Le bandeau réel — en-tête ou pied fourni par le commerçant — colle
+  // au bord physique de la page : sa marge devient 0, et c'est `.corps`
+  // qui porte la marge normale pour tout le reste. Sans bandeau, `.page`
+  // garde sa marge habituelle des deux côtés (comportement inchangé).
+  const padSide = isA5 ? "10mm" : "14mm";
+  const padHaut = avecEntete ? "0mm" : (isA5 ? "10mm" : "14mm");
+  const padBas  = piedBase64 ? "0mm" : "10mm";
+  const padding = `${padHaut} ${padSide} ${padBas} ${padSide}`;
 
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -311,11 +323,19 @@ export function genererPieceHTML(
     * { margin:0; padding:0; box-sizing:border-box; }
     body { font-family:Arial,sans-serif; font-size:11px; color:#000; }
     .page {
-      padding: ${padding};
       min-height: ${isA5 ? "190mm" : "277mm"};
       page-break-after: always;
-      /* Colonne flex : le pied se colle en bas via margin-top:auto,
-         au lieu de flotter au milieu d'une facture courte. */
+      /* Colonne flex : l'entête colle en haut, le pied colle en bas —
+         tous deux hors de .corps, donc hors de sa marge. */
+      display: flex;
+      flex-direction: column;
+    }
+    .corps {
+      flex: 1 1 auto;
+      padding: ${padding};
+      /* Colonne flex À SON TOUR : le pied de secours (texte, pas image)
+         se colle en bas via margin-top:auto, au lieu de flotter au
+         milieu d'une facture courte. */
       display: flex;
       flex-direction: column;
     }
@@ -500,9 +520,15 @@ export function genererTicketThermique(
 // facture DANS LE MEME DOCUMENT sans deteindre sur elle.
 
 const STYLES_BON_SORTIE = `
-  .bs-page { padding:12mm; page-break-after:always;
+  .bs-page { page-break-after:always;
              display:flex; flex-direction:column; min-height:190mm; }
   .bs-page:last-child { page-break-after:avoid; }
+  /* Le bandeau réel colle au bord physique de la page (hors de
+     .bs-corps, qui porte la marge normale) ; sans bandeau, .bs-corps
+     retombe sur la marge d'origine du bon. */
+  .bs-corps { flex:1 1 auto; padding:12mm;
+              display:flex; flex-direction:column; }
+  .bs-corps.sans-marge-haut { padding-top:0; }
   .bs-entete { display:flex; justify-content:space-between;
                align-items:flex-start;
                border-bottom:2px solid #000; padding-bottom:8px; }
@@ -573,10 +599,10 @@ function corpsBonSortie(
   return `
   <div class="bs-page">
     ${avecEntete
-      ? `<div style="margin-bottom:10px">
-           <img src="${enteteBase64}" alt="" style="width:100%;height:auto;display:block"/>
-         </div>`
+      ? `<img src="${enteteBase64}" alt=""
+              style="width:100%;height:auto;display:block;margin-bottom:10px"/>`
       : ""}
+    <div class="bs-corps${avecEntete ? " sans-marge-haut" : ""}">
     <div class="bs-entete">
       <div>
         ${avecEntete ? "" : `
@@ -642,6 +668,7 @@ function corpsBonSortie(
         Ce bon ne vaut pas facture et ne porte aucun montant.
         À remettre au magasinier contre la marchandise.
       </div>
+    </div>
     </div>
   </div>`;
 }

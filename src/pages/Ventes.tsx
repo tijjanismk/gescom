@@ -77,6 +77,47 @@ function stockUV(stockBase: number, facteur: number): number {
   return stockBase / facteur;
 }
 
+/**
+ * Ajoute une ligne au panier, ou l'ajoute à une ligne identique déjà
+ * présente plutôt que d'en créer une seconde.
+ *
+ * Sans ça, scanner deux fois le même article — le geste normal pour
+ * vendre 2 ampoules — imprimait deux lignes « 1 pièce » côte à côte au
+ * lieu d'une ligne « 2 pièces ». Une vraie double ligne (prix ou
+ * dépôt différents, cf. la vente répartie multi-dépôt) reste possible :
+ * seules les lignes RIGOUREUSEMENT identiques fusionnent.
+ */
+function ajouterOuFusionner(
+  prev: LignePanier[],
+  article: Article, unite: UniteVente, quantite: number,
+  prix_pratique: number, depot_id: string, depot_nom: string,
+): LignePanier[] {
+  const i = prev.findIndex(l =>
+    l.article.id === article.id && l.unite.id === unite.id
+    && l.depot_id === depot_id && l.prix_pratique === prix_pratique);
+
+  if (i === -1) {
+    return [...prev, {
+      id: genId(), article, unite, quantite, prix_pratique,
+      montant: Math.round(prix_pratique * quantite),
+      a_decouvert: quantite > stockUV(article.stock, unite.facteur)
+                   && article.stock >= 0,
+      depot_id, depot_nom,
+    }];
+  }
+
+  const totale = prev[i].quantite + quantite;
+  const copie = [...prev];
+  copie[i] = {
+    ...copie[i],
+    quantite: totale,
+    montant: Math.round(prix_pratique * totale),
+    a_decouvert: totale > stockUV(article.stock, unite.facteur)
+                 && article.stock >= 0,
+  };
+  return copie;
+}
+
 // =====================================================================
 //  Modal : Nouveau client
 // =====================================================================
@@ -668,31 +709,20 @@ export function Ventes() {
           ? article.unites.find(u => u.id === article.unite_scannee_id)
           : null;
         if (scannee) {
-          setPanier(prev => [...prev, {
-            id: genId(), article, unite: scannee,
-            quantite: 1,
-            prix_pratique: scannee.prix_reference,
-            montant: scannee.prix_reference,
-            a_decouvert: 1 > stockUV(article.stock, scannee.facteur)
-                         && article.stock >= 0,
-            depot_id: depotActif?.id ?? "",
-            depot_nom: depotActif?.nom ?? "",
-          }]);
+          // Scanner deux fois le même article, c'est vendre deux pièces,
+          // pas ouvrir une seconde ligne : on fusionne dans le panier.
+          setPanier(prev => ajouterOuFusionner(
+            prev, article, scannee, 1, scannee.prix_reference,
+            depotActif?.id ?? "", depotActif?.nom ?? "",
+          ));
           setArticleSelectionne(null);
           setScannerNotification(`✓ ${article.nom} — ${scannee.libelle}`);
         } else if (article.unites.length === 1) {
           const unite = article.unites[0];
-          setPanier(prev => [...prev, {
-            id: genId(), article, unite,
-            quantite: 1,
-            prix_pratique: unite.prix_reference,
-            montant: unite.prix_reference,
-            a_decouvert: 1 > stockUV(article.stock, unite.facteur) && article.stock >= 0,
-            // Sans ces deux champs la ligne partait sans depot_source_id :
-            // creer_vente decrementait un depot vide.
-            depot_id: depotActif?.id ?? "",
-            depot_nom: depotActif?.nom ?? "",
-          }]);
+          setPanier(prev => ajouterOuFusionner(
+            prev, article, unite, 1, unite.prix_reference,
+            depotActif?.id ?? "", depotActif?.nom ?? "",
+          ));
           setArticleSelectionne(null);
           setScannerNotification(`✓ ${article.nom} ajouté`);
         } else {
@@ -860,13 +890,13 @@ export function Ventes() {
       return;
     }
 
-    setPanier(prev => [...prev, {
-      id: genId(), article: articleSelectionne, unite: uniteSelectionnee,
-      quantite: qte, prix_pratique: prix, montant: Math.round(prix * qte),
-      a_decouvert: qte > stockDispo && articleSelectionne.stock >= 0,
-      depot_id: depotActif?.id ?? "",
-      depot_nom: depotActif?.nom ?? "",
-    }]);
+    // Le même article déjà dans le panier, au même prix et depuis le
+    // même dépôt, prend la quantité en plus au lieu d'ouvrir une
+    // seconde ligne identique.
+    setPanier(prev => ajouterOuFusionner(
+      prev, articleSelectionne, uniteSelectionnee, qte, prix,
+      depotActif?.id ?? "", depotActif?.nom ?? "",
+    ));
     setArticleSelectionne(null); setUniteSelectionnee(null);
     setQuantite("1"); setPrixPratique(""); setRemisePct("");
     inputArticleRef.current?.focus();

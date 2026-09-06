@@ -218,13 +218,28 @@ export function ModalNouvellePiece({
     // unites[0] = la plus petite (tri par facteur). C'est le defaut,
     // mais l'utilisateur peut basculer sur le sac ou le carton.
     const unite = article.unites[0];
-    setLignes(prev => [...prev, {
-      article_id: article.id, unite_vente_id: unite.id,
-      article_nom: article.nom, unite_libelle: unite.libelle,
-      unites: article.unites,
-      quantite: 1, prix_unitaire: unite.prix_reference,
-      remise_pct: 0, taux_tva: article.taux_tva_defaut ?? 0,
-    }]);
+    setLignes(prev => {
+      // Cliquer deux fois le même article dans la recherche ajoutait une
+      // seconde ligne identique — même article, même unité, même prix —
+      // au lieu d'augmenter la quantité de la première. On ne fusionne
+      // que les lignes rigoureusement identiques : une ligne dont le prix
+      // ou la remise a été modifiée à la main reste distincte.
+      const i = prev.findIndex(l =>
+        l.article_id === article.id && l.unite_vente_id === unite.id
+        && l.prix_unitaire === unite.prix_reference && l.remise_pct === 0);
+      if (i === -1) {
+        return [...prev, {
+          article_id: article.id, unite_vente_id: unite.id,
+          article_nom: article.nom, unite_libelle: unite.libelle,
+          unites: article.unites,
+          quantite: 1, prix_unitaire: unite.prix_reference,
+          remise_pct: 0, taux_tva: article.taux_tva_defaut ?? 0,
+        }];
+      }
+      const copie = [...prev];
+      copie[i] = { ...copie[i], quantite: copie[i].quantite + 1 };
+      return copie;
+    });
     setRechercheArticle(""); setArticlesFiltres([]);
   }
 
