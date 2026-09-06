@@ -309,7 +309,7 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
 
       <div className="flex-1 overflow-auto p-6 relative">
         {/* Le verre a besoin d'un fond non uni. */}
-        <GlassHalos />
+        <GlassHalos sansRose />
 
         {/* ---- Résumé ---- */}
         {onglet === "resume" && (

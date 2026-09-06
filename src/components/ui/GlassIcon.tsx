@@ -242,12 +242,25 @@ export function GlassIcon({
 //  le contenu au-dessus (z-index >= 1).
 // =====================================================================
 
-export function GlassHalos({ className = "" }: { className?: string }) {
+export function GlassHalos({
+  className = "",
+  // Retire le halo chaud du coin haut-gauche — un rouge-orangé qui, à
+  // 22 % sur blanc, tire nettement vers le rose. Sur un tableau de bord
+  // il réchauffe la page ; sur une fiche client ou fournisseur, où on
+  // vient lire des montants dus, il donne une teinte d'alerte à un
+  // écran qui n'alerte de rien.
+  //
+  // Les deux autres halos restent : sans fond non uni, le verre ne se
+  // lit plus du tout.
+  sansRose = false,
+}: { className?: string; sansRose?: boolean }) {
   useStylesGlass();
   return (
     <div className={`gi-halos ${className}`} aria-hidden="true">
-      <i style={{ top: "-6%", left: "4%", width: 380, height: 380,
-                  background: "rgba(236,48,19,.22)" }} />
+      {!sansRose && (
+        <i style={{ top: "-6%", left: "4%", width: 380, height: 380,
+                    background: "rgba(236,48,19,.22)" }} />
+      )}
       <i style={{ top: "22%", right: "6%", width: 320, height: 320,
                   background: "rgba(120,140,190,.18)" }} />
       <i style={{ bottom: "-8%", left: "38%", width: 420, height: 300,
