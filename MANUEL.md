@@ -1,6 +1,6 @@
 # Gescom — Manuel d'utilisation
 
-*Version 1.2 — à imprimer et garder près de la caisse.*
+*Version 1.9 — à imprimer et garder près de la caisse.*
 
 ---
 
@@ -125,6 +125,52 @@ l'écran Pièces.
 
 ---
 
+# 4 bis. Les pièces commerciales
+
+L'écran **Pièces** rassemble tous les documents, côté client et côté
+fournisseur. Chacun découle du précédent.
+
+```
+CLIENT       Devis → Commande → Livraison → Facture
+FOURNISSEUR  Bon de commande → Réception → Facture
+```
+
+Vous n'êtes obligé de passer par aucune étape : un client pressé peut
+recevoir directement une facture.
+
+## Faire avancer un document
+
+Le bouton **→** de la ligne transforme la pièce en la suivante. La pièce
+d'origine est archivée, elle n'est plus modifiable.
+
+Sur une commande client, le menu **…** propose aussi **« → Livraison +
+facture »** : les deux documents d'un coup, quand la marchandise part
+avec sa facture.
+
+## Voir avant d'imprimer
+
+Le bouton **œil** montre le document exactement tel qu'il sortira. Vous
+pouvez y changer le format — A4, A5, ticket — et voir le résultat avant
+d'engager du papier.
+
+## La facture ne devient réelle qu'à sa validation
+
+Une facture reste en **brouillon** tant que vous ne l'avez pas validée.
+C'est la validation qui crée la vente, sort la marchandise du stock et
+encaisse l'argent. Avant, rien n'a bougé.
+
+## Suivre les livraisons
+
+Réglage à activer dans **Paramètres → Ventes** si vous livrez. Chaque
+pièce reçoit alors un second badge — *livré*, *partiellement livré* — à
+côté de son statut de paiement. C'est ce qui rend visible le cas « payé,
+pas encore livré ».
+
+C'est une information de suivi : **le stock et la caisse ne bougent
+pas**. La marchandise sort toujours à la validation de la facture.
+
+---
+
 # 5. Les créances
 
 Un client qui doit de l'argent apparaît dans **Clients** et dans
@@ -141,6 +187,19 @@ Le montant est prérempli avec le reste dû. Modifiez-le pour un paiement
 partiel.
 
 Quand la facture est soldée, elle passe automatiquement en **Payé**.
+
+## Remettre un relevé au client
+
+**Clients → l'imprimante sur sa ligne**, ou **sa fiche → État de
+créance**. Le document liste ses factures non soldées, ce qu'il a déjà
+versé et ce qui reste. Les avoirs dont il dispose sont déduits — on ne
+réclame pas plus que ce qui est réellement dû.
+
+Pour la vue d'ensemble : **Clients → État des créances** sort tous les
+clients débiteurs sur une page, du plus gros au plus petit. C'est la
+liste d'appel du lundi matin.
+
+Côté fournisseur, les mêmes boutons donnent l'**état de dette**.
 
 ## Relancer
 
@@ -319,11 +378,38 @@ ligne.
 
 # 13. Sauvegarder
 
-**Paramètres → Sauvegarde**, chaque samedi soir, sur une clé USB.
+**Paramètres → Sauvegarde.** Choisissez une fois pour toutes le dossier
+de destination — une clé USB, un disque externe.
+
+## La sauvegarde automatique
+
+Activez-la. L'application sauvegarde alors **une fois par semaine**, au
+démarrage, sans que vous ayez à y penser.
+
+Si la clé n'est pas branchée ce jour-là, un message vous le dit. **Ne
+l'ignorez pas** : tant qu'il s'affiche, aucune copie n'est faite.
+
+## La sauvegarde à la main
+
+Le bouton reste là pour les jours qui comptent : après un inventaire,
+avant une opération importante, avant de confier l'ordinateur à
+quelqu'un.
 
 > **Ne copiez jamais le fichier de base à la main.** Les écritures
 > récentes vivent dans un fichier annexe : vous récupéreriez une base
 > vide sans le savoir. Utilisez toujours le bouton.
+
+## Vérifier et réparer
+
+**Paramètres → État de la base → Vérifier la base**, après une coupure
+de courant et **avant** de saisir quoi que ce soit. Saisir par-dessus
+une base abîmée rend la sauvegarde inutile.
+
+Si la base est saine, un second bouton apparaît : **Réparer et
+compacter**. Il réaffecte les règlements fournisseur enregistrés
+globalement sur les factures qu'ils couvrent, et réduit la taille du
+fichier. Les montants ne changent pas, seule leur affectation. Une copie
+de sécurité est faite avant.
 
 ---
 

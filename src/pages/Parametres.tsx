@@ -22,6 +22,7 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { ParametresSociete } from "@/components/ParametresSociete";
 import { OngletVentes } from "@/components/ParametresVentes";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
+import { genererManuelHTML } from "@/lib/genererManuel";
 import { SelectUnite } from "@/components/SelectUnite";
 import { OngletTVA, OngletDettes, OngletIrrecouvrable, OngletAvoirs } from "@/components/OngletChantiers";
 import { OngletDepots } from "@/components/OngletDepots";
@@ -287,6 +288,32 @@ function OngletSauvegarde() {
   const [diag, setDiag] = useState<Diagnostic | null>(null);
   const [diagEnCours, setDiagEnCours] = useState(false);
   const [entretienEnCours, setEntretienEnCours] = useState(false);
+  const [manuelEnCours, setManuelEnCours] = useState(false);
+
+  /**
+   * Manuel imprimable.
+   *
+   * Passe par `imprimer_facture` comme tout le reste (D3) : la fenêtre
+   * Tauri n'ajoute pas les en-têtes du navigateur. Dans la boîte
+   * d'impression, « Enregistrer au format PDF » produit le fichier.
+   */
+  async function imprimerManuel() {
+    setManuelEnCours(true);
+    try {
+      const [societe, logo] = await Promise.all([
+        invoke<{ nom?: string }>("lire_parametres_societe").catch(() => null),
+        invoke<string | null>("lire_logo_base64").catch(() => null),
+      ]);
+      await invoke("imprimer_facture", {
+        html: genererManuelHTML(societe, logo),
+        nomFichier: "gescom_manuel.html",
+      });
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Manuel", kind: "error" });
+    } finally {
+      setManuelEnCours(false);
+    }
+  }
 
   async function entretenirBase() {
     if (!window.confirm(
@@ -391,6 +418,25 @@ function OngletSauvegarde() {
         <p className="font-medium text-foreground mb-1">Protection de vos données</p>
         <p>La sauvegarde copie la base de données complète vers le dossier de votre choix
           (clé USB, disque externe, autre partition).</p>
+      </div>
+
+      {/* Manuel — imprimable pour être gardé près de la caisse. Un
+          commerçant ne consulte pas un fichier quand la file attend. */}
+      <div className="border border-border rounded-lg p-4 space-y-3">
+        <div>
+          <p className="text-sm font-medium">Manuel d'utilisation</p>
+          <p className="text-xs text-muted-foreground">
+            Les gestes de la journée, à imprimer et garder au comptoir.
+            Dans la fenêtre d'impression, choisir « Enregistrer au format
+            PDF » comme imprimante pour en faire un fichier.
+          </p>
+        </div>
+        <Button variant="outline" size="sm"
+          onClick={imprimerManuel} disabled={manuelEnCours}>
+          {manuelEnCours
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : "Imprimer le manuel"}
+        </Button>
       </div>
 
       {/* Vérification — à faire AVANT de saisir la journée si l'ordinateur
