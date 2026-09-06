@@ -159,7 +159,7 @@ pub fn run() {
             commandes::catalogue::lire_etat_stock,
             // ---- Dashboard ----
             commandes::dashboard::lire_resume_dashboard,
-            commandes::dashboard::lire_ventes_du_jour,
+            commandes::dashboard::lire_ventes_periode,
             commandes::dashboard::lire_top_clients,
             commandes::dashboard::lire_top_articles,
             // ---- Sauvegarde ----

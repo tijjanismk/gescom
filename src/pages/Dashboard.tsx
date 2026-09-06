@@ -34,15 +34,38 @@ interface ResumeDashboard {
   commandes_en_attente: number;
 }
 
-interface VenteJour {
-  // `lire_ventes_du_jour` renvoie un ENTIER (0-23), pas une chaîne.
-  // L'écart était invisible — `{v.heure}h` rend un nombre sans broncher
-  // — mais toute comparaison stricte échouait en silence. C'est le
-  // sixième écart de clé front/back du projet.
-  heure: number;
+type Periode = "jour" | "semaine" | "mois" | "annee";
+
+/** Une barre du graphe, quelle que soit l'échelle. */
+interface PointVente {
+  // Le libellé est fabriqué par le backend : « 14h », « Mar », « S2 »,
+  // « Avr ». Le composer ici aurait demandé de connaître l'échelle à
+  // l'affichage, et de refaire les noms de jours et de mois en français.
+  label: string;
   montant: number;
   nb: number;
 }
+
+interface VentesPeriode {
+  points: PointVente[];
+  total: number;
+  nb: number;
+  periode: string;
+}
+
+const PERIODES: { cle: Periode; label: string }[] = [
+  { cle: "jour",    label: "Jour" },
+  { cle: "semaine", label: "Semaine" },
+  { cle: "mois",    label: "Mois" },
+  { cle: "annee",   label: "Année" },
+];
+
+const TITRE_PERIODE: Record<Periode, string> = {
+  jour:    "Ventes aujourd'hui, par heure",
+  semaine: "Ventes des 7 derniers jours",
+  mois:    "Ventes du mois, par semaine",
+  annee:   "Ventes de l'année, par mois",
+};
 
 interface TopClient {
   nom: string; code: string; ca: number; nb_ventes: number;
@@ -99,7 +122,12 @@ export function Dashboard() {
   // Ventes à découvert : marchandise sortie au-delà du stock connu.
   // Chacune signale soit un stock faux, soit une entrée non saisie.
   const [nbDecouverts, setNbDecouverts] = useState(0);
-  const [ventesJour, setVentesJour] = useState<VenteJour[]>([]);
+  // Graphe : échelle choisie par l'utilisateur, rechargée seule quand
+  // elle change — inutile de refaire tout le tableau de bord pour
+  // passer de la journée à la semaine.
+  const [periode, setPeriode] = useState<Periode>("jour");
+  const [graphe, setGraphe] = useState<VentesPeriode | null>(null);
+  const [chargeGraphe, setChargeGraphe] = useState(true);
   const [topClients, setTopClients] = useState<TopClient[]>([]);
   const [topArticles, setTopArticles] = useState<TopArticle[]>([]);
   const [chargement, setChargement] = useState(true);
@@ -111,9 +139,8 @@ export function Dashboard() {
     setChargement(true);
     try {
       const auj = new Date().toISOString().slice(0, 10);
-      const [res, vj, tc, ta, dec] = await Promise.all([
+      const [res, tc, ta, dec] = await Promise.all([
         invoke<ResumeDashboard>("lire_resume_dashboard", { depotId: DEPOT_ACTIF }),
-        invoke<VenteJour[]>("lire_ventes_du_jour", { depotId: DEPOT_ACTIF }),
         estPatron ? invoke<TopClient[]>("lire_top_clients") : Promise.resolve([]),
         estPatron ? invoke<TopArticle[]>("lire_top_articles") : Promise.resolve([]),
         invoke<{ nb: number }>("lire_ventes_a_decouvert", {
@@ -122,7 +149,6 @@ export function Dashboard() {
       ]);
       setResume(res);
       setNbDecouverts(dec?.nb ?? 0);
-      setVentesJour(vj);
       setTopClients(tc);
       setTopArticles(ta);
       setDerniereActu(new Date());
@@ -134,6 +160,21 @@ export function Dashboard() {
   }
 
   useEffect(() => { charger(); }, []);
+
+  // Le graphe se recharge seul quand l'échelle change : refaire tout le
+  // tableau de bord pour passer de la journée à la semaine ferait
+  // clignoter des chiffres qui, eux, n'ont pas bougé.
+  useEffect(() => {
+    let annule = false;
+    setChargeGraphe(true);
+    invoke<VentesPeriode>("lire_ventes_periode", {
+      periode, depotId: DEPOT_ACTIF,
+    })
+      .then(g => { if (!annule) setGraphe(g); })
+      .catch(e => console.error("Erreur graphe :", e))
+      .finally(() => { if (!annule) setChargeGraphe(false); });
+    return () => { annule = true; };
+  }, [periode, derniereActu]);
 
   if (chargement && !resume) {
     return (
@@ -164,18 +205,25 @@ export function Dashboard() {
 
   const r = resume;
   const tendanceMois = pct(r.ca_mois, r.ca_mois_precedent);
+  const points = graphe?.points ?? [];
+  const totalPeriode = graphe?.total ?? 0;
   // `, 1` garde la division sûre quand aucune vente n'a encore eu lieu.
-  const maxVente = Math.max(...ventesJour.map(v => v.montant), 1);
-  // Heure du pic, ou `null` si la journée n'a rien encaissé — sans ce
-  // cas, `max` valant 1 par défaut désignerait une heure au hasard.
-  const heurePic = ventesJour.some(v => v.montant > 0)
-    ? Number(ventesJour.find(v => v.montant === maxVente)!.heure)
+  const maxPoint = Math.max(...points.map(p => p.montant), 1);
+  // Le pic, ou `null` si la période n'a rien encaissé — sans ce cas,
+  // `max` valant 1 par défaut désignerait une barre au hasard.
+  const pic = points.some(p => p.montant > 0)
+    ? points.find(p => p.montant === maxPoint)!
     : null;
   const maxClient = Math.max(...topClients.map(c => c.ca), 1);
   const maxArticle = Math.max(...topArticles.map(a => a.ca), 1);
 
   return (
-    <div className="flex-1 overflow-auto relative"
+    // `overflow-x-hidden` et non `overflow-auto` : les halos de fond
+    // sont posés en `inset:-10%`, donc ils débordent de 10 % à droite du
+    // conteneur et y créaient une barre de défilement horizontale. Le
+    // débordement est voulu — c'est ce qui donne au flou de ne pas
+    // s'arrêter net au bord — il ne doit juste pas être scrollable.
+    <div className="flex-1 overflow-y-auto overflow-x-hidden relative"
          style={{ fontFamily: '"Archivo Variable", Archivo, system-ui, sans-serif' }}>
       {/* Le verre ne se lit pas sur du blanc plat. */}
       <GlassHalos />
@@ -328,87 +376,115 @@ export function Dashboard() {
           />
         </div>
 
-        {/* ── Graphe ventes du jour ── */}
-        {ventesJour.length > 0 && (
-          <div className={`${CARTE} p-5`}>
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-sm font-semibold">Ventes aujourd'hui par heure</h2>
-              <span className="text-xs text-muted-foreground shrink-0">
-                Total : {fmt(r.ca_jour)}
-              </span>
-            </div>
-
-            {/* Le pic en clair : c'est l'information qu'on cherche dans
-                ce graphe — à quelle heure ça se joue. La lire en
-                survolant les barres une à une serait absurde. */}
-            <p className="text-xs text-muted-foreground mt-1 mb-4">
-              {heurePic === null
-                ? "Aucune vente enregistrée pour l'instant"
-                : `Pic à ${heurePic}h · ${fmt(maxVente)}`}
-            </p>
-
-            {/* h-28 fixe, hauteurs en POURCENTAGE de ce conteneur.
-                Avant, la hauteur valait (montant / max) × 100 et partait
-                en `px` : la barre du pic mesurait 100px dans une boîte
-                de 96px et débordait de la carte. */}
-            <div className="flex items-end gap-[2px] h-28">
-              {ventesJour.map((v, i) => {
-                const pct = (v.montant / maxVente) * 100;
-                const estPic = v.montant > 0 && v.montant === maxVente;
-                return (
-                  <div key={i}
-                    className="flex-1 h-full flex items-end justify-center group
-                               relative min-w-0">
-                    {/* Infobulle : montant ET nombre de ventes. Le seul
-                        montant ne dit pas si l'heure a fait une gross
-                        vente ou dix petites. */}
-                    {v.montant > 0 && (
-                      <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2
-                                      px-2 py-1 rounded-md bg-foreground text-background
-                                      text-[10px] leading-tight whitespace-nowrap
-                                      opacity-0 group-hover:opacity-100 pointer-events-none
-                                      transition-opacity z-10 shadow-sm">
-                        <span className="font-semibold">{fmt(v.montant)}</span>
-                        <span className="opacity-70">
-                          {" · "}{v.nb} vente{v.nb > 1 ? "s" : ""}
-                        </span>
-                      </div>
-                    )}
-                    <div
-                      className={`w-full rounded-t-[4px] transition-colors ${
-                        v.montant > 0
-                          ? estPic ? "bg-primary" : "bg-primary/55 group-hover:bg-primary"
-                          : "bg-muted/60"
-                      }`}
-                      // Plancher de 3px : une heure à 200 F doit rester
-                      // visible à côté d'une heure à 200 000 F, sinon
-                      // elle se confond avec une heure sans vente.
-                      style={{
-                        height: v.montant > 0 ? `max(3px, ${pct}%)` : "2px",
-                      }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Axe des heures. Une étiquette sur trois : dix-huit
-                nombres à 9px collés les uns aux autres ne se lisent pas,
-                et l'échelle se devine avec des repères espacés. */}
-            <div className="flex gap-[2px] mt-1.5 border-t border-border/60 pt-1.5">
-              {ventesJour.map((v, i) => (
-                <span key={i}
-                  className={`flex-1 text-center text-[9px] tabular-nums min-w-0 ${
-                    Number(v.heure) === heurePic
-                      ? "text-foreground font-medium"
-                      : "text-muted-foreground"
-                  }`}>
-                  {i % 3 === 0 || Number(v.heure) === heurePic ? `${v.heure}h` : ""}
-                </span>
-              ))}
-            </div>
+        {/* ── Graphe des ventes, par période ── */}
+        <div className={`${CARTE} p-5`}>
+          <div className="flex items-baseline justify-between gap-3 flex-wrap">
+            <h2 className="text-sm font-semibold">{TITRE_PERIODE[periode]}</h2>
+            <span className="text-xs text-muted-foreground shrink-0">
+              Total : {fmt(totalPeriode)}
+            </span>
           </div>
-        )}
+
+          {/* Le pic en clair : c'est l'information qu'on cherche dans ce
+              graphe — quand ça se joue. La lire en survolant les barres
+              une à une serait absurde. */}
+          <p className="text-xs text-muted-foreground mt-1">
+            {pic === null
+              ? "Aucune vente sur cette période"
+              : `Meilleur${periode === "jour" ? "e heure" : " moment"} : `
+                + `${pic.label} · ${fmt(pic.montant)}`}
+          </p>
+
+          {/* Sélecteur d'échelle. Le filtre se pose au-dessus du graphe,
+              là où l'œil arrive avant de lire les barres. */}
+          <div className="flex gap-1 mt-3 mb-4">
+            {PERIODES.map(p => (
+              <button key={p.cle} onClick={() => setPeriode(p.cle)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium
+                            transition-colors ${
+                  periode === p.cle
+                    ? "bg-sky-100 text-sky-800 border border-sky-300"
+                    : "text-muted-foreground border border-transparent hover:bg-muted"
+                }`}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {chargeGraphe ? (
+            <div className="h-48 flex items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <>
+              {/* Hauteur fixe, barres en POURCENTAGE de ce conteneur.
+                  Un pourcentage écrit en `px` faisait déborder la barre
+                  du pic hors de la carte. */}
+              <div className="flex items-end gap-[3px] h-48">
+                {points.map((v, i) => {
+                  const pct = (v.montant / maxPoint) * 100;
+                  const estPic = v.montant > 0 && v.montant === maxPoint;
+                  return (
+                    <div key={i}
+                      className="flex-1 h-full flex items-end justify-center group
+                                 relative min-w-0">
+                      {/* Infobulle : montant ET nombre de ventes. Le seul
+                          montant ne dit pas si la période a fait une
+                          grosse vente ou dix petites. */}
+                      {v.montant > 0 && (
+                        <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2
+                                        px-2 py-1 rounded-md bg-foreground text-background
+                                        text-[10px] leading-tight whitespace-nowrap
+                                        opacity-0 group-hover:opacity-100 pointer-events-none
+                                        transition-opacity z-10 shadow-sm">
+                          <span className="font-semibold">{fmt(v.montant)}</span>
+                          <span className="opacity-70">
+                            {" · "}{v.nb} vente{v.nb > 1 ? "s" : ""}
+                          </span>
+                        </div>
+                      )}
+                      <div
+                        className={`w-full rounded-t-[4px] transition-colors ${
+                          v.montant > 0
+                            ? estPic
+                              ? "bg-sky-600"
+                              : "bg-sky-500/55 group-hover:bg-sky-600"
+                            : "bg-muted/60"
+                        }`}
+                        // Plancher de 3px : une heure à 200 F doit rester
+                        // visible à côté d'une heure à 200 000 F, sinon
+                        // elle se confond avec une période sans vente.
+                        style={{
+                          height: v.montant > 0 ? `max(3px, ${pct}%)` : "2px",
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Axe. Sur la journée, une étiquette sur trois : dix-huit
+                  nombres à 9px collés ne se lisent pas. Sur les autres
+                  échelles il y a peu de barres, on les nomme toutes. */}
+              <div className="flex gap-[3px] mt-1.5 border-t border-border/60 pt-1.5">
+                {points.map((v, i) => {
+                  const montrer = periode !== "jour"
+                    || i % 3 === 0 || v.label === pic?.label;
+                  return (
+                    <span key={i}
+                      className={`flex-1 text-center text-[9px] tabular-nums min-w-0 ${
+                        v.label === pic?.label
+                          ? "text-foreground font-medium"
+                          : "text-muted-foreground"
+                      }`}>
+                      {montrer ? v.label : ""}
+                    </span>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
 
         {/* ── Top clients + Top articles ── */}
         {estPatron && (topClients.length > 0 || topArticles.length > 0) && (

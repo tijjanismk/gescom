@@ -1,7 +1,7 @@
 //! Commandes dashboard — KPIs, top clients, top articles, ventes du jour.
 
 use tauri::State;
-use chrono::{Datelike, Timelike};
+use chrono::Datelike;
 use crate::commandes::ventes::EtatApp;
 
 // =====================================================================
@@ -205,66 +205,138 @@ pub fn lire_resume_dashboard(
 }
 
 // =====================================================================
-//  Ventes du jour par heure
+//  Ventes par periode — jour (heures), semaine (jours),
+//  mois (semaines), annee (mois)
 // =====================================================================
+//
+// Une seule commande pour les quatre echelles : la difference tient au
+// decoupage et au libelle, pas au calcul. Quatre commandes auraient fait
+// quatre fois la meme somme, avec quatre occasions de diverger.
+
+const JOURS_COURTS: [&str; 7] = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+const MOIS_COURTS: [&str; 12] = [
+    "Jan", "Fév", "Mar", "Avr", "Mai", "Juin",
+    "Juil", "Août", "Sep", "Oct", "Nov", "Déc",
+];
 
 #[tauri::command]
-pub fn lire_ventes_du_jour(
+pub fn lire_ventes_periode(
     etat: State<EtatApp>,
+    // jour | semaine | mois | annee. Defaut : jour.
+    periode: Option<String>,
     // Depot actif. Sans ce filtre, les barres additionnaient TOUS les
     // depots alors que le total affiche a cote vient de
     // `lire_resume_dashboard`, lui filtre : sur deux depots, les barres
     // depassaient visiblement le total annonce.
     depot_id: Option<String>,
-) -> Result<Vec<serde_json::Value>, String> {
+) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    let debut_jour = chrono::Local::now().format("%Y-%m-%dT00:00:00").to_string();
     let dep: Option<String> = depot_id.filter(|d| !d.is_empty());
+    let p = periode.as_deref().unwrap_or("jour");
+    let maintenant = chrono::Local::now();
 
-    // Générer les 24 heures
-    let mut heures: Vec<serde_json::Value> = (0..24).map(|h| {
-        serde_json::json!({"heure": h, "montant": 0_i64, "nb": 0_i64})
-    }).collect();
+    // `cle` est l'expression SQL qui range une vente dans sa case, et
+    // `debut`/`fin` bornent la periode. Le reste du code est commun.
+    let (debut, fin, cle, nb_cases): (String, String, &str, usize) = match p {
+        "semaine" => {
+            let d = maintenant - chrono::Duration::days(6);
+            (
+                d.format("%Y-%m-%dT00:00:00").to_string(),
+                maintenant.format("%Y-%m-%dT23:59:59").to_string(),
+                // Jours ecoules depuis le debut de la fenetre : 0..6.
+                "CAST(julianday(DATE(v.date_vente)) - julianday(DATE(?1)) AS INTEGER)",
+                7,
+            )
+        }
+        "mois" => {
+            let d = maintenant.with_day(1).unwrap_or(maintenant);
+            (
+                d.format("%Y-%m-01T00:00:00").to_string(),
+                maintenant.format("%Y-%m-%dT23:59:59").to_string(),
+                // Semaine dans le mois : (jour - 1) / 7, donc 0..4.
+                "(CAST(strftime('%d', v.date_vente) AS INTEGER) - 1) / 7",
+                5,
+            )
+        }
+        "annee" => (
+            maintenant.format("%Y-01-01T00:00:00").to_string(),
+            maintenant.format("%Y-12-31T23:59:59").to_string(),
+            "CAST(strftime('%m', v.date_vente) AS INTEGER) - 1",
+            12,
+        ),
+        // jour
+        _ => (
+            maintenant.format("%Y-%m-%dT00:00:00").to_string(),
+            maintenant.format("%Y-%m-%dT23:59:59").to_string(),
+            "CAST(strftime('%H', v.date_vente) AS INTEGER)",
+            24,
+        ),
+    };
 
-    let mut stmt = conn.prepare(
-        "SELECT
-            CAST(strftime('%H', date_vente) AS INTEGER) as heure,
-            CAST(COALESCE(SUM(
-                (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
-                 FROM ligne_vente WHERE vente_id = v.id)
-            ), 0) AS INTEGER) as total,
-            COUNT(*) as nb
+    let mut cases: Vec<(i64, i64)> = vec![(0, 0); nb_cases];
+
+    let sql = format!(
+        "SELECT {cle} AS case_idx,
+                CAST(COALESCE(SUM(
+                    (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
+                     FROM ligne_vente WHERE vente_id = v.id)
+                ), 0) AS INTEGER) AS total,
+                COUNT(*) AS nb
          FROM vente v
-         WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
-           AND (?2 IS NULL OR v.depot_id = ?2)
-         GROUP BY heure ORDER BY heure"
-    ).map_err(|e| e.to_string())?;
+         WHERE v.date_vente >= ?1 AND v.date_vente <= ?2
+           AND v.statut != 'annulee'
+           AND (?3 IS NULL OR v.depot_id = ?3)
+         GROUP BY case_idx"
+    );
 
-    stmt.query_map(rusqlite::params![debut_jour, dep], |row| {
-        Ok((row.get::<_,i64>(0)?, row.get::<_,i64>(1)?, row.get::<_,i64>(2)?))
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    stmt.query_map(rusqlite::params![debut, fin, dep], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
-    .for_each(|(h, montant, nb)| {
-        if h >= 0 && h < 24 {
-            heures[h as usize] = serde_json::json!({
-                "heure": h, "montant": montant, "nb": nb
-            });
+    .for_each(|(i, montant, nb)| {
+        if i >= 0 && (i as usize) < nb_cases {
+            cases[i as usize] = (montant, nb);
         }
     });
 
-    // Retourner les heures de 6h à maintenant (ou toutes si avant 6h)
-    let heure_actuelle = chrono::Local::now().hour() as usize;
-    // Avant 6h on part de 0 : `heure.min(6)` donnait `heures[3..=3]`,
-    // soit une seule barre au lieu de la matinee complete.
-    let debut = if heure_actuelle < 6 { 0 } else { 6 };
-    let fin = heure_actuelle.min(23);
-    let heures_filtrees = if debut <= fin {
-        heures[debut..=fin].to_vec()
-    } else {
-        heures.clone()
+    // Libelles, et bornes d'affichage.
+    let mut points: Vec<serde_json::Value> = Vec::new();
+    let (de, a) = match p {
+        // Une boutique n'ouvre pas a minuit : on part de 6h, sauf si une
+        // vente a eu lieu avant — auquel cas la masquer serait mentir.
+        "jour" | _ if p == "jour" => {
+            let tot = if cases[..6].iter().any(|(m, n)| *m != 0 || *n != 0) { 0 } else { 6 };
+            (tot, 23)
+        }
+        _ => (0, nb_cases - 1),
     };
 
-    Ok(heures_filtrees)
+    for i in de..=a {
+        let (montant, nb) = cases[i];
+        let label = match p {
+            "semaine" => {
+                let d = maintenant - chrono::Duration::days((6 - i) as i64);
+                JOURS_COURTS[d.weekday().num_days_from_monday() as usize].to_string()
+            }
+            "mois" => format!("S{}", i + 1),
+            "annee" => MOIS_COURTS[i].to_string(),
+            _ => format!("{}h", i),
+        };
+        points.push(serde_json::json!({
+            "label": label, "montant": montant, "nb": nb,
+        }));
+    }
+
+    let total: i64 = points.iter().filter_map(|p| p["montant"].as_i64()).sum();
+    let nb_total: i64 = points.iter().filter_map(|p| p["nb"].as_i64()).sum();
+
+    Ok(serde_json::json!({
+        "points":   points,
+        "total":    total,
+        "nb":       nb_total,
+        "periode":  p,
+    }))
 }
 
 // =====================================================================
