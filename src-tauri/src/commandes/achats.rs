@@ -79,6 +79,13 @@ pub fn enregistrer_achat(
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let op_id = uuid::Uuid::new_v4().to_string();
+    // Généré tôt pour pouvoir servir d'`operation_id` sur les mouvements de
+    // stock ci-dessous : c'est ce qui permet de retrouver le numéro de
+    // facture d'un mouvement (jointure piece_commerciale) sans avoir à
+    // rejouer tout l'achat. Sans fournisseur, pas de facture : on retombe
+    // sur op_id, un simple identifiant de lot sans numéro associé.
+    let piece_id = fournisseur_id.as_ref().map(|_| uuid::Uuid::new_v4().to_string());
+    let operation_id = piece_id.clone().unwrap_or_else(|| op_id.clone());
     let mut total: i64 = 0;
 
     // Calcule apres coup (total connu seulement une fois les lignes lues) —
@@ -116,7 +123,7 @@ pub fn enregistrer_achat(
             rusqlite::params![
                 uuid::Uuid::new_v4().to_string(),
                 l.article_id, depot_id, quantite_base,
-                op_id, auteur, now, now, auteur,
+                operation_id, auteur, now, now, auteur,
                 fournisseur_id, prix_base
             ],
         ).map_err(|e| e.to_string())?;
@@ -142,9 +149,9 @@ pub fn enregistrer_achat(
     let mut piece_id_retour = serde_json::Value::Null;
     let mut numero_retour = serde_json::Value::Null;
 
-    if let (Some(f_id), Some(num)) = (fournisseur_id.as_ref(), numero.as_ref()) {
-        let piece_id = uuid::Uuid::new_v4().to_string();
-
+    if let (Some(f_id), Some(num), Some(piece_id)) =
+        (fournisseur_id.as_ref(), numero.as_ref(), piece_id.as_ref())
+    {
         // Une facture fournisseur arrive du fournisseur : elle est ferme
         // des sa reception. Son statut reflete donc le REGLEMENT, pas un
         // cycle de validation interne.
@@ -376,7 +383,9 @@ pub fn enregistrer_retour_fournisseur(
             rusqlite::params![
                 uuid::Uuid::new_v4().to_string(),
                 l.article_id, depot_id, -quantite_base,
-                op_id, auteur, now, now, auteur,
+                // piece_id (l'avoir), pas op_id : c'est lui qui permet de
+                // retrouver le numéro d'avoir depuis un mouvement de stock.
+                piece_id, auteur, now, now, auteur,
                 fournisseur_id, prix_base
             ],
         ).map_err(|e| e.to_string())?;

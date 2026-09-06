@@ -140,7 +140,13 @@ pub fn lire_toutes_pieces_client(
                 CAST(COALESCE(
                   (SELECT SUM(av.montant) FROM avoir av
                    WHERE av.piece_id = pc.id AND av.statut = 'ouvert')
-                  , 0) AS INTEGER) as credit_ouvert
+                  , 0) AS INTEGER) as credit_ouvert,
+                -- Axe livraison, independant du paiement : c'est lui qui
+                -- rend representable le cas « paye non livre ».
+                COALESCE((SELECT SUM(lp.quantite_livree)
+                          FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0),
+                COALESCE((SELECT SUM(lp.quantite)
+                          FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0)
          FROM piece_commerciale pc
          JOIN client c ON c.id = pc.tiers_id
          LEFT JOIN utilisateur u ON u.id = pc.auteur_id
@@ -190,6 +196,10 @@ pub fn lire_toutes_pieces_client(
             // Index decales de 1 : total_paye s'est insere en 13.
             "auteur_nom":       row.get::<_,Option<String>>(14)?,
             "piece_origine_id": row.get::<_,Option<String>>(15)?,
+            // 16 = credit_ouvert, deja lu plus haut pour les AVC.
+            "etat_livraison":   crate::commandes::livraisons::etat(
+                                  row.get::<_,f64>(17).unwrap_or(0.0),
+                                  row.get::<_,f64>(18).unwrap_or(0.0)),
         }))
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
@@ -487,6 +497,41 @@ pub fn convertir_piece(
 
     inserer_lignes_raw(&conn, &nouvelle_id, &lignes, &now)?;
 
+    // Emettre un BL, c'est constater que la marchandise part : il nait
+    // donc entierement livre. Sans cela, creer un bon de livraison par
+    // ce chemin laissait la piece a « rien de livre », alors que
+    // l'action combinee (commande -> BL + facture) la marquait —  deux
+    // gestes voisins, deux resultats differents.
+    if nouveau_type == "bon_livraison" {
+        conn.execute(
+            "UPDATE ligne_piece SET quantite_livree = quantite WHERE piece_id = ?1",
+            rusqlite::params![nouvelle_id],
+        ).ok();
+    }
+
+    // Facture issue d'un BL : elle herite de l'etat livre, sinon on
+    // facturerait une marchandise deja partie en affichant « rien de
+    // livre ». Report en bloc, et seulement si le BL source est
+    // entierement livre — c'est son cas normal. S'il a ete ramene a du
+    // partiel a la main, la facture nait a zero et se corrige au meme
+    // endroit, plutot que d'inventer un appariement ligne a ligne que
+    // l'ordre de lecture ne garantit pas.
+    if nouveau_type == "facture" && type_src == "bon_livraison" {
+        let (livree, commandee): (f64, f64) = conn.query_row(
+            "SELECT COALESCE(SUM(quantite_livree), 0), COALESCE(SUM(quantite), 0)
+             FROM ligne_piece WHERE piece_id = ?1",
+            rusqlite::params![piece_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap_or((0.0, 0.0));
+
+        if crate::commandes::livraisons::etat(livree, commandee) == "livre" {
+            conn.execute(
+                "UPDATE ligne_piece SET quantite_livree = quantite WHERE piece_id = ?1",
+                rusqlite::params![nouvelle_id],
+            ).ok();
+        }
+    }
+
     // Journaliser
     conn.execute(
         "INSERT INTO journal
@@ -507,6 +552,143 @@ pub fn convertir_piece(
         "numero":     numero,
         "statut":     statut_nouveau,
         "type_piece": nouveau_type,
+    }))
+}
+
+// =====================================================================
+//  Commande → bon de livraison ET facture, en une fois
+// =====================================================================
+
+/// Produit les DEUX documents d'un coup depuis une commande client.
+///
+/// C'est le cas courant : la marchandise part avec sa facture. En
+/// passant par `convertir_piece`, il fallait choisir — la commande
+/// bascule en 'transfere' au premier transfert, donc l'autre document
+/// devenait inatteignable.
+///
+/// La chaîne est conservée : commande → BL → facture. Chaque pièce
+/// pointe sur celle dont elle découle, ce qui permet de remonter de la
+/// facture jusqu'à la commande d'origine.
+///
+/// Aucun effet sur le stock ni sur la caisse : le BL est un document,
+/// et la facture ne produit ses effets qu'à `valider_facture`.
+#[tauri::command]
+pub fn convertir_commande_en_livraison_et_facture(
+    etat: State<EtatApp>,
+    piece_id: String,
+) -> Result<serde_json::Value, String> {
+    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let (client_id, type_src, statut_src, remise_g, date_ech, note):
+        (String, String, String, f64, Option<String>, Option<String>) =
+        conn.query_row(
+            "SELECT tiers_id, type_piece, statut, remise_globale, date_echeance, note
+             FROM piece_commerciale WHERE id = ?1",
+            rusqlite::params![piece_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+        ).map_err(|_| "Pièce introuvable".to_string())?;
+
+    if type_src != "commande_client" {
+        return Err(
+            "Seule une commande client produit un bon de livraison et une \
+             facture ensemble.".to_string()
+        );
+    }
+    if statut_src == "transfere" {
+        return Err("Cette commande a déjà été transférée".to_string());
+    }
+    if statut_src == "annule" {
+        return Err("Cette commande est annulée".to_string());
+    }
+
+    let lignes = lire_lignes_raw(&conn, &piece_id)?;
+    if lignes.is_empty() {
+        return Err("Cette commande n'a aucune ligne".to_string());
+    }
+
+    let now = maintenant_iso();
+    let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
+
+    // Les deux numéros sont réservés avant la transaction, comme le fait
+    // enregistrer_achat : `prochain_numero` est une lecture, et les deux
+    // séries sont distinctes (BL et FAC) donc sans collision entre elles.
+    let numero_bl = prochain_numero(&conn, "bon_livraison");
+    let numero_fac = prochain_numero(&conn, "facture");
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let bl_id = uuid::Uuid::new_v4().to_string();
+    let fac_id = uuid::Uuid::new_v4().to_string();
+
+    // ---- 1. Bon de livraison, issu de la commande ----
+    tx.execute(
+        "INSERT INTO piece_commerciale
+         (id, type_piece, numero, statut, tiers_type, tiers_id,
+          piece_origine_id, auteur_id, date_piece, date_echeance,
+          remise_globale, note, cree_le, modifie_le, origine)
+         VALUES (?1,'bon_livraison',?2,'emis','client',?3,?4,?5,?6,?7,?8,?9,?10,?11,'app')",
+        rusqlite::params![
+            bl_id, numero_bl, client_id, piece_id, auteur,
+            now, date_ech, remise_g, note, now, now
+        ],
+    ).map_err(|e| e.to_string())?;
+    inserer_lignes_raw(&tx, &bl_id, &lignes, &now)?;
+
+    // ---- 2. Facture, issue du BL ----
+    // Brouillon : elle ne produit ses effets qu'à `valider_facture`, où
+    // le mode de règlement est choisi. La créer validée court-circuiterait
+    // le stock et la caisse.
+    tx.execute(
+        "INSERT INTO piece_commerciale
+         (id, type_piece, numero, statut, tiers_type, tiers_id,
+          piece_origine_id, auteur_id, date_piece, date_echeance,
+          remise_globale, note, cree_le, modifie_le, origine)
+         VALUES (?1,'facture',?2,'brouillon','client',?3,?4,?5,?6,?7,?8,?9,?10,?11,'app')",
+        rusqlite::params![
+            fac_id, numero_fac, client_id, bl_id, auteur,
+            now, date_ech, remise_g, note, now, now
+        ],
+    ).map_err(|e| e.to_string())?;
+    inserer_lignes_raw(&tx, &fac_id, &lignes, &now)?;
+
+    // ---- 3. Axe livraison ----
+    // Emettre un BL, c'est declarer que la marchandise part. La facture
+    // nait donc entierement livree, sinon elle s'afficherait « rien de
+    // livre » alors qu'un bon de livraison vient d'etre imprime pour
+    // elle. Reste corrigeable a la main (ModalLivraison) si le depart
+    // se fait en plusieurs fois.
+    for id in [&bl_id, &fac_id] {
+        tx.execute(
+            "UPDATE ligne_piece SET quantite_livree = quantite WHERE piece_id = ?1",
+            rusqlite::params![id],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    // ---- 4. Fermer la commande ----
+    tx.execute(
+        "UPDATE piece_commerciale SET statut = 'transfere', modifie_le = ?1
+         WHERE id = ?2",
+        rusqlite::params![now, piece_id],
+    ).map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1,'commande_livree_facturee','piece_commerciale',?2,?3,?4,'app',?5)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), piece_id, auteur,
+            format!(r#"{{"bon_livraison":"{}","facture":"{}"}}"#,
+                numero_bl, numero_fac),
+            now
+        ],
+    ).ok();
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!({
+        "bon_livraison": { "id": bl_id,  "numero": numero_bl },
+        "facture":       { "id": fac_id, "numero": numero_fac },
     }))
 }
 
@@ -1210,7 +1392,13 @@ pub fn lire_toutes_pieces_fournisseur(
                    WHERE pf.piece_id = pc.id)
                   , 0) AS INTEGER) as total_paye,
                 u.nom as auteur_nom,
-                pc.piece_origine_id
+                pc.piece_origine_id,
+                -- Axe livraison. Cote fournisseur il dit ce qui est
+                -- deja RECU sur une commande, meme lecture.
+                COALESCE((SELECT SUM(lp.quantite_livree)
+                          FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0),
+                COALESCE((SELECT SUM(lp.quantite)
+                          FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0)
          FROM piece_commerciale pc
          JOIN fournisseur f ON f.id = pc.tiers_id
          LEFT JOIN utilisateur u ON u.id = pc.auteur_id
@@ -1252,6 +1440,11 @@ pub fn lire_toutes_pieces_fournisseur(
             // Index decales de 1 : total_paye s'est insere en 13.
             "auteur_nom":       row.get::<_,Option<String>>(14)?,
             "piece_origine_id": row.get::<_,Option<String>>(15)?,
+            // Pas de credit_ouvert ici : les index ne sont pas ceux de
+            // la requete client, ou il occupe le 16.
+            "etat_livraison":   crate::commandes::livraisons::etat(
+                                  row.get::<_,f64>(16).unwrap_or(0.0),
+                                  row.get::<_,f64>(17).unwrap_or(0.0)),
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
     Ok(x)

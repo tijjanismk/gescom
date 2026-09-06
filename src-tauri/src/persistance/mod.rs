@@ -129,6 +129,19 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     conn.execute(
         "ALTER TABLE avoir ADD COLUMN piece_id TEXT", []
     ).ok();
+    // Suivi de livraison — quantite deja remise au client, par ligne.
+    //
+    // PUREMENT INFORMATIF : aucun effet sur le stock ni sur la caisse.
+    // Le stock sort toujours a `valider_facture`, la facture reste la
+    // source. Cette colonne ne fait que repondre a « qu'est-ce qui est
+    // parti ? », une question que le paiement ne pose pas — d'ou un axe
+    // separe, qui permet le cas « paye non livre ».
+    //
+    // Reglage desactive par defaut : la majorite des commercants vises
+    // remettent la marchandise au comptoir et n'ont rien a suivre.
+    conn.execute(
+        "ALTER TABLE ligne_piece ADD COLUMN quantite_livree REAL NOT NULL DEFAULT 0", []
+    ).ok();
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_avoir_piece ON avoir(piece_id)"
     ).ok();

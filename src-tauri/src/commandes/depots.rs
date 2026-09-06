@@ -331,16 +331,33 @@ pub fn lire_mouvements_stock(
     let vide = |o: Option<String>| o.filter(|s| !s.is_empty());
 
     let mut st = conn.prepare(
+        // Le numero de facture ne se lit jamais directement sur
+        // mouvement_stock : operation_id pointe vers une table differente
+        // selon le type (vente, retour/echange via la vente d'origine,
+        // achat/retour_fournisseur directement vers la piece). D'ou les
+        // quatre jointures conditionnelles, ramenees a une seule colonne.
         "SELECT ms.date_mouvement, ms.type_mouvement, a.nom, a.unite_base,
                 ms.quantite_delta, d.nom, COALESCE(ms.motif, ''),
                 COALESCE(u.nom, '—'),
                 COALESCE(f.nom, ''),
-                CAST(COALESCE(ms.prix_achat_unitaire, 0) AS INTEGER)
+                CAST(COALESCE(ms.prix_achat_unitaire, 0) AS INTEGER),
+                COALESCE(pc_vente.numero, pc_ret.numero, pc_op.numero, '')
          FROM mouvement_stock ms
          JOIN article a ON a.id = ms.article_id
          JOIN depot d ON d.id = ms.depot_id
          LEFT JOIN utilisateur u ON u.id = ms.auteur_id
          LEFT JOIN fournisseur f ON f.id = ms.fournisseur_id
+         LEFT JOIN vente v_op ON ms.type_mouvement = 'vente'
+           AND v_op.id = ms.operation_id
+         LEFT JOIN retour ret_op ON ms.type_mouvement IN ('retour','echange')
+           AND ret_op.id = ms.operation_id
+         LEFT JOIN vente v_ret ON v_ret.id = ret_op.vente_id
+         LEFT JOIN piece_commerciale pc_vente
+           ON pc_vente.id = COALESCE(v_op.piece_id, v_ret.piece_id)
+         LEFT JOIN piece_commerciale pc_ret ON ms.type_mouvement = 'retour_fournisseur'
+           AND pc_ret.id = ms.operation_id
+         LEFT JOIN piece_commerciale pc_op ON ms.type_mouvement = 'achat'
+           AND pc_op.id = ms.operation_id
          WHERE (?1 IS NULL OR ms.article_id = ?1)
            AND (?2 IS NULL OR ms.depot_id = ?2)
            AND (?3 IS NULL OR ms.type_mouvement = ?3)
@@ -373,6 +390,7 @@ pub fn lire_mouvements_stock(
                 "auteur":      r.get::<_, String>(7)?,
                 "fournisseur": r.get::<_, String>(8)?,
                 "prix_achat":  r.get::<_, i64>(9)?,
+                "numero_facture": r.get::<_, String>(10)?,
             }))
         }
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();

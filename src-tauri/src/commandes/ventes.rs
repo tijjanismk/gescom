@@ -99,6 +99,75 @@ pub fn creer_client_rapide(
     Ok(serde_json::json!({"id": id, "code": code, "nom": nom, "telephone": telephone}))
 }
 
+/// Modifie les coordonnees d'un client.
+///
+/// Le `code` n'est PAS modifiable : il est imprime sur les pieces deja
+/// remises et sert de reference au comptoir. Le changer ferait mentir
+/// tous les documents anterieurs.
+///
+/// Le client generique non plus : il est le pot commun des ventes au
+/// comptant (D40), le renommer rendrait le journal illisible.
+#[tauri::command]
+pub fn modifier_client(
+    etat: State<EtatApp>,
+    client_id: String,
+    nom: String,
+    telephone: Option<String>,
+    adresse: Option<String>,
+    email: Option<String>,
+    nif: Option<String>,
+) -> Result<(), String> {
+    if nom.trim().is_empty() {
+        return Err("Le nom est obligatoire".to_string());
+    }
+
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let est_generique: i64 = conn.query_row(
+        "SELECT est_generique FROM client WHERE id = ?1",
+        rusqlite::params![client_id], |r| r.get(0),
+    ).map_err(|_| "Client introuvable".to_string())?;
+
+    if est_generique == 1 {
+        return Err(
+            "Le client générique ne se modifie pas : il regroupe toutes les \
+             ventes au comptant.".to_string()
+        );
+    }
+
+    let now = maintenant_iso();
+    let auteur = id_utilisateur_courant_pub(&conn);
+
+    // `vide` plutot que la chaine vide : un champ efface doit redevenir
+    // NULL, sinon les ecrans affichent une ligne vide au lieu de rien.
+    let vide = |o: Option<String>| o.filter(|s| !s.trim().is_empty());
+
+    conn.execute(
+        "UPDATE client
+         SET nom = ?1, telephone = ?2, adresse = ?3, email = ?4, nif = ?5,
+             modifie_le = ?6, modifie_par = ?7
+         WHERE id = ?8",
+        rusqlite::params![
+            nom.trim(), vide(telephone), vide(adresse), vide(email), vide(nif),
+            now, auteur, client_id
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1,'client_modifie','client',?2,?3,?4,'app',?5)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), client_id, auteur,
+            format!(r#"{{"nom":"{}"}}"#, nom.trim().replace('"', "'")),
+            now
+        ],
+    ).ok();
+
+    Ok(())
+}
+
 // =====================================================================
 //  ARTICLES
 // =====================================================================

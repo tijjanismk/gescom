@@ -2,9 +2,12 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowLeft, Truck, Phone, MapPin, Mail, FileText,
-  Loader2, TrendingDown, Clock,
+  Loader2, TrendingDown, Clock, Eye, Pencil, Printer,
   Package, Banknote, CheckCircle2
 } from "lucide-react";
+import { ApercuPiece } from "@/components/ApercuPiece";
+import { ModalModifierTiers } from "@/components/ModalModifierTiers";
+import { genererReleveHTML, type DonneesReleve } from "@/lib/genererReleve";
 import { GlassHalos } from "@/components/ui/GlassIcon";
 import { KpiLigne, CARTE, GRILLE } from "@/components/ui/KpiVerre";
 import { Button } from "@/components/ui/button";
@@ -46,6 +49,8 @@ interface PaiementFournisseur {
 interface MouvementAchat {
   id: string; article_nom: string; quantite: number;
   prix_achat: number; date_mouvement: string;
+  /** FAF d'origine — vide pour une entrée sans facture. */
+  piece_id: string; piece_numero: string;
 }
 
 function fmt(n: number) {
@@ -182,6 +187,37 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
   const [chargement, setChargement] = useState(true);
   const [onglet, setOnglet] = useState("resume");
   const [modalDette, setModalDette] = useState(false);
+  const [pieceApercue, setPieceApercue] =
+    useState<{ id: string; numero: string } | null>(null);
+  const [modalModifier, setModalModifier] = useState(false);
+  const [releveEnCours, setReleveEnCours] = useState(false);
+
+  /**
+   * État de dette — le relevé qu'on oppose au fournisseur.
+   *
+   * Les montants viennent du backend : la dette se lit dans
+   * `paiement_fournisseur` (D9, D36), jamais dans le statut des pièces.
+   * La recalculer ici ferait diverger le papier de l'écran.
+   */
+  async function imprimerReleve() {
+    setReleveEnCours(true);
+    try {
+      const [donnees, logo, entete] = await Promise.all([
+        invoke<DonneesReleve>("lire_etat_dette_fournisseur", { fournisseurId }),
+        invoke<string | null>("lire_logo_base64").catch(() => null),
+        invoke<string | null>("lire_entete_base64").catch(() => null),
+      ]);
+      await invoke("imprimer_facture", {
+        html: genererReleveHTML(donnees, "fournisseur", logo, entete),
+        nomFichier: `dette_${donnees.tiers.nom}`
+          .replace(/[\\/:*?"<>|]/g, "-") + ".html",
+      });
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Impression", kind: "error" });
+    } finally {
+      setReleveEnCours(false);
+    }
+  }
 
   async function charger() {
     setChargement(true);
@@ -231,15 +267,26 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
             )}
           </div>
         </div>
-        {stats.dette > 0 && (
-          <div className="ml-auto">
+        <div className="ml-auto flex gap-2">
+          <Button size="sm" variant="outline"
+            onClick={() => setModalModifier(true)}>
+            <Pencil className="h-4 w-4 mr-1" /> Modifier
+          </Button>
+          <Button size="sm" variant="outline" onClick={imprimerReleve}
+            disabled={releveEnCours}>
+            {releveEnCours
+              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              : <Printer className="h-4 w-4 mr-1" />}
+            État de dette
+          </Button>
+          {stats.dette > 0 && (
             <Button size="sm" onClick={() => setModalDette(true)}
               className="gap-1.5 bg-orange-600 hover:bg-orange-700">
               <Banknote className="h-3.5 w-3.5" />
               Régler dette · {fmt(stats.dette)}
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Onglets */}
@@ -311,7 +358,8 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
                 // statut — la tuile ne fait que refleter stats.dette.
                 { label: "Dette actuelle", val: fmt(stats.dette),
                   icone: Banknote,
-                  variante: (stats.dette > 0 ? "tinted" : "clear") as const, inactif: false },
+                  variante: stats.dette > 0 ? ("tinted" as const) : ("clear" as const),
+                  inactif: false },
                 { label: "Total payé", val: fmt(stats.total_paye),
                   icone: CheckCircle2, variante: "neutral" as const, inactif: false },
                 { label: "Dernière commande",
@@ -364,16 +412,29 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
                     <p className="text-sm font-medium">{a.article_nom}</p>
                     <p className="text-xs text-muted-foreground">
                       {fmtDate(a.date_mouvement)}
+                      {a.piece_numero && ` · ${a.piece_numero}`}
                     </p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium">
-                      {a.quantite % 1 === 0 ? a.quantite : a.quantite.toFixed(2)} unités
-                    </p>
-                    {a.prix_achat > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        {fmt(a.prix_achat)} / u
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <p className="text-sm font-medium">
+                        {a.quantite % 1 === 0 ? a.quantite : a.quantite.toFixed(2)} unités
                       </p>
+                      {a.prix_achat > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {fmt(a.prix_achat)} / u
+                        </p>
+                      )}
+                    </div>
+                    {/* Seulement si la facture est retrouvable : une
+                        entrée sans facture n'a pas de pièce à montrer. */}
+                    {a.piece_id && (
+                      <Button size="sm" variant="ghost" title="Aperçu de la facture"
+                        onClick={() => setPieceApercue(
+                          { id: a.piece_id, numero: a.piece_numero })}
+                        className="h-7 w-7 p-0 shrink-0">
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -434,6 +495,20 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
         dette={stats.dette}
         onFermer={() => setModalDette(false)}
         onRegle={() => { setModalDette(false); charger(); }}
+      />
+
+      <ApercuPiece
+        pieceId={pieceApercue?.id ?? null}
+        numero={pieceApercue?.numero}
+        typePiece="facture_fournisseur"
+        onFermer={() => setPieceApercue(null)}
+      />
+
+      <ModalModifierTiers
+        tiers={modalModifier ? fournisseur : null}
+        cote="fournisseur"
+        onFermer={() => setModalModifier(false)}
+        onModifie={charger}
       />
     </div>
   );

@@ -38,6 +38,7 @@ pub fn run() {
             commandes::ventes::lire_clients,
             commandes::ventes::lire_client_generique,
             commandes::ventes::creer_client_rapide,
+            commandes::ventes::modifier_client,
             commandes::ventes::lire_articles_avec_unites,
             commandes::ventes::lire_depots,
             commandes::ventes::lire_depot_defaut,
@@ -49,6 +50,8 @@ pub fn run() {
             commandes::fournisseurs::lire_fournisseurs,
             commandes::fournisseurs::lire_fournisseurs_avec_dettes,
             commandes::fournisseurs::creer_fournisseur,
+            commandes::fournisseurs::modifier_fournisseur,
+            commandes::fournisseurs::lire_etat_dette_fournisseur,
             commandes::fournisseurs::enregistrer_entree_stock,
             commandes::fournisseurs::enregistrer_ajustement_inventaire,
             commandes::achats::enregistrer_achat,
@@ -67,6 +70,8 @@ pub fn run() {
             commandes::parametres::entretenir_base,
             commandes::parametres::lire_config_bon_sortie,
             commandes::parametres::sauvegarder_config_bon_sortie,
+            commandes::parametres::lire_config_suivi_livraison,
+            commandes::parametres::sauvegarder_config_suivi_livraison,
             // ---- Retours & avoirs ----
             commandes::retours::lire_ventes_recentes,
             commandes::retours::enregistrer_retour,
@@ -164,6 +169,7 @@ pub fn run() {
             commandes::creances::lire_creances_ouvertes,
             commandes::creances::regler_creance,
             commandes::creances::solder_residus_creances,
+            commandes::creances::lire_etat_creances_client,
             // ---- Chantiers §14 ----
             commandes::chantiers::lire_taux_tva,
             commandes::chantiers::sauvegarder_tva_article,
@@ -186,6 +192,7 @@ pub fn run() {
             commandes::pieces::creer_piece,
             commandes::pieces::creer_piece_fournisseur,
             commandes::pieces::convertir_piece,
+            commandes::pieces::convertir_commande_en_livraison_et_facture,
             commandes::pieces::changer_statut_piece,
             commandes::pieces::lire_donnees_piece,
             commandes::pieces::lire_piece_de_vente,
@@ -197,6 +204,11 @@ pub fn run() {
             commandes::pieces::annuler_piece,
             commandes::pieces::annuler_facture_par_avoir,
             commandes::pieces::dupliquer_piece,
+            // ---- Suivi de livraison (informatif, sans effet stock) ----
+            // Le reglage est declare avec les autres bascules d'ecran,
+            // dans la section Parametres.
+            commandes::livraisons::lire_livraison_piece,
+            commandes::livraisons::enregistrer_livraison,
             // ---- Rapport TVA ----
             commandes::rapports::lire_rapport_tva,
             // ---- Fiche fournisseur ----

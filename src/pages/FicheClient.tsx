@@ -3,7 +3,7 @@ import type { CreanceOuverteApi } from "@/lib/types-api";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowLeft, User, Phone, MapPin, Mail, FileText,
-  Loader2, Plus, Printer, ArrowRight,
+  Loader2, Plus, Printer, ArrowRight, Eye, Pencil,
   Receipt, Package, Truck, ClipboardList, Gift,
   AlertTriangle, TrendingUp, Clock,
 } from "lucide-react";
@@ -22,6 +22,9 @@ import {
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { genererImpression } from "@/lib/genererPDF";
+import { genererReleveHTML, type DonneesReleve } from "@/lib/genererReleve";
+import { ApercuPiece } from "@/components/ApercuPiece";
+import { ModalModifierTiers } from "@/components/ModalModifierTiers";
 import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================
@@ -512,6 +515,37 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
   const [modalNouv, setModalNouv] = useState(false);
   const [creanceActive, setCreanceActive] = useState<CreanceVente | null>(null);
   const [impressionEnCours, setImpressionEnCours] = useState<string | null>(null);
+  const [pieceApercue, setPieceApercue] = useState<Piece | null>(null);
+  const [modalModifier, setModalModifier] = useState(false);
+  const [releveEnCours, setReleveEnCours] = useState(false);
+
+  /**
+   * État de créance — le relevé qu'on remet au client.
+   *
+   * Le montant vient du backend, jamais d'un recalcul ici : `reste` se
+   * dérive des paiements encaissés (D36) et passe par `reste_exigible`
+   * (D41). Le refaire en TypeScript ferait diverger le papier de
+   * l'écran au premier arrondi.
+   */
+  async function imprimerReleve() {
+    setReleveEnCours(true);
+    try {
+      const [donnees, logo, entete] = await Promise.all([
+        invoke<DonneesReleve>("lire_etat_creances_client", { clientId }),
+        invoke<string | null>("lire_logo_base64").catch(() => null),
+        invoke<string | null>("lire_entete_base64").catch(() => null),
+      ]);
+      await invoke("imprimer_facture", {
+        html: genererReleveHTML(donnees, "client", logo, entete),
+        nomFichier: `creance_${donnees.tiers.code || donnees.tiers.nom}`
+          .replace(/[\\/:*?"<>|]/g, "-") + ".html",
+      });
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Impression", kind: "error" });
+    } finally {
+      setReleveEnCours(false);
+    }
+  }
 
   async function charger() {
     setChargement(true);
@@ -613,6 +647,17 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
           <p className="text-xs text-muted-foreground">{client.code}</p>
         </div>
         <div className="ml-auto flex gap-2">
+          <Button size="sm" variant="outline"
+            onClick={() => setModalModifier(true)}>
+            <Pencil className="h-4 w-4 mr-1" /> Modifier
+          </Button>
+          <Button size="sm" variant="outline" onClick={imprimerReleve}
+            disabled={releveEnCours}>
+            {releveEnCours
+              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              : <Printer className="h-4 w-4 mr-1" />}
+            État de créance
+          </Button>
           <Button size="sm" onClick={() => setModalNouv(true)}>
             <Plus className="h-4 w-4 mr-1" /> Nouvelle pièce
           </Button>
@@ -686,7 +731,8 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
                   icone: Receipt, variante: "neutral" as const, inactif: false },
                 { label: "Encours", val: fmt(stats.encours),
                   icone: AlertTriangle,
-                  variante: (stats.encours > 0 ? "tinted" : "clear") as const, inactif: false },
+                  variante: stats.encours > 0 ? ("tinted" as const) : ("clear" as const),
+                  inactif: false },
                 { label: "Avoirs disponibles", val: fmt(stats.avoirs_total),
                   icone: Gift, variante: "neutral" as const, inactif: false },
                 { label: "Pièces", val: stats.nb_pieces.toString(),
@@ -779,6 +825,12 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
                             {LABELS_TYPE[suivant]}
                           </Button>
                         )}
+                        <Button size="sm" variant="ghost"
+                          onClick={() => setPieceApercue(p)}
+                          title="Aperçu"
+                          className="h-7 w-7 p-0">
+                          <Eye className="h-3.5 w-3.5" />
+                        </Button>
                         <Button size="sm" variant="ghost"
                           onClick={() => handleImprimer(p)}
                           disabled={impressionEnCours === p.id}
@@ -897,6 +949,18 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
         ouvert={!!creanceActive} creance={creanceActive}
         onFermer={() => setCreanceActive(null)}
         onRegle={() => { setCreanceActive(null); charger(); }} />
+
+      <ApercuPiece
+        pieceId={pieceApercue?.id ?? null}
+        numero={pieceApercue?.numero}
+        typePiece={pieceApercue?.type_piece}
+        onFermer={() => setPieceApercue(null)} />
+
+      <ModalModifierTiers
+        tiers={modalModifier ? client : null}
+        cote="client"
+        onFermer={() => setModalModifier(false)}
+        onModifie={charger} />
     </div>
   );
 }

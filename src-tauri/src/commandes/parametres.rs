@@ -359,6 +359,47 @@ pub fn sauvegarder_config_bon_sortie(
     Ok(())
 }
 
+// =====================================================================
+//  SUIVI DE LIVRAISON
+// =====================================================================
+//
+// Second axe, parallele au paiement : « qu'est-ce qui est deja parti ? »,
+// question que le reglement ne pose pas. Leur croisement rend visible le
+// cas « paye non livre ».
+//
+// Desactive par defaut, comme le bon de sortie : la plupart des
+// commercants vises remettent la marchandise au comptoir et n'ont rien a
+// suivre. Actif, le bon de livraison s'intercale entre la commande et la
+// facture (cote fournisseur : le bon de reception, entre le BCF et la
+// facture fournisseur).
+//
+// Purement informatif — aucun effet sur le stock ni sur la caisse, la
+// marchandise sort toujours a `valider_facture`. Voir livraisons.rs.
+
+#[tauri::command]
+pub fn lire_config_suivi_livraison(etat: State<EtatApp>) -> Result<bool, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let v: String = conn.query_row(
+        "SELECT valeur FROM config_app WHERE cle = 'suivi_livraison_actif'",
+        [], |r| r.get(0),
+    ).unwrap_or_else(|_| "0".to_string());
+    Ok(v == "1")
+}
+
+#[tauri::command]
+pub fn sauvegarder_config_suivi_livraison(
+    etat: State<EtatApp>,
+    actif: bool,
+) -> Result<(), String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO config_app (cle, valeur) VALUES ('suivi_livraison_actif', ?1)
+         ON CONFLICT(cle) DO UPDATE SET valeur = ?1",
+        rusqlite::params![if actif { "1" } else { "0" }],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn lire_stocks(etat: State<EtatApp>) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;

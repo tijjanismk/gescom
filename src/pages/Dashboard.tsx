@@ -35,7 +35,11 @@ interface ResumeDashboard {
 }
 
 interface VenteJour {
-  heure: string;
+  // `lire_ventes_du_jour` renvoie un ENTIER (0-23), pas une chaîne.
+  // L'écart était invisible — `{v.heure}h` rend un nombre sans broncher
+  // — mais toute comparaison stricte échouait en silence. C'est le
+  // sixième écart de clé front/back du projet.
+  heure: number;
   montant: number;
   nb: number;
 }
@@ -109,7 +113,7 @@ export function Dashboard() {
       const auj = new Date().toISOString().slice(0, 10);
       const [res, vj, tc, ta, dec] = await Promise.all([
         invoke<ResumeDashboard>("lire_resume_dashboard", { depotId: DEPOT_ACTIF }),
-        invoke<VenteJour[]>("lire_ventes_du_jour"),
+        invoke<VenteJour[]>("lire_ventes_du_jour", { depotId: DEPOT_ACTIF }),
         estPatron ? invoke<TopClient[]>("lire_top_clients") : Promise.resolve([]),
         estPatron ? invoke<TopArticle[]>("lire_top_articles") : Promise.resolve([]),
         invoke<{ nb: number }>("lire_ventes_a_decouvert", {
@@ -160,7 +164,13 @@ export function Dashboard() {
 
   const r = resume;
   const tendanceMois = pct(r.ca_mois, r.ca_mois_precedent);
+  // `, 1` garde la division sûre quand aucune vente n'a encore eu lieu.
   const maxVente = Math.max(...ventesJour.map(v => v.montant), 1);
+  // Heure du pic, ou `null` si la journée n'a rien encaissé — sans ce
+  // cas, `max` valant 1 par défaut désignerait une heure au hasard.
+  const heurePic = ventesJour.some(v => v.montant > 0)
+    ? Number(ventesJour.find(v => v.montant === maxVente)!.heure)
+    : null;
   const maxClient = Math.max(...topClients.map(c => c.ca), 1);
   const maxArticle = Math.max(...topArticles.map(a => a.ca), 1);
 
@@ -321,36 +331,81 @@ export function Dashboard() {
         {/* ── Graphe ventes du jour ── */}
         {ventesJour.length > 0 && (
           <div className={`${CARTE} p-5`}>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-baseline justify-between gap-3">
               <h2 className="text-sm font-semibold">Ventes aujourd'hui par heure</h2>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs text-muted-foreground shrink-0">
                 Total : {fmt(r.ca_jour)}
               </span>
             </div>
-            <div className="flex items-end gap-1 h-24 bg-transparent">
+
+            {/* Le pic en clair : c'est l'information qu'on cherche dans
+                ce graphe — à quelle heure ça se joue. La lire en
+                survolant les barres une à une serait absurde. */}
+            <p className="text-xs text-muted-foreground mt-1 mb-4">
+              {heurePic === null
+                ? "Aucune vente enregistrée pour l'instant"
+                : `Pic à ${heurePic}h · ${fmt(maxVente)}`}
+            </p>
+
+            {/* h-28 fixe, hauteurs en POURCENTAGE de ce conteneur.
+                Avant, la hauteur valait (montant / max) × 100 et partait
+                en `px` : la barre du pic mesurait 100px dans une boîte
+                de 96px et débordait de la carte. */}
+            <div className="flex items-end gap-[2px] h-28">
               {ventesJour.map((v, i) => {
-                const h = Math.round((v.montant / maxVente) * 100);
+                const pct = (v.montant / maxVente) * 100;
+                const estPic = v.montant > 0 && v.montant === maxVente;
                 return (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-1 group">
-                    <div className="relative w-full">
-                      {v.montant > 0 && (
-                        <div className="absolute -top-5 left-1/2 -translate-x-1/2
-                                        text-[9px] text-muted-foreground whitespace-nowrap
-                                        opacity-0 group-hover:opacity-100 transition-opacity">
-                          {fmtCompact(v.montant)}
-                        </div>
-                      )}
-                      <div
-                        className={`w-full rounded-sm transition-all ${
-                          v.montant > 0 ? "bg-primary/80 hover:bg-primary" : "bg-muted"
-                        }`}
-                        style={{ height: `${Math.max(h, v.montant > 0 ? 4 : 2)}px` }}
-                      />
-                    </div>
-                    <span className="text-[9px] text-muted-foreground">{v.heure}h</span>
+                  <div key={i}
+                    className="flex-1 h-full flex items-end justify-center group
+                               relative min-w-0">
+                    {/* Infobulle : montant ET nombre de ventes. Le seul
+                        montant ne dit pas si l'heure a fait une gross
+                        vente ou dix petites. */}
+                    {v.montant > 0 && (
+                      <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2
+                                      px-2 py-1 rounded-md bg-foreground text-background
+                                      text-[10px] leading-tight whitespace-nowrap
+                                      opacity-0 group-hover:opacity-100 pointer-events-none
+                                      transition-opacity z-10 shadow-sm">
+                        <span className="font-semibold">{fmt(v.montant)}</span>
+                        <span className="opacity-70">
+                          {" · "}{v.nb} vente{v.nb > 1 ? "s" : ""}
+                        </span>
+                      </div>
+                    )}
+                    <div
+                      className={`w-full rounded-t-[4px] transition-colors ${
+                        v.montant > 0
+                          ? estPic ? "bg-primary" : "bg-primary/55 group-hover:bg-primary"
+                          : "bg-muted/60"
+                      }`}
+                      // Plancher de 3px : une heure à 200 F doit rester
+                      // visible à côté d'une heure à 200 000 F, sinon
+                      // elle se confond avec une heure sans vente.
+                      style={{
+                        height: v.montant > 0 ? `max(3px, ${pct}%)` : "2px",
+                      }}
+                    />
                   </div>
                 );
               })}
+            </div>
+
+            {/* Axe des heures. Une étiquette sur trois : dix-huit
+                nombres à 9px collés les uns aux autres ne se lisent pas,
+                et l'échelle se devine avec des repères espacés. */}
+            <div className="flex gap-[2px] mt-1.5 border-t border-border/60 pt-1.5">
+              {ventesJour.map((v, i) => (
+                <span key={i}
+                  className={`flex-1 text-center text-[9px] tabular-nums min-w-0 ${
+                    Number(v.heure) === heurePic
+                      ? "text-foreground font-medium"
+                      : "text-muted-foreground"
+                  }`}>
+                  {i % 3 === 0 || Number(v.heure) === heurePic ? `${v.heure}h` : ""}
+                </span>
+              ))}
             </div>
           </div>
         )}

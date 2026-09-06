@@ -211,9 +211,15 @@ pub fn lire_resume_dashboard(
 #[tauri::command]
 pub fn lire_ventes_du_jour(
     etat: State<EtatApp>,
+    // Depot actif. Sans ce filtre, les barres additionnaient TOUS les
+    // depots alors que le total affiche a cote vient de
+    // `lire_resume_dashboard`, lui filtre : sur deux depots, les barres
+    // depassaient visiblement le total annonce.
+    depot_id: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let debut_jour = chrono::Local::now().format("%Y-%m-%dT00:00:00").to_string();
+    let dep: Option<String> = depot_id.filter(|d| !d.is_empty());
 
     // Générer les 24 heures
     let mut heures: Vec<serde_json::Value> = (0..24).map(|h| {
@@ -230,10 +236,11 @@ pub fn lire_ventes_du_jour(
             COUNT(*) as nb
          FROM vente v
          WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
+           AND (?2 IS NULL OR v.depot_id = ?2)
          GROUP BY heure ORDER BY heure"
     ).map_err(|e| e.to_string())?;
 
-    stmt.query_map(rusqlite::params![debut_jour], |row| {
+    stmt.query_map(rusqlite::params![debut_jour, dep], |row| {
         Ok((row.get::<_,i64>(0)?, row.get::<_,i64>(1)?, row.get::<_,i64>(2)?))
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())

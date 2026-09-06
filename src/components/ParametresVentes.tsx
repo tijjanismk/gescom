@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Scan, Loader2, Save, Package, PackageCheck } from "lucide-react";
+import { Scan, Loader2, Save, Package, PackageCheck, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,9 @@ export function OngletVentes() {
   // Bon de sortie : le magasin est séparé de la caisse (quincaillerie,
   // dépôt de matériaux). Celui qui encaisse ne délivre pas.
   const [bonSortieActif, setBonSortieActif] = useState(false);
+  // Livraison : axe d'information parallèle au paiement. Sans effet sur
+  // le stock ni la caisse — voir livraisons.rs.
+  const [suiviLivraison, setSuiviLivraison] = useState(false);
   const [articles, setArticles] = useState<ArticleAvecCode[]>([]);
   const [chargement, setChargement] = useState(true);
   const [sauvegarde, setSauvegarde] = useState(false);
@@ -30,13 +33,15 @@ export function OngletVentes() {
     async function charger() {
       setChargement(true);
       try {
-        const [config, bonSortie, arts] = await Promise.all([
+        const [config, bonSortie, livraison, arts] = await Promise.all([
           invoke<boolean>("lire_config_scanner"),
           invoke<boolean>("lire_config_bon_sortie"),
+          invoke<boolean>("lire_config_suivi_livraison"),
           invoke<ArticleAvecCode[]>("lire_articles_avec_codes_barres"),
         ]);
         setScannerActif(config);
         setBonSortieActif(bonSortie);
+        setSuiviLivraison(livraison);
         setArticles(arts);
         // Pré-remplir les codes existants
         const codes: Record<string, string> = {};
@@ -72,6 +77,18 @@ export function OngletVentes() {
     try {
       await invoke("sauvegarder_config_bon_sortie", { actif });
       setBonSortieActif(actif);
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    } finally {
+      setSauvegarde(false);
+    }
+  }
+
+  async function handleSauvegarderSuiviLivraison(actif: boolean) {
+    setSauvegarde(true);
+    try {
+      await invoke("sauvegarder_config_suivi_livraison", { actif });
+      setSuiviLivraison(actif);
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
     } finally {
@@ -192,6 +209,54 @@ export function OngletVentes() {
           paie au comptoir, repart avec le bon, et le magasinier ne
           délivre la marchandise que contre ce papier signé. Le bon porte
           le numéro de la facture mais aucun prix.
+        </p>
+      </div>
+
+      {/* Suivi de livraison */}
+      <div className="border border-border rounded-lg p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Truck className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium">Suivi de livraison</p>
+              <p className="text-xs text-muted-foreground">
+                Savoir ce qui est parti, indépendamment du paiement
+              </p>
+            </div>
+          </div>
+          <Badge variant={suiviLivraison ? "default" : "outline"}>
+            {suiviLivraison ? "Activé" : "Désactivé"}
+          </Badge>
+        </div>
+
+        <div className="flex gap-2">
+          <Button
+            variant={suiviLivraison ? "outline" : "default"}
+            size="sm"
+            disabled={sauvegarde || suiviLivraison}
+            onClick={() => handleSauvegarderSuiviLivraison(true)}
+            className="flex-1"
+          >
+            Activer
+          </Button>
+          <Button
+            variant={!suiviLivraison ? "outline" : "destructive"}
+            size="sm"
+            disabled={sauvegarde || !suiviLivraison}
+            onClick={() => handleSauvegarderSuiviLivraison(false)}
+            className="flex-1"
+          >
+            Désactiver
+          </Button>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          À activer si vous livrez. Chaque pièce reçoit alors un second
+          badge — livré, partiellement livré — à côté de son statut de
+          paiement, ce qui rend visible le cas « payé, pas encore livré ».
+          C'est une information de suivi : le stock et la caisse ne
+          bougent pas, la marchandise sort toujours à la validation de la
+          facture.
         </p>
       </div>
 

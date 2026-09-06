@@ -4,6 +4,102 @@ use tauri::State;
 use crate::commandes::ventes::EtatApp;
 use crate::utils::maintenant_iso;
 
+/// Etat des creances d'UN client — le releve qu'on lui remet.
+///
+/// D36 : le reste du se calcule sur les paiements reellement encaisses,
+/// jamais sur le statut seul. Un statut peut mentir apres un cheque
+/// rejete ou un avoir consomme ; la somme des paiements, non.
+///
+/// D31/D41 : le total se derive des `prix_pratique` stockes et passe par
+/// `reste_exigible`, sinon un reliquat d'un franc apparait sur le
+/// document remis au client — le genre de detail qui fait perdre une
+/// heure au comptoir.
+#[tauri::command]
+pub fn lire_etat_creances_client(
+    etat: State<EtatApp>,
+    client_id: String,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+
+    let client = conn.query_row(
+        "SELECT nom, code, telephone, adresse FROM client WHERE id = ?1",
+        rusqlite::params![client_id],
+        |r| Ok(serde_json::json!({
+            "nom":       r.get::<_, String>(0)?,
+            "code":      r.get::<_, String>(1)?,
+            "telephone": r.get::<_, Option<String>>(2)?,
+            "adresse":   r.get::<_, Option<String>>(3)?,
+        })),
+    ).map_err(|_| "Client introuvable".to_string())?;
+
+    let mut st = conn.prepare(
+        "SELECT v.date_vente, COALESCE(p.numero, ''),
+                CAST(COALESCE(SUM(lv.prix_pratique * lv.quantite), 0) AS INTEGER),
+                CAST(COALESCE(
+                  (SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0
+                ) AS INTEGER)
+         FROM vente v
+         LEFT JOIN ligne_vente lv ON lv.vente_id = v.id
+         LEFT JOIN piece_commerciale p ON p.id = v.piece_id
+         WHERE v.client_id = ?1
+           AND v.statut IN ('creance_ouverte','partiellement_payee')
+         GROUP BY v.id
+         ORDER BY v.date_vente"
+    ).map_err(|e| e.to_string())?;
+
+    let lignes: Vec<serde_json::Value> = st.query_map(
+        rusqlite::params![client_id], |r| {
+            let total: i64 = r.get(2)?;
+            let paye: i64 = r.get(3)?;
+            Ok(serde_json::json!({
+                "date":   r.get::<_, String>(0)?,
+                "numero": r.get::<_, String>(1)?,
+                "total":  total,
+                "paye":   paye,
+                "reste":  crate::coeur::calcul::reste_exigible(total, paye),
+            }))
+        }
+    ).map_err(|e| e.to_string())?.filter_map(|r| r.ok())
+    // Une vente soldee au franc pres (D41) n'a plus rien a reclamer :
+    // la faire figurer avec un reste a zero ferait douter le client.
+    .filter(|l| l["reste"].as_i64().unwrap_or(0) > 0)
+    .collect();
+
+    let total_du: i64 = lignes.iter()
+        .filter_map(|l| l["reste"].as_i64()).sum();
+
+    // Avoirs ouverts : le client a du credit chez nous. L'omettre du
+    // releve reviendrait a lui reclamer plus qu'il ne doit reellement.
+    let avoirs: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
+         FROM avoir WHERE client_id = ?1 AND statut = 'ouvert'",
+        rusqlite::params![client_id], |r| r.get(0),
+    ).unwrap_or(0);
+
+    Ok(serde_json::json!({
+        "tiers":     client,
+        "lignes":    lignes,
+        "total_du":  total_du,
+        "avoirs":    avoirs,
+        "net_du":    (total_du - avoirs).max(0),
+        "societe":   societe(&conn),
+    }))
+}
+
+/// En-tete societe, commun aux documents imprimes.
+pub(crate) fn societe(conn: &rusqlite::Connection) -> serde_json::Value {
+    conn.query_row(
+        "SELECT nom, adresse, telephone FROM parametres_societe WHERE id = 1",
+        [], |r| Ok(serde_json::json!({
+            "nom":       r.get::<_, String>(0)?,
+            "adresse":   r.get::<_, Option<String>>(1)?,
+            "telephone": r.get::<_, Option<String>>(2)?,
+        })),
+    ).unwrap_or(serde_json::json!({
+        "nom": "", "adresse": null, "telephone": null
+    }))
+}
+
 /// Lire toutes les ventes avec créance ouverte ou partielle.
 #[tauri::command]
 pub fn lire_creances_ouvertes(

@@ -321,7 +321,7 @@ interface MouvementStock {
   date: string; type: string; libelle: string;
   article: string; unite_base: string; quantite: number; entrant: boolean;
   depot: string; motif: string; auteur: string;
-  fournisseur: string; prix_achat: number;
+  fournisseur: string; prix_achat: number; numero_facture: string;
 }
 
 /**
@@ -408,6 +408,7 @@ function OngletMouvements() {
                 <th className="text-left px-3 py-2 font-medium">Article</th>
                 <th className="text-left px-3 py-2 font-medium">Dépôt</th>
                 <th className="text-left px-3 py-2 font-medium">Motif</th>
+                <th className="text-left px-3 py-2 font-medium">Facture</th>
                 <th className="text-right px-3 py-2 font-medium">Qté</th>
               </tr>
             </thead>
@@ -426,6 +427,9 @@ function OngletMouvements() {
                   <td className="px-3 py-2 text-xs">{m.depot}</td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">
                     {m.motif || m.fournisseur || "—"}
+                  </td>
+                  <td className="px-3 py-2 text-xs font-mono text-muted-foreground">
+                    {m.numero_facture || "—"}
                   </td>
                   {/* Le signe porte le sens : ajustement et transfert
                       vont dans les deux sens selon le cas. */}
@@ -775,6 +779,9 @@ function genererMouvementsHTML(
       <td style="padding:4px 6px;font-size:10px;color:#666">
         ${m.motif || m.fournisseur || ""}
       </td>
+      <td style="padding:4px 6px;font-size:10px;font-family:monospace">
+        ${m.numero_facture || "—"}
+      </td>
       <td style="padding:4px 6px;font-size:10px">${m.auteur}</td>
       <td style="padding:4px 6px;text-align:right;font-weight:bold">
         ${m.entrant ? "+" : "−"} ${fmtQ(m.quantite)} ${m.unite_base}
@@ -812,7 +819,7 @@ function genererMouvementsHTML(
   <table>
     <thead><tr>
       <th>Date</th><th>Type</th><th>Article</th><th>Dépôt</th>
-      <th>Motif</th><th>Auteur</th><th style="text-align:right">Quantité</th>
+      <th>Motif</th><th>Facture</th><th>Auteur</th><th style="text-align:right">Quantité</th>
     </tr></thead>
     <tbody>${corps}</tbody>
   </table>

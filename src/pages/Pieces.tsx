@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  Plus, Printer, Loader2, Search, X, Wallet, PackageCheck, MoreHorizontal,
+  Plus, Printer, Loader2, Search, X, Wallet, PackageCheck, MoreHorizontal, Eye,
   RotateCcw, ArrowLeftRight,
   ArrowRight, FileText, ClipboardList,
   Package, Truck, Receipt, Gift,
@@ -32,6 +32,8 @@ import {
   FiltresAvances, FILTRES_VIDES, type FiltresState,
 } from "@/components/FiltresAvances";
 import { ModalNouvellePiece } from "@/components/ModalNouvellePiece";
+import { ApercuPiece } from "@/components/ApercuPiece";
+import { ModalLivraison } from "@/components/ModalLivraison";
 import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================
@@ -46,6 +48,30 @@ interface Piece {
   total_paye: number; reste: number;
   remise_globale: number; remise_montant: number;
   note?: string; auteur_nom?: string; piece_origine_id?: string;
+  /** Axe livraison, indépendant du paiement. Voir livraisons.rs. */
+  etat_livraison?: "sans_objet" | "non_livre" | "partiel" | "livre";
+}
+
+// Livraison : information de suivi, sans effet sur le stock ni la
+// caisse. `non_livre` n'est pas affiché — tant que rien n'est parti, la
+// pièce est dans son état normal et un badge gris sur chaque ligne
+// n'apprendrait rien.
+// Côté client la marchandise part, côté fournisseur elle arrive : même
+// mécanisme, mots opposés. « Livré » sur un bon de commande fournisseur
+// ferait lire l'inverse de ce qui s'est passé.
+const BADGE_LIVRAISON: Record<string, Record<string, { label: string; classe: string }>> = {
+  client: {
+    partiel: { label: "Part. livré", classe: "bg-orange-100 text-orange-700" },
+    livre:   { label: "Livré",       classe: "bg-green-100 text-green-700" },
+  },
+  fournisseur: {
+    partiel: { label: "Part. reçu",  classe: "bg-orange-100 text-orange-700" },
+    livre:   { label: "Reçu",        classe: "bg-green-100 text-green-700" },
+  },
+};
+
+function badgeLivraison(p: Piece, cote: "client" | "fournisseur") {
+  return p.etat_livraison ? BADGE_LIVRAISON[cote][p.etat_livraison] : undefined;
 }
 
 // =====================================================================
@@ -75,6 +101,25 @@ const CONVERSIONS_CLIENT: Record<string, { type: string; label: string }> = {
   commande_client: { type: "facture",         label: "→ Facture"  },
   bon_livraison:   { type: "facture",         label: "→ Facture"  },
 };
+
+/**
+ * Conversion suivante d'une pièce client.
+ *
+ * Le bon de livraison s'intercale entre la commande et la facture :
+ * commande → BL → facture. Quand le suivi de livraison est actif, une
+ * commande mène donc au BL, pas directement à la facture — sauter
+ * l'étape ferait disparaître le document qui constate le départ de la
+ * marchandise.
+ *
+ * Sans suivi, le raccourci direct est conservé : la marchandise est
+ * remise au comptoir, le BL n'aurait rien à constater.
+ */
+function conversionClient(typePiece: string, suiviLivraison: boolean) {
+  if (suiviLivraison && typePiece === "commande_client") {
+    return { type: "bon_livraison", label: "→ Livraison" };
+  }
+  return CONVERSIONS_CLIENT[typePiece];
+}
 
 const CONVERSIONS_FOURNISSEUR: Record<string, { type: string; label: string }> = {
   bon_commande_fournisseur: { type: "bon_reception",       label: "→ Réception"        },
@@ -640,6 +685,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
   const [pieceAModifier, setPieceAModifier] = useState<Piece | null>(null);
   const [pieceAEncaisser, setPieceAEncaisser] = useState<Piece | null>(null);
   const [impressionEnCours, setImpressionEnCours] = useState<string | null>(null);
+  const [pieceApercue, setPieceApercue] = useState<Piece | null>(null);
+  // Suivi de livraison : réglage, comme le bon de sortie. Désactivé, la
+  // colonne et l'action disparaissent — la plupart des commerçants
+  // remettent la marchandise au comptoir et n'ont rien à suivre.
+  const [suiviLivraison, setSuiviLivraison] = useState(false);
+  const [pieceALivrer, setPieceALivrer] = useState<Piece | null>(null);
   // Bon de sortie : réglage d'atelier. Inutile pour un commerce où le
   // vendeur remet lui-même la marchandise ; indispensable quand le
   // magasin est séparé de la caisse.
@@ -771,6 +822,9 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
     invoke<{ id: string }>("lire_client_generique")
       .then(c => setClientGeneriqueId(c?.id ?? null))
       .catch(() => setClientGeneriqueId(null));
+    invoke<boolean>("lire_config_suivi_livraison")
+      .then(setSuiviLivraison)
+      .catch(() => setSuiviLivraison(false));
   }, []);
 
   async function handleImprimer(p: Piece, format: FormatImpression = "a4") {
@@ -884,7 +938,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
 
   async function handleConvertir(p: Piece) {
     const conv = onglet === "client"
-      ? CONVERSIONS_CLIENT[p.type_piece]
+      ? conversionClient(p.type_piece, suiviLivraison)
       : CONVERSIONS_FOURNISSEUR[p.type_piece];
     if (!conv) return;
     try {
@@ -892,6 +946,31 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
         pieceId: p.id, nouveauType: conv.type,
       });
       await message(`${res.numero} créé`, { title: "Transfert réussi", kind: "info" });
+      charger();
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    }
+  }
+
+  /**
+   * Commande → bon de livraison ET facture, en une fois.
+   *
+   * Par `convertir_piece` il fallait choisir : la commande passe en
+   * 'transfere' au premier transfert, l'autre document devenait donc
+   * inatteignable. Ici les deux naissent dans la même transaction, et
+   * la chaîne commande → BL → facture est conservée.
+   */
+  async function handleLivrerEtFacturer(p: Piece) {
+    try {
+      const res = await invoke<{
+        bon_livraison: { numero: string }; facture: { numero: string };
+      }>("convertir_commande_en_livraison_et_facture", { pieceId: p.id });
+      await message(
+        `${res.bon_livraison.numero} et ${res.facture.numero} créés.\n\n` +
+        "La facture est en brouillon : la valider pour sortir le stock " +
+        "et encaisser.",
+        { title: "Livraison et facture", kind: "info" },
+      );
       charger();
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
@@ -1063,7 +1142,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
             <tbody>
               {piecesTri.map((p, i) => {
                 const conv = onglet === "client"
-                  ? CONVERSIONS_CLIENT[p.type_piece]
+                  ? conversionClient(p.type_piece, suiviLivraison)
                   : CONVERSIONS_FOURNISSEUR[p.type_piece];
                 const peutTransferer = conv &&
                   !["transfere","annule","validee","paye"].includes(p.statut);
@@ -1117,6 +1196,15 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                                         ${COULEURS_STATUT[p.statut] ?? "bg-gray-100 text-gray-600"}`}>
                         {LABELS_STATUT[p.statut] ?? p.statut}
                       </span>
+                      {/* Second axe, sous le statut de paiement : c'est
+                          leur croisement qui dit « payé non livré ». */}
+                      {suiviLivraison && badgeLivraison(p, onglet) && (
+                        <span className={`inline-flex items-center px-2 py-0.5 mt-1
+                                          rounded-full text-xs font-medium
+                                          ${badgeLivraison(p, onglet)!.classe}`}>
+                          {badgeLivraison(p, onglet)!.label}
+                        </span>
+                      )}
                     </td>
                     <td className={`px-3 py-2 text-xs whitespace-nowrap ${
                       enRetard ? "text-red-500 font-medium" : "text-muted-foreground"
@@ -1146,6 +1234,14 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1">
+                        {/* Aperçu — voir avant de sortir la feuille. Le
+                            document affiché est celui qui s'imprime. */}
+                        <button onClick={() => setPieceApercue(p)}
+                          title="Aperçu"
+                          className="p-1.5 rounded hover:bg-muted transition-colors
+                                     text-muted-foreground hover:text-foreground">
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
                         {/* Imprimer A4 — 1 copie */}
                         <button onClick={() => handleImprimer(p, "a4")}
                           disabled={impressionEnCours === p.id}
@@ -1180,6 +1276,32 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                             <MoreHorizontal className="h-3.5 w-3.5" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-56">
+                            {/* Les deux documents d'un coup : la
+                                marchandise part avec sa facture. Par la
+                                conversion simple il faudrait choisir. */}
+                            {onglet === "client"
+                              && p.type_piece === "commande_client"
+                              && peutTransferer && (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => handleLivrerEtFacturer(p)}>
+                                  <Truck className="h-3.5 w-3.5 mr-2" />
+                                  → Livraison + facture
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
+                            {/* Livraison : suivi seul, aucun effet sur le
+                                stock ni la caisse. */}
+                            {suiviLivraison && (
+                              <>
+                                <DropdownMenuItem onClick={() => setPieceALivrer(p)}>
+                                  <Truck className="h-3.5 w-3.5 mr-2" />
+                                  {onglet === "client" ? "Livraison" : "Réception"}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
                             <DropdownMenuItem onClick={() => handleImprimer(p, "a5")}>
                               <Printer className="h-3.5 w-3.5 mr-2" /> Imprimer A5
                             </DropdownMenuItem>
@@ -1258,7 +1380,17 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                                        text-muted-foreground hover:text-primary
                                        whitespace-nowrap">
                             <ArrowRight className="h-3 w-3" />
-                            <span className="hidden group-hover:inline">{conv!.label}</span>
+                            {/* `invisible` et non `hidden` : `display:none`
+                                donne une largeur nulle, donc le libellé
+                                qui réapparaît au survol élargit la
+                                colonne — et comme le tableau est en
+                                largeur automatique, TOUTES les colonnes
+                                se recalculent : la table entière sautait
+                                au passage de la souris. `visibility`
+                                garde la place réservée. */}
+                            <span className="invisible group-hover:visible">
+                              {conv!.label}
+                            </span>
                           </button>
                         )}
                         {peutValider && (
@@ -1354,6 +1486,23 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
         cote={onglet}
         onFermer={() => setModalNouv(false)}
         onCree={() => { setModalNouv(false); charger(); }}
+      />
+
+      {/* ── Suivi de livraison ── */}
+      <ModalLivraison
+        pieceId={pieceALivrer?.id ?? null}
+        numero={pieceALivrer?.numero}
+        cote={onglet}
+        onFermer={() => setPieceALivrer(null)}
+        onEnregistre={charger}
+      />
+
+      {/* ── Aperçu avant impression ── */}
+      <ApercuPiece
+        pieceId={pieceApercue?.id ?? null}
+        numero={pieceApercue?.numero}
+        typePiece={pieceApercue?.type_piece}
+        onFermer={() => setPieceApercue(null)}
       />
 
       {/* ── Modal encaissement ── */}
