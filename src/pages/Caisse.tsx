@@ -443,7 +443,9 @@ export function Caisse() {
   const sessionOuverte = resume?.statut === "ouverte";
 
   return (
-    <div className="flex-1 overflow-auto p-6 relative"
+    // Voir FicheClient : les halos en `inset:-10%` débordent à droite et
+    // créaient une barre de défilement horizontale.
+    <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 relative"
          style={{ fontFamily: '"Archivo Variable", Archivo, system-ui, sans-serif' }}>
       {/* Le verre a besoin d'un fond non uni. */}
       <GlassHalos />

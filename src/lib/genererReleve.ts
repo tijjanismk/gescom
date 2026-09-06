@@ -218,6 +218,165 @@ ${d.lignes.length === 0 ? `
 </body></html>`;
 }
 
+export interface LigneHistorique {
+  date_paiement: string;
+  numero_facture: string;
+  mode: string;
+  montant: number;
+  reste_apres: number;
+  auteur_nom: string;
+  est_annulation: boolean;
+  deja_annule: boolean;
+}
+
+const MOYENS_RECU: Record<string, string> = {
+  especes: "Espèces", orange_money: "Orange Money",
+  moov_money: "Moov Money", cheque: "Chèque", avoir: "Avoir",
+};
+
+/**
+ * Historique des règlements d'un client, tel qu'il est filtré à l'écran.
+ *
+ * On imprime CE QUI EST AFFICHÉ, critères compris — comme l'historique
+ * des mouvements de stock. Un document qui ne correspondrait pas à
+ * l'écran d'où il sort ferait douter des deux.
+ *
+ * Les annulations y figurent, en négatif : c'est justement ce document
+ * qu'on tend au client qui conteste, et une correction masquée n'aurait
+ * aucune valeur.
+ */
+export function genererHistoriqueReglementsHTML(
+  tiers: { nom: string; code?: string; telephone?: string | null },
+  lignes: LigneHistorique[],
+  criteres: string,
+  totalDuClient: number,
+  societe: { nom: string; adresse?: string | null; telephone?: string | null },
+  logoBase64?: string | null,
+  enteteBase64?: string | null,
+): string {
+  const maintenant = new Date();
+  const totalPeriode = lignes.reduce((s, l) => s + l.montant, 0);
+
+  const corps = lignes.map(l => `
+    <tr${l.deja_annule ? ' class="barre"' : ""}>
+      <td>${fmtDate(l.date_paiement)}</td>
+      <td class="mono">${esc(l.numero_facture || "—")}</td>
+      <td>${MOYENS_RECU[l.mode] ?? esc(l.mode)}</td>
+      <td class="det">${esc(l.auteur_nom)}</td>
+      <td class="d ${l.est_annulation ? "rouge" : "fort"}">${fmt(l.montant)}</td>
+      <td class="d det">${fmt(l.reste_apres)}</td>
+    </tr>`).join("");
+
+  const entete = enteteBase64
+    ? `<img src="${enteteBase64}" style="width:100%;display:block;margin-bottom:10px">`
+    : `<div class="entete">
+         <div>
+           ${logoBase64
+             ? `<img src="${logoBase64}" style="max-height:52px;margin-bottom:4px">`
+             : ""}
+           <div class="soc">${esc(societe.nom)}</div>
+           ${societe.adresse
+             ? `<div class="det">${esc(societe.adresse)}</div>` : ""}
+         </div>
+         <div style="text-align:right">
+           <div class="titre">HISTORIQUE DES RÈGLEMENTS</div>
+           <div class="det">Édité le ${maintenant.toLocaleDateString("fr-ML")}
+             à ${maintenant.toLocaleTimeString("fr-ML",
+               { hour: "2-digit", minute: "2-digit" })}</div>
+           ${criteres ? `<div class="det">${esc(criteres)}</div>` : ""}
+         </div>
+       </div>`;
+
+  return `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8">
+<title>Règlements — ${esc(tiers.nom)}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:Arial,sans-serif; font-size:12px; padding:12mm; }
+  .entete { display:flex; justify-content:space-between;
+            border-bottom:2px solid #000; padding-bottom:8px; }
+  .soc { font-size:16px; font-weight:bold; }
+  .titre { font-size:17px; font-weight:bold; letter-spacing:.5px; }
+  .det { font-size:10px; color:#555; }
+  .tiers { margin:12px 0 10px; padding:8px 10px; border:1px solid #bbb;
+           background:#fafafa; }
+  .lbl { font-size:9px; color:#777; text-transform:uppercase; }
+  .nom { font-size:14px; font-weight:bold; }
+  table { width:100%; border-collapse:collapse; margin-top:6px; }
+  th { background:#eee; border-bottom:2px solid #000; padding:6px 8px;
+       text-align:left; font-size:10px; text-transform:uppercase; }
+  td { padding:6px 8px; border-bottom:1px solid #e5e5e5; }
+  .d { text-align:right; }
+  .fort { font-weight:bold; }
+  .rouge { color:#c00; font-weight:bold; }
+  .mono { font-family:'Courier New',monospace; font-size:11px; }
+  .barre td { color:#999; text-decoration:line-through; }
+  .total { border-top:2px solid #000; background:#f5f5f5; }
+  .total td { padding:9px 8px; font-size:13px; font-weight:bold; }
+  .du { background:#fff5f5; }
+  .du td { padding:9px 8px; font-size:13px; font-weight:bold; color:#c00; }
+  .vide { text-align:center; padding:26px; color:#777; }
+  .mention { margin-top:10px; font-size:10px; color:#666;
+             border-top:1px solid #ddd; padding-top:6px; }
+  .sign { display:flex; justify-content:space-between; margin-top:34px; }
+  .sign > div { width:45%; border-top:1px solid #000; padding-top:6px;
+                text-align:center; font-size:11px; }
+  @media print { body { margin:0; } @page { size:A4; margin:8mm; }
+                 thead { display:table-header-group; } }
+</style></head>
+<body>
+
+${entete}
+
+<div class="tiers">
+  <div class="lbl">Client</div>
+  <div class="nom">${esc(tiers.nom)}${
+    tiers.code ? ` <span class="det">· ${esc(tiers.code)}</span>` : ""}</div>
+  ${tiers.telephone ? `<div class="det">Tél. ${esc(tiers.telephone)}</div>` : ""}
+</div>
+
+${lignes.length === 0 ? `
+  <p class="vide">Aucun règlement sur cette période.</p>
+` : `
+<table>
+  <thead>
+    <tr>
+      <th>Date</th><th>Facture</th><th>Moyen</th><th>Encaissé par</th>
+      <th class="d">Montant</th><th class="d">Reste dû après</th>
+    </tr>
+  </thead>
+  <tbody>${corps}</tbody>
+  <tfoot>
+    <tr class="total">
+      <td colspan="4">TOTAL DES RÈGLEMENTS AFFICHÉS</td>
+      <td class="d">${fmt(totalPeriode)}</td>
+      <td></td>
+    </tr>
+    ${totalDuClient > 0 ? `
+    <tr class="du">
+      <td colspan="4">RESTE DÛ AUJOURD'HUI, TOUTES FACTURES</td>
+      <td class="d" colspan="2">${fmt(totalDuClient)}</td>
+    </tr>` : ""}
+  </tfoot>
+</table>
+`}
+
+<p class="mention">
+  La colonne « reste dû après » donne le solde de la facture concernée
+  juste après ce versement, pas la dette totale du client. Une ligne
+  barrée est un règlement annulé ; une ligne en rouge est l'annulation
+  elle-même.
+</p>
+
+<div class="sign">
+  <div>Le client</div>
+  <div>Pour l'entreprise</div>
+</div>
+
+<script>window.onload = () => { window.focus(); window.print(); }</script>
+</body></html>`;
+}
+
 export function genererReleveHTML(
   d: DonneesReleve,
   cote: "client" | "fournisseur",

@@ -22,7 +22,9 @@ import {
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { genererImpression } from "@/lib/genererPDF";
-import { genererReleveHTML, type DonneesReleve } from "@/lib/genererReleve";
+import {
+  genererReleveHTML, genererHistoriqueReglementsHTML, type DonneesReleve,
+} from "@/lib/genererReleve";
 import { ApercuPiece } from "@/components/ApercuPiece";
 import { ApercuRecu } from "@/components/ApercuRecu";
 import { ModalModifierTiers } from "@/components/ModalModifierTiers";
@@ -84,6 +86,11 @@ interface Reglement {
   est_annulation: boolean;
   /** Cette ligne A ÉTÉ annulée par une autre. */
   deja_annule: boolean;
+  /**
+   * Solde de la facture concernée juste APRÈS ce versement — pas la
+   * dette totale du client. C'est la dette qui descend ligne par ligne.
+   */
+  reste_apres: number;
 }
 
 // =====================================================================
@@ -683,6 +690,14 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
   const [reglements, setReglements] = useState<Reglement[]>([]);
   const [reglementAAnnuler, setReglementAAnnuler] = useState<Reglement | null>(null);
   const [recuApercu, setRecuApercu] = useState<string | null>(null);
+  // Filtre de l'onglet Règlements. Appliqué à l'écran ET à l'impression :
+  // un document qui ne correspondrait pas à l'écran d'où il sort ferait
+  // douter des deux.
+  const [regDu, setRegDu] = useState("");
+  const [regAu, setRegAu] = useState("");
+  const [regMoyen, setRegMoyen] = useState("tous");
+  const [regFacture, setRegFacture] = useState("");
+  const [histoEnCours, setHistoEnCours] = useState(false);
 
   /**
    * État de créance — le relevé qu'on remet au client.
@@ -709,6 +724,65 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
       await message(`Erreur : ${e}`, { title: "Impression", kind: "error" });
     } finally {
       setReleveEnCours(false);
+    }
+  }
+
+  /**
+   * Historique filtré. Une seule source pour l'écran et le papier.
+   *
+   * Les bornes sont comparées sur la date seule : `date_paiement` porte
+   * l'heure, et un filtre « au 15 » qui exclurait tout ce qui suit
+   * minuit ce jour-là passerait à côté de la journée entière.
+   */
+  const reglementsFiltres = reglements.filter(r => {
+    const jour = r.date_paiement.slice(0, 10);
+    if (regDu && jour < regDu) return false;
+    if (regAu && jour > regAu) return false;
+    if (regMoyen !== "tous" && r.mode !== regMoyen) return false;
+    // Recherche PARTIELLE sur le numéro : personne ne tape
+    // « FAC-2026-00012 » en entier, on cherche sur « 12 » ou « 00012 ».
+    if (regFacture.trim()
+        && !r.numero_facture.toLowerCase()
+              .includes(regFacture.trim().toLowerCase())) return false;
+    return true;
+  });
+
+  const critereActif = !!regDu || !!regAu || regMoyen !== "tous"
+    || !!regFacture.trim();
+
+  /** Ce qui est réellement entré sur la période affichée. */
+  const totalFiltre = reglementsFiltres.reduce((s, r) => s + r.montant, 0);
+
+  async function imprimerHistorique() {
+    if (!fiche) return;
+    setHistoEnCours(true);
+    try {
+      const [societeP, logo, entete] = await Promise.all([
+        invoke<any>("lire_parametres_societe"),
+        invoke<string | null>("lire_logo_base64").catch(() => null),
+        invoke<string | null>("lire_entete_base64").catch(() => null),
+      ]);
+      const criteres = [
+        regDu ? `du ${fmtDate(regDu)}` : null,
+        regAu ? `au ${fmtDate(regAu)}` : null,
+        regMoyen !== "tous" ? `moyen : ${MOYENS[regMoyen] ?? regMoyen}` : null,
+        regFacture.trim() ? `facture : « ${regFacture.trim()} »` : null,
+      ].filter(Boolean).join(" · ");
+
+      await invoke("imprimer_facture", {
+        html: genererHistoriqueReglementsHTML(
+          fiche.client, reglementsFiltres, criteres,
+          // Le reste dû du client, toutes factures confondues — le
+          // chiffre qu'il vient vérifier, distinct du solde par ligne.
+          creances.reduce((s, c) => s + c.reste, 0),
+          societeP, logo, entete),
+        nomFichier: `reglements_${fiche.client.code || fiche.client.nom}`
+          .replace(/[\\/:*?"<>|]/g, "-") + ".html",
+      });
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Impression", kind: "error" });
+    } finally {
+      setHistoEnCours(false);
     }
   }
 
@@ -852,7 +926,12 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
         ))}
       </div>
 
-      <div className="flex-1 overflow-auto p-6 relative">
+      {/* `overflow-x-hidden` et non `overflow-auto` : les halos de fond
+          sont posés en `inset:-10%`, donc ils débordent de 10 % à droite
+          du conteneur et y créaient une barre de défilement horizontale.
+          Le débordement est voulu — c'est ce qui évite au flou de
+          s'arrêter net au bord — il ne doit juste pas être scrollable. */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 relative">
         {/* Le verre a besoin d'un fond non uni. */}
         <GlassHalos sansRose />
 
@@ -1065,13 +1144,72 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
         {/* ---- Règlements ---- */}
         {onglet === "reglements" && (
           <div className="space-y-3">
+            {/* Filtre. Ce qu'il montre est exactement ce qui s'imprime. */}
+            <div className="flex items-end gap-2 flex-wrap">
+              <div>
+                <Label className="text-xs text-muted-foreground">Du</Label>
+                <Input type="date" value={regDu}
+                  onChange={e => setRegDu(e.target.value)}
+                  className="h-8 text-sm w-36 mt-0.5" />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Au</Label>
+                <Input type="date" value={regAu}
+                  onChange={e => setRegAu(e.target.value)}
+                  className="h-8 text-sm w-36 mt-0.5" />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Moyen</Label>
+                <select value={regMoyen}
+                  onChange={e => setRegMoyen(e.target.value)}
+                  className="h-8 px-2 text-sm border border-border rounded-md
+                             bg-background w-36 mt-0.5 block">
+                  <option value="tous">Tous</option>
+                  {Object.entries(MOYENS).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Facture</Label>
+                <Input value={regFacture}
+                  onChange={e => setRegFacture(e.target.value)}
+                  placeholder="N° ou fin du n°"
+                  className="h-8 text-sm w-36 mt-0.5" />
+              </div>
+              {critereActif && (
+                <Button variant="ghost" size="sm" className="h-8 text-xs"
+                  onClick={() => {
+                    setRegDu(""); setRegAu("");
+                    setRegMoyen("tous"); setRegFacture("");
+                  }}>
+                  Réinitialiser
+                </Button>
+              )}
+              <Button variant="outline" size="sm" className="h-8 ml-auto"
+                onClick={imprimerHistorique}
+                disabled={histoEnCours || reglementsFiltres.length === 0}>
+                {histoEnCours
+                  ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  : <Printer className="h-4 w-4 mr-1" />}
+                Imprimer
+              </Button>
+            </div>
+
             {reglements.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
                 Aucun règlement enregistré pour ce client.
               </p>
+            ) : reglementsFiltres.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                Aucun règlement sur cette période.
+              </p>
             ) : (
-              <div className="border border-border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
+              /* Le tableau défile DANS son cadre : six colonnes dont deux
+                 boutons ne tiennent pas sur un écran étroit, et sans ce
+                 conteneur c'est la page entière qui partait de côté. */
+              <div className="border border-border rounded-lg overflow-x-auto">
+                <table className="w-full text-sm min-w-[680px]">
                   <thead className="bg-muted/50 border-b border-border">
                     <tr>
                       <th className="text-left px-3 py-2 font-medium">Date</th>
@@ -1079,11 +1217,14 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
                       <th className="text-left px-3 py-2 font-medium">Moyen</th>
                       <th className="text-left px-3 py-2 font-medium">Saisi par</th>
                       <th className="text-right px-3 py-2 font-medium">Montant</th>
+                      <th className="text-right px-3 py-2 font-medium">
+                        Reste dû après
+                      </th>
                       <th className="px-3 py-2"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {reglements.map(r => (
+                    {reglementsFiltres.map(r => (
                       <tr key={r.id}
                         className={r.deja_annule ? "bg-muted/30" : ""}>
                         <td className="px-3 py-2 text-xs whitespace-nowrap">
@@ -1107,6 +1248,14 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
                             : r.deja_annule ? "text-muted-foreground line-through"
                             : ""}`}>
                           {fmt(r.montant)}
+                        </td>
+                        {/* Le solde de CETTE facture après CE versement —
+                            pas la dette totale du client. */}
+                        <td className={`px-3 py-2 text-right whitespace-nowrap
+                                        text-xs ${
+                          r.reste_apres > 0
+                            ? "text-orange-600" : "text-green-700"}`}>
+                          {r.reste_apres > 0 ? fmt(r.reste_apres) : "soldée"}
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           {/* Le reçu s'imprime pour n'importe quelle
@@ -1139,7 +1288,38 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
                 </table>
               </div>
             )}
+            {reglementsFiltres.length > 0 && (
+              <div className="flex items-center justify-between px-4 py-3
+                              border border-border rounded-lg bg-muted/30
+                              flex-wrap gap-2">
+                <span className="text-sm">
+                  {critereActif ? "Total sur la période" : "Total encaissé"}
+                  <span className="text-xs text-muted-foreground ml-1">
+                    ({reglementsFiltres.length} ligne{
+                      reglementsFiltres.length > 1 ? "s" : ""})
+                  </span>
+                </span>
+                <span className="font-bold">{fmt(totalFiltre)}</span>
+              </div>
+            )}
+
+            {/* La dette globale du client, distincte du solde par ligne :
+                un total encaissé élevé ne dit rien de ce qui reste dû. */}
+            {creances.length > 0 && (
+              <div className="flex items-center justify-between px-4 py-3
+                              border border-orange-200 bg-orange-50 rounded-lg">
+                <span className="text-sm font-medium text-orange-800">
+                  Reste dû aujourd'hui, toutes factures
+                </span>
+                <span className="font-bold text-orange-700">
+                  {fmt(creances.reduce((s, c) => s + c.reste, 0))}
+                </span>
+              </div>
+            )}
+
             <p className="text-xs text-muted-foreground">
+              « Reste dû après » donne le solde de la facture concernée
+              juste après ce versement, pas la dette totale du client.
               Un règlement annulé n'est jamais effacé : la ligne reste, et
               une contre-passation vient l'annuler. C'est ce qu'on montre
               au client qui conteste.

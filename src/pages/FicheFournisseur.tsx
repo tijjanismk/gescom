@@ -309,7 +309,9 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
         ))}
       </div>
 
-      <div className="flex-1 overflow-auto p-6 relative">
+      {/* Voir FicheClient : les halos en `inset:-10%` débordent à droite
+          et créaient une barre de défilement horizontale. */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 relative">
         {/* Le verre a besoin d'un fond non uni. */}
         <GlassHalos sansRose />
 

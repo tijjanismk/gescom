@@ -1,6 +1,6 @@
 # Gescom — Manuel d'utilisation
 
-*Version 1.11 — à imprimer et garder près de la caisse.*
+*Version 1.12 — à imprimer et garder près de la caisse.*
 
 ---
 
@@ -226,6 +226,19 @@ date, la facture, le moyen, le montant, et **qui l'a saisi**.
 
 C'est le premier écran à ouvrir quand un client conteste : vous lui
 montrez ce qui a été enregistré, et par qui.
+
+**Filtrez** par période, par moyen de paiement, ou par numéro de facture
+— une partie du numéro suffit, tapez « 12 » plutôt que le numéro entier.
+
+La colonne **Reste dû après** donne le solde de cette facture-là juste
+après ce versement : la dette qui descend, ligne par ligne. À ne pas
+confondre avec le **reste dû total**, rappelé en orange en bas de
+l'onglet — un gros total encaissé ne dit rien de ce qui reste à payer.
+
+**Imprimer** sort exactement ce que le filtre affiche, critères indiqués
+en en-tête. C'est le document à remettre au client qui conteste : les
+annulations y figurent, en rouge pour la correction et barré pour le
+règlement annulé.
 
 ## Le reçu de règlement
 

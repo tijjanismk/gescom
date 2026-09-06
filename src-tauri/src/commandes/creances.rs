@@ -173,7 +173,19 @@ pub fn lire_reglements_client(
                 -- Un reglement deja annule porte une contre-passation
                 -- qui le designe : on ne l'annule pas deux fois.
                 EXISTS (SELECT 1 FROM paiement a
-                        WHERE a.annule_paiement_id = p.id) AS deja_annule
+                        WHERE a.annule_paiement_id = p.id) AS deja_annule,
+                -- Total de la facture, et cumul verse JUSQU'A CE
+                -- REGLEMENT INCLUS. Leur difference donne le solde tel
+                -- qu'il etait juste apres ce versement — la dette qui
+                -- descend ligne par ligne, ce que le client vient
+                -- verifier.
+                CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
+                               FROM ligne_vente lv WHERE lv.vente_id = v.id), 0)
+                     AS INTEGER),
+                CAST(COALESCE((SELECT SUM(p2.montant) FROM paiement p2
+                               WHERE p2.vente_id = v.id
+                                 AND p2.date_paiement <= p.date_paiement), 0)
+                     AS INTEGER)
          FROM paiement p
          JOIN vente v ON v.id = p.vente_id
          LEFT JOIN piece_commerciale pc ON pc.id = v.piece_id
@@ -184,6 +196,8 @@ pub fn lire_reglements_client(
 
     let x = st.query_map(rusqlite::params![client_id], |r| {
         let montant: i64 = r.get(1)?;
+        let total_facture: i64 = r.get(10)?;
+        let paye_cumule: i64 = r.get(11)?;
         Ok(serde_json::json!({
             "id":             r.get::<_, String>(0)?,
             "montant":        montant,
@@ -197,6 +211,10 @@ pub fn lire_reglements_client(
             "est_annulation": r.get::<_, Option<String>>(8)?.is_some(),
             // Cette ligne A ETE annulee par une autre.
             "deja_annule":    r.get::<_, i64>(9)? != 0,
+            // Passe par le coeur (invariant 12) : un residu d'arrondi
+            // sous le seuil ne doit pas s'afficher comme une dette.
+            "reste_apres":    crate::coeur::calcul::reste_exigible(
+                                  total_facture, paye_cumule),
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
