@@ -290,17 +290,25 @@ function OngletSauvegarde() {
 
   async function entretenirBase() {
     if (!window.confirm(
-      "Reconstruire les index et compacter le fichier ?\n\n" +
-      "Une copie de sécurité est faite avant. L'opération ne récupère " +
-      "aucune donnée perdue — elle corrige les index et réduit la taille."
+      "Entretenir la base ?\n\n" +
+      "1. Réaffecte les règlements fournisseur enregistrés globalement " +
+      "sur les factures qu'ils couvrent, de la plus ancienne à la plus " +
+      "récente. Les montants ne changent pas, seule leur affectation.\n" +
+      "2. Reconstruit les index et compacte le fichier.\n\n" +
+      "Une copie de sécurité est faite avant. Aucune donnée perdue n'est " +
+      "récupérée."
     )) return;
     setEntretienEnCours(true);
     try {
-      const r = await invoke<{ gagne: number; copie: string }>(
+      const r = await invoke<{ gagne: number; copie: string; reimputes: number }>(
         "entretenir_base",
         { utilisateurRole: UTILISATEUR_ACTIF?.role ?? "employe" });
       await message(
-        `Terminé. ${Math.round(r.gagne / 1024)} Ko récupérés.\n\n` +
+        (r.reimputes > 0
+          ? `${r.reimputes} règlement(s) fournisseur réaffecté(s) sur leurs `
+            + `factures.\n\n`
+          : "Aucun règlement à réaffecter.\n\n") +
+        `${Math.round(r.gagne / 1024)} Ko récupérés.\n\n` +
         `Copie de sécurité : ${r.copie}`,
         { title: "Entretien", kind: "info" });
       setDiag(null);
@@ -393,7 +401,9 @@ function OngletSauvegarde() {
           <p className="text-sm font-medium">État de la base</p>
           <p className="text-xs text-muted-foreground">
             À vérifier après une coupure de courant, avant de saisir quoi
-            que ce soit.
+            que ce soit. La réparation qui suit réaffecte aussi les
+            règlements fournisseur enregistrés globalement sur les
+            factures qu'ils couvrent.
           </p>
         </div>
 
@@ -412,7 +422,7 @@ function OngletSauvegarde() {
               onClick={entretenirBase} disabled={entretienEnCours}>
               {entretienEnCours
                 ? <Loader2 className="h-4 w-4 animate-spin" />
-                : "Réindexer et compacter"}
+                : "Réparer et compacter"}
             </Button>
           )}
         </div>
