@@ -771,7 +771,7 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
 
       await invoke("imprimer_facture", {
         html: genererHistoriqueReglementsHTML(
-          fiche.client, reglementsFiltres, criteres,
+          fiche.client, "client", reglementsFiltres, criteres,
           // Le reste dû du client, toutes factures confondues — le
           // chiffre qu'il vient vérifier, distinct du solde par ligne.
           creances.reduce((s, c) => s + c.reste, 0),

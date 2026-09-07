@@ -70,6 +70,41 @@ pub fn enregistrer_achat(
         ).map_err(|_| "Aucun dépôt par défaut configuré".to_string())?,
     };
 
+    // Un bon de reception ne se facture qu'UNE fois — meme garde-fou que
+    // cote client (coeur::pieces::peut_transferer). Sans lui, deux clics
+    // sur « facturer » depuis le meme BRF creaient deux FAF : dette
+    // doublee envers le fournisseur, et un second decaissement au
+    // reglement. Le cote client etait verrouille, pas celui-ci.
+    if let Some(ref src) = piece_origine_id {
+        let statut_src: String = conn.query_row(
+            "SELECT statut FROM piece_commerciale WHERE id = ?1",
+            rusqlite::params![src], |r| r.get(0),
+        ).map_err(|_| "Pièce d'origine introuvable".to_string())?;
+
+        let deja: Option<String> = conn.query_row(
+            "SELECT numero FROM piece_commerciale
+             WHERE piece_origine_id = ?1
+               AND statut <> 'annule'
+               AND type_piece NOT IN ('avoir_client','avoir_fournisseur')
+             ORDER BY cree_le LIMIT 1",
+            rusqlite::params![src], |r| r.get(0),
+        ).ok();
+
+        crate::coeur::pieces::peut_transferer(&statut_src, deja.as_deref())?;
+    }
+
+    // Caisse fermee : on REFUSE au lieu d'ecrire l'achat sans sa sortie
+    // de caisse. C'etait le trou — la session etait lue plus bas, et si
+    // elle etait fermee le mouvement etait simplement omis, en silence.
+    // L'argent quittait le tiroir, la facture le disait, la caisse non :
+    // le comptage du soir tombait faux d'exactement ce montant, sans rien
+    // pour l'expliquer. D46, deja applique a chaque encaissement cote
+    // vente, vaut evidemment aussi pour un decaissement.
+    let comptant = mode_reglement.as_deref() == Some("comptant");
+    if comptant || acompte.unwrap_or(0) > 0 {
+        crate::utils::exiger_session_caisse(&conn)?;
+    }
+
     // Numéro réservé avant la transaction (lecture seule).
     let numero = if fournisseur_id.is_some() {
         Some(crate::commandes::pieces::prochain_numero(&conn, "facture_fournisseur"))
@@ -216,6 +251,18 @@ pub fn enregistrer_achat(
             ).map_err(|e| e.to_string())?;
         }
 
+        // Le bon de reception a donne sa facture : il est consomme. Sans
+        // ce marquage, le garde-fou ci-dessus ne tenait que sur le
+        // descendant ; avec, les deux verrous jouent ici comme cote
+        // client, et l'ecran cache le bouton « facturer » de lui-meme.
+        if let Some(ref src) = piece_origine_id {
+            tx.execute(
+                "UPDATE piece_commerciale SET statut = 'transfere', modifie_le = ?1
+                 WHERE id = ?2 AND type_piece = 'bon_reception'",
+                rusqlite::params![now, src],
+            ).map_err(|e| e.to_string())?;
+        }
+
         piece_id_retour = serde_json::json!(piece_id);
         numero_retour = serde_json::json!(num);
     }
@@ -229,11 +276,11 @@ pub fn enregistrer_achat(
     // reellement paye.
     if montant_regle > 0 {
         let mode_p = mode_paiement.as_deref().unwrap_or("especes");
-        let session: Option<String> = tx.query_row(
-            "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
-            [], |r| r.get(0),
-        ).ok();
-        if let Some(sid) = session {
+        // `exiger_session_caisse` a deja tranche plus haut : si on est ici,
+        // la session existe. Le `?` remplace l'ancien `if let Some(...)`
+        // qui laissait passer l'achat sans sa contrepartie de caisse.
+        let sid = crate::utils::exiger_session_caisse(&tx)?;
+        {
             tx.execute(
                 "INSERT INTO mouvement_caisse
                  (id, session_id, sens, moyen, montant, motif,
@@ -329,6 +376,14 @@ pub fn enregistrer_retour_fournisseur(
     };
 
     let rembourse = mode_resolution.as_deref() == Some("remboursement");
+
+    // Meme regle qu'a l'achat : si le tiroir doit s'ouvrir, il doit etre
+    // ouvert. Un remboursement encaisse caisse fermee entrait dans la
+    // dette mais pas dans le tiroir — excedent inexplique au comptage.
+    if rembourse {
+        crate::utils::exiger_session_caisse(&conn)?;
+    }
+
     let numero = crate::commandes::pieces::prochain_numero(&conn, "avoir_fournisseur");
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -407,11 +462,8 @@ pub fn enregistrer_retour_fournisseur(
     // Remboursement : l'argent revient dans le tiroir.
     if rembourse && total > 0 {
         let mode_e = mode_encaissement.as_deref().unwrap_or("especes");
-        let session: Option<String> = tx.query_row(
-            "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
-            [], |r| r.get(0),
-        ).ok();
-        if let Some(sid) = session {
+        let sid = crate::utils::exiger_session_caisse(&tx)?;
+        {
             tx.execute(
                 "INSERT INTO mouvement_caisse
                  (id, session_id, sens, moyen, montant, motif,

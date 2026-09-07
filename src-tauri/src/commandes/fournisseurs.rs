@@ -532,15 +532,33 @@ pub fn lire_fiche_fournisseur(
 
     let dette = (total_achats - total_paye).max(0);
 
+    // Meme jeu de colonnes que l'onglet Reglements du client
+    // (creances.rs::lire_reglements_client) : sans le numero de facture
+    // et le reste apres versement, l'ecran fournisseur ne pouvait ni
+    // filtrer ni s'imprimer comme son symetrique.
     let mut stmt_p = conn.prepare(
-        "SELECT pf.id, pf.montant, pf.mode, pf.note, pf.date_paiement, u.nom
+        "SELECT pf.id, pf.montant, pf.mode, pf.note, pf.date_paiement, u.nom,
+                COALESCE(pc.numero, ''),
+                pf.annule_paiement_id IS NOT NULL,
+                EXISTS(SELECT 1 FROM paiement_fournisseur x
+                        WHERE x.annule_paiement_id = pf.id),
+                CAST(COALESCE((SELECT SUM(lp.montant_ht + lp.montant_tva)
+                               FROM ligne_piece lp
+                               WHERE lp.piece_id = pf.piece_id), 0) AS INTEGER),
+                CAST(COALESCE((SELECT SUM(y.montant)
+                               FROM paiement_fournisseur y
+                               WHERE y.piece_id = pf.piece_id
+                                 AND y.date_paiement <= pf.date_paiement), 0) AS INTEGER)
          FROM paiement_fournisseur pf
          LEFT JOIN utilisateur u ON u.id = pf.auteur_id
+         LEFT JOIN piece_commerciale pc ON pc.id = pf.piece_id
          WHERE pf.fournisseur_id = ?1 ORDER BY pf.date_paiement DESC"
     ).map_err(|e| e.to_string())?;
 
     let paiements: Vec<serde_json::Value> = stmt_p.query_map(
         rusqlite::params![fournisseur_id], |r| {
+            let total_faf: i64 = r.get(9)?;
+            let verse_cumule: i64 = r.get(10)?;
             Ok(serde_json::json!({
                 "id":            r.get::<_,String>(0)?,
                 "montant":       r.get::<_,i64>(1)?,
@@ -548,6 +566,16 @@ pub fn lire_fiche_fournisseur(
                 "note":          r.get::<_,Option<String>>(3)?,
                 "date_paiement": r.get::<_,String>(4)?,
                 "auteur_nom":    r.get::<_,Option<String>>(5)?,
+                "numero_facture": r.get::<_,String>(6)?,
+                // Une contre-passation : montant negatif, barree a l'ecran.
+                "est_annulation": r.get::<_,i64>(7)? != 0,
+                // Deja annule : le bouton « contester » disparait.
+                "annule":         r.get::<_,i64>(8)? != 0,
+                // Dette restante sur CETTE facture juste apres CE versement.
+                // Via `reste_exigible` (invariant 12) pour qu'un residu
+                // d'arrondi ne s'affiche pas comme une dette.
+                "reste_apres": crate::coeur::calcul::reste_exigible(
+                    total_faf, verse_cumule),
             }))
         }
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
@@ -593,5 +621,154 @@ pub fn lire_fiche_fournisseur(
         },
         "paiements": paiements,
         "achats":    achats,
+    }))
+}
+// =====================================================================
+//  ANNULER UN PAIEMENT FOURNISSEUR
+// =====================================================================
+//
+//  Symetrique de `creances::annuler_reglement`, et pour la meme raison :
+//  on se trompe aussi en payant un fournisseur — mauvais montant, mauvais
+//  fournisseur, versement saisi deux fois. Sans cette commande, la seule
+//  issue etait de saisir un paiement negatif a la main, qui ne laisse
+//  aucune trace de la correction.
+//
+//  Le sens de caisse est INVERSE du cote client : annuler un versement au
+//  fournisseur fait RENTRER l'argent dans le tiroir. La decision, elle,
+//  est la meme et vient du meme endroit (coeur::calcul).
+// =====================================================================
+
+#[tauri::command]
+pub fn annuler_paiement_fournisseur(
+    etat: State<EtatApp>,
+    paiement_id: String,
+    motif: String,
+    // true  : le fournisseur nous a REND l'argent aujourd'hui
+    // false : erreur de saisie, l'argent n'a jamais bouge
+    remboursement: bool,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if motif.trim().is_empty() {
+        return Err("Le motif est obligatoire : c'est lui qui explique \
+                    la correction au fournisseur et au controle.".to_string());
+    }
+
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let role = utilisateur_role.as_deref().unwrap_or("patron");
+    let auteur_id = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);
+    let maintenant = crate::utils::maintenant_iso();
+
+    let (montant, mode, fournisseur_id, piece_id, date_paiement, est_annulation):
+        (i64, String, String, Option<String>, String, bool) = conn.query_row(
+        "SELECT montant, mode, fournisseur_id, piece_id, date_paiement,
+                annule_paiement_id IS NOT NULL
+         FROM paiement_fournisseur WHERE id = ?1",
+        rusqlite::params![paiement_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+                r.get::<_, i64>(5)? != 0)),
+    ).map_err(|_| "Paiement introuvable".to_string())?;
+
+    if est_annulation {
+        return Err("Cette ligne est déjà une annulation — on n'annule \
+                    pas une annulation.".to_string());
+    }
+
+    let deja: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM paiement_fournisseur WHERE annule_paiement_id = ?1",
+        rusqlite::params![paiement_id], |r| r.get(0),
+    ).unwrap_or(0);
+    if deja > 0 {
+        return Err("Ce paiement a déjà été annulé.".to_string());
+    }
+
+    let dans_session_ouverte: bool = conn.query_row(
+        "SELECT COUNT(*) FROM session_caisse
+         WHERE statut = 'ouverte' AND ?1 >= cree_le",
+        rusqlite::params![date_paiement], |r| r.get::<_, i64>(0),
+    ).map(|n| n > 0).unwrap_or(false);
+
+    // `touche_la_caisse` : un virement ou un cheque ne passe pas par le
+    // tiroir, exactement comme l'avoir cote client (D29).
+    let touche_la_caisse = mode != "virement" && mode != "cheque";
+    let effet = crate::coeur::calcul::effet_caisse_annulation(
+        remboursement, dans_session_ouverte, touche_la_caisse);
+    let contre_passer = effet == crate::coeur::calcul::EffetCaisse::ContrePassation;
+
+    let session_id = if contre_passer {
+        Some(crate::utils::exiger_session_caisse(&conn)?)
+    } else {
+        None
+    };
+
+    // ---- La contre-passation ----
+    // Montant negatif sur la MEME facture : le calcul de dette somme les
+    // paiements (D36), il n'y a donc rien d'autre a defaire.
+    conn.execute(
+        "INSERT INTO paiement_fournisseur
+         (id, fournisseur_id, piece_id, montant, mode, note,
+          auteur_id, date_paiement, cree_le, origine, annule_paiement_id)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'annulation',?10)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), fournisseur_id, piece_id,
+            -montant, mode, format!("Annulation — {}", motif.trim()),
+            auteur_id, maintenant, maintenant, paiement_id
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    // ---- La FAF soldee redevient due ----
+    // Sans ca elle resterait 'paye' avec un reste au tableau : la fiche
+    // et l'ecran Pieces se contrediraient.
+    if let Some(ref pid) = piece_id {
+        let (total, verse): (i64, i64) = conn.query_row(
+            "SELECT CAST(COALESCE((SELECT SUM(lp.montant_ht + lp.montant_tva)
+                                   FROM ligne_piece lp WHERE lp.piece_id = ?1), 0) AS INTEGER),
+                    CAST(COALESCE((SELECT SUM(montant) FROM paiement_fournisseur
+                                   WHERE piece_id = ?1), 0) AS INTEGER)",
+            rusqlite::params![pid], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap_or((0, 0));
+
+        if crate::coeur::calcul::reste_exigible(total, verse) > 0 {
+            conn.execute(
+                "UPDATE piece_commerciale SET statut = 'emis', modifie_le = ?1
+                 WHERE id = ?2 AND statut = 'paye'",
+                rusqlite::params![maintenant, pid],
+            ).ok();
+        }
+    }
+
+    // ---- Caisse : ENTREE, l'argent revient ----
+    if let Some(sid) = session_id {
+        conn.execute(
+            "INSERT INTO mouvement_caisse
+             (id, session_id, sens, moyen, montant, motif, libelle,
+              operation_id, date_mouvement, cree_le, cree_par, origine)
+             VALUES (?1,?2,'entree',?3,?4,'remboursement',?5,?6,?7,?8,?9,'annulation')",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(), sid, mode, montant,
+                format!("Annulation paiement fournisseur — {}", motif.trim()),
+                paiement_id, maintenant, maintenant, auteur_id
+            ],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    conn.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          ancien_valeur, nouveau_valeur, origine, date_evenement)
+         VALUES (?1,'paiement_fournisseur_annule','paiement_fournisseur',?2,?3,?4,?5,'app',?6)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), paiement_id, auteur_id,
+            format!(r#"{{"montant":{}}}"#, montant),
+            format!(
+                r#"{{"motif":"{}","remboursement":{},"caisse":"{}"}}"#,
+                motif.trim().replace('"', "'"), remboursement,
+                if contre_passer { "entree" } else { "aucune" }),
+            maintenant
+        ],
+    ).ok();
+
+    Ok(serde_json::json!({
+        "montant_annule":    montant,
+        "entree_de_caisse":  contre_passer,
     }))
 }

@@ -157,6 +157,12 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     conn.execute(
         "ALTER TABLE paiement ADD COLUMN annule_paiement_id TEXT", []
     ).ok();
+    // Meme lien cote fournisseur : contester un versement au fournisseur
+    // est aussi frequent que le contester cote client, et l'absence de
+    // cette colonne etait la seule raison pour laquelle on ne pouvait pas.
+    conn.execute(
+        "ALTER TABLE paiement_fournisseur ADD COLUMN annule_paiement_id TEXT", []
+    ).ok();
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_avoir_piece ON avoir(piece_id)"
     ).ok();

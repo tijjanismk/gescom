@@ -1,6 +1,6 @@
 # Gescom — Manuel d'utilisation
 
-*Version 1.13 — à imprimer et garder près de la caisse.*
+*Version 1.14 — à imprimer et garder près de la caisse.*
 
 ---
 
@@ -318,6 +318,37 @@ quand.
 
 Le stock augmente et une facture fournisseur est créée. À crédit, la
 dette apparaît dans **Fournisseurs**.
+
+**Achat comptant : la caisse doit être ouverte.** L'argent sort du
+tiroir, donc il doit être écrit dans la caisse. Même règle qu'à la vente,
+pour la même raison : sinon le comptage du soir tombe faux d'exactement
+ce montant, sans rien pour l'expliquer.
+
+**Un bon de réception ne se facture qu'une fois.** Le facturer une
+seconde fois doublerait la dette envers le fournisseur, et le double
+paiement suivrait. L'application refuse et vous dit quelle facture existe
+déjà.
+
+## Voir et contester les paiements
+
+**Sa fiche → onglet Paiements.** Exactement le symétrique de l'onglet
+Règlements du client : chaque versement avec sa date, sa facture, son
+moyen, qui l'a saisi, et la colonne **Reste à payer après**.
+
+**Filtrez** par période, moyen ou numéro de facture — une partie du
+numéro suffit. **Imprimer** sort exactement ce que le filtre affiche.
+
+**Annuler** corrige un versement : montant saisi deux fois, mauvais
+fournisseur, mauvais montant. Deux cas à distinguer, et c'est le choix
+qui décide du tiroir :
+
+| Ce qui s'est passé | Effet sur la caisse |
+|---|---|
+| Erreur de saisie | Aucun — l'argent n'était jamais sorti |
+| Le fournisseur rend l'argent | **Entrée** de caisse, tiroir ouvert requis |
+
+Le paiement n'est jamais effacé : une ligne de correction vient
+l'annuler, et la facture redevient due. Les deux lignes restent visibles.
 
 ## Le reçu d'un paiement fournisseur
 

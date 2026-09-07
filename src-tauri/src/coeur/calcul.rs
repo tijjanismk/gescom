@@ -74,26 +74,34 @@ pub fn repartir_reglement<T: Clone>(
 /// Deux situations que tout oppose, et les confondre fausse soit les
 /// livres, soit la caisse :
 ///
-///   - **Erreur de saisie** : l'argent n'est jamais entré. Le paiement
+///   - **Erreur de saisie** : l'argent n'a jamais bougé. Le paiement
 ///     était une fiction, la ligne de caisse aussi.
-///   - **Remboursement** : l'argent est bien entré, le client conteste
-///     et on le lui rend. De l'argent sort réellement aujourd'hui.
+///   - **Remboursement** : l'argent a bien bougé, et on le rend. Une
+///     somme traverse réellement le tiroir aujourd'hui.
 ///
 /// Le cas subtil est l'erreur de saisie sur une session DÉJÀ CLÔTURÉE :
 /// le caissier a compté le tiroir ce soir-là, et l'écart a absorbé la
-/// ligne fantôme. Poster une sortie aujourd'hui compterait le problème
-/// une seconde fois et créerait un manque qui n'existe pas.
+/// ligne fantôme. Poster un mouvement aujourd'hui compterait le problème
+/// une seconde fois et créerait un écart qui n'existe pas.
+///
+/// La règle vaut pour les DEUX côtés, parce qu'elle ne parle que de
+/// symétrie : annuler un encaissement client fait sortir l'argent,
+/// annuler un versement au fournisseur le fait rentrer. Le sens est
+/// donc décidé par l'appelant ; ici on ne dit que « contre-passer ou
+/// non ». Nommer la variante `Sortie` aurait obligé le côté fournisseur
+/// à écrire une entrée en lisant `Sortie`.
 #[derive(Debug, PartialEq)]
 pub enum EffetCaisse {
-    /// Une sortie à enregistrer dans la session ouverte.
-    Sortie,
+    /// Un mouvement de sens INVERSE au paiement d'origine, à enregistrer
+    /// dans la session ouverte.
+    ContrePassation,
     /// Rien : soit l'argent n'a jamais touché le tiroir (avoir), soit
     /// la clôture a déjà réglé la question.
     Aucun,
 }
 
 /// `touche_la_caisse` : faux pour un règlement par avoir, qui n'a jamais
-/// fait entrer un franc dans le tiroir.
+/// fait bouger un franc dans le tiroir.
 /// `dans_session_ouverte` : le paiement annulé a-t-il été saisi pendant
 /// la session de caisse encore ouverte aujourd'hui.
 pub fn effet_caisse_annulation(
@@ -105,12 +113,12 @@ pub fn effet_caisse_annulation(
         return EffetCaisse::Aucun;
     }
     if remboursement {
-        // L'argent ressort physiquement, quelle que soit la session
+        // L'argent bouge physiquement, quelle que soit la session
         // d'origine.
-        return EffetCaisse::Sortie;
+        return EffetCaisse::ContrePassation;
     }
     // Erreur de saisie : ne corriger que ce qui est encore corrigeable.
-    if dans_session_ouverte { EffetCaisse::Sortie } else { EffetCaisse::Aucun }
+    if dans_session_ouverte { EffetCaisse::ContrePassation } else { EffetCaisse::Aucun }
 }
 
 /// Sous ce seuil, un reste dû n'est plus recouvrable : la plus petite
@@ -271,15 +279,15 @@ mod tests {
     fn remboursement_sort_toujours_de_la_caisse() {
         // L'argent est rendu au client : il quitte le tiroir, que le
         // paiement date d'aujourd'hui ou du mois dernier.
-        assert_eq!(effet_caisse_annulation(true, true, true), EffetCaisse::Sortie);
-        assert_eq!(effet_caisse_annulation(true, false, true), EffetCaisse::Sortie);
+        assert_eq!(effet_caisse_annulation(true, true, true), EffetCaisse::ContrePassation);
+        assert_eq!(effet_caisse_annulation(true, false, true), EffetCaisse::ContrePassation);
     }
 
     #[test]
     fn erreur_de_saisie_sur_session_ouverte_corrige_le_tiroir() {
         // La ligne fantome est dans la caisse encore ouverte : elle y
         // gonfle le solde theorique, il faut la neutraliser.
-        assert_eq!(effet_caisse_annulation(false, true, true), EffetCaisse::Sortie);
+        assert_eq!(effet_caisse_annulation(false, true, true), EffetCaisse::ContrePassation);
     }
 
     #[test]

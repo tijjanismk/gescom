@@ -56,6 +56,39 @@ const MOTS = {
   },
 } as const;
 
+/** Vocabulaire de l'historique des versements, par côté.
+ *
+ *  Le document est le même des deux côtés — mêmes colonnes, mêmes règles
+ *  d'affichage des annulations — mais un fournisseur à qui l'on tend une
+ *  feuille titrée « encaissé par » aurait raison de la trouver fausse :
+ *  c'est lui qui a reçu l'argent. */
+const MOTS_HISTO = {
+  client: {
+    titre:   "HISTORIQUE DES RÈGLEMENTS",
+    onglet:  "Règlements",
+    tiers:   "Client",
+    par:     "Encaissé par",
+    reste:   "Reste dû après",
+    total:   "TOTAL DES RÈGLEMENTS AFFICHÉS",
+    solde:   "RESTE DÛ AUJOURD'HUI, TOUTES FACTURES",
+    dette:   "la dette totale du client",
+    vide:    "Aucun règlement sur cette période.",
+    gauche:  "Le client",
+  },
+  fournisseur: {
+    titre:   "HISTORIQUE DES PAIEMENTS",
+    onglet:  "Paiements",
+    tiers:   "Fournisseur",
+    par:     "Versé par",
+    reste:   "Reste à payer après",
+    total:   "TOTAL DES PAIEMENTS AFFICHÉS",
+    solde:   "RESTE À PAYER AUJOURD'HUI, TOUTES FACTURES",
+    dette:   "ce qu'on doit encore à ce fournisseur",
+    vide:    "Aucun paiement sur cette période.",
+    gauche:  "Le fournisseur",
+  },
+} as const;
+
 export interface LigneReleveGlobal {
   nom: string;
   code: string;
@@ -247,13 +280,15 @@ const MOYENS_RECU: Record<string, string> = {
  */
 export function genererHistoriqueReglementsHTML(
   tiers: { nom: string; code?: string; telephone?: string | null },
+  cote: "client" | "fournisseur",
   lignes: LigneHistorique[],
   criteres: string,
-  totalDuClient: number,
+  totalDuTiers: number,
   societe: { nom: string; adresse?: string | null; telephone?: string | null },
   logoBase64?: string | null,
   enteteBase64?: string | null,
 ): string {
+  const m = MOTS_HISTO[cote];
   const maintenant = new Date();
   const totalPeriode = lignes.reduce((s, l) => s + l.montant, 0);
 
@@ -279,7 +314,7 @@ export function genererHistoriqueReglementsHTML(
              ? `<div class="det">${esc(societe.adresse)}</div>` : ""}
          </div>
          <div style="text-align:right">
-           <div class="titre">HISTORIQUE DES RÈGLEMENTS</div>
+           <div class="titre">${m.titre}</div>
            <div class="det">Édité le ${maintenant.toLocaleDateString("fr-ML")}
              à ${maintenant.toLocaleTimeString("fr-ML",
                { hour: "2-digit", minute: "2-digit" })}</div>
@@ -289,7 +324,7 @@ export function genererHistoriqueReglementsHTML(
 
   return `<!DOCTYPE html>
 <html lang="fr"><head><meta charset="UTF-8">
-<title>Règlements — ${esc(tiers.nom)}</title>
+<title>${m.onglet} — ${esc(tiers.nom)}</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:Arial,sans-serif; font-size:12px; padding:12mm; }
@@ -329,47 +364,46 @@ export function genererHistoriqueReglementsHTML(
 ${entete}
 
 <div class="tiers">
-  <div class="lbl">Client</div>
+  <div class="lbl">${m.tiers}</div>
   <div class="nom">${esc(tiers.nom)}${
     tiers.code ? ` <span class="det">· ${esc(tiers.code)}</span>` : ""}</div>
   ${tiers.telephone ? `<div class="det">Tél. ${esc(tiers.telephone)}</div>` : ""}
 </div>
 
 ${lignes.length === 0 ? `
-  <p class="vide">Aucun règlement sur cette période.</p>
+  <p class="vide">${m.vide}</p>
 ` : `
 <table>
   <thead>
     <tr>
-      <th>Date</th><th>Facture</th><th>Moyen</th><th>Encaissé par</th>
-      <th class="d">Montant</th><th class="d">Reste dû après</th>
+      <th>Date</th><th>Facture</th><th>Moyen</th><th>${m.par}</th>
+      <th class="d">Montant</th><th class="d">${m.reste}</th>
     </tr>
   </thead>
   <tbody>${corps}</tbody>
   <tfoot>
     <tr class="total">
-      <td colspan="4">TOTAL DES RÈGLEMENTS AFFICHÉS</td>
+      <td colspan="4">${m.total}</td>
       <td class="d">${fmt(totalPeriode)}</td>
       <td></td>
     </tr>
-    ${totalDuClient > 0 ? `
+    ${totalDuTiers > 0 ? `
     <tr class="du">
-      <td colspan="4">RESTE DÛ AUJOURD'HUI, TOUTES FACTURES</td>
-      <td class="d" colspan="2">${fmt(totalDuClient)}</td>
+      <td colspan="4">${m.solde}</td>
+      <td class="d" colspan="2">${fmt(totalDuTiers)}</td>
     </tr>` : ""}
   </tfoot>
 </table>
 `}
 
 <p class="mention">
-  La colonne « reste dû après » donne le solde de la facture concernée
-  juste après ce versement, pas la dette totale du client. Une ligne
-  barrée est un règlement annulé ; une ligne en rouge est l'annulation
-  elle-même.
+  La colonne « ${m.reste.toLowerCase()} » donne le solde de la facture
+  concernée juste après ce versement, pas ${m.dette}. Une ligne barrée est
+  un versement annulé ; une ligne en rouge est l'annulation elle-même.
 </p>
 
 <div class="sign">
-  <div>Le client</div>
+  <div>${m.gauche}</div>
   <div>Pour l'entreprise</div>
 </div>
 

@@ -280,7 +280,7 @@ pub fn annuler_reglement(
 
     let effet = crate::coeur::calcul::effet_caisse_annulation(
         remboursement, dans_session_ouverte, mode != "avoir");
-    let sort_de_caisse = effet == crate::coeur::calcul::EffetCaisse::Sortie;
+    let sort_de_caisse = effet == crate::coeur::calcul::EffetCaisse::ContrePassation;
 
     // Caisse ouverte exigee UNIQUEMENT si de l'argent bouge (D46) :
     // corriger une erreur de saisie sur une session close ne touche pas

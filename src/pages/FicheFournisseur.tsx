@@ -3,12 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowLeft, Truck, Phone, MapPin, Mail, FileText,
   Loader2, TrendingDown, Clock, Eye, Pencil, Printer,
-  Package, Banknote, CheckCircle2
+  Package, Banknote, CheckCircle2, RotateCcw
 } from "lucide-react";
 import { ApercuPiece } from "@/components/ApercuPiece";
 import { ApercuRecu } from "@/components/ApercuRecu";
 import { ModalModifierTiers } from "@/components/ModalModifierTiers";
-import { genererReleveHTML, type DonneesReleve } from "@/lib/genererReleve";
+import {
+  genererReleveHTML, genererHistoriqueReglementsHTML, type DonneesReleve,
+} from "@/lib/genererReleve";
 import { GlassHalos } from "@/components/ui/GlassIcon";
 import { KpiLigne, CARTE, GRILLE } from "@/components/ui/KpiVerre";
 import { Button } from "@/components/ui/button";
@@ -22,7 +24,9 @@ import {
   SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
+import { Input } from "@/components/ui/input";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
+import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================
 //  Types
@@ -45,7 +49,20 @@ interface StatsFournisseur {
 interface PaiementFournisseur {
   id: string; montant: number; mode: string;
   note?: string; date_paiement: string; auteur_nom?: string;
+  /** FAF réglée par ce versement — vide pour un règlement global. */
+  numero_facture: string;
+  /** Dette restant sur CETTE facture juste après CE versement. */
+  reste_apres: number;
+  /** Cette ligne EST une contre-passation. */
+  est_annulation: boolean;
+  /** Ce versement a déjà été annulé par une contre-passation. */
+  annule: boolean;
 }
+
+const MOYENS: Record<string, string> = {
+  especes: "Espèces", orange_money: "Orange Money",
+  moov_money: "Moov Money", cheque: "Chèque", virement: "Virement",
+};
 
 interface MouvementAchat {
   id: string; article_nom: string; quantite: number;
@@ -61,6 +78,165 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("fr-ML", {
     day: "2-digit", month: "2-digit", year: "numeric",
   });
+}
+
+/** Couleur du montant selon le sort de la ligne.
+ *
+ *  Trois états, et les confondre trompe : une contre-passation est rouge
+ *  (c'est de l'argent qui revient), le versement qu'elle annule est barré
+ *  (il a existé, il ne compte plus), un versement normal est vert. */
+function CLS_MONTANT(p: PaiementFournisseur) {
+  const teinte = p.est_annulation ? "text-red-600"
+    : p.annule ? "text-muted-foreground line-through"
+    : "text-green-600";
+  return `px-3 py-2 text-right font-semibold whitespace-nowrap ${teinte}`;
+}
+
+function CLS_RESTE(p: PaiementFournisseur) {
+  const teinte = p.reste_apres > 0 ? "text-orange-600" : "text-green-700";
+  return `px-3 py-2 text-right whitespace-nowrap text-xs ${teinte}`;
+}
+
+// =====================================================================
+//  Modal : contester un paiement fournisseur
+// =====================================================================
+//
+//  Jumeau de ModalAnnulerReglement (FicheClient) : on se trompe aussi en
+//  payant. Le seul écart est le sens de la caisse — annuler un versement
+//  au fournisseur fait RENTRER l'argent — et c'est le backend qui le
+//  décide, pas cet écran.
+// =====================================================================
+
+function ModalAnnulerPaiement({
+  paiement, onFermer, onAnnule,
+}: {
+  paiement: PaiementFournisseur | null;
+  onFermer: () => void; onAnnule: () => void;
+}) {
+  const [motif, setMotif] = useState("");
+  const [remboursement, setRemboursement] = useState(false);
+  const [chargement, setChargement] = useState(false);
+
+  useEffect(() => {
+    if (paiement) { setMotif(""); setRemboursement(false); }
+  }, [paiement]);
+
+  async function handleAnnuler() {
+    if (!paiement || !motif.trim()) return;
+    setChargement(true);
+    try {
+      const r = await invoke<{
+        montant_annule: number; entree_de_caisse: boolean;
+      }>("annuler_paiement_fournisseur", {
+        paiementId: paiement.id,
+        motif: motif.trim(),
+        remboursement,
+        utilisateurRole: UTILISATEUR_ACTIF?.role ?? "patron",
+      });
+      await message(
+        `Paiement de ${fmt(r.montant_annule)} annulé.\n\n`
+        + (r.entree_de_caisse
+            ? "L'argent est rentré dans la caisse."
+            : "Aucun mouvement de caisse."),
+        { title: "Paiement annulé", kind: "info" });
+      onAnnule();
+    } catch (e) {
+      await message(`${e}`, { title: "Annulation impossible", kind: "error" });
+    } finally { setChargement(false); }
+  }
+
+  return (
+    <Dialog open={paiement !== null} onOpenChange={o => { if (!o) onFermer(); }}>
+      <DialogContent style={{ width: "460px", maxWidth: "94vw" }}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <RotateCcw className="h-4 w-4" />
+            Annuler un paiement fournisseur
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-1">
+          <div className="bg-muted rounded-md px-3 py-2 text-sm space-y-1">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Montant</span>
+              <span className="font-semibold">
+                {paiement ? fmt(paiement.montant) : ""}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Facture</span>
+              <span className="font-mono text-xs">
+                {paiement?.numero_facture || "—"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Versé le</span>
+              <span>{paiement ? fmtDate(paiement.date_paiement) : ""}</span>
+            </div>
+          </div>
+
+          {/* Le choix qui décide du sort de la caisse. */}
+          <div className="space-y-2">
+            <Label>Que s'est-il passé ?</Label>
+            {([
+              { val: false, titre: "Erreur de saisie",
+                detail: "L'argent n'est jamais sorti : mauvais montant, "
+                      + "mauvais fournisseur, ligne saisie deux fois." },
+              { val: true, titre: "Le fournisseur nous rend l'argent",
+                detail: "Le versement avait bien eu lieu. L'argent rentre "
+                      + "dans le tiroir maintenant — la caisse doit être "
+                      + "ouverte." },
+            ] as const).map(o => (
+              <button key={String(o.val)}
+                onClick={() => setRemboursement(o.val)}
+                className={`w-full text-left px-3 py-2.5 rounded-lg border-2
+                            transition-colors ${
+                  remboursement === o.val
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-muted-foreground"
+                }`}>
+                <p className={`text-sm font-medium ${
+                  remboursement === o.val ? "text-primary" : ""}`}>
+                  {o.titre}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">{o.detail}</p>
+              </button>
+            ))}
+          </div>
+
+          <div>
+            <Label>Motif *</Label>
+            <Input value={motif} onChange={e => setMotif(e.target.value)}
+              placeholder="Ex : versement saisi deux fois le même jour"
+              className="mt-1" autoFocus />
+            <p className="text-xs text-muted-foreground mt-1">
+              C'est ce qui explique la correction au fournisseur et au
+              contrôle.
+            </p>
+          </div>
+
+          <p className="text-xs text-muted-foreground border-t border-border pt-3">
+            Le paiement n'est pas supprimé : une ligne de correction vient
+            l'annuler. Les deux restent visibles dans l'historique, et la
+            facture redevient due si elle ne l'est plus.
+          </p>
+
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onFermer} className="flex-1">
+              Renoncer
+            </Button>
+            <Button onClick={handleAnnuler}
+              disabled={!motif.trim() || chargement}
+              variant="destructive" className="flex-1">
+              {chargement
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : "Annuler le paiement"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // =====================================================================
@@ -193,6 +369,77 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
   const [modalModifier, setModalModifier] = useState(false);
   const [releveEnCours, setReleveEnCours] = useState(false);
   const [recuApercu, setRecuApercu] = useState<string | null>(null);
+
+  // Filtre de l'onglet Paiements — mêmes critères que l'onglet
+  // Règlements du client, et ce qu'il montre est ce qui s'imprime.
+  const [payDu, setPayDu] = useState("");
+  const [payAu, setPayAu] = useState("");
+  const [payMoyen, setPayMoyen] = useState("tous");
+  const [payFacture, setPayFacture] = useState("");
+  const [histoEnCours, setHistoEnCours] = useState(false);
+  const [paiementAAnnuler, setPaiementAAnnuler] =
+    useState<PaiementFournisseur | null>(null);
+
+  const paiementsFiltres = paiements.filter(p => {
+    const jour = p.date_paiement.slice(0, 10);
+    if (payDu && jour < payDu) return false;
+    if (payAu && jour > payAu) return false;
+    if (payMoyen !== "tous" && p.mode !== payMoyen) return false;
+    // Recherche PARTIELLE : personne ne tape « FAF-2026-00012 » en
+    // entier, on cherche sur « 12 » ou « 00012 ».
+    if (payFacture.trim()
+        && !(p.numero_facture ?? "").toLowerCase()
+              .includes(payFacture.trim().toLowerCase())) return false;
+    return true;
+  });
+  const critereActif = !!payDu || !!payAu || payMoyen !== "tous"
+    || !!payFacture.trim();
+  const totalFiltre = paiementsFiltres.reduce((s, p) => s + p.montant, 0);
+
+  async function imprimerHistorique() {
+    if (!fournisseur) return;
+    setHistoEnCours(true);
+    try {
+      const [societeP, logo, entete] = await Promise.all([
+        invoke<any>("lire_parametres_societe"),
+        invoke<string | null>("lire_logo_base64").catch(() => null),
+        invoke<string | null>("lire_entete_base64").catch(() => null),
+      ]);
+      const criteres = [
+        payDu ? `du ${fmtDate(payDu)}` : null,
+        payAu ? `au ${fmtDate(payAu)}` : null,
+        payMoyen !== "tous" ? `moyen : ${MOYENS[payMoyen] ?? payMoyen}` : null,
+        payFacture.trim() ? `facture : « ${payFacture.trim()} »` : null,
+      ].filter(Boolean).join(" · ");
+
+      await invoke("imprimer_facture", {
+        html: genererHistoriqueReglementsHTML(
+          { nom: fournisseur.nom, telephone: fournisseur.telephone },
+          "fournisseur",
+          paiementsFiltres.map(p => ({
+            date_paiement: p.date_paiement,
+            numero_facture: p.numero_facture,
+            mode:           p.mode,
+            montant:        p.montant,
+            reste_apres:    p.reste_apres,
+            auteur_nom:     p.auteur_nom ?? "—",
+            est_annulation: p.est_annulation,
+            deja_annule:    p.annule,
+          })),
+          criteres,
+          // Ce qu'on doit ENCORE au fournisseur, toutes factures — le
+          // chiffre qu'il vient vérifier, distinct du solde par ligne.
+          stats?.dette ?? 0,
+          societeP, logo, entete),
+        nomFichier: `paiements_${fournisseur.nom}`
+          .replace(/[\\/:*?"<>|]/g, "-") + ".html",
+      });
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Impression", kind: "error" });
+    } finally {
+      setHistoEnCours(false);
+    }
+  }
 
   /**
    * État de dette — le relevé qu'on oppose au fournisseur.
@@ -463,42 +710,165 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
                 </div>
               </div>
             )}
+            {/* Filtre. Ce qu'il montre est exactement ce qui s'imprime. */}
+            <div className="flex items-end gap-2 flex-wrap">
+              <div>
+                <Label className="text-xs text-muted-foreground">Du</Label>
+                <Input type="date" value={payDu}
+                  onChange={e => setPayDu(e.target.value)}
+                  className="h-8 text-sm w-36 mt-0.5" />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Au</Label>
+                <Input type="date" value={payAu}
+                  onChange={e => setPayAu(e.target.value)}
+                  className="h-8 text-sm w-36 mt-0.5" />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Moyen</Label>
+                <select value={payMoyen}
+                  onChange={e => setPayMoyen(e.target.value)}
+                  className="h-8 px-2 text-sm border border-border rounded-md
+                             bg-background w-36 mt-0.5 block">
+                  <option value="tous">Tous</option>
+                  {Object.entries(MOYENS).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Facture</Label>
+                <Input value={payFacture}
+                  onChange={e => setPayFacture(e.target.value)}
+                  placeholder="N° ou fin du n°"
+                  className="h-8 text-sm w-36 mt-0.5" />
+              </div>
+              {critereActif && (
+                <Button variant="ghost" size="sm" className="h-8 text-xs"
+                  onClick={() => {
+                    setPayDu(""); setPayAu("");
+                    setPayMoyen("tous"); setPayFacture("");
+                  }}>
+                  Réinitialiser
+                </Button>
+              )}
+              <Button variant="outline" size="sm" className="h-8 ml-auto"
+                onClick={imprimerHistorique}
+                disabled={histoEnCours || paiementsFiltres.length === 0}>
+                {histoEnCours
+                  ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  : <Printer className="h-4 w-4 mr-1" />}
+                Imprimer
+              </Button>
+            </div>
+
             {paiements.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
-                Aucun paiement enregistré
+                Aucun paiement enregistré pour ce fournisseur.
+              </p>
+            ) : paiementsFiltres.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                Aucun paiement sur cette période.
               </p>
             ) : (
-              paiements.map(p => (
-                <div key={p.id}
-                  className="flex items-center justify-between px-4 py-3
-                             border border-border rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium capitalize">
-                      {p.mode.replace(/_/g, " ")}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {fmtDate(p.date_paiement)}
-                      {p.auteur_nom && ` · ${p.auteur_nom}`}
-                    </p>
-                    {p.note && (
-                      <p className="text-xs text-muted-foreground italic">{p.note}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-green-600">
-                      {fmt(p.montant)}
-                    </span>
-                    {/* Le reçu du paiement fournisseur : la preuve de ce
-                        qu'on lui a versé, à opposer s'il le conteste. */}
-                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0"
-                      title="Reçu de paiement"
-                      onClick={() => setRecuApercu(p.id)}>
-                      <Eye className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              ))
+              /* Le tableau défile DANS son cadre : sans ce conteneur,
+                 c'est la page entière qui part de côté. */
+              <div className="border border-border rounded-lg overflow-x-auto">
+                <table className="w-full text-sm min-w-[680px]">
+                  <thead className="bg-muted/50 border-b border-border">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Date</th>
+                      <th className="text-left px-3 py-2 font-medium">Facture</th>
+                      <th className="text-left px-3 py-2 font-medium">Moyen</th>
+                      <th className="text-left px-3 py-2 font-medium">Saisi par</th>
+                      <th className="text-right px-3 py-2 font-medium">Montant</th>
+                      <th className="text-right px-3 py-2 font-medium">
+                        Reste à payer après
+                      </th>
+                      <th className="px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {paiementsFiltres.map(p => (
+                      <tr key={p.id} className={p.annule ? "bg-muted/30" : ""}>
+                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                          {fmtDate(p.date_paiement)}
+                        </td>
+                        <td className="px-3 py-2 text-xs font-mono">
+                          {p.numero_facture || "—"}
+                        </td>
+                        <td className="px-3 py-2 text-xs">
+                          {MOYENS[p.mode] ?? p.mode}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
+                          {p.auteur_nom ?? "—"}
+                        </td>
+                        {/* Une annulation s'affiche en négatif, en rouge :
+                            le fournisseur doit voir la correction, pas une
+                            ligne qui a disparu. */}
+                        <td className={CLS_MONTANT(p)}>
+                          {fmt(p.montant)}
+                        </td>
+                        {/* Le solde de CETTE facture après CE versement —
+                            pas la dette totale envers le fournisseur. */}
+                        <td className={CLS_RESTE(p)}>
+                          {p.numero_facture
+                            ? (p.reste_apres > 0 ? fmt(p.reste_apres) : "soldée")
+                            : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          {/* Le reçu du paiement fournisseur : la preuve
+                              de ce qu'on lui a versé, à opposer s'il le
+                              conteste. */}
+                          <Button size="sm" variant="ghost"
+                            className="h-7 w-7 p-0" title="Reçu de paiement"
+                            onClick={() => setRecuApercu(p.id)}>
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          {p.est_annulation ? (
+                            <span className="text-[10px] text-red-600 ml-1">
+                              Annulation
+                            </span>
+                          ) : p.annule ? (
+                            <span className="text-[10px] text-muted-foreground ml-1">
+                              Annulé
+                            </span>
+                          ) : (
+                            <Button size="sm" variant="ghost"
+                              className="h-7 text-xs gap-1"
+                              onClick={() => setPaiementAAnnuler(p)}>
+                              <RotateCcw className="h-3 w-3" /> Annuler
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
+
+            {paiementsFiltres.length > 0 && (
+              <div className="flex items-center justify-between px-4 py-3
+                              border border-border rounded-lg bg-muted/30
+                              flex-wrap gap-2">
+                <span className="text-sm">
+                  {critereActif ? "Total sur la période" : "Total versé"}
+                  <span className="text-xs text-muted-foreground ml-1">
+                    ({paiementsFiltres.length} ligne{
+                      paiementsFiltres.length > 1 ? "s" : ""})
+                  </span>
+                </span>
+                <span className="font-bold">{fmt(totalFiltre)}</span>
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              « Reste à payer après » donne le solde de la facture concernée
+              juste après ce versement, pas la dette totale envers ce
+              fournisseur. Un paiement annulé n'est jamais effacé : la ligne
+              reste, et une contre-passation vient l'annuler.
+            </p>
           </div>
         )}
       </div>
@@ -530,6 +900,12 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
         paiementId={recuApercu}
         cote="fournisseur"
         onFermer={() => setRecuApercu(null)}
+      />
+
+      <ModalAnnulerPaiement
+        paiement={paiementAAnnuler}
+        onFermer={() => setPaiementAAnnuler(null)}
+        onAnnule={() => { setPaiementAAnnuler(null); charger(); }}
       />
     </div>
   );

@@ -52,6 +52,7 @@ pub fn run() {
             commandes::fournisseurs::creer_fournisseur,
             commandes::fournisseurs::modifier_fournisseur,
             commandes::fournisseurs::lire_etat_dette_fournisseur,
+            commandes::fournisseurs::annuler_paiement_fournisseur,
             commandes::fournisseurs::lire_etat_dettes_global,
             commandes::fournisseurs::enregistrer_entree_stock,
             commandes::fournisseurs::enregistrer_ajustement_inventaire,
