@@ -397,6 +397,30 @@ fn inserer_lignes(
 //  Convertir une pièce → pièce suivante (1 seul transfert autorisé)
 // =====================================================================
 
+/// Numéro d'une pièce déjà issue de `piece_id`, s'il en existe une.
+///
+/// C'est le second verrou anti-doublon (voir `coeur::pieces::peut_transferer`) :
+/// il regarde ce qui existe réellement en base, pas seulement le statut
+/// que la source porte.
+///
+/// Deux exclusions volontaires :
+///   - les pièces annulées : une facture annulée doit laisser sa commande
+///     refacturable, sinon une erreur de saisie condamne la commande ;
+///   - les avoirs : un AVC/AVF pointe sur la pièce qu'il corrige, ce n'est
+///     pas un transfert. Les compter bloquerait une pièce sur sa propre
+///     correction.
+fn descendant_actif(conn: &rusqlite::Connection, piece_id: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT numero FROM piece_commerciale
+         WHERE piece_origine_id = ?1
+           AND statut <> 'annule'
+           AND type_piece NOT IN ('avoir_client','avoir_fournisseur')
+         ORDER BY cree_le LIMIT 1",
+        rusqlite::params![piece_id],
+        |r| r.get::<_, String>(0),
+    ).ok()
+}
+
 #[tauri::command]
 pub fn convertir_piece(
     etat: State<EtatApp>,
@@ -415,10 +439,9 @@ pub fn convertir_piece(
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
         ).map_err(|_| "Pièce introuvable".to_string())?;
 
-    // Vérifier qu'elle n'a pas déjà été transférée
-    if statut_src == "transfere" {
-        return Err("Cette pièce a déjà été transférée".to_string());
-    }
+    // Un seul transfert par pièce — statut ET descendant réel.
+    let deja = descendant_actif(&conn, &piece_id);
+    crate::coeur::pieces::peut_transferer(&statut_src, deja.as_deref())?;
 
     // Transitions autorisées
     let ok = match (type_src.as_str(), nouveau_type.as_str()) {
@@ -594,12 +617,8 @@ pub fn convertir_commande_en_livraison_et_facture(
              facture ensemble.".to_string()
         );
     }
-    if statut_src == "transfere" {
-        return Err("Cette commande a déjà été transférée".to_string());
-    }
-    if statut_src == "annule" {
-        return Err("Cette commande est annulée".to_string());
-    }
+    let deja = descendant_actif(&conn, &piece_id);
+    crate::coeur::pieces::peut_transferer(&statut_src, deja.as_deref())?;
 
     let lignes = lire_lignes_raw(&conn, &piece_id)?;
     if lignes.is_empty() {
@@ -621,12 +640,17 @@ pub fn convertir_commande_en_livraison_et_facture(
     let fac_id = uuid::Uuid::new_v4().to_string();
 
     // ---- 1. Bon de livraison, issu de la commande ----
+    // Il naît 'transfere', pas 'emis' : la facture qui le suit est créée
+    // dans la même transaction, donc ce BL a déjà donné tout ce qu'il
+    // avait à donner. Le laisser 'emis' le rendait refacturable — un
+    // second « → Facture » sur ce BL facturait la marchandise deux fois.
+    // Ni l'impression ni la saisie des quantités livrées n'en dépendent.
     tx.execute(
         "INSERT INTO piece_commerciale
          (id, type_piece, numero, statut, tiers_type, tiers_id,
           piece_origine_id, auteur_id, date_piece, date_echeance,
           remise_globale, note, cree_le, modifie_le, origine)
-         VALUES (?1,'bon_livraison',?2,'emis','client',?3,?4,?5,?6,?7,?8,?9,?10,?11,'app')",
+         VALUES (?1,'bon_livraison',?2,'transfere','client',?3,?4,?5,?6,?7,?8,?9,?10,?11,'app')",
         rusqlite::params![
             bl_id, numero_bl, client_id, piece_id, auteur,
             now, date_ech, remise_g, note, now, now
@@ -1693,15 +1717,25 @@ pub fn dupliquer_piece(
     let nouvelle_id = uuid::Uuid::new_v4().to_string();
     let numero = prochain_numero(&conn, &type_piece);
 
+    // `piece_origine_id` reste NULL : une copie n'est pas une pièce
+    // ISSUE de l'originale, c'est une seconde pièce indépendante. La
+    // renseigner faisait passer la copie pour un transfert — le garde-fou
+    // anti-doublon aurait alors bloqué la conversion de l'original, et la
+    // liste affichait la flèche « issue de » sur un simple duplicata. Le
+    // lien reste tracé dans le journal, qui est fait pour ça (invariant 11).
     conn.execute(
         "INSERT INTO piece_commerciale
          (id, type_piece, numero, statut, tiers_type, tiers_id,
-          piece_origine_id, auteur_id, date_piece, date_echeance,
+          auteur_id, date_piece, date_echeance,
           remise_globale, note, cree_le, modifie_le, origine)
-         VALUES (?1,?2,?3,'brouillon','client',?4,?5,?6,?7,?8,?9,?10,?11,?12,'app')",
+         VALUES (?1,?2,?3,'brouillon',
+         CASE WHEN ?2 IN ('bon_commande_fournisseur','bon_reception',
+                          'facture_fournisseur','avoir_fournisseur')
+              THEN 'fournisseur' ELSE 'client' END,
+         ?4,?5,?6,?7,?8,?9,?10,?11,'app')",
         rusqlite::params![
             nouvelle_id, type_piece, numero,
-            client_id, piece_id, auteur,
+            client_id, auteur,
             now, date_ech, remise_g,
             note.map(|n| format!("[Copie] {}", n)).or(Some("[Copie]".to_string())),
             now, now
@@ -1709,6 +1743,19 @@ pub fn dupliquer_piece(
     ).map_err(|e| e.to_string())?;
 
     inserer_lignes_raw(&conn, &nouvelle_id, &lignes, &now)?;
+
+    conn.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1,'piece_dupliquee','piece_commerciale',?2,?3,?4,'app',?5)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(),
+            nouvelle_id, auteur,
+            format!(r#"{{"copie_de":"{}","numero":"{}"}}"#, piece_id, numero),
+            now
+        ],
+    ).ok();
 
     Ok(serde_json::json!({
         "id": nouvelle_id, "numero": numero, "statut": "brouillon"

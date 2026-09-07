@@ -1,6 +1,6 @@
 # Gescom — Manuel d'utilisation
 
-*Version 1.12 — à imprimer et garder près de la caisse.*
+*Version 1.13 — à imprimer et garder près de la caisse.*
 
 ---
 
@@ -146,6 +146,24 @@ d'origine est archivée, elle n'est plus modifiable.
 Sur une commande client, le menu **…** propose aussi **« → Livraison +
 facture »** : les deux documents d'un coup, quand la marchandise part
 avec sa facture.
+
+**Une pièce ne se transfère qu'une fois.** Une commande déjà facturée ne
+peut plus produire une seconde facture, et un bon de livraison déjà
+facturé non plus. L'application refuse et vous dit quel document existe
+déjà — c'est ce qui empêche de facturer deux fois la même marchandise.
+
+Si ce document est faux, annulez-le : la pièce d'origine redevient
+transférable.
+
+## Ce qui est annulé ne compte plus
+
+Une pièce annulée reste visible — c'est la trace, et la faire disparaître
+serait pire. Mais son montant sort de tous les totaux : bas de l'écran
+Pièces, créances du client, chiffre d'affaires.
+
+L'écran Pièces l'écrit sous le tableau : *« 2 annulée(s) exclue(s) »*.
+Le nombre de lignes affichées et le nombre de pièces additionnées ne sont
+donc pas toujours le même.
 
 ## Les signatures au bas des documents
 

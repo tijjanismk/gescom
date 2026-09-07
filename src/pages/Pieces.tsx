@@ -984,12 +984,20 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
   const estFacture = (p: Piece) =>
     p.type_piece.startsWith("facture") || p.type_piece.startsWith("avoir");
 
-  const totalNet  = piecesTri.reduce((s, p) => s + p.total_net, 0);
-  const totalTTC  = piecesTri.reduce((s, p) => s + p.total_ttc, 0);
-  const totalPaye = piecesTri
+  // Une piece annulee reste VISIBLE dans la liste — c'est la trace, et
+  // la faire disparaitre serait pire — mais elle ne compte pour rien :
+  // son montant n'est ni du, ni encaisse, ni un chiffre d'affaires.
+  // L'additionner gonflait les totaux du bas d'ecran avec des documents
+  // qu'on venait justement d'annuler.
+  const comptable = piecesTri.filter(p => p.statut !== "annule");
+
+  const totalNet  = comptable.reduce((s, p) => s + p.total_net, 0);
+  const totalTTC  = comptable.reduce((s, p) => s + p.total_ttc, 0);
+  const totalPaye = comptable
     .filter(estFacture).reduce((s, p) => s + (p.total_paye ?? 0), 0);
-  const totalReste = piecesTri
+  const totalReste = comptable
     .filter(estFacture).reduce((s, p) => s + (p.reste ?? 0), 0);
+  const nbAnnulees = piecesTri.length - comptable.length;
   const pillsActuels = onglet === "client" ? TYPES_PILLS_CLIENT : TYPES_PILLS_FOURNISSEUR;
   const labelTiers = onglet === "client" ? "Client" : "Fournisseur";
 
@@ -1078,7 +1086,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
         {/* Compteur */}
         <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
           <span>{piecesTri.length} pièce{piecesTri.length > 1 ? "s" : ""}</span>
-          {piecesTri.length > 0 && (
+          {nbAnnulees > 0 && (
+            <span title="Les pièces annulées ne sont comptées dans aucun total">
+              dont {nbAnnulees} annulée{nbAnnulees > 1 ? "s" : ""}, hors total
+            </span>
+          )}
+          {comptable.length > 0 && (
             <span className="font-semibold text-foreground">{fmt(totalNet)}</span>
           )}
         </div>
@@ -1457,13 +1470,20 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                 );
               })}
             </tbody>
-            {/* Totaux de la selection courante — filtres compris. */}
+            {/* Totaux de la selection courante — filtres compris, pieces
+                annulees exclues. Le compte annonce donc ce qui est
+                additionne, pas le nombre de lignes affichees. */}
             <tfoot className="sticky bottom-0 bg-muted/95 backdrop-blur-sm
                               border-t-2 border-foreground">
               <tr>
                 <td className="px-3 py-2.5 text-xs font-bold uppercase
                                text-muted-foreground" colSpan={6}>
-                  Total · {piecesTri.length} pièce(s)
+                  Total · {comptable.length} pièce(s)
+                  {nbAnnulees > 0 && (
+                    <span className="ml-1 normal-case font-normal">
+                      ({nbAnnulees} annulée(s) exclue(s))
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2.5 text-right font-bold text-sm">
                   {fmt(totalTTC)}

@@ -60,6 +60,54 @@ pub fn peut_modifier(type_piece: &str, statut: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// La pièce peut-elle produire la pièce suivante ?
+///
+/// Une pièce ne se transfère qu'UNE fois : c'est ce qui empêche une même
+/// commande d'être facturée deux fois, donc facturée en double au client.
+///
+/// Deux verrous plutôt qu'un, parce qu'ils ne tombent pas ensemble :
+///   - le statut `transfere`, posé sur la source au moment du transfert ;
+///   - l'existence d'une pièce déjà issue de celle-ci.
+///
+/// Le second rattrape ce que le premier laisse passer. Une commande
+/// convertie d'un coup en BL + facture ne marquait que la commande ; le
+/// bon de livraison, lui, restait « émis » alors qu'une facture en
+/// découlait déjà — il pouvait donc être refacturé.
+///
+/// `descendant` : numéro d'une pièce déjà issue de celle-ci et non
+/// annulée. Le numéro sert au message : « déjà facturée » sans dire quelle
+/// facture oblige à fouiller la liste.
+pub fn peut_transferer(statut_src: &str, descendant: Option<&str>) -> Result<(), String> {
+    match statut_src {
+        "annule" => {
+            return Err(
+                "Pièce annulée — elle ne peut plus rien produire.".to_string()
+            )
+        }
+        "transfere" => {
+            return Err(match descendant {
+                Some(n) => format!(
+                    "Pièce déjà transférée : elle a produit {}. \
+                     Pour repartir de zéro, annuler d'abord {}.",
+                    n, n
+                ),
+                None => "Cette pièce a déjà été transférée.".to_string(),
+            })
+        }
+        _ => {}
+    }
+
+    if let Some(n) = descendant {
+        return Err(format!(
+            "Cette pièce a déjà produit {} — la transférer une seconde fois \
+             ferait un doublon. Pour recommencer, annuler d'abord {}.",
+            n, n
+        ));
+    }
+
+    Ok(())
+}
+
 /// La pièce peut-elle être annulée ?
 ///
 /// `a_produit_effets` : la pièce a généré une vente, un paiement ou un
@@ -171,6 +219,48 @@ mod tests {
     fn annulation_piece_payee_refusee() {
         assert!(peut_annuler("facture_fournisseur", "paye", false).is_err());
         assert!(peut_annuler("facture", "validee", false).is_err());
+    }
+
+    #[test]
+    fn transfert_normal_autorise() {
+        assert!(peut_transferer("emis", None).is_ok());
+        assert!(peut_transferer("brouillon", None).is_ok());
+        assert!(peut_transferer("accepte", None).is_ok());
+    }
+
+    #[test]
+    fn deuxieme_transfert_refuse_par_le_statut() {
+        assert!(peut_transferer("transfere", None).is_err());
+    }
+
+    #[test]
+    fn deuxieme_transfert_refuse_par_le_descendant() {
+        // Le cas reel : commande -> BL + facture d'un coup. Seule la
+        // commande passait en 'transfere' ; le BL restait 'emis' avec une
+        // facture deja nee de lui, donc refacturable.
+        let e = peut_transferer("emis", Some("FAC-2026-00042")).unwrap_err();
+        assert!(e.contains("FAC-2026-00042"));
+        assert!(e.to_lowercase().contains("doublon"));
+    }
+
+    #[test]
+    fn piece_annulee_ne_produit_rien() {
+        assert!(peut_transferer("annule", None).is_err());
+    }
+
+    #[test]
+    fn descendant_annule_libere_la_source() {
+        // L'appelant ne passe QUE les descendants non annules : une
+        // facture annulee ne doit pas condamner sa commande pour toujours.
+        assert!(peut_transferer("emis", None).is_ok());
+    }
+
+    #[test]
+    fn refus_de_transfert_nomme_la_piece_a_annuler() {
+        // Refuser sans dire par ou sortir bloque l'utilisateur au comptoir.
+        let e = peut_transferer("transfere", Some("BL-2026-00007")).unwrap_err();
+        assert!(e.contains("BL-2026-00007"));
+        assert!(e.to_lowercase().contains("annuler"));
     }
 
     #[test]

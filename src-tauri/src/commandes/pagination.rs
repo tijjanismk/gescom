@@ -235,13 +235,20 @@ pub fn lire_clients_pagines(
         _ => "total_creances DESC, c.nom ASC",
     };
 
+    // `statut != 'payee'` faisait entrer les ventes ANNULEES dans la
+    // creance : le client restait debiteur d'une facture qui n'existe
+    // plus. On enumere les deux statuts qui portent reellement une
+    // creance, comme partout ailleurs (creances.rs, relances.rs,
+    // dashboard.rs) — une liste fermee ne laisse pas passer un statut
+    // futur par defaut.
     let sql_count = format!(
         "SELECT COUNT(*) FROM (
            SELECT c.id,
-             COALESCE(SUM(CASE WHEN v.statut != 'payee'
+             COALESCE(SUM(CASE
+               WHEN v.statut IN ('creance_ouverte','partiellement_payee')
                THEN CAST(lv_sum.total AS INTEGER) - CAST(COALESCE(p_sum.paye, 0) AS INTEGER)
                ELSE 0 END), 0) as total_creances,
-             COUNT(DISTINCT v.id) as nb_ventes
+             COUNT(DISTINCT CASE WHEN v.statut <> 'annulee' THEN v.id END) as nb_ventes
            FROM client c
            LEFT JOIN vente v ON v.client_id = c.id
            LEFT JOIN (SELECT vente_id, SUM(prix_pratique * quantite) as total
@@ -259,10 +266,11 @@ pub fn lire_clients_pagines(
     let offset = page * limite;
     let sql = format!(
         "SELECT c.id, c.code, c.nom, c.telephone,
-                COALESCE(SUM(CASE WHEN v.statut != 'payee'
+                COALESCE(SUM(CASE
+                  WHEN v.statut IN ('creance_ouverte','partiellement_payee')
                   THEN CAST(lv_sum.total AS INTEGER) - CAST(COALESCE(p_sum.paye, 0) AS INTEGER)
                   ELSE 0 END), 0) as total_creances,
-                COUNT(DISTINCT v.id) as nb_ventes
+                COUNT(DISTINCT CASE WHEN v.statut <> 'annulee' THEN v.id END) as nb_ventes
          FROM client c
          LEFT JOIN vente v ON v.client_id = c.id
          LEFT JOIN (SELECT vente_id, SUM(prix_pratique * quantite) as total
