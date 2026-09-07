@@ -77,6 +77,13 @@ function stockUV(stockBase: number, facteur: number): number {
   return stockBase / facteur;
 }
 
+/** Quantite lisible : 2 reste 2, 0.6666 devient 0.66.
+ *  Arrondi PAR DEFAUT : une valeur pre-remplie ne doit jamais depasser
+ *  le stock reel, sinon le modal s'ouvre deja en erreur. */
+function arrondiQte(n: number): number {
+  return Math.floor(n * 100) / 100;
+}
+
 /**
  * Ajoute une ligne au panier, ou l'ajoute à une ligne identique déjà
  * présente plutôt que d'en créer une seconde.
@@ -381,14 +388,21 @@ function ModalRepartition({
           (a.depot_id === depotActif?.id ? 1 : 0))
     : [];
 
+  // Le stock est tenu en unite de BASE, la saisie se fait dans l'unite
+  // vendue. Tout ce modal raisonne donc en unite vendue : sans la
+  // conversion, « 2 sacs demandes » etait compare a « 100 kilos
+  // disponibles » et la repartition proposee n'avait aucun sens.
+  const facteur = demande?.unite.facteur || 1;
+  const dispoUV = (sd: StockDepot) => sd.quantite / facteur;
+
   useEffect(() => {
     if (!demande) { setParts({}); return; }
     // Pré-remplir : on prend d'abord ce qu'on a sous la main.
     let reste = demande.quantite;
     const init: Record<string, string> = {};
     for (const sd of sources) {
-      const pris = Math.min(reste, sd.quantite);
-      init[sd.depot_id] = pris > 0 ? String(pris) : "";
+      const pris = Math.min(reste, dispoUV(sd));
+      init[sd.depot_id] = pris > 0 ? String(arrondiQte(pris)) : "";
       reste -= pris;
       if (reste <= 0) break;
     }
@@ -401,7 +415,7 @@ function ModalRepartition({
     .reduce((s, v) => s + (parseFloat(v) || 0), 0);
   const manque = demande.quantite - total;
   const depassements = sources.filter(sd =>
-    (parseFloat(parts[sd.depot_id] || "0") || 0) > sd.quantite);
+    (parseFloat(parts[sd.depot_id] || "0") || 0) > dispoUV(sd) + 1e-9);
 
   return (
     <Dialog open={!!demande} onOpenChange={onAnnuler}>
@@ -431,7 +445,7 @@ function ModalRepartition({
           <div className="space-y-2">
             {sources.map(sd => {
               const val = parts[sd.depot_id] || "";
-              const trop = (parseFloat(val) || 0) > sd.quantite;
+              const trop = (parseFloat(val) || 0) > dispoUV(sd) + 1e-9;
               return (
                 <div key={sd.depot_id} className="flex items-center gap-3">
                   <div className="flex-1 min-w-0">
@@ -442,10 +456,10 @@ function ModalRepartition({
                       )}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {sd.quantite} disponible(s)
+                      {arrondiQte(dispoUV(sd))} {demande.unite.libelle} disponible(s)
                     </p>
                   </div>
-                  <Input type="number" min="0" step="any" max={sd.quantite}
+                  <Input type="number" min="0" step="any" max={dispoUV(sd)}
                     value={val}
                     onChange={e => setParts(p => ({ ...p, [sd.depot_id]: e.target.value }))}
                     className={`h-8 w-24 text-right text-sm ${
@@ -534,6 +548,9 @@ export function Ventes() {
   const [repartition, setRepartition] = useState<{
     article: Article; unite: UniteVente; quantite: number; prix: number;
   } | null>(null);
+  // Miroir de `depotActif` lisible depuis les handlers enregistres une
+  // seule fois (focus fenetre, scanner).
+  const depotActifRef = useRef<string | null>(null);
   const [scannerActif, setScannerActif] = useState(false);
   const [chargementInitial, setChargementInitial] = useState(true);
 
@@ -611,7 +628,10 @@ export function Ventes() {
         const [gen, clients, articles, tousDepots, scannerConfig] = await Promise.all([
           invoke<Client>("lire_client_generique"),
           invoke<Client[]>("lire_clients"),
-          invoke<Article[]>("lire_articles_avec_unites", { role }),
+          // Le stock renvoye est celui du depot demande : sans cela, un
+          // vendeur d'un autre magasin voyait le stock du depot par defaut.
+          invoke<Article[]>("lire_articles_avec_unites",
+                            { role, depotId: DEPOT_ACTIF }),
           invoke<Depot[]>("lire_depots"),
           invoke<boolean>("lire_config_scanner"),
         ]);
@@ -659,6 +679,9 @@ export function Ventes() {
       document.removeEventListener("visibilitychange", surRetour);
     };
   }, []);
+
+  useEffect(() => { depotActifRef.current = depotActif?.id ?? null; },
+            [depotActif]);
 
   // ---- Client de passage : ni crédit, ni avoir (D40) ----
   const estComptant = !client || client.id === clientGenerique?.id;
@@ -740,12 +763,23 @@ export function Ventes() {
 
   useScanner({ actif: scannerActif, onScan: handleScan });
 
-  async function rechargerArticles() {
+  // `depotId` explicite : au changement de depot, l'etat React n'est pas
+  // encore a jour quand on recharge. Absent -> depot actif courant.
+  //
+  // Le stock par depot est recharge EN MEME TEMPS : il n'etait lu qu'au
+  // montage, si bien qu'a partir de la deuxieme vente la repartition se
+  // fondait sur des quantites perimees.
+  async function rechargerArticles(depotId?: string) {
     const role = UTILISATEUR_ACTIF?.role ?? "employe";
-    const articles = await invoke<Article[]>(
-      "lire_articles_avec_unites", { role }
-    );
+    // La ref et non l'etat : le handler de focus est enregistre une
+    // seule fois et capturerait le depot du premier rendu.
+    const dep = depotId ?? depotActifRef.current ?? undefined;
+    const [articles, stocks] = await Promise.all([
+      invoke<Article[]>("lire_articles_avec_unites", { role, depotId: dep }),
+      invoke<StockDepot[]>("lire_stock_multi_depots"),
+    ]);
     setTousArticles(articles);
+    setStockDepots(stocks);
   }
 
   if (chargementInitial) {
@@ -795,7 +829,7 @@ export function Ventes() {
       });
       const role = UTILISATEUR_ACTIF?.role ?? "employe";
       const articles = await invoke<Article[]>(
-        "lire_articles_avec_unites", { role });
+        "lire_articles_avec_unites", { role, depotId: depotActif?.id });
       setTousArticles(articles);
       const cree = articles.find(
         a => a.nom.toLowerCase() === naNom.trim().toLowerCase());
@@ -845,18 +879,25 @@ export function Ventes() {
         && sd.depot_id === depotActif?.id)?.quantite ?? 0)
     : 0;
 
+  // `stock_depot.quantite` est en unite de BASE, `qteNum` dans l'unite
+  // choisie. Les comparer directement faisait passer 2 sacs de 50 kg
+  // pour 2 kilos : la repartition proposait n'importe quoi.
+  const facteurSel = uniteSelectionnee?.facteur ?? 1;
+  const stockIciUV      = stockUV(stockIci, facteurSel);
+  const totalAilleursUV = stockUV(totalAilleurs, facteurSel);
+
   const aDecouvert = !!articleSelectionne && qteNum > stockDispo && stockDispo >= 0;
   // Le depot actif ne suffit pas, mais un autre a le complement :
   // c'est le cas ou l'on envoie quelqu'un chercher.
   const completableAilleurs = !!articleSelectionne
-    && qteNum > stockIci && qteNum <= stockIci + totalAilleurs;
+    && qteNum > stockIciUV && qteNum <= stockIciUV + totalAilleursUV;
   // Le modal s'ouvre des qu'un AUTRE depot a du stock, meme si le total
   // ne suffit pas. Sinon la vente entiere etait imputee au depot actif
   // et le stock des autres restait faux — un decouvert etait possible
   // en mono-depot mais pas en multi-depot, ce qui n'a pas de sens :
   // seul le TRANSFERT refuse le decouvert (D32), pas la vente.
   const repartitionNecessaire = !!articleSelectionne
-    && qteNum > stockIci && totalAilleurs > 0;
+    && qteNum > stockIciUV && totalAilleurs > 0;
   const enRupture = !!articleSelectionne && articleSelectionne.stock <= 0;
 
   // Ecart entre le prix de reference et le prix pratique, sur la
@@ -1092,6 +1133,9 @@ export function Ventes() {
                 // Le choix fait ici devient le depot actif global :
                 // deux selecteurs qui divergent sont une source d'erreur.
                 definirDepotActif(d.id);
+                // Le stock affiche suit le depot : sinon l'ecran continue
+                // d'annoncer les quantites du magasin precedent.
+                rechargerArticles(d.id).catch(console.error);
               }}>
               <SelectTrigger className="h-7 text-xs w-40">
                 <Warehouse className="h-3 w-3 mr-1" />

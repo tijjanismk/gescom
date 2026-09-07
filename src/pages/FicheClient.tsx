@@ -28,7 +28,7 @@ import {
 import { ApercuPiece } from "@/components/ApercuPiece";
 import { ApercuRecu } from "@/components/ApercuRecu";
 import { ModalModifierTiers } from "@/components/ModalModifierTiers";
-import { UTILISATEUR_ACTIF } from "@/App";
+import { UTILISATEUR_ACTIF, DEPOT_ACTIF } from "@/App";
 
 // =====================================================================
 //  Types
@@ -232,6 +232,10 @@ function ModalNouvellePiece({
         dateEcheance: dateEcheance || null,
         note: note || null,
         pieceOrigineId: null,
+        // Le depot ou la piece est etablie : c'est lui qui sera
+        // decremente a la validation de la facture. Sans lui, la
+        // marchandise sortait toujours du depot par defaut.
+        depotId: DEPOT_ACTIF,
       });
       setLignes([]); setNote(""); setRemiseGlobale("0"); setDateEcheance("");
       onCree();

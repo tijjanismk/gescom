@@ -141,17 +141,29 @@ pub fn desactiver_depot(
         );
     }
 
-    let reste: f64 = conn.query_row(
-        "SELECT COALESCE(SUM(quantite), 0) FROM stock_depot
-         WHERE depot_id = ?1 AND quantite > 0",
-        rusqlite::params![depot_id], |r| r.get(0),
-    ).unwrap_or(0.0);
+    // Le stock NEGATIF compte autant que le positif : un dépôt laissé à
+    // -12 après une vente à découvert emportait sa dette hors des écrans
+    // en se désactivant.
+    let (reste, manque): (f64, f64) = conn.query_row(
+        "SELECT COALESCE(SUM(CASE WHEN quantite > 0 THEN quantite END), 0),
+                COALESCE(SUM(CASE WHEN quantite < 0 THEN -quantite END), 0)
+         FROM stock_depot WHERE depot_id = ?1",
+        rusqlite::params![depot_id], |r| Ok((r.get(0)?, r.get(1)?)),
+    ).unwrap_or((0.0, 0.0));
 
     if reste > 0.0 {
         return Err(format!(
             "Ce dépôt contient encore {} unité(s) en stock. \
              Transférer la marchandise avant de le désactiver.",
             reste
+        ));
+    }
+
+    if manque > 0.0 {
+        return Err(format!(
+            "Ce dépôt est à découvert de {} unité(s). Régulariser par \
+             une entrée ou un ajustement avant de le désactiver.",
+            manque
         ));
     }
 

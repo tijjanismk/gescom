@@ -140,20 +140,36 @@ pub fn lire_resume_dashboard(
     ).unwrap_or(0);
 
     // Stock
+    // Compte des ARTICLES, pas des lignes de stock : creer un depot
+    // insere une ligne a 0 pour chaque article, ce qui doublait le
+    // compteur de ruptures le jour de l'ouverture d'un magasin.
+    // En vue consolidee, un article present ailleurs n'est pas en
+    // rupture — c'est le total qui tranche.
     let stock_ruptures: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM stock_depot sd
-         JOIN article a ON a.id = sd.article_id
-         WHERE sd.quantite <= 0 AND a.actif = 1 AND a.gere_en_stock = 1
-           AND (?1 IS NULL OR sd.depot_id = ?1)",
+        "SELECT COUNT(*) FROM (
+           SELECT sd.article_id
+           FROM stock_depot sd
+           JOIN article a ON a.id = sd.article_id
+           JOIN depot d ON d.id = sd.depot_id AND d.actif = 1
+           WHERE a.actif = 1 AND a.gere_en_stock = 1
+             AND (?1 IS NULL OR sd.depot_id = ?1)
+           GROUP BY sd.article_id
+           HAVING SUM(sd.quantite) <= 0
+         )",
         rusqlite::params![dep], |r| r.get(0),
     ).unwrap_or(0);
 
     let stock_alertes: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM stock_depot sd
-         JOIN article a ON a.id = sd.article_id
-         WHERE sd.quantite > 0 AND sd.quantite < 5
-           AND a.actif = 1 AND a.gere_en_stock = 1
-           AND (?1 IS NULL OR sd.depot_id = ?1)",
+        "SELECT COUNT(*) FROM (
+           SELECT sd.article_id
+           FROM stock_depot sd
+           JOIN article a ON a.id = sd.article_id
+           JOIN depot d ON d.id = sd.depot_id AND d.actif = 1
+           WHERE a.actif = 1 AND a.gere_en_stock = 1
+             AND (?1 IS NULL OR sd.depot_id = ?1)
+           GROUP BY sd.article_id
+           HAVING SUM(sd.quantite) > 0 AND SUM(sd.quantite) < 5
+         )",
         rusqlite::params![dep], |r| r.get(0),
     ).unwrap_or(0);
 

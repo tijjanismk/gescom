@@ -176,14 +176,33 @@ pub fn modifier_client(
 pub fn lire_articles_avec_unites(
     etat: State<EtatApp>,
     role: Option<String>,
+    // Depot dont on veut le stock. Absent -> depot par defaut.
+    //
+    // Sans ce parametre, `stock` etait TOUJOURS celui du depot par
+    // defaut : sur un autre magasin, le POS affichait « Rupture » sur
+    // un article present, et posait le drapeau `vente_a_decouvert` au
+    // hasard — l'ecran « ventes a decouvert » devenait faux.
+    depot_id: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let est_patron = role.as_deref() == Some("patron");
 
-    let depot_id: String = conn.query_row(
-        "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
-        [], |row| row.get(0),
-    ).map_err(|e| e.to_string())?;
+    // Un depot inconnu ou desactive retombe sur le defaut plutot que
+    // d'echouer : l'ecran doit s'ouvrir meme apres desactivation du
+    // depot memorise dans la sidebar.
+    let depot_id: String = match depot_id.filter(|d| !d.is_empty()) {
+        Some(d) => conn.query_row(
+            "SELECT id FROM depot WHERE id = ?1 AND actif = 1",
+            rusqlite::params![d], |row| row.get(0),
+        ).or_else(|_| conn.query_row(
+            "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
+            [], |row| row.get(0),
+        )).map_err(|e| e.to_string())?,
+        None => conn.query_row(
+            "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
+            [], |row| row.get(0),
+        ).map_err(|e| e.to_string())?,
+    };
 
     let mut stmt = conn.prepare(
         "SELECT a.id, a.nom, a.unite_base, a.dernier_prix_achat,

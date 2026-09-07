@@ -61,7 +61,11 @@ export function Transferts() {
       const role = UTILISATEUR_ACTIF?.role ?? "employe";
       const [d, a, h] = await Promise.all([
         invoke<Depot[]>("lire_depots"),
-        invoke<Article[]>("lire_articles_avec_unites", { role }),
+        // Stock du depot SOURCE : sans le parametre, l'ecran affichait
+        // le stock du depot par defaut et annoncait « 0 disponible »
+        // sur un magasin plein.
+        invoke<Article[]>("lire_articles_avec_unites",
+                          { role, depotId: source || null }),
         invoke<BonListe[]>("lire_transferts", { limite: 50 }),
       ]);
       setDepots(d);
@@ -78,6 +82,23 @@ export function Transferts() {
   }, [source]);
 
   useEffect(() => { charger(); }, []);
+
+  // Changer de dépôt source change le stock disponible : on recharge et
+  // on met à jour les lignes déjà saisies, sinon elles gardent le stock
+  // du dépôt précédent.
+  useEffect(() => {
+    if (!source) return;
+    const role = UTILISATEUR_ACTIF?.role ?? "employe";
+    invoke<Article[]>("lire_articles_avec_unites", { role, depotId: source })
+      .then(a => {
+        setArticles(a);
+        setLignes(prev => prev.map(l => ({
+          ...l,
+          stock_dispo: a.find(x => x.id === l.article_id)?.stock ?? 0,
+        })));
+      })
+      .catch(console.error);
+  }, [source]);
 
   const resultats = recherche.trim().length >= 2
     ? articles.filter(a =>
@@ -110,9 +131,9 @@ export function Transferts() {
       : x));
   }
 
-  // Le stock affiché est celui du dépôt par défaut, pas du dépôt source.
-  // On signale donc le dépassement sans bloquer : le Rust vérifie
-  // vraiment, dépôt par dépôt, et refuse le transfert si besoin.
+  // Le stock affiché est bien celui du dépôt SOURCE. Le dépassement est
+  // signalé sans bloquer : le Rust reste seul juge et vérifie le total
+  // par article, y compris si le même article figure sur deux lignes.
   const depassement = lignes.some(l => l.quantite * l.facteur > l.stock_dispo);
 
   async function valider() {

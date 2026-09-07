@@ -15,7 +15,7 @@ import {
   SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
-import { UTILISATEUR_ACTIF } from "@/App";
+import { UTILISATEUR_ACTIF, DEPOT_ACTIF } from "@/App";
 
 // =====================================================================
 //  Types
@@ -274,6 +274,10 @@ export function ModalNouvellePiece({
         dateEcheance: dateEcheance || null,
         note: note || null,
         pieceOrigineId: null,
+        // Cote client seulement : le depot ou la piece est etablie,
+        // celui qui sera decremente a la validation de la facture.
+        // Sans lui, la marchandise sortait du depot par defaut.
+        ...(cote === "client" ? { depotId: DEPOT_ACTIF } : {}),
       });
       handleFermer();
       onCree();

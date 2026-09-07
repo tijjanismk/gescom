@@ -370,6 +370,9 @@ CREATE INDEX IF NOT EXISTS idx_transfert_bon ON transfert(bon);
 CREATE TABLE IF NOT EXISTS retour (
     id                      TEXT PRIMARY KEY,
     vente_id                TEXT NOT NULL REFERENCES vente(id),
+    -- La ligne exacte retournee. NULL sur les retours anterieurs a
+    -- v1.3, qui ne se rattachaient qu'a l'article.
+    ligne_vente_id          TEXT REFERENCES ligne_vente(id),
     article_id              TEXT NOT NULL REFERENCES article(id),
     unite_vente_id          TEXT NOT NULL REFERENCES unite_vente(id),
     quantite                REAL NOT NULL,

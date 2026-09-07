@@ -123,14 +123,22 @@ pub fn enregistrer_retour(
     mode_reliquat_positif: Option<String>,    // "remboursement" / "avoir"
     mode_encaissement_reliquat: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    let utilisateur_id = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
+    // TOUT le retour dans UNE transaction.
+    //
+    // Chaque etape ecrivait separement : quand le remboursement etait
+    // refuse faute de caisse ouverte, le stock etait deja remonte et la
+    // ligne `retour` deja posee. Le client repartait sans son argent, et
+    // la garde de quantite bloquait la seconde tentative — le retour
+    // etait perdu, l'argent aussi.
+    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let utilisateur_id = crate::commandes::ventes::id_utilisateur_courant_pub(&tx);
     let maintenant = maintenant_iso();
     let retour_id = uuid::Uuid::new_v4().to_string();
 
     // Récupérer les infos de la ligne de vente.
     let (article_id, unite_vente_id, depot_source_id, facteur, prix_pratique, client_id):
-        (String, String, String, f64, i64, String) = conn.query_row(
+        (String, String, String, f64, i64, String) = tx.query_row(
         "SELECT lv.article_id, lv.unite_vente_id, lv.depot_source_id,
                 u.facteur, lv.prix_pratique, v.client_id
          FROM ligne_vente lv
@@ -147,16 +155,25 @@ pub fn enregistrer_retour(
     // =================================================================
     //  GARDE 1 — on ne retourne pas plus qu'on n'a vendu
     // =================================================================
-    let qte_vendue: f64 = conn.query_row(
+    let qte_vendue: f64 = tx.query_row(
         "SELECT quantite FROM ligne_vente WHERE id = ?1",
         rusqlite::params![ligne_vente_id], |r| r.get(0),
     ).map_err(|e| e.to_string())?;
 
-    // `retour` ne porte pas ligne_vente_id : on agrege par vente+article.
-    let deja_retourne: f64 = conn.query_row(
+    // Par LIGNE, plus par article : une vente repartie entre deux
+    // depots porte deux lignes du meme article, et retourner la
+    // premiere rendait la seconde non retournable.
+    //
+    // Les retours anterieurs a v1.3 n'ont pas de ligne_vente_id : ils
+    // restent comptes par article, comme avant. Conservateur — ils
+    // peuvent bloquer une ligne soeur, mais ne laissent jamais
+    // retourner plus que le vendu.
+    let deja_retourne: f64 = tx.query_row(
         "SELECT COALESCE(SUM(quantite), 0) FROM retour
-         WHERE vente_id = ?1 AND article_id = ?2",
-        rusqlite::params![vente_id, article_id], |r| r.get(0),
+         WHERE vente_id = ?1
+           AND (ligne_vente_id = ?2
+                OR (ligne_vente_id IS NULL AND article_id = ?3))",
+        rusqlite::params![vente_id, ligne_vente_id, article_id], |r| r.get(0),
     ).unwrap_or(0.0);
 
     let retournable = qte_vendue - deja_retourne;
@@ -184,13 +201,13 @@ pub fn enregistrer_retour(
     //  Sans cela, une vente à crédit de 10 000 F jamais réglée dont la
     //  marchandise revient sortait 10 000 F de la caisse ET laissait la
     //  créance ouverte — l'argent partait deux fois.
-    let total_vente: i64 = conn.query_row(
+    let total_vente: i64 = tx.query_row(
         "SELECT CAST(COALESCE(SUM(prix_pratique * quantite), 0) AS INTEGER)
          FROM ligne_vente WHERE vente_id = ?1",
         rusqlite::params![vente_id], |r| r.get(0),
     ).unwrap_or(0);
 
-    let deja_paye: i64 = conn.query_row(
+    let deja_paye: i64 = tx.query_row(
         "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
          FROM paiement WHERE vente_id = ?1",
         rusqlite::params![vente_id], |r| r.get(0),
@@ -213,7 +230,7 @@ pub fn enregistrer_retour(
     // un prix a change apres la vente, ou si des retours successifs se
     // cumulent au-dela du vendu, on rendrait plus que ce que le client
     // a verse. On plafonne donc explicitement au versement net.
-    let rembourse_deja: i64 = conn.query_row(
+    let rembourse_deja: i64 = tx.query_row(
         "SELECT CAST(COALESCE(SUM(mc.montant), 0) AS INTEGER)
          FROM mouvement_caisse mc
          WHERE mc.motif IN ('remboursement','remboursement_reliquat')
@@ -223,7 +240,7 @@ pub fn enregistrer_retour(
 
     // Versements REELS du client : on exclut les paiements de mode
     // 'retour' (ecritures internes) et 'avoir' (pas d'argent recu).
-    let verse_reel: i64 = conn.query_row(
+    let verse_reel: i64 = tx.query_row(
         "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
          FROM paiement
          WHERE vente_id = ?1 AND mode NOT IN ('retour', 'avoir')",
@@ -246,7 +263,7 @@ pub fn enregistrer_retour(
     }
 
     // 1. Remonter le stock de l'article retourné — TOUJOURS.
-    conn.execute(
+    tx.execute(
         // ON CONFLICT et non UPDATE nu : si le couple article/depot
         // n'existe pas encore, un UPDATE ne fait rien et le retour est
         // perdu en silence.
@@ -259,7 +276,7 @@ pub fn enregistrer_retour(
     ).map_err(|e| e.to_string())?;
 
     // Mouvement de stock — entrée.
-    conn.execute(
+    tx.execute(
         "INSERT INTO mouvement_stock
          (id, article_id, depot_id, type_mouvement, quantite_delta,
           operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine)
@@ -273,18 +290,19 @@ pub fn enregistrer_retour(
     ).map_err(|e| e.to_string())?;
 
     // 2. Insérer le retour.
-    conn.execute(
+    tx.execute(
         "INSERT INTO retour
-         (id, vente_id, article_id, unite_vente_id, quantite,
+         (id, vente_id, ligne_vente_id, article_id, unite_vente_id, quantite,
           depot_reintegration_id, mode_resolution, montant_credit,
           reliquat, reliquat_resolution, auteur_id, date_retour,
           cree_le, cree_par, origine)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,0,?9,?10,?11,?12,?13,'app')",
+         VALUES (?1,?2,?14,?3,?4,?5,?6,?7,?8,0,?9,?10,?11,?12,?13,'app')",
         rusqlite::params![
             retour_id, vente_id, article_id, unite_vente_id, quantite,
             depot_source_id, mode_resolution, montant_credit,
             mode_encaissement.as_deref().unwrap_or("aucun"),
-            utilisateur_id, maintenant, maintenant, utilisateur_id
+            utilisateur_id, maintenant, maintenant, utilisateur_id,
+            ligne_vente_id
         ],
     ).map_err(|e| e.to_string())?;
 
@@ -296,7 +314,7 @@ pub fn enregistrer_retour(
     // Pas pour l'echange : la marchandise part vers un autre article,
     // le credit finance le remplacement et non la dette.
     if part_creance > 0 && mode_resolution != "echange" {
-        conn.execute(
+        tx.execute(
             "INSERT INTO paiement
              (id, vente_id, montant, mode, date_paiement,
               auteur_id, cree_le, cree_par, origine)
@@ -315,7 +333,7 @@ pub fn enregistrer_retour(
             crate::coeur::calcul::StatutVente::PartiellementPayee => "partiellement_payee",
             crate::coeur::calcul::StatutVente::CreanceOuverte => "creance_ouverte",
         };
-        conn.execute(
+        tx.execute(
             "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
             rusqlite::params![statut, maintenant, vente_id],
         ).ok();
@@ -324,7 +342,7 @@ pub fn enregistrer_retour(
     // D40 — un avoir au comptant atterrit dans le pot commun
     // `client0000`, que le POS refuse de lire. On rend l'argent ou on
     // remplace, tout de suite.
-    let client_generique = crate::utils::est_client_generique(&conn, &client_id);
+    let client_generique = crate::utils::est_client_generique(&tx, &client_id);
     if client_generique && mode_resolution == "avoir_conserve" {
         return Err("Pas d'avoir pour un client comptant. \
                     Choisir remboursement ou échange.".to_string());
@@ -337,7 +355,7 @@ pub fn enregistrer_retour(
         "remboursement" => {
             if part_client > 0 {
                 let mode = mode_encaissement.as_deref().unwrap_or("especes");
-                enregistrer_sortie_caisse(&conn, part_client, mode, &retour_id,
+                enregistrer_sortie_caisse(&tx, part_client, mode, &retour_id,
                     "remboursement", &utilisateur_id, &maintenant)?;
             }
             // part_client == 0 : le retour a servi a eteindre la dette,
@@ -346,7 +364,7 @@ pub fn enregistrer_retour(
 
         "avoir_conserve" if part_client > 0 => {
             numero_avoir = Some(creer_avoir_client(
-                &conn, &client_id, &retour_id, part_client, &maintenant,
+                &tx, &client_id, &retour_id, part_client, &maintenant,
                 &article_id, &unite_vente_id, quantite, &utilisateur_id,
             )?);
         }
@@ -362,7 +380,7 @@ pub fn enregistrer_retour(
                 // est_defaut = 1` sans condition de jointure renvoyait
                 // zero ligne quand aucun depot n'est marque par defaut
                 // -> QueryReturnedNoRows en pleine transaction.
-                let (facteur_remp, prix_remp): (f64, i64) = conn.query_row(
+                let (facteur_remp, prix_remp): (f64, i64) = tx.query_row(
                     "SELECT u.facteur, u.prix_reference
                      FROM unite_vente u WHERE u.id = ?1",
                     rusqlite::params![unite_remp_id],
@@ -374,10 +392,10 @@ pub fn enregistrer_retour(
                 // d'etre reintegre. Prendre le depot par defaut faussait
                 // DEUX stocks a la fois en multi-depot : entree ici,
                 // sortie ailleurs.
-                let depot_remplacement: String = conn.query_row(
+                let depot_remplacement: String = tx.query_row(
                     "SELECT id FROM depot WHERE id = ?1 AND actif = 1",
                     rusqlite::params![depot_source_id], |r| r.get(0),
-                ).or_else(|_| conn.query_row(
+                ).or_else(|_| tx.query_row(
                     "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
                     [], |r| r.get(0),
                 )).map_err(|_| {
@@ -391,7 +409,7 @@ pub fn enregistrer_retour(
                 let reliquat = montant_credit - montant_remplacement;
 
                 // Décrémenter le stock de l'article de remplacement.
-                conn.execute(
+                tx.execute(
                     "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
                      VALUES (?4, ?2, ?3, 0 - ?1)
                      ON CONFLICT(article_id, depot_id)
@@ -401,7 +419,7 @@ pub fn enregistrer_retour(
                 ).map_err(|e| e.to_string())?;
 
                 // Mouvement de stock — sortie remplacement.
-                conn.execute(
+                tx.execute(
                     "INSERT INTO mouvement_stock
                      (id, article_id, depot_id, type_mouvement, quantite_delta,
                       operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine)
@@ -425,7 +443,7 @@ pub fn enregistrer_retour(
                         Some("remboursement") | None if client_generique => {
                             let mode = mode_encaissement_reliquat
                                 .as_deref().unwrap_or("especes");
-                            enregistrer_sortie_caisse(&conn, reliquat, mode,
+                            enregistrer_sortie_caisse(&tx, reliquat, mode,
                                 &retour_id, "remboursement_reliquat",
                                 &utilisateur_id, &maintenant)?;
                         }
@@ -436,14 +454,14 @@ pub fn enregistrer_retour(
                         Some("remboursement") => {
                             let mode = mode_encaissement_reliquat
                                 .as_deref().unwrap_or("especes");
-                            enregistrer_sortie_caisse(&conn, reliquat, mode,
+                            enregistrer_sortie_caisse(&tx, reliquat, mode,
                                 &retour_id, "remboursement_reliquat",
                                 &utilisateur_id, &maintenant)?;
                         }
                         _ => {
                             // Avoir par défaut.
                             numero_avoir = Some(creer_avoir_client(
-                                &conn, &client_id, &retour_id, reliquat,
+                                &tx, &client_id, &retour_id, reliquat,
                                 &maintenant, &article_id, &unite_vente_id,
                                 quantite, &utilisateur_id,
                             )?);
@@ -454,10 +472,10 @@ pub fn enregistrer_retour(
                     let mode = mode_encaissement.as_deref().unwrap_or("especes");
                     // Le client verse la difference : entree reelle.
                     let session_id: Option<String> =
-                        Some(crate::utils::exiger_session_caisse(&conn)?);
+                        Some(crate::utils::exiger_session_caisse(&tx)?);
 
                     if let Some(sid) = session_id {
-                        conn.execute(
+                        tx.execute(
                             "INSERT INTO mouvement_caisse
                              (id, session_id, sens, moyen, montant, motif,
                               operation_id, date_mouvement, cree_le, cree_par, origine)
@@ -479,7 +497,7 @@ pub fn enregistrer_retour(
     }
 
     // 4. Journal.
-    conn.execute(
+    tx.execute(
         "INSERT INTO journal
          (id, type_evenement, entite_type, entite_id, auteur_id,
           nouveau_valeur, origine, date_evenement)
@@ -491,6 +509,8 @@ pub fn enregistrer_retour(
             maintenant
         ],
     ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "retour_id":      retour_id,

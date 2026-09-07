@@ -278,6 +278,29 @@ pub fn lire_lignes_piece(
 //  Créer une pièce
 // =====================================================================
 
+/// Depot a inscrire sur une piece : celui demande, sinon le defaut.
+///
+/// Une piece SANS depot fait retomber `valider_facture` sur le depot
+/// par defaut : une facture etablie a Djelibougou sortait la
+/// marchandise du magasin central. Toute piece porte donc desormais
+/// son depot des sa creation.
+fn depot_de_piece(
+    conn: &rusqlite::Connection,
+    demande: Option<String>,
+) -> Option<String> {
+    if let Some(d) = demande.filter(|d| !d.is_empty()) {
+        let existe: Option<String> = conn.query_row(
+            "SELECT id FROM depot WHERE id = ?1 AND actif = 1",
+            rusqlite::params![d], |r| r.get(0),
+        ).ok();
+        if existe.is_some() { return existe; }
+    }
+    conn.query_row(
+        "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
+        [], |r| r.get(0),
+    ).ok()
+}
+
 #[derive(serde::Deserialize)]
 pub struct LignePieceInput {
     pub article_id: String,
@@ -298,9 +321,12 @@ pub fn creer_piece(
     date_echeance: Option<String>,
     note: Option<String>,
     piece_origine_id: Option<String>,
+    // Depot ou la piece est etablie. Absent -> depot par defaut.
+    depot_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
+    let depot = depot_de_piece(&conn, depot_id);
     let now = maintenant_iso();
     let piece_id = uuid::Uuid::new_v4().to_string();
     let numero = prochain_numero(&conn, &type_piece);
@@ -318,14 +344,14 @@ pub fn creer_piece(
 
     conn.execute(
         "INSERT INTO piece_commerciale
-         (id, type_piece, numero, statut, tiers_type, tiers_id,
+         (id, type_piece, numero, statut, tiers_type, tiers_id, depot_id,
           piece_origine_id, auteur_id, date_piece, date_echeance,
           remise_globale, note, cree_le, modifie_le, origine)
-         VALUES (?1,?2,?3,?4,'client',?5,?6,?7,?8,?9,?10,?11,?12,?13,'app')",
+         VALUES (?1,?2,?3,?4,'client',?5,?14,?6,?7,?8,?9,?10,?11,?12,?13,'app')",
         rusqlite::params![
             piece_id, type_piece, numero, statut,
             client_id, piece_origine_id, auteur,
-            now, date_echeance, remise_g, note, now, now
+            now, date_echeance, remise_g, note, now, now, depot
         ],
     ).map_err(|e| e.to_string())?;
 
@@ -430,14 +456,20 @@ pub fn convertir_piece(
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
     // Vérifier la pièce source
-    let (client_id, type_src, statut_src, remise_g, date_ech, note):
-        (String, String, String, f64, Option<String>, Option<String>) =
+    let (client_id, type_src, statut_src, remise_g, date_ech, note, depot_src):
+        (String, String, String, f64, Option<String>, Option<String>, Option<String>) =
         conn.query_row(
-            "SELECT tiers_id, type_piece, statut, remise_globale, date_echeance, note
+            "SELECT tiers_id, type_piece, statut, remise_globale, date_echeance,
+                    note, depot_id
              FROM piece_commerciale WHERE id = ?1",
             rusqlite::params![piece_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+                    r.get(5)?, r.get(6)?)),
         ).map_err(|_| "Pièce introuvable".to_string())?;
+
+    // Le depot suit la chaine : un devis etabli a Djelibougou donne une
+    // facture de Djelibougou, qui sortira le stock de la-bas.
+    let depot = depot_de_piece(&conn, depot_src);
 
     // Un seul transfert par pièce — statut ET descendant réel.
     let deja = descendant_actif(&conn, &piece_id);
@@ -503,18 +535,18 @@ pub fn convertir_piece(
 
     conn.execute(
         "INSERT INTO piece_commerciale
-         (id, type_piece, numero, statut, tiers_type, tiers_id,
+         (id, type_piece, numero, statut, tiers_type, tiers_id, depot_id,
           piece_origine_id, auteur_id, date_piece, date_echeance,
           remise_globale, note, cree_le, modifie_le, origine)
          VALUES (?1,?2,?3,?4,
          CASE WHEN ?2 IN ('bon_commande_fournisseur','bon_reception',
                           'facture_fournisseur','avoir_fournisseur')
               THEN 'fournisseur' ELSE 'client' END,
-         ?5,?6,?7,?8,?9,?10,?11,?12,?13,'app')",
+         ?5,?14,?6,?7,?8,?9,?10,?11,?12,?13,'app')",
         rusqlite::params![
             nouvelle_id, nouveau_type, numero, statut_nouveau,
             client_id, piece_id, auteur,
-            now, date_ech, remise_g, note, now, now
+            now, date_ech, remise_g, note, now, now, depot
         ],
     ).map_err(|e| e.to_string())?;
 
@@ -602,14 +634,19 @@ pub fn convertir_commande_en_livraison_et_facture(
 ) -> Result<serde_json::Value, String> {
     let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
-    let (client_id, type_src, statut_src, remise_g, date_ech, note):
-        (String, String, String, f64, Option<String>, Option<String>) =
+    let (client_id, type_src, statut_src, remise_g, date_ech, note, depot_src):
+        (String, String, String, f64, Option<String>, Option<String>, Option<String>) =
         conn.query_row(
-            "SELECT tiers_id, type_piece, statut, remise_globale, date_echeance, note
+            "SELECT tiers_id, type_piece, statut, remise_globale, date_echeance,
+                    note, depot_id
              FROM piece_commerciale WHERE id = ?1",
             rusqlite::params![piece_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+                    r.get(5)?, r.get(6)?)),
         ).map_err(|_| "Pièce introuvable".to_string())?;
+
+    // BL et facture heritent du depot de la commande.
+    let depot = depot_de_piece(&conn, depot_src);
 
     if type_src != "commande_client" {
         return Err(
@@ -647,13 +684,13 @@ pub fn convertir_commande_en_livraison_et_facture(
     // Ni l'impression ni la saisie des quantités livrées n'en dépendent.
     tx.execute(
         "INSERT INTO piece_commerciale
-         (id, type_piece, numero, statut, tiers_type, tiers_id,
+         (id, type_piece, numero, statut, tiers_type, tiers_id, depot_id,
           piece_origine_id, auteur_id, date_piece, date_echeance,
           remise_globale, note, cree_le, modifie_le, origine)
-         VALUES (?1,'bon_livraison',?2,'transfere','client',?3,?4,?5,?6,?7,?8,?9,?10,?11,'app')",
+         VALUES (?1,'bon_livraison',?2,'transfere','client',?3,?12,?4,?5,?6,?7,?8,?9,?10,?11,'app')",
         rusqlite::params![
             bl_id, numero_bl, client_id, piece_id, auteur,
-            now, date_ech, remise_g, note, now, now
+            now, date_ech, remise_g, note, now, now, depot
         ],
     ).map_err(|e| e.to_string())?;
     inserer_lignes_raw(&tx, &bl_id, &lignes, &now)?;
@@ -664,13 +701,13 @@ pub fn convertir_commande_en_livraison_et_facture(
     // le stock et la caisse.
     tx.execute(
         "INSERT INTO piece_commerciale
-         (id, type_piece, numero, statut, tiers_type, tiers_id,
+         (id, type_piece, numero, statut, tiers_type, tiers_id, depot_id,
           piece_origine_id, auteur_id, date_piece, date_echeance,
           remise_globale, note, cree_le, modifie_le, origine)
-         VALUES (?1,'facture',?2,'brouillon','client',?3,?4,?5,?6,?7,?8,?9,?10,?11,'app')",
+         VALUES (?1,'facture',?2,'brouillon','client',?3,?12,?4,?5,?6,?7,?8,?9,?10,?11,'app')",
         rusqlite::params![
             fac_id, numero_fac, client_id, bl_id, auteur,
-            now, date_ech, remise_g, note, now, now
+            now, date_ech, remise_g, note, now, now, depot
         ],
     ).map_err(|e| e.to_string())?;
     inserer_lignes_raw(&tx, &fac_id, &lignes, &now)?;
@@ -883,22 +920,36 @@ pub fn valider_facture(
             rusqlite::params![uv_id], |r| r.get(0),
         ).unwrap_or(1.0);
 
+        // Découvert : marchandise sortie au-dela du stock connu. La
+        // colonne n'etait jamais renseignee par cette voie — une
+        // facture validee depuis l'ecran Pieces pouvait mettre un stock
+        // a -12 sans apparaitre dans « ventes a decouvert », donc sans
+        // jamais etre regularisee.
+        let qte_base = qte * facteur;
+        let dispo: f64 = tx.query_row(
+            "SELECT COALESCE(quantite, 0) FROM stock_depot
+             WHERE article_id = ?1 AND depot_id = ?2",
+            rusqlite::params![art_id, depot_id], |r| r.get(0),
+        ).unwrap_or(0.0);
+        let a_decouvert = crate::coeur::stock::est_a_decouvert(dispo, qte_base);
+
         tx.execute(
             "INSERT INTO ligne_vente
              (id, vente_id, article_id, unite_vente_id, depot_source_id,
               source_approvisionnement, quantite, prix_reference,
-              prix_pratique, taux_tva, montant_tva, cree_le, origine)
-             VALUES (?1,?2,?3,?4,?5,'stock',?6,?7,?8,?9,?10,?11,'app')",
+              prix_pratique, taux_tva, montant_tva, vente_a_decouvert,
+              cree_le, origine)
+             VALUES (?1,?2,?3,?4,?5,'stock',?6,?7,?8,?9,?10,?12,?11,'app')",
             rusqlite::params![
                 uuid::Uuid::new_v4().to_string(),
                 vente_id, art_id, uv_id, depot_id,
                 qte, prix_u, prix_pratique,
-                taux_tva, montant_tva, now
+                taux_tva, montant_tva, now,
+                a_decouvert as i64
             ],
         ).map_err(|e| e.to_string())?;
 
         // Décrémenter stock
-        let qte_base = qte * facteur;
         tx.execute(
             "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
              VALUES (?1,?2,?3,0 - ?4)
@@ -1702,14 +1753,19 @@ pub fn dupliquer_piece(
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
-    let (client_id, type_piece, remise_g, date_ech, note): 
-        (String, String, f64, Option<String>, Option<String>) =
+    let (client_id, type_piece, remise_g, date_ech, note, depot_src): 
+        (String, String, f64, Option<String>, Option<String>, Option<String>) =
         conn.query_row(
-            "SELECT tiers_id, type_piece, remise_globale, date_echeance, note
+            "SELECT tiers_id, type_piece, remise_globale, date_echeance, note,
+                    depot_id
              FROM piece_commerciale WHERE id = ?1",
             rusqlite::params![piece_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+                    r.get(5)?)),
         ).map_err(|_| "Pièce introuvable".to_string())?;
+
+    // La copie est etablie dans le meme magasin que l'originale.
+    let depot = depot_de_piece(&conn, depot_src);
 
     let lignes = lire_lignes_raw(&conn, &piece_id)?;
     let now = maintenant_iso();
@@ -1725,20 +1781,20 @@ pub fn dupliquer_piece(
     // lien reste tracé dans le journal, qui est fait pour ça (invariant 11).
     conn.execute(
         "INSERT INTO piece_commerciale
-         (id, type_piece, numero, statut, tiers_type, tiers_id,
+         (id, type_piece, numero, statut, tiers_type, tiers_id, depot_id,
           auteur_id, date_piece, date_echeance,
           remise_globale, note, cree_le, modifie_le, origine)
          VALUES (?1,?2,?3,'brouillon',
          CASE WHEN ?2 IN ('bon_commande_fournisseur','bon_reception',
                           'facture_fournisseur','avoir_fournisseur')
               THEN 'fournisseur' ELSE 'client' END,
-         ?4,?5,?6,?7,?8,?9,?10,?11,'app')",
+         ?4,?12,?5,?6,?7,?8,?9,?10,?11,'app')",
         rusqlite::params![
             nouvelle_id, type_piece, numero,
             client_id, auteur,
             now, date_ech, remise_g,
             note.map(|n| format!("[Copie] {}", n)).or(Some("[Copie]".to_string())),
-            now, now
+            now, now, depot
         ],
     ).map_err(|e| e.to_string())?;
 
@@ -1881,27 +1937,47 @@ pub fn annuler_facture_par_avoir(
         ).unwrap_or(0);
 
         // Reintegration du stock, ligne par ligne.
+        //
+        // Le depot est celui de la LIGNE, pas l'en-tete de la vente :
+        // une vente repartie sortait la marchandise de deux magasins et
+        // la rendait entierement au premier — deux stocks faux d'un
+        // coup. `depot_source_id` est non nul, le COALESCE ne couvre
+        // que les bases anciennes.
         let mut st = tx.prepare(
-            "SELECT lv.article_id, lv.quantite, COALESCE(u.facteur, 1.0)
+            "SELECT lv.id, lv.article_id, lv.quantite, COALESCE(u.facteur, 1.0),
+                    COALESCE(lv.depot_source_id, ?2)
              FROM ligne_vente lv
              LEFT JOIN unite_vente u ON u.id = lv.unite_vente_id
              WHERE lv.vente_id = ?1"
         ).map_err(|e| e.to_string())?;
-        let l: Vec<(String, f64, f64)> = st.query_map(
-            rusqlite::params![vente_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        let l: Vec<(String, String, f64, f64, String)> = st.query_map(
+            rusqlite::params![vente_id, depot_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
         drop(st);
 
-        for (art, qte, facteur) in l {
-            let base = qte * facteur;
+        for (ligne_id, art, qte, facteur, depot_ligne) in l {
+            // Ce qui est deja revenu par un retour ne revient pas une
+            // seconde fois : sans cela, annuler une facture dont une
+            // ligne avait ete retournee creditait le stock deux fois.
+            let deja: f64 = tx.query_row(
+                "SELECT COALESCE(SUM(quantite), 0) FROM retour
+                 WHERE vente_id = ?1
+                   AND (ligne_vente_id = ?2
+                        OR (ligne_vente_id IS NULL AND article_id = ?3))",
+                rusqlite::params![vente_id, ligne_id, art], |r| r.get(0),
+            ).unwrap_or(0.0);
+
+            let base = (qte - deja).max(0.0) * facteur;
+            if base <= 0.0 { continue; }
+
             tx.execute(
                 "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
                  VALUES (?1,?2,?3,?4)
                  ON CONFLICT(article_id, depot_id)
                  DO UPDATE SET quantite = quantite + ?4",
                 rusqlite::params![
-                    uuid::Uuid::new_v4().to_string(), art, depot_id, base
+                    uuid::Uuid::new_v4().to_string(), art, depot_ligne, base
                 ],
             ).map_err(|e| e.to_string())?;
 
@@ -1911,7 +1987,7 @@ pub fn annuler_facture_par_avoir(
                   operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine)
                  VALUES (?1,?2,?3,'retour',?4,?5,?6,?7,?8,?9,'annulation')",
                 rusqlite::params![
-                    uuid::Uuid::new_v4().to_string(), art, depot_id, base,
+                    uuid::Uuid::new_v4().to_string(), art, depot_ligne, base,
                     avoir_piece_id, auteur, now, now, auteur
                 ],
             ).map_err(|e| e.to_string())?;

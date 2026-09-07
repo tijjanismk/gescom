@@ -208,6 +208,19 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_transfert_bon ON transfert(bon)"
     ).ok();
 
+    // ---- v1.3 : le retour porte SA ligne de vente ----
+    // `retour` ne referencait que vente_id + article_id. Une vente
+    // repartie entre deux depots cree DEUX lignes du meme article :
+    // retourner la premiere rendait la seconde non retournable
+    // (« deja retournee »). Les lignes anterieures restent a NULL et
+    // continuent d'etre comptees par article.
+    conn.execute(
+        "ALTER TABLE retour ADD COLUMN ligne_vente_id TEXT", []
+    ).ok();
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_retour_ligne ON retour(ligne_vente_id)"
+    ).ok();
+
     // ---- v1.2 : suivi des cheques recus ----
     // Un cheque est une promesse, pas de l'argent. Il n'entre PAS dans
     // le rapprochement de caisse (D29) — comme le mobile money.

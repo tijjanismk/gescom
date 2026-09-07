@@ -67,22 +67,43 @@ pub fn enregistrer_transfert(
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);
 
+    // Une quantité nulle ou négative inverserait le sens du transfert
+    // en passant sous le contrôle de stock : le dépôt destination
+    // serait vidé au profit de la source.
+    for l in &lignes {
+        if l.quantite <= 0.0 || l.facteur <= 0.0 {
+            return Err("Chaque ligne doit porter une quantité positive".to_string());
+        }
+    }
+
     // Vérifier le stock disponible AVANT d'ouvrir la transaction : un
     // transfert ne doit pas mettre le dépôt source à découvert. Une
     // vente le peut (article commandé au voisin), pas un transfert.
+    //
+    // Le contrôle porte sur le TOTAL par article, et non ligne à ligne :
+    // deux lignes de 10 sur un stock de 15 passaient chacune leur test
+    // séparément et laissaient la source à -5.
+    let mut demande: Vec<(String, f64)> = Vec::new();
     for l in &lignes {
         let quantite_base = l.quantite * l.facteur;
+        match demande.iter_mut().find(|(a, _)| *a == l.article_id) {
+            Some((_, q)) => *q += quantite_base,
+            None => demande.push((l.article_id.clone(), quantite_base)),
+        }
+    }
+
+    for (article_id, quantite_base) in &demande {
         let dispo: f64 = conn.query_row(
             "SELECT COALESCE(quantite, 0) FROM stock_depot
              WHERE article_id = ?1 AND depot_id = ?2",
-            rusqlite::params![l.article_id, depot_source],
+            rusqlite::params![article_id, depot_source],
             |r| r.get(0),
         ).unwrap_or(0.0);
 
-        if dispo < quantite_base - 1e-9 {
+        if dispo < *quantite_base - 1e-9 {
             let nom: String = conn.query_row(
                 "SELECT nom FROM article WHERE id = ?1",
-                rusqlite::params![l.article_id], |r| r.get(0),
+                rusqlite::params![article_id], |r| r.get(0),
             ).unwrap_or_else(|_| "?".to_string());
             return Err(format!(
                 "Stock insuffisant pour « {} » : {} disponible(s), \
