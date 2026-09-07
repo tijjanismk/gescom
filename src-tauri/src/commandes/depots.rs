@@ -27,7 +27,13 @@ pub fn lire_depots_detail(
                 CAST(COALESCE((SELECT SUM(sd.quantite * COALESCE(a.dernier_prix_achat,0))
                   FROM stock_depot sd JOIN article a ON a.id = sd.article_id
                   WHERE sd.depot_id = d.id AND sd.quantite > 0), 0) AS INTEGER),
-                (SELECT COUNT(*) FROM vente v WHERE v.depot_id = d.id)
+                (SELECT COUNT(*) FROM vente v WHERE v.depot_id = d.id),
+                -- Unites encore presentes, et unites manquantes : l'ecran
+                -- doit pouvoir prevenir avant une desactivation forcee.
+                COALESCE((SELECT SUM(sd.quantite) FROM stock_depot sd
+                  WHERE sd.depot_id = d.id AND sd.quantite > 0), 0),
+                COALESCE((SELECT SUM(-sd.quantite) FROM stock_depot sd
+                  WHERE sd.depot_id = d.id AND sd.quantite < 0), 0)
          FROM depot d
          ORDER BY d.est_defaut DESC, d.nom"
     ).map_err(|e| e.to_string())?;
@@ -41,6 +47,8 @@ pub fn lire_depots_detail(
             "nb_articles":   r.get::<_, i64>(4)?,
             "valeur_stock":  r.get::<_, i64>(5)?,
             "nb_ventes":     r.get::<_, i64>(6)?,
+            "unites_stock":  r.get::<_, f64>(7)?,
+            "unites_manque": r.get::<_, f64>(8)?,
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
@@ -119,13 +127,24 @@ pub fn definir_depot_defaut(
     Ok(())
 }
 
-/// Désactive un dépôt. Refusé s'il contient encore du stock : la
-/// marchandise disparaîtrait des états sans jamais avoir été
-/// transférée ni vendue.
+/// Désactive un dépôt.
+///
+/// Par défaut, refusé s'il reste du stock — positif ou négatif : la
+/// marchandise disparaîtrait des états sans avoir été ni transférée ni
+/// vendue.
+///
+/// `force` lève ce refus. Le stock n'est alors ni déplacé ni soldé : il
+/// est GELÉ tel quel dans `stock_depot`. Les écrans, qui filtrent sur
+/// les dépôts actifs, cessent de l'afficher ; il réapparaît intact à la
+/// réactivation. C'est le cas du magasin qu'on ferme sans avoir le temps
+/// de faire le tour de ses rayons — mais le journal en garde la trace,
+/// pour que personne ne découvre le trou six mois plus tard sans
+/// explication.
 #[tauri::command]
 pub fn desactiver_depot(
     etat: State<EtatApp>,
     depot_id: String,
+    force: Option<bool>,
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
@@ -151,7 +170,9 @@ pub fn desactiver_depot(
         rusqlite::params![depot_id], |r| Ok((r.get(0)?, r.get(1)?)),
     ).unwrap_or((0.0, 0.0));
 
-    if reste > 0.0 {
+    let forcer = force.unwrap_or(false);
+
+    if !forcer && reste > 0.0 {
         return Err(format!(
             "Ce dépôt contient encore {} unité(s) en stock. \
              Transférer la marchandise avant de le désactiver.",
@@ -159,7 +180,7 @@ pub fn desactiver_depot(
         ));
     }
 
-    if manque > 0.0 {
+    if !forcer && manque > 0.0 {
         return Err(format!(
             "Ce dépôt est à découvert de {} unité(s). Régulariser par \
              une entrée ou un ajustement avant de le désactiver.",
@@ -167,10 +188,69 @@ pub fn desactiver_depot(
         ));
     }
 
+    let now = maintenant_iso();
     conn.execute(
         "UPDATE depot SET actif = 0, est_defaut = 0, modifie_le = ?1 WHERE id = ?2",
-        rusqlite::params![maintenant_iso(), depot_id],
+        rusqlite::params![now, depot_id],
     ).map_err(|e| e.to_string())?;
+
+    // Fermeture sur stock non vide : la trace vaut l'inventaire. Sans
+    // elle, la marchandise gelee n'est plus mentionnee nulle part.
+    if reste > 0.0 || manque > 0.0 {
+        let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
+        conn.execute(
+            "INSERT INTO journal
+             (id, type_evenement, entite_type, entite_id, auteur_id,
+              nouveau_valeur, origine, date_evenement)
+             VALUES (?1,'depot_desactive_avec_stock','depot',?2,?3,?4,'app',?5)",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(), depot_id, auteur,
+                format!(r#"{{"stock_gele":{},"decouvert_gele":{}}}"#,
+                        reste, manque),
+                now
+            ],
+        ).ok();
+    }
+
+    Ok(())
+}
+
+/// Remet un dépôt en service.
+///
+/// Indispensable depuis que la désactivation peut geler du stock : sans
+/// elle, la marchandise restée dans un dépôt fermé serait inatteignable.
+/// Le stock gelé réapparaît tel qu'il était, aucun mouvement n'est créé
+/// — il n'a jamais bougé.
+#[tauri::command]
+pub fn reactiver_depot(
+    etat: State<EtatApp>,
+    depot_id: String,
+) -> Result<(), String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let now = maintenant_iso();
+
+    let modifiees = conn.execute(
+        // `est_defaut` reste a 0 : le depot par defaut se choisit
+        // explicitement, il ne se recupere pas par accident.
+        "UPDATE depot SET actif = 1, modifie_le = ?1 WHERE id = ?2 AND actif = 0",
+        rusqlite::params![now, depot_id],
+    ).map_err(|e| e.to_string())?;
+
+    if modifiees == 0 {
+        return Err("Dépôt introuvable ou déjà actif".to_string());
+    }
+
+    let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
+    conn.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          origine, date_evenement)
+         VALUES (?1,'depot_reactive','depot',?2,?3,'app',?4)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), depot_id, auteur, now
+        ],
+    ).ok();
+
     Ok(())
 }
 

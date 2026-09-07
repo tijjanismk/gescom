@@ -329,7 +329,10 @@ pub fn lire_stocks_pagines(
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
-    let mut conditions = vec!["a.actif = 1".to_string()];
+    // `d.actif = 1` : le stock d'un depot desactive est gele, pas
+    // disparu — il n'a plus rien a faire dans la liste tant que le
+    // depot n'est pas remis en service.
+    let mut conditions = vec!["a.actif = 1".to_string(), "d.actif = 1".to_string()];
 
     if let Some(ref r) = recherche {
         if !r.is_empty() {
@@ -354,6 +357,7 @@ pub fn lire_stocks_pagines(
         &format!(
             "SELECT COUNT(*) FROM stock_depot sd
              JOIN article a ON a.id = sd.article_id
+             JOIN depot d ON d.id = sd.depot_id
              WHERE {}", where_clause
         ),
         [],

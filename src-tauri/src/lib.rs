@@ -136,6 +136,7 @@ pub fn run() {
             commandes::depots::renommer_depot,
             commandes::depots::definir_depot_defaut,
             commandes::depots::desactiver_depot,
+            commandes::depots::reactiver_depot,
             commandes::depots::lire_stock_depot,
             commandes::depots::lire_resume_par_depot,
             commandes::depots::lire_stock_article_depots,

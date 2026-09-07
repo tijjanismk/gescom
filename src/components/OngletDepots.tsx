@@ -14,8 +14,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { message, confirm } from "@tauri-apps/plugin-dialog";
+import { DEPOT_ACTIF, definirDepotActif } from "@/App";
 import {
-  Warehouse, Plus, Loader2, Star, Pencil, Power, RefreshCw, TrendingUp,
+  Warehouse, Plus, Loader2, Star, Pencil, Power, PowerOff, RefreshCw,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +31,9 @@ interface DepotDetail {
   id: string; nom: string;
   est_defaut: boolean; actif: boolean;
   nb_articles: number; valeur_stock: number; nb_ventes: number;
+  // Unités encore présentes et unités manquantes (stock négatif) :
+  // servent à prévenir avant une désactivation qui gèlerait le tout.
+  unites_stock: number; unites_manque: number;
 }
 interface ResumeDepot {
   depot_id: string; nom: string;
@@ -37,6 +42,9 @@ interface ResumeDepot {
 
 function fmt(n: number): string {
   return new Intl.NumberFormat("fr-ML").format(n) + " F";
+}
+function fmtQte(n: number): string {
+  return n % 1 === 0 ? String(n) : n.toFixed(2);
 }
 
 // ---------------------------------------------------------------------
@@ -168,20 +176,53 @@ export function OngletDepots() {
     }
   }
 
+  // Un dépôt qui ferme avec du stock : la marchandise n'est ni déplacée
+  // ni soldée, elle est GELÉE. On le dit clairement — c'est la seule
+  // occasion de le dire — puis on force, plutôt que d'exiger un
+  // transfert que le gérant n'a souvent plus les moyens de faire.
   async function desactiver(d: DepotDetail) {
+    const aDuStock = d.unites_stock > 0 || d.unites_manque > 0;
+
+    const detail = aDuStock
+      ? `\n\nCe dépôt garde ` +
+        [
+          d.unites_stock > 0 ? `${fmtQte(d.unites_stock)} unité(s) en stock` : "",
+          d.unites_manque > 0 ? `${fmtQte(d.unites_manque)} unité(s) à découvert` : "",
+        ].filter(Boolean).join(" et ") +
+        `.\nCe stock ne sera ni transféré ni soldé : il est gelé en ` +
+        `l'état et sort des ventes, des transferts et de l'écran Stock. ` +
+        `Il revient intact si le dépôt est réactivé. L'opération est ` +
+        `inscrite au journal.`
+      : "";
+
     const ok = await confirm(
       `Désactiver « ${d.nom} » ?\n\n` +
       `Le dépôt n'apparaîtra plus dans les sélecteurs. ` +
-      `Son historique est conservé.`,
+      `Son historique est conservé.` + detail,
       { title: "Désactiver le dépôt", kind: "warning" },
     );
     if (!ok) return;
     try {
-      await invoke("desactiver_depot", { depotId: d.id });
+      await invoke("desactiver_depot", { depotId: d.id, force: aDuStock });
+      // Le dépôt fermé ne peut plus servir de filtre : le tableau de
+      // bord et le journal afficheraient un écran vide sans dire
+      // pourquoi.
+      if (DEPOT_ACTIF === d.id) definirDepotActif(null);
       await charger();
     } catch (e) {
-      // Le Rust refuse s'il reste du stock — le message est explicite.
       await message(`${e}`, { title: "Désactivation refusée", kind: "error" });
+    }
+  }
+
+  // Le stock gelé par une désactivation forcée serait inatteignable
+  // sans ce chemin de retour. Rien ne bouge : la marchandise n'a jamais
+  // quitté le dépôt, elle redevient simplement visible.
+  async function reactiver(d: DepotDetail) {
+    try {
+      await invoke("reactiver_depot", { depotId: d.id });
+      await charger();
+    } catch (e) {
+      await message(`${e}`, { title: "Erreur", kind: "error" });
     }
   }
 
@@ -246,6 +287,8 @@ export function OngletDepots() {
                 {!d.actif && (
                   <span className="text-[10px] text-muted-foreground">
                     désactivé
+                    {(d.unites_stock > 0 || d.unites_manque > 0) &&
+                      " · stock gelé"}
                   </span>
                 )}
               </p>
@@ -278,6 +321,14 @@ export function OngletDepots() {
                   className="p-1.5 rounded hover:bg-muted text-muted-foreground
                              hover:text-destructive">
                   <Power className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {!d.actif && (
+                <button onClick={() => reactiver(d)}
+                  title="Remettre en service"
+                  className="p-1.5 rounded hover:bg-muted text-muted-foreground
+                             hover:text-green-600">
+                  <PowerOff className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
