@@ -55,6 +55,24 @@ pub fn enregistrer_transfert(
     motif: Option<String>,
     utilisateur_role: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    enregistrer_transfert_sur(&mut conn, depot_source, depot_dest, lignes,
+                              motif, utilisateur_role)
+}
+
+/// Logique de `enregistrer_transfert`, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test :
+/// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+pub(crate) fn enregistrer_transfert_sur(
+    conn: &mut rusqlite::Connection,
+    depot_source: String,
+    depot_dest: String,
+    lignes: Vec<LigneTransfert>,
+    motif: Option<String>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
     if lignes.is_empty() {
         return Err("Aucune ligne à transférer".to_string());
     }
@@ -62,7 +80,6 @@ pub fn enregistrer_transfert(
         return Err("Les dépôts source et destination sont identiques".to_string());
     }
 
-    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let now = maintenant_iso();
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);

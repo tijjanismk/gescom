@@ -17,6 +17,23 @@ pub fn creer_facture_depuis_vente(
     utilisateur_role: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    creer_facture_depuis_vente_sur(
+        &conn, vente_id, client_id, mode_reglement, utilisateur_role,
+    )
+}
+
+/// Logique de `creer_facture_depuis_vente`, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test :
+/// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+pub(crate) fn creer_facture_depuis_vente_sur(
+    conn: &rusqlite::Connection,
+    vente_id: String,
+    client_id: String,
+    mode_reglement: String,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
 
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur_id = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);

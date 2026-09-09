@@ -6,6 +6,10 @@ mod persistance;
 mod commandes;
 mod seed;
 
+// Scenarios joues sur les vraies commandes, base en memoire.
+#[cfg(test)]
+mod tests_multi_depot;
+
 use std::sync::Mutex;
 use tauri::Manager;
 use commandes::ventes::EtatApp;

@@ -123,6 +123,33 @@ pub fn enregistrer_retour(
     mode_reliquat_positif: Option<String>,    // "remboursement" / "avoir"
     mode_encaissement_reliquat: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    enregistrer_retour_sur(
+        &mut conn, vente_id, ligne_vente_id, quantite, mode_resolution,
+        mode_encaissement, article_remplacement_id, unite_remplacement_id,
+        quantite_remplacement, mode_reliquat_positif,
+        mode_encaissement_reliquat,
+    )
+}
+
+/// Logique de `enregistrer_retour`, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test :
+/// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+pub(crate) fn enregistrer_retour_sur(
+    conn: &mut rusqlite::Connection,
+    vente_id: String,
+    ligne_vente_id: String,
+    quantite: f64,
+    mode_resolution: String,
+    mode_encaissement: Option<String>,
+    article_remplacement_id: Option<String>,
+    unite_remplacement_id: Option<String>,
+    quantite_remplacement: Option<f64>,
+    mode_reliquat_positif: Option<String>,
+    mode_encaissement_reliquat: Option<String>,
+) -> Result<serde_json::Value, String> {
     // TOUT le retour dans UNE transaction.
     //
     // Chaque etape ecrivait separement : quand le remboursement etait
@@ -130,7 +157,6 @@ pub fn enregistrer_retour(
     // ligne `retour` deja posee. Le client repartait sans son argent, et
     // la garde de quantite bloquait la seconde tentative — le retour
     // etait perdu, l'argent aussi.
-    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let utilisateur_id = crate::commandes::ventes::id_utilisateur_courant_pub(&tx);
     let maintenant = maintenant_iso();

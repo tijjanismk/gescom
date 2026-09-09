@@ -185,6 +185,19 @@ pub fn lire_articles_avec_unites(
     depot_id: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    lire_articles_avec_unites_sur(&conn, role, depot_id)
+}
+
+/// Logique de `lire_articles_avec_unites`, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test :
+/// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+pub(crate) fn lire_articles_avec_unites_sur(
+    conn: &rusqlite::Connection,
+    role: Option<String>,
+    depot_id: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
     let est_patron = role.as_deref() == Some("patron");
 
     // Un depot inconnu ou desactive retombe sur le defaut plutot que
@@ -406,6 +419,27 @@ pub fn creer_vente(
     avoir_montant: Option<i64>,
 ) -> Result<serde_json::Value, String> {
     let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    creer_vente_sur(
+        &mut conn, client_id, depot_id, mode_reglement, lignes, utilisateur_role, montant_paye, mode_paiement, avoir_montant,
+    )
+}
+
+/// Logique de `creer_vente`, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test :
+/// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+pub(crate) fn creer_vente_sur(
+    conn: &mut rusqlite::Connection,
+    client_id: String,
+    depot_id: String,
+    mode_reglement: String,
+    lignes: Vec<ParamsLigneInput>,
+    utilisateur_role: Option<String>,
+    montant_paye: Option<i64>,
+    mode_paiement: Option<String>,
+    avoir_montant: Option<i64>,
+) -> Result<serde_json::Value, String> {
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur_id = id_utilisateur_par_role(&conn, role);
     let now = maintenant_iso();

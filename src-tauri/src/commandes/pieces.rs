@@ -325,6 +325,27 @@ pub fn creer_piece(
     depot_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    creer_piece_sur(
+        &conn, client_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id, depot_id,
+    )
+}
+
+/// Logique de `creer_piece`, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test :
+/// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+pub(crate) fn creer_piece_sur(
+    conn: &rusqlite::Connection,
+    client_id: String,
+    type_piece: String,
+    lignes: Vec<LignePieceInput>,
+    remise_globale: Option<f64>,
+    date_echeance: Option<String>,
+    note: Option<String>,
+    piece_origine_id: Option<String>,
+    depot_id: Option<String>,
+) -> Result<serde_json::Value, String> {
     let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
     let depot = depot_de_piece(&conn, depot_id);
     let now = maintenant_iso();
@@ -816,7 +837,23 @@ pub fn valider_facture(
     utilisateur_role: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    valider_facture_sur(&mut conn, piece_id, mode_reglement,
+                        mode_paiement, acompte, utilisateur_role)
+}
 
+/// Logique de `valider_facture`, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test :
+/// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+pub(crate) fn valider_facture_sur(
+    conn: &mut rusqlite::Connection,
+    piece_id: String,
+    mode_reglement: String,
+    mode_paiement: Option<String>,
+    acompte: Option<i64>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
     // Vérifier que c'est bien une facture brouillon
     let (client_id, type_p, statut, remise_g, depot_id_opt, numero):
         (String, String, String, f64, Option<String>, String) =
@@ -1863,7 +1900,22 @@ pub fn annuler_facture_par_avoir(
     motif: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    annuler_facture_par_avoir_sur(&mut conn, piece_id, mode_remboursement,
+                                  moyen, motif)
+}
 
+/// Logique de `annuler_facture_par_avoir`, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test :
+/// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+pub(crate) fn annuler_facture_par_avoir_sur(
+    conn: &mut rusqlite::Connection,
+    piece_id: String,
+    mode_remboursement: Option<String>,
+    moyen: Option<String>,
+    motif: Option<String>,
+) -> Result<serde_json::Value, String> {
     let (type_piece, statut, client_id, numero_src): (String, String, String, String) =
         conn.query_row(
             "SELECT type_piece, statut, tiers_id, numero

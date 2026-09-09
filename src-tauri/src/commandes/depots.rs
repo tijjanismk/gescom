@@ -147,6 +147,19 @@ pub fn desactiver_depot(
     force: Option<bool>,
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    desactiver_depot_sur(&conn, depot_id, force)
+}
+
+/// Logique de `desactiver_depot`, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test :
+/// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+pub(crate) fn desactiver_depot_sur(
+    conn: &rusqlite::Connection,
+    depot_id: String,
+    force: Option<bool>,
+) -> Result<(), String> {
 
     let est_defaut: i64 = conn.query_row(
         "SELECT est_defaut FROM depot WHERE id = ?1",
@@ -227,6 +240,18 @@ pub fn reactiver_depot(
     depot_id: String,
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    reactiver_depot_sur(&conn, depot_id)
+}
+
+/// Logique de `reactiver_depot`, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test :
+/// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+pub(crate) fn reactiver_depot_sur(
+    conn: &rusqlite::Connection,
+    depot_id: String,
+) -> Result<(), String> {
     let now = maintenant_iso();
 
     let modifiees = conn.execute(
@@ -374,7 +399,17 @@ pub fn lire_stock_multi_depots(
     etat: State<EtatApp>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    lire_stock_multi_depots_sur(&conn)
+}
 
+/// Logique de `lire_stock_multi_depots`, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test :
+/// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+pub(crate) fn lire_stock_multi_depots_sur(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<serde_json::Value>, String> {
     let mut st = conn.prepare(
         "SELECT sd.article_id, sd.depot_id, d.nom, d.est_defaut, sd.quantite
          FROM stock_depot sd
