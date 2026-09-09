@@ -61,11 +61,13 @@ Sortant : `coeur::stock` (types de mouvement, `est_a_decouvert`),
   sens n'est pas dans le type mais dans le signe de `quantite_delta`.
 - [CONFIRMÉ] Un bon `BTR-AAAA-NNNNN` regroupe les lignes d'un même
   transfert via `transfert.bon` (colonne de migration, v1.2).
-- [DÉDUIT] Un transfert refuse de mettre le dépôt source à découvert
-  (D32) — la vérification est probablement dans
-  `enregistrer_transfert_sur`
-  ([transferts.rs:68](../../src-tauri/src/commandes/transferts.rs#L68)),
-  non relue ici.
+- [CONFIRMÉ] Un transfert refuse de mettre le dépôt source à découvert
+  (D32) : le refus est levé dans `enregistrer_transfert_sur`, avec le
+  message « Stock insuffisant pour « … » : … disponible(s) » —
+  [transferts.rs:97](../../src-tauri/src/commandes/transferts.rs#L97)
+  pour le commentaire,
+  [transferts.rs:126](../../src-tauri/src/commandes/transferts.rs#L126)
+  pour le message.
 - [DÉDUIT] Un échange sort le remplacement du dépôt **de la vente**,
   jamais du dépôt par défaut (D43). Logé dans `retours.rs`, pas ici.
 - [CONFIRMÉ] `unite_vente.code_barre` existe **en plus** de
