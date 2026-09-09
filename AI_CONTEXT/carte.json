@@ -1,0 +1,8556 @@
+{
+ "racine": "C:\\Users\\USER\\Documents\\projet gestion commerciale\\gescom",
+ "avertissement": null,
+ "nb_fichiers": 115,
+ "fichiers": {
+  "creer_tiers_test.py": {
+   "fichier": "creer_tiers_test.py",
+   "langage": "python",
+   "lignes": 211,
+   "exporte": [
+    "base_par_defaut",
+    "construire",
+    "ecrire",
+    "main",
+    "maintenant",
+    "prochain_code",
+    "supprimer",
+    "telephone"
+   ],
+   "importe": [
+    {
+     "source": "argparse",
+     "symboles": []
+    },
+    {
+     "source": "os",
+     "symboles": []
+    },
+    {
+     "source": "sqlite3",
+     "symboles": []
+    },
+    {
+     "source": "sys",
+     "symboles": []
+    },
+    {
+     "source": "uuid",
+     "symboles": []
+    },
+    {
+     "source": "datetime",
+     "symboles": []
+    },
+    {
+     "source": "random",
+     "symboles": []
+    }
+   ]
+  },
+  "generer_catalogue.py": {
+   "fichier": "generer_catalogue.py",
+   "langage": "python",
+   "lignes": 210,
+   "exporte": [
+    "cle_ean13",
+    "ean13",
+    "echapper",
+    "main"
+   ],
+   "importe": [
+    {
+     "source": "random",
+     "symboles": []
+    },
+    {
+     "source": "sys",
+     "symboles": []
+    }
+   ]
+  },
+  "nettoyer_imports.py": {
+   "fichier": "nettoyer_imports.py",
+   "langage": "python",
+   "lignes": 130,
+   "exporte": [
+    "bloc_import",
+    "import_vide",
+    "main",
+    "retirer"
+   ],
+   "importe": [
+    {
+     "source": "re",
+     "symboles": []
+    },
+    {
+     "source": "sys",
+     "symboles": []
+    },
+    {
+     "source": "pathlib",
+     "symboles": []
+    }
+   ]
+  },
+  "preparer_demo_video.py": {
+   "fichier": "preparer_demo_video.py",
+   "langage": "python",
+   "lignes": 785,
+   "exporte": [
+    "arrondi",
+    "auteur_patron",
+    "base_par_defaut",
+    "bouger_stock",
+    "construire_tiers",
+    "creer_achat_comptant",
+    "creer_articles",
+    "creer_clients",
+    "creer_depot_secondaire",
+    "creer_facture_credit",
+    "creer_fournisseurs",
+    "creer_vente_comptant",
+    "date_metier",
+    "depot_defaut",
+    "fmt",
+    "iso",
+    "main",
+    "poser_stock_initial",
+    "prochain_code_client",
+    "prochain_numero",
+    "reglement_echelonne",
+    "reste_exigible",
+    "statut_vente",
+    "supprimer",
+    "telephone"
+   ],
+   "importe": [
+    {
+     "source": "argparse",
+     "symboles": []
+    },
+    {
+     "source": "math",
+     "symboles": []
+    },
+    {
+     "source": "os",
+     "symboles": []
+    },
+    {
+     "source": "random",
+     "symboles": []
+    },
+    {
+     "source": "sqlite3",
+     "symboles": []
+    },
+    {
+     "source": "sys",
+     "symboles": []
+    },
+    {
+     "source": "uuid",
+     "symboles": []
+    },
+    {
+     "source": "datetime",
+     "symboles": []
+    }
+   ]
+  },
+  "t_regles.py": {
+   "fichier": "t_regles.py",
+   "langage": "python",
+   "lignes": 404,
+   "exporte": [
+    "avoir_demande_effectif",
+    "check",
+    "dette_fournisseur",
+    "peut_modifier",
+    "pos_pu_ttc",
+    "prochain_numero",
+    "reliquat_cree_un_avoir",
+    "reste_exigible",
+    "retour",
+    "retour_autorise",
+    "solde_caisse",
+    "sql_total",
+    "statut_vente",
+    "statut_vente_seuil",
+    "tva_extraite",
+    "valider_facture",
+    "vente_autorisee"
+   ],
+   "importe": [
+    {
+     "source": "random",
+     "symboles": []
+    }
+   ]
+  },
+  "vite.config.ts": {
+   "fichier": "vite.config.ts",
+   "langage": "ts",
+   "lignes": 39,
+   "exporte": [],
+   "importe": [
+    {
+     "source": "vite",
+     "symboles": [
+      "defineConfig"
+     ]
+    },
+    {
+     "source": "@vitejs/plugin-react",
+     "symboles": [
+      "react"
+     ]
+    },
+    {
+     "source": "@tailwindcss/vite",
+     "symboles": [
+      "tailwindcss"
+     ]
+    },
+    {
+     "source": "path",
+     "symboles": [
+      "path"
+     ]
+    }
+   ]
+  },
+  "src/App.tsx": {
+   "fichier": "src/App.tsx",
+   "langage": "ts",
+   "lignes": 293,
+   "exporte": [
+    "DEPOT_ACTIF",
+    "UTILISATEUR_ACTIF",
+    "definirDepotActif"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/components/Layout",
+     "symboles": [
+      "Layout"
+     ]
+    },
+    {
+     "source": "@/pages/PageLogin",
+     "symboles": [
+      "PageLogin",
+      "UtilisateurConnecte"
+     ]
+    },
+    {
+     "source": "@/components/ModalChangerMdp",
+     "symboles": [
+      "ModalChangerMdp"
+     ]
+    },
+    {
+     "source": "@/pages/Dashboard",
+     "symboles": [
+      "Dashboard"
+     ]
+    },
+    {
+     "source": "@/pages/Ventes",
+     "symboles": [
+      "Ventes"
+     ]
+    },
+    {
+     "source": "@/pages/Pieces",
+     "symboles": [
+      "Pieces"
+     ]
+    },
+    {
+     "source": "@/pages/Achats",
+     "symboles": [
+      "Achats"
+     ]
+    },
+    {
+     "source": "@/pages/Stock",
+     "symboles": [
+      "Stock"
+     ]
+    },
+    {
+     "source": "@/pages/Clients",
+     "symboles": [
+      "Clients"
+     ]
+    },
+    {
+     "source": "@/pages/FicheClient",
+     "symboles": [
+      "FicheClient"
+     ]
+    },
+    {
+     "source": "@/pages/Fournisseurs",
+     "symboles": [
+      "Fournisseurs"
+     ]
+    },
+    {
+     "source": "@/pages/FicheFournisseur",
+     "symboles": [
+      "FicheFournisseur"
+     ]
+    },
+    {
+     "source": "@/pages/Caisse",
+     "symboles": [
+      "Caisse"
+     ]
+    },
+    {
+     "source": "@/pages/Parametres",
+     "symboles": [
+      "Parametres"
+     ]
+    },
+    {
+     "source": "@/pages/Retours",
+     "symboles": [
+      "Retours"
+     ]
+    },
+    {
+     "source": "@/pages/Relances",
+     "symboles": [
+      "Relances"
+     ]
+    },
+    {
+     "source": "@/pages/Rapports",
+     "symboles": [
+      "Rapports"
+     ]
+    },
+    {
+     "source": "@/pages/Journal",
+     "symboles": [
+      "Journal"
+     ]
+    },
+    {
+     "source": "@/pages/Transferts",
+     "symboles": [
+      "Transferts"
+     ]
+    },
+    {
+     "source": "@/pages/Cheques",
+     "symboles": [
+      "Cheques"
+     ]
+    }
+   ]
+  },
+  "src/main.tsx": {
+   "fichier": "src/main.tsx",
+   "langage": "ts",
+   "lignes": 12,
+   "exporte": [],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "React"
+     ]
+    },
+    {
+     "source": "react-dom/client",
+     "symboles": [
+      "ReactDOM"
+     ]
+    },
+    {
+     "source": "./App",
+     "symboles": [
+      "App"
+     ]
+    }
+   ]
+  },
+  "src/vite-env.d.ts": {
+   "fichier": "src/vite-env.d.ts",
+   "langage": "ts",
+   "lignes": 2,
+   "exporte": [],
+   "importe": []
+  },
+  "src/components/ApercuPiece.tsx": {
+   "fichier": "src/components/ApercuPiece.tsx",
+   "langage": "ts",
+   "lignes": 234,
+   "exporte": [
+    "ApercuPiece"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useMemo",
+      "useRef",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "Eye",
+      "Loader2",
+      "PackageCheck",
+      "Printer"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/lib/genererPDF",
+     "symboles": [
+      "genererImpression"
+     ]
+    },
+    {
+     "source": "@/lib/genererPDF",
+     "symboles": [
+      "DonneesPiece",
+      "FormatImpression",
+      "Signatures"
+     ]
+    }
+   ]
+  },
+  "src/components/ApercuRecu.tsx": {
+   "fichier": "src/components/ApercuRecu.tsx",
+   "langage": "ts",
+   "lignes": 150,
+   "exporte": [
+    "ApercuRecu"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useRef",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "Eye",
+      "Loader2",
+      "Printer"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/lib/genererRecu",
+     "symboles": [
+      "genererRecuHTML"
+     ]
+    },
+    {
+     "source": "@/lib/genererRecu",
+     "symboles": [
+      "DonneesRecu"
+     ]
+    }
+   ]
+  },
+  "src/components/FiltresAvances.tsx": {
+   "fichier": "src/components/FiltresAvances.tsx",
+   "langage": "ts",
+   "lignes": 299,
+   "exporte": [
+    "FILTRES_VIDES",
+    "FiltresAvances",
+    "FiltresState"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "ChevronDown",
+      "ChevronUp",
+      "RotateCcw",
+      "X"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    }
+   ]
+  },
+  "src/components/Layout.tsx": {
+   "fichier": "src/components/Layout.tsx",
+   "langage": "ts",
+   "lignes": 202,
+   "exporte": [
+    "Layout"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "ArrowLeftRight",
+      "BarChart2",
+      "BarChart3",
+      "BookOpen",
+      "ChevronDown",
+      "FileCheck",
+      "FileText",
+      "Lock",
+      "LogOut",
+      "Menu",
+      "MessageCircle",
+      "Package",
+      "RotateCcw",
+      "Settings",
+      "ShoppingBag",
+      "ShoppingCart",
+      "Store",
+      "Truck",
+      "Users",
+      "Wallet",
+      "Warehouse",
+      "X"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    },
+    {
+     "source": "@/pages/PageLogin",
+     "symboles": [
+      "UtilisateurConnecte"
+     ]
+    }
+   ]
+  },
+  "src/components/ModalChangerMdp.tsx": {
+   "fichier": "src/components/ModalChangerMdp.tsx",
+   "langage": "ts",
+   "lignes": 136,
+   "exporte": [
+    "ModalChangerMdp"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Eye",
+      "EyeOff",
+      "Loader2",
+      "Lock"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    }
+   ]
+  },
+  "src/components/ModalImpression.tsx": {
+   "fichier": "src/components/ModalImpression.tsx",
+   "langage": "ts",
+   "lignes": 178,
+   "exporte": [
+    "ModalImpression"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "FileText",
+      "Loader2",
+      "PackageCheck",
+      "Printer"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/lib/genererPDF",
+     "symboles": [
+      "genererImpression"
+     ]
+    },
+    {
+     "source": "@/lib/genererPDF",
+     "symboles": [
+      "DonneesPiece",
+      "FormatImpression"
+     ]
+    }
+   ]
+  },
+  "src/components/ModalLivraison.tsx": {
+   "fichier": "src/components/ModalLivraison.tsx",
+   "langage": "ts",
+   "lignes": 244,
+   "exporte": [
+    "ModalLivraison"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "CheckCheck",
+      "Loader2",
+      "Truck"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    }
+   ]
+  },
+  "src/components/ModalModifierTiers.tsx": {
+   "fichier": "src/components/ModalModifierTiers.tsx",
+   "langage": "ts",
+   "lignes": 173,
+   "exporte": [
+    "ModalModifierTiers",
+    "TiersModifiable"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Loader2",
+      "Pencil"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    }
+   ]
+  },
+  "src/components/ModalNouvellePiece.tsx": {
+   "fichier": "src/components/ModalNouvellePiece.tsx",
+   "langage": "ts",
+   "lignes": 652,
+   "exporte": [
+    "ModalNouvellePiece"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Loader2",
+      "Package",
+      "UserPlus",
+      "X"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "DEPOT_ACTIF",
+      "UTILISATEUR_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/components/ModalOuvrirCaisse.tsx": {
+   "fichier": "src/components/ModalOuvrirCaisse.tsx",
+   "langage": "ts",
+   "lignes": 105,
+   "exporte": [
+    "ModalOuvrirCaisse",
+    "estCaisseFermee"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Loader2",
+      "Wallet"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/MoneyInput",
+     "symboles": [
+      "MoneyInput",
+      "parseMontant"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "UTILISATEUR_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/components/ModalsRetour.tsx": {
+   "fichier": "src/components/ModalsRetour.tsx",
+   "langage": "ts",
+   "lignes": 691,
+   "exporte": [
+    "ArticleAchat",
+    "Avoir",
+    "LigneVente",
+    "ModalAvoirConserve",
+    "ModalEchange",
+    "ModalRemboursement",
+    "UniteVente",
+    "Vente",
+    "formaterDate",
+    "formaterMontant"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Gift",
+      "Loader2",
+      "Search",
+      "Wallet"
+     ]
+    },
+    {
+     "source": "@/lib/genererPDF",
+     "symboles": [
+      "genererBonEchangeHTML"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    }
+   ]
+  },
+  "src/components/MoneyInput.tsx": {
+   "fichier": "src/components/MoneyInput.tsx",
+   "langage": "ts",
+   "lignes": 69,
+   "exporte": [
+    "MoneyInput",
+    "parseMontant"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useRef"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    }
+   ]
+  },
+  "src/components/OngletChantiers.tsx": {
+   "fichier": "src/components/OngletChantiers.tsx",
+   "langage": "ts",
+   "lignes": 795,
+   "exporte": [
+    "OngletAvoirs",
+    "OngletDettes",
+    "OngletIrrecouvrable",
+    "OngletTVA"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "CheckCircle2",
+      "Clock",
+      "Loader2",
+      "RefreshCw",
+      "Save",
+      "XCircle"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "UTILISATEUR_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/components/OngletCodesBarres.tsx": {
+   "fichier": "src/components/OngletCodesBarres.tsx",
+   "langage": "ts",
+   "lignes": 328,
+   "exporte": [
+    "OngletCodesBarres"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Barcode",
+      "Check",
+      "Loader2",
+      "Printer",
+      "RefreshCw",
+      "Search",
+      "Wand2",
+      "X"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    }
+   ]
+  },
+  "src/components/OngletDepots.tsx": {
+   "fichier": "src/components/OngletDepots.tsx",
+   "langage": "ts",
+   "lignes": 418,
+   "exporte": [
+    "OngletDepots"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "confirm",
+      "message"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "DEPOT_ACTIF",
+      "definirDepotActif"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Loader2",
+      "Pencil",
+      "Plus",
+      "Power",
+      "PowerOff",
+      "RefreshCw",
+      "Star",
+      "TrendingUp",
+      "Warehouse"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/card",
+     "symboles": [
+      "Card",
+      "CardContent"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    }
+   ]
+  },
+  "src/components/OngletHistoriqueCaisse.tsx": {
+   "fichier": "src/components/OngletHistoriqueCaisse.tsx",
+   "langage": "ts",
+   "lignes": 309,
+   "exporte": [
+    "OngletHistoriqueCaisse"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "CheckCircle2",
+      "ChevronDown",
+      "ChevronRight",
+      "HistoryIcon",
+      "Loader2",
+      "RefreshCw",
+      "TrendingDown",
+      "TrendingUp"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/card",
+     "symboles": [
+      "Card",
+      "CardContent"
+     ]
+    }
+   ]
+  },
+  "src/components/OngletImportExport.tsx": {
+   "fichier": "src/components/OngletImportExport.tsx",
+   "langage": "ts",
+   "lignes": 197,
+   "exporte": [
+    "OngletImportExport"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message",
+      "open",
+      "save"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-fs",
+     "symboles": [
+      "readTextFile",
+      "writeTextFile"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "CheckCircle2",
+      "Download",
+      "FileSpreadsheet",
+      "Loader2",
+      "Upload"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/card",
+     "symboles": [
+      "Card",
+      "CardContent"
+     ]
+    }
+   ]
+  },
+  "src/components/Pagination.tsx": {
+   "fichier": "src/components/Pagination.tsx",
+   "langage": "ts",
+   "lignes": 74,
+   "exporte": [
+    "Pagination"
+   ],
+   "importe": [
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "ChevronLeft",
+      "ChevronRight"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    }
+   ]
+  },
+  "src/components/ParametresSociete.tsx": {
+   "fichier": "src/components/ParametresSociete.tsx",
+   "langage": "ts",
+   "lignes": 448,
+   "exporte": [
+    "ParametresSociete"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "open"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Building2",
+      "Image",
+      "Loader2",
+      "PanelBottom",
+      "PanelTop",
+      "Save",
+      "Upload",
+      "X"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    }
+   ]
+  },
+  "src/components/ParametresVentes.tsx": {
+   "fichier": "src/components/ParametresVentes.tsx",
+   "langage": "ts",
+   "lignes": 314,
+   "exporte": [
+    "OngletVentes"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Loader2",
+      "Package",
+      "PackageCheck",
+      "Save",
+      "Scan",
+      "Truck"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    }
+   ]
+  },
+  "src/components/RetourFournisseur.tsx": {
+   "fichier": "src/components/RetourFournisseur.tsx",
+   "langage": "ts",
+   "lignes": 352,
+   "exporte": [
+    "RetourFournisseur"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "ChevronDown",
+      "ChevronRight",
+      "Loader2",
+      "Search",
+      "Truck",
+      "Undo2"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "UTILISATEUR_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/components/SelecteurProfil.tsx": {
+   "fichier": "src/components/SelecteurProfil.tsx",
+   "langage": "ts",
+   "lignes": 110,
+   "exporte": [
+    "SelecteurProfil"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useState"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Shield",
+      "Store",
+      "User"
+     ]
+    }
+   ]
+  },
+  "src/components/SelectUnite.tsx": {
+   "fichier": "src/components/SelectUnite.tsx",
+   "langage": "ts",
+   "lignes": 83,
+   "exporte": [
+    "SelectUnite"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useState"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@/lib/unites",
+     "symboles": [
+      "UNITES_COURANTES",
+      "normaliserUnite"
+     ]
+    }
+   ]
+  },
+  "src/components/ui/badge.tsx": {
+   "fichier": "src/components/ui/badge.tsx",
+   "langage": "ts",
+   "lignes": 53,
+   "exporte": [
+    "Badge",
+    "badgeVariants"
+   ],
+   "importe": [
+    {
+     "source": "@base-ui/react/merge-props",
+     "symboles": [
+      "mergeProps"
+     ]
+    },
+    {
+     "source": "@base-ui/react/use-render",
+     "symboles": [
+      "useRender"
+     ]
+    },
+    {
+     "source": "class-variance-authority",
+     "symboles": [
+      "VariantProps",
+      "cva"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    }
+   ]
+  },
+  "src/components/ui/button.tsx": {
+   "fichier": "src/components/ui/button.tsx",
+   "langage": "ts",
+   "lignes": 59,
+   "exporte": [
+    "Button",
+    "buttonVariants"
+   ],
+   "importe": [
+    {
+     "source": "@base-ui/react/button",
+     "symboles": [
+      "ButtonPrimitive"
+     ]
+    },
+    {
+     "source": "class-variance-authority",
+     "symboles": [
+      "VariantProps",
+      "cva"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    }
+   ]
+  },
+  "src/components/ui/card.tsx": {
+   "fichier": "src/components/ui/card.tsx",
+   "langage": "ts",
+   "lignes": 104,
+   "exporte": [
+    "Card",
+    "CardAction",
+    "CardContent",
+    "CardDescription",
+    "CardFooter",
+    "CardHeader",
+    "CardTitle"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": []
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    }
+   ]
+  },
+  "src/components/ui/dialog.tsx": {
+   "fichier": "src/components/ui/dialog.tsx",
+   "langage": "ts",
+   "lignes": 161,
+   "exporte": [
+    "Dialog",
+    "DialogClose",
+    "DialogContent",
+    "DialogDescription",
+    "DialogFooter",
+    "DialogHeader",
+    "DialogOverlay",
+    "DialogPortal",
+    "DialogTitle",
+    "DialogTrigger"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": []
+    },
+    {
+     "source": "@base-ui/react/dialog",
+     "symboles": [
+      "DialogPrimitive"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "XIcon"
+     ]
+    }
+   ]
+  },
+  "src/components/ui/dropdown-menu.tsx": {
+   "fichier": "src/components/ui/dropdown-menu.tsx",
+   "langage": "ts",
+   "lignes": 267,
+   "exporte": [
+    "DropdownMenu",
+    "DropdownMenuCheckboxItem",
+    "DropdownMenuContent",
+    "DropdownMenuGroup",
+    "DropdownMenuItem",
+    "DropdownMenuLabel",
+    "DropdownMenuPortal",
+    "DropdownMenuRadioGroup",
+    "DropdownMenuRadioItem",
+    "DropdownMenuSeparator",
+    "DropdownMenuShortcut",
+    "DropdownMenuSub",
+    "DropdownMenuSubContent",
+    "DropdownMenuSubTrigger",
+    "DropdownMenuTrigger"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": []
+    },
+    {
+     "source": "@base-ui/react/menu",
+     "symboles": [
+      "MenuPrimitive"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "CheckIcon",
+      "ChevronRightIcon"
+     ]
+    }
+   ]
+  },
+  "src/components/ui/GlassIcon.tsx": {
+   "fichier": "src/components/ui/GlassIcon.tsx",
+   "langage": "ts",
+   "lignes": 271,
+   "exporte": [
+    "GlassHalos",
+    "GlassIcon",
+    "GlassIconProps",
+    "GlassTaille",
+    "GlassVariante"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect"
+     ]
+    }
+   ]
+  },
+  "src/components/ui/input.tsx": {
+   "fichier": "src/components/ui/input.tsx",
+   "langage": "ts",
+   "lignes": 21,
+   "exporte": [
+    "Input"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": []
+    },
+    {
+     "source": "@base-ui/react/input",
+     "symboles": [
+      "InputPrimitive"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    }
+   ]
+  },
+  "src/components/ui/KpiVerre.tsx": {
+   "fichier": "src/components/ui/KpiVerre.tsx",
+   "langage": "ts",
+   "lignes": 113,
+   "exporte": [
+    "CARTE",
+    "GRILLE",
+    "KpiCard",
+    "KpiLigne",
+    "KpiPetit",
+    "TXT2"
+   ],
+   "importe": [
+    {
+     "source": "@/components/ui/GlassIcon",
+     "symboles": [
+      "GlassIcon",
+      "GlassVariante"
+     ]
+    }
+   ]
+  },
+  "src/components/ui/label.tsx": {
+   "fichier": "src/components/ui/label.tsx",
+   "langage": "ts",
+   "lignes": 19,
+   "exporte": [
+    "Label"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": []
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    }
+   ]
+  },
+  "src/components/ui/select.tsx": {
+   "fichier": "src/components/ui/select.tsx",
+   "langage": "ts",
+   "lignes": 202,
+   "exporte": [
+    "Select",
+    "SelectContent",
+    "SelectGroup",
+    "SelectItem",
+    "SelectLabel",
+    "SelectScrollDownButton",
+    "SelectScrollUpButton",
+    "SelectSeparator",
+    "SelectTrigger",
+    "SelectValue"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": []
+    },
+    {
+     "source": "@base-ui/react/select",
+     "symboles": [
+      "SelectPrimitive"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "CheckIcon",
+      "ChevronDownIcon",
+      "ChevronUpIcon"
+     ]
+    }
+   ]
+  },
+  "src/components/ui/table.tsx": {
+   "fichier": "src/components/ui/table.tsx",
+   "langage": "ts",
+   "lignes": 115,
+   "exporte": [
+    "Table",
+    "TableBody",
+    "TableCaption",
+    "TableCell",
+    "TableFooter",
+    "TableHead",
+    "TableHeader",
+    "TableRow"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": []
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    }
+   ]
+  },
+  "src/lib/genererManuel.ts": {
+   "fichier": "src/lib/genererManuel.ts",
+   "langage": "ts",
+   "lignes": 230,
+   "exporte": [
+    "genererManuelHTML"
+   ],
+   "importe": [
+    {
+     "source": "../../MANUEL.md?raw",
+     "symboles": [
+      "manuelMd"
+     ]
+    }
+   ]
+  },
+  "src/lib/genererPDF.ts": {
+   "fichier": "src/lib/genererPDF.ts",
+   "langage": "ts",
+   "lignes": 965,
+   "exporte": [
+    "DonneesEchange",
+    "DonneesPiece",
+    "FormatImpression",
+    "Signatures",
+    "genererBonEchangeHTML",
+    "genererBonSortieHTML",
+    "genererFactureEtBonHTML",
+    "genererImpression",
+    "genererPieceHTML",
+    "genererTicketThermique"
+   ],
+   "importe": []
+  },
+  "src/lib/genererRecu.ts": {
+   "fichier": "src/lib/genererRecu.ts",
+   "langage": "ts",
+   "lignes": 290,
+   "exporte": [
+    "DonneesRecu",
+    "genererRecuHTML"
+   ],
+   "importe": []
+  },
+  "src/lib/genererReleve.ts": {
+   "fichier": "src/lib/genererReleve.ts",
+   "langage": "ts",
+   "lignes": 539,
+   "exporte": [
+    "DonneesReleve",
+    "DonneesReleveGlobal",
+    "LigneHistorique",
+    "LigneReleve",
+    "LigneReleveGlobal",
+    "genererHistoriqueReglementsHTML",
+    "genererReleveGlobalHTML",
+    "genererReleveHTML"
+   ],
+   "importe": []
+  },
+  "src/lib/remise.ts": {
+   "fichier": "src/lib/remise.ts",
+   "langage": "ts",
+   "lignes": 79,
+   "exporte": [
+    "LigneVente",
+    "TotauxVente",
+    "calculerLigne",
+    "calculerTotaux",
+    "fmt"
+   ],
+   "importe": []
+  },
+  "src/lib/session.ts": {
+   "fichier": "src/lib/session.ts",
+   "langage": "ts",
+   "lignes": 48,
+   "exporte": [
+    "SessionUtilisateur",
+    "lireSession",
+    "rafraichirSession",
+    "sauvegarderSession",
+    "supprimerSession"
+   ],
+   "importe": []
+  },
+  "src/lib/tauri.ts": {
+   "fichier": "src/lib/tauri.ts",
+   "langage": "ts",
+   "lignes": 137,
+   "exporte": [
+    "Article",
+    "Client",
+    "Depot",
+    "ParamsLigne",
+    "ResultatVente",
+    "UTILISATEUR_ID",
+    "UTILISATEUR_ROLE",
+    "UniteVente",
+    "creerArticleRapide",
+    "creerClientRapide",
+    "creerVente",
+    "enregistrerPaiement",
+    "lireArticlesAvecUnites",
+    "lireClientGenerique",
+    "lireClients",
+    "lireDepotDefaut"
+   ],
+   "importe": [
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    }
+   ]
+  },
+  "src/lib/types-api.ts": {
+   "fichier": "src/lib/types-api.ts",
+   "langage": "ts",
+   "lignes": 364,
+   "exporte": [
+    "ArticleApi",
+    "AvoirApi",
+    "ClientApi",
+    "CreanceOuverteApi",
+    "CreanceRelanceApi",
+    "CreerFournisseurResultat",
+    "CreerVenteResultat",
+    "DonneesFactureApi",
+    "DonneesPieceApi",
+    "EnregistrerAchatResultat",
+    "EnregistrerRetourResultat",
+    "FournisseurApi",
+    "LigneAchatEnvoi",
+    "LigneFactureApi",
+    "LignePieceApi",
+    "MouvementCaisseApi",
+    "Pagine",
+    "ResumeCaisseApi",
+    "ResumeDashboardApi",
+    "SocieteApi",
+    "StatutPiece",
+    "TauxTvaApi",
+    "TypePiece",
+    "UniteApi"
+   ],
+   "importe": []
+  },
+  "src/lib/unites.ts": {
+   "fichier": "src/lib/unites.ts",
+   "langage": "ts",
+   "lignes": 89,
+   "exporte": [
+    "GroupeUnites",
+    "TOUTES_UNITES",
+    "UNITES_COURANTES",
+    "normaliserUnite"
+   ],
+   "importe": []
+  },
+  "src/lib/useScanner.ts": {
+   "fichier": "src/lib/useScanner.ts",
+   "langage": "ts",
+   "lignes": 81,
+   "exporte": [
+    "useScanner"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useRef"
+     ]
+    }
+   ]
+  },
+  "src/lib/utils.ts": {
+   "fichier": "src/lib/utils.ts",
+   "langage": "ts",
+   "lignes": 7,
+   "exporte": [
+    "cn"
+   ],
+   "importe": [
+    {
+     "source": "clsx",
+     "symboles": [
+      "ClassValue",
+      "clsx"
+     ]
+    },
+    {
+     "source": "tailwind-merge",
+     "symboles": [
+      "twMerge"
+     ]
+    }
+   ]
+  },
+  "src/pages/Achats.tsx": {
+   "fichier": "src/pages/Achats.tsx",
+   "langage": "ts",
+   "lignes": 845,
+   "exporte": [
+    "Achats"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useRef",
+      "useState"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Loader2",
+      "PackagePlus",
+      "Plus",
+      "Search",
+      "ShoppingBag",
+      "Trash2",
+      "Truck"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/lib/types-api",
+     "symboles": [
+      "CreerFournisseurResultat",
+      "EnregistrerAchatResultat"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@/components/SelectUnite",
+     "symboles": [
+      "SelectUnite"
+     ]
+    },
+    {
+     "source": "@/components/MoneyInput",
+     "symboles": [
+      "MoneyInput",
+      "parseMontant"
+     ]
+    }
+   ]
+  },
+  "src/pages/Caisse.tsx": {
+   "fichier": "src/pages/Caisse.tsx",
+   "langage": "ts",
+   "lignes": 624,
+   "exporte": [
+    "Caisse"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "CheckCircle2",
+      "HistoryIcon",
+      "Loader2",
+      "Lock",
+      "MinusCircle",
+      "RefreshCw",
+      "TrendingDown",
+      "TrendingUp",
+      "Unlock",
+      "Wallet"
+     ]
+    },
+    {
+     "source": "@/components/ui/card",
+     "symboles": [
+      "Card",
+      "CardContent",
+      "CardHeader",
+      "CardTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/GlassIcon",
+     "symboles": [
+      "GlassHalos",
+      "GlassIcon"
+     ]
+    },
+    {
+     "source": "@/components/ui/KpiVerre",
+     "symboles": [
+      "GRILLE",
+      "KpiPetit"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/components/MoneyInput",
+     "symboles": [
+      "MoneyInput",
+      "parseMontant"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "UTILISATEUR_ACTIF"
+     ]
+    },
+    {
+     "source": "@/components/OngletHistoriqueCaisse",
+     "symboles": [
+      "OngletHistoriqueCaisse"
+     ]
+    }
+   ]
+  },
+  "src/pages/Cheques.tsx": {
+   "fichier": "src/pages/Cheques.tsx",
+   "langage": "ts",
+   "lignes": 248,
+   "exporte": [
+    "Cheques"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "confirm",
+      "message"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "CheckCircle2",
+      "Clock",
+      "FileCheck",
+      "Landmark",
+      "Loader2",
+      "RefreshCw",
+      "XCircle"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/card",
+     "symboles": [
+      "Card",
+      "CardContent"
+     ]
+    }
+   ]
+  },
+  "src/pages/Clients.tsx": {
+   "fichier": "src/pages/Clients.tsx",
+   "langage": "ts",
+   "lignes": 720,
+   "exporte": [
+    "Clients"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "CheckCircle2",
+      "ChevronDown",
+      "ChevronRight",
+      "FileText",
+      "Loader2",
+      "Plus",
+      "Printer",
+      "Search",
+      "TrendingUp",
+      "Users",
+      "Wallet",
+      "X"
+     ]
+    },
+    {
+     "source": "@/lib/genererReleve",
+     "symboles": [
+      "DonneesReleve",
+      "DonneesReleveGlobal",
+      "genererReleveGlobalHTML",
+      "genererReleveHTML"
+     ]
+    },
+    {
+     "source": "@/components/ui/card",
+     "symboles": [
+      "Card",
+      "CardContent",
+      "CardHeader",
+      "CardTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/components/MoneyInput",
+     "symboles": [
+      "MoneyInput",
+      "parseMontant"
+     ]
+    },
+    {
+     "source": "@/components/Pagination",
+     "symboles": [
+      "Pagination"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "UTILISATEUR_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/pages/Dashboard.tsx": {
+   "fichier": "src/pages/Dashboard.tsx",
+   "langage": "ts",
+   "lignes": 591,
+   "exporte": [
+    "Dashboard"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "ArrowDownRight",
+      "ArrowUpRight",
+      "Clock",
+      "FileText",
+      "Gift",
+      "Loader2",
+      "Package",
+      "Receipt",
+      "RefreshCw",
+      "ShoppingCart",
+      "TrendingUp",
+      "Users",
+      "Wallet"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/GlassIcon",
+     "symboles": [
+      "GlassHalos"
+     ]
+    },
+    {
+     "source": "@/components/ui/KpiVerre",
+     "symboles": [
+      "CARTE",
+      "GRILLE",
+      "KpiCard",
+      "KpiPetit"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "DEPOT_ACTIF",
+      "UTILISATEUR_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/pages/FicheClient.tsx": {
+   "fichier": "src/pages/FicheClient.tsx",
+   "langage": "ts",
+   "lignes": 1414,
+   "exporte": [
+    "FicheClient"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@/lib/types-api",
+     "symboles": [
+      "CreanceOuverteApi"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "ArrowLeft",
+      "ArrowRight",
+      "ClipboardList",
+      "Clock",
+      "Eye",
+      "FileText",
+      "Gift",
+      "Loader2",
+      "Mail",
+      "MapPin",
+      "Package",
+      "Pencil",
+      "Phone",
+      "Plus",
+      "Printer",
+      "Receipt",
+      "RotateCcw",
+      "TrendingUp",
+      "Truck",
+      "User"
+     ]
+    },
+    {
+     "source": "@/components/ui/GlassIcon",
+     "symboles": [
+      "GlassHalos"
+     ]
+    },
+    {
+     "source": "@/components/ui/KpiVerre",
+     "symboles": [
+      "CARTE",
+      "GRILLE",
+      "KpiLigne"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/components/MoneyInput",
+     "symboles": [
+      "MoneyInput",
+      "parseMontant"
+     ]
+    },
+    {
+     "source": "@/lib/genererPDF",
+     "symboles": [
+      "genererImpression"
+     ]
+    },
+    {
+     "source": "@/lib/genererReleve",
+     "symboles": [
+      "DonneesReleve",
+      "genererHistoriqueReglementsHTML",
+      "genererReleveHTML"
+     ]
+    },
+    {
+     "source": "@/components/ApercuPiece",
+     "symboles": [
+      "ApercuPiece"
+     ]
+    },
+    {
+     "source": "@/components/ApercuRecu",
+     "symboles": [
+      "ApercuRecu"
+     ]
+    },
+    {
+     "source": "@/components/ModalModifierTiers",
+     "symboles": [
+      "ModalModifierTiers"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "DEPOT_ACTIF",
+      "UTILISATEUR_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/pages/FicheFournisseur.tsx": {
+   "fichier": "src/pages/FicheFournisseur.tsx",
+   "langage": "ts",
+   "lignes": 912,
+   "exporte": [
+    "FicheFournisseur"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "ArrowLeft",
+      "Banknote",
+      "CheckCircle2",
+      "Clock",
+      "Eye",
+      "FileText",
+      "Loader2",
+      "Mail",
+      "MapPin",
+      "Package",
+      "Pencil",
+      "Phone",
+      "Printer",
+      "RotateCcw",
+      "TrendingDown",
+      "Truck"
+     ]
+    },
+    {
+     "source": "@/components/ApercuPiece",
+     "symboles": [
+      "ApercuPiece"
+     ]
+    },
+    {
+     "source": "@/components/ApercuRecu",
+     "symboles": [
+      "ApercuRecu"
+     ]
+    },
+    {
+     "source": "@/components/ModalModifierTiers",
+     "symboles": [
+      "ModalModifierTiers"
+     ]
+    },
+    {
+     "source": "@/lib/genererReleve",
+     "symboles": [
+      "DonneesReleve",
+      "genererHistoriqueReglementsHTML",
+      "genererReleveHTML"
+     ]
+    },
+    {
+     "source": "@/components/ui/GlassIcon",
+     "symboles": [
+      "GlassHalos"
+     ]
+    },
+    {
+     "source": "@/components/ui/KpiVerre",
+     "symboles": [
+      "CARTE",
+      "GRILLE",
+      "KpiLigne"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/MoneyInput",
+     "symboles": [
+      "MoneyInput",
+      "parseMontant"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "UTILISATEUR_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/pages/Fournisseurs.tsx": {
+   "fichier": "src/pages/Fournisseurs.tsx",
+   "langage": "ts",
+   "lignes": 551,
+   "exporte": [
+    "Fournisseurs"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Banknote",
+      "CheckCircle2",
+      "ChevronDown",
+      "ChevronRight",
+      "FileText",
+      "Loader2",
+      "Plus",
+      "Printer",
+      "Search",
+      "Truck",
+      "X"
+     ]
+    },
+    {
+     "source": "@/lib/genererReleve",
+     "symboles": [
+      "DonneesReleve",
+      "DonneesReleveGlobal",
+      "genererReleveGlobalHTML",
+      "genererReleveHTML"
+     ]
+    },
+    {
+     "source": "@/components/ui/card",
+     "symboles": [
+      "Card",
+      "CardContent",
+      "CardHeader",
+      "CardTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/components/MoneyInput",
+     "symboles": [
+      "MoneyInput",
+      "parseMontant"
+     ]
+    },
+    {
+     "source": "@/components/Pagination",
+     "symboles": [
+      "Pagination"
+     ]
+    }
+   ]
+  },
+  "src/pages/Journal.tsx": {
+   "fichier": "src/pages/Journal.tsx",
+   "langage": "ts",
+   "lignes": 838,
+   "exporte": [
+    "Journal"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "BookOpen",
+      "ChevronLeft",
+      "ChevronRight",
+      "Loader2",
+      "Printer",
+      "RefreshCw"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/card",
+     "symboles": [
+      "Card",
+      "CardContent",
+      "CardHeader",
+      "CardTitle"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "DEPOT_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/pages/PageLogin.tsx": {
+   "fichier": "src/pages/PageLogin.tsx",
+   "langage": "ts",
+   "lignes": 128,
+   "exporte": [
+    "PageLogin",
+    "UtilisateurConnecte"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Eye",
+      "EyeOff",
+      "Loader2",
+      "Lock",
+      "Store",
+      "User"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    }
+   ]
+  },
+  "src/pages/Parametres.tsx": {
+   "fichier": "src/pages/Parametres.tsx",
+   "langage": "ts",
+   "lignes": 1040,
+   "exporte": [
+    "Parametres"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "open"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "Banknote",
+      "Barcode",
+      "Building2",
+      "ChevronDown",
+      "ChevronRight",
+      "Clock",
+      "Eye",
+      "EyeOff",
+      "FileSpreadsheet",
+      "FolderOpen",
+      "HardDrive",
+      "Loader2",
+      "Package",
+      "Pencil",
+      "Percent",
+      "Plus",
+      "ShoppingCart",
+      "Tag",
+      "Users",
+      "Warehouse",
+      "XCircle"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/components/ParametresSociete",
+     "symboles": [
+      "ParametresSociete"
+     ]
+    },
+    {
+     "source": "@/components/ParametresVentes",
+     "symboles": [
+      "OngletVentes"
+     ]
+    },
+    {
+     "source": "@/components/MoneyInput",
+     "symboles": [
+      "MoneyInput",
+      "parseMontant"
+     ]
+    },
+    {
+     "source": "@/lib/genererManuel",
+     "symboles": [
+      "genererManuelHTML"
+     ]
+    },
+    {
+     "source": "@/components/SelectUnite",
+     "symboles": [
+      "SelectUnite"
+     ]
+    },
+    {
+     "source": "@/components/OngletChantiers",
+     "symboles": [
+      "OngletAvoirs",
+      "OngletDettes",
+      "OngletIrrecouvrable",
+      "OngletTVA"
+     ]
+    },
+    {
+     "source": "@/components/OngletDepots",
+     "symboles": [
+      "OngletDepots"
+     ]
+    },
+    {
+     "source": "@/components/OngletCodesBarres",
+     "symboles": [
+      "OngletCodesBarres"
+     ]
+    },
+    {
+     "source": "@/components/OngletImportExport",
+     "symboles": [
+      "OngletImportExport"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "UTILISATEUR_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/pages/Pieces.tsx": {
+   "fichier": "src/pages/Pieces.tsx",
+   "langage": "ts",
+   "lignes": 1661,
+   "exporte": [
+    "Pieces"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "ArrowLeftRight",
+      "ArrowRight",
+      "Ban",
+      "CheckCircle2",
+      "ClipboardList",
+      "Copy",
+      "Edit2",
+      "Eye",
+      "FileText",
+      "Gift",
+      "Loader2",
+      "MoreHorizontal",
+      "Package",
+      "PackageCheck",
+      "Plus",
+      "Printer",
+      "Receipt",
+      "RotateCcw",
+      "Search",
+      "ShoppingBag",
+      "Truck",
+      "Wallet",
+      "X"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/components/MoneyInput",
+     "symboles": [
+      "MoneyInput",
+      "parseMontant"
+     ]
+    },
+    {
+     "source": "@/lib/genererPDF",
+     "symboles": [
+      "FormatImpression",
+      "genererImpression"
+     ]
+    },
+    {
+     "source": "@/components/ui/dropdown-menu",
+     "symboles": [
+      "DropdownMenu",
+      "DropdownMenuContent",
+      "DropdownMenuItem",
+      "DropdownMenuSeparator",
+      "DropdownMenuTrigger"
+     ]
+    },
+    {
+     "source": "@/components/ModalsRetour",
+     "symboles": [
+      "ModalAvoirConserve",
+      "ModalEchange",
+      "ModalRemboursement"
+     ]
+    },
+    {
+     "source": "@/components/ModalsRetour",
+     "symboles": [
+      "ArticleAchat",
+      "LigneVente",
+      "Vente"
+     ]
+    },
+    {
+     "source": "@/components/FiltresAvances",
+     "symboles": [
+      "FILTRES_VIDES",
+      "FiltresAvances",
+      "FiltresState"
+     ]
+    },
+    {
+     "source": "@/components/ModalNouvellePiece",
+     "symboles": [
+      "ModalNouvellePiece"
+     ]
+    },
+    {
+     "source": "@/components/ApercuPiece",
+     "symboles": [
+      "ApercuPiece"
+     ]
+    },
+    {
+     "source": "@/components/ModalLivraison",
+     "symboles": [
+      "ModalLivraison"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "UTILISATEUR_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/pages/Rapports.tsx": {
+   "fichier": "src/pages/Rapports.tsx",
+   "langage": "ts",
+   "lignes": 821,
+   "exporte": [
+    "Rapports"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "BarChart2",
+      "Download",
+      "FileText",
+      "Loader2",
+      "Package",
+      "Printer",
+      "RefreshCw",
+      "TrendingUp",
+      "Users"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "tauriInvoke"
+     ]
+    }
+   ]
+  },
+  "src/pages/Relances.tsx": {
+   "fichier": "src/pages/Relances.tsx",
+   "langage": "ts",
+   "lignes": 674,
+   "exporte": [
+    "Relances"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "CheckCircle2",
+      "ChevronDown",
+      "ChevronRight",
+      "Copy",
+      "HistoryIcon",
+      "Loader2",
+      "Mail",
+      "MapPin",
+      "MessageCircle",
+      "Phone",
+      "RefreshCw",
+      "X"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    }
+   ]
+  },
+  "src/pages/Retours.tsx": {
+   "fichier": "src/pages/Retours.tsx",
+   "langage": "ts",
+   "lignes": 318,
+   "exporte": [
+    "Retours"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "ArrowLeftRight",
+      "ChevronDown",
+      "ChevronRight",
+      "Gift",
+      "Loader2",
+      "RotateCcw",
+      "Search",
+      "Truck",
+      "Wallet"
+     ]
+    },
+    {
+     "source": "@/components/RetourFournisseur",
+     "symboles": [
+      "RetourFournisseur"
+     ]
+    },
+    {
+     "source": "@/components/ModalsRetour",
+     "symboles": [
+      "ModalAvoirConserve",
+      "ModalEchange",
+      "ModalRemboursement",
+      "formaterDate",
+      "formaterMontant"
+     ]
+    },
+    {
+     "source": "@/components/ModalsRetour",
+     "symboles": [
+      "ArticleAchat",
+      "Avoir",
+      "LigneVente",
+      "Vente"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@/components/ui/card",
+     "symboles": [
+      "Card"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    }
+   ]
+  },
+  "src/pages/Stock.tsx": {
+   "fichier": "src/pages/Stock.tsx",
+   "langage": "ts",
+   "lignes": 842,
+   "exporte": [
+    "Stock"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "ArrowUpCircle",
+      "ClipboardList",
+      "Loader2",
+      "Package",
+      "Printer",
+      "RefreshCw",
+      "X"
+     ]
+    },
+    {
+     "source": "@/components/ui/card",
+     "symboles": [
+      "Card",
+      "CardContent",
+      "CardHeader",
+      "CardTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "DEPOT_ACTIF"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/components/Pagination",
+     "symboles": [
+      "Pagination"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    }
+   ]
+  },
+  "src/pages/Transferts.tsx": {
+   "fichier": "src/pages/Transferts.tsx",
+   "langage": "ts",
+   "lignes": 452,
+   "exporte": [
+    "Transferts"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useState"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "ArrowLeftRight",
+      "Loader2",
+      "Plus",
+      "Printer",
+      "RefreshCw",
+      "Search",
+      "X"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/card",
+     "symboles": [
+      "Card",
+      "CardContent"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "UTILISATEUR_ACTIF"
+     ]
+    }
+   ]
+  },
+  "src/pages/Ventes.tsx": {
+   "fichier": "src/pages/Ventes.tsx",
+   "langage": "ts",
+   "lignes": 1670,
+   "exporte": [
+    "Ventes"
+   ],
+   "importe": [
+    {
+     "source": "react",
+     "symboles": [
+      "useCallback",
+      "useEffect",
+      "useRef",
+      "useState"
+     ]
+    },
+    {
+     "source": "lucide-react",
+     "symboles": [
+      "AlertTriangle",
+      "Gift",
+      "Loader2",
+      "PackagePlus",
+      "Plus",
+      "Scan",
+      "Search",
+      "ShoppingCart",
+      "Trash2",
+      "User",
+      "Warehouse"
+     ]
+    },
+    {
+     "source": "@/components/ui/button",
+     "symboles": [
+      "Button"
+     ]
+    },
+    {
+     "source": "@/components/ui/input",
+     "symboles": [
+      "Input"
+     ]
+    },
+    {
+     "source": "@/components/ui/label",
+     "symboles": [
+      "Label"
+     ]
+    },
+    {
+     "source": "@/components/ui/badge",
+     "symboles": [
+      "Badge"
+     ]
+    },
+    {
+     "source": "@/components/ui/dialog",
+     "symboles": [
+      "Dialog",
+      "DialogContent",
+      "DialogHeader",
+      "DialogTitle"
+     ]
+    },
+    {
+     "source": "@/components/ui/select",
+     "symboles": [
+      "Select",
+      "SelectContent",
+      "SelectItem",
+      "SelectTrigger",
+      "SelectValue"
+     ]
+    },
+    {
+     "source": "@tauri-apps/plugin-dialog",
+     "symboles": [
+      "message"
+     ]
+    },
+    {
+     "source": "@/lib/utils",
+     "symboles": [
+      "cn"
+     ]
+    },
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invoke"
+     ]
+    },
+    {
+     "source": "@/components/MoneyInput",
+     "symboles": [
+      "MoneyInput",
+      "parseMontant"
+     ]
+    },
+    {
+     "source": "@/components/SelectUnite",
+     "symboles": [
+      "SelectUnite"
+     ]
+    },
+    {
+     "source": "@/components/ModalOuvrirCaisse",
+     "symboles": [
+      "ModalOuvrirCaisse",
+      "estCaisseFermee"
+     ]
+    },
+    {
+     "source": "@/components/ModalImpression",
+     "symboles": [
+      "ModalImpression"
+     ]
+    },
+    {
+     "source": "@/lib/useScanner",
+     "symboles": [
+      "useScanner"
+     ]
+    },
+    {
+     "source": "@/App",
+     "symboles": [
+      "DEPOT_ACTIF",
+      "UTILISATEUR_ACTIF",
+      "definirDepotActif"
+     ]
+    },
+    {
+     "source": "@/lib/types-api",
+     "symboles": [
+      "CreerVenteResultat"
+     ]
+    }
+   ]
+  },
+  "src-tauri/build.rs": {
+   "fichier": "src-tauri/build.rs",
+   "langage": "rust",
+   "lignes": 4,
+   "exporte": [],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/src/lib.rs": {
+   "fichier": "src-tauri/src/lib.rs",
+   "langage": "rust",
+   "lignes": 249,
+   "exporte": [
+    "run"
+   ],
+   "importe": [],
+   "mods": [
+    "coeur",
+    "commandes",
+    "persistance",
+    "seed",
+    "tests_multi_depot",
+    "utils"
+   ]
+  },
+  "src-tauri/src/main.rs": {
+   "fichier": "src-tauri/src/main.rs",
+   "langage": "rust",
+   "lignes": 5,
+   "exporte": [],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/src/portes.rs": {
+   "fichier": "src-tauri/src/portes.rs",
+   "langage": "rust",
+   "lignes": 23,
+   "exporte": [
+    "ContexteUtilisateur",
+    "verifier_permission"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/src/seed.rs": {
+   "fichier": "src-tauri/src/seed.rs",
+   "langage": "rust",
+   "lignes": 293,
+   "exporte": [
+    "base_est_vide",
+    "seeder"
+   ],
+   "importe": [
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    },
+    {
+     "source": "crate::commandes::auth::hasher_mot_de_passe_pub",
+     "symboles": [
+      "hasher_mot_de_passe_pub"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/tests_multi_depot.rs": {
+   "fichier": "src-tauri/src/tests_multi_depot.rs",
+   "langage": "rust",
+   "lignes": 539,
+   "exporte": [],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::ParamsLigneInput",
+     "symboles": [
+      "ParamsLigneInput"
+     ]
+    },
+    {
+     "source": "crate::commandes::transferts::LigneTransfert",
+     "symboles": [
+      "LigneTransfert"
+     ]
+    },
+    {
+     "source": "crate::commandes::pieces::LignePieceInput",
+     "symboles": [
+      "LignePieceInput"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/utils.rs": {
+   "fichier": "src-tauri/src/utils.rs",
+   "langage": "rust",
+   "lignes": 45,
+   "exporte": [
+    "est_client_generique",
+    "exiger_session_caisse",
+    "maintenant_iso"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/src/coeur/caisse.rs": {
+   "fichier": "src-tauri/src/coeur/caisse.rs",
+   "langage": "rust",
+   "lignes": 53,
+   "exporte": [
+    "ecart_caisse",
+    "solde_theorique"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/src/coeur/calcul.rs": {
+   "fichier": "src-tauri/src/coeur/calcul.rs",
+   "langage": "rust",
+   "lignes": 363,
+   "exporte": [
+    "EffetCaisse",
+    "SEUIL_SOLDE",
+    "StatutVente",
+    "ecart_prix",
+    "effet_caisse_annulation",
+    "montant_ligne",
+    "repartir_reglement",
+    "reste_du",
+    "reste_exigible",
+    "statut_vente",
+    "statut_vente_depuis_reste",
+    "total_paye",
+    "total_vente"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/src/coeur/codebarre.rs": {
+   "fichier": "src-tauri/src/coeur/codebarre.rs",
+   "langage": "rust",
+   "lignes": 128,
+   "exporte": [
+    "PREFIXE_INTERNE",
+    "cle_ean13",
+    "est_interne",
+    "generer_ean13_interne",
+    "valider_ean13"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/src/coeur/mod.rs": {
+   "fichier": "src-tauri/src/coeur/mod.rs",
+   "langage": "rust",
+   "lignes": 7,
+   "exporte": [],
+   "importe": [],
+   "mods": [
+    "caisse",
+    "calcul",
+    "codebarre",
+    "pieces",
+    "stock"
+   ]
+  },
+  "src-tauri/src/coeur/pieces.rs": {
+   "fichier": "src-tauri/src/coeur/pieces.rs",
+   "langage": "rust",
+   "lignes": 275,
+   "exporte": [
+    "est_engageante",
+    "peut_annuler",
+    "peut_modifier",
+    "peut_transferer"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/src/coeur/stock.rs": {
+   "fichier": "src-tauri/src/coeur/stock.rs",
+   "langage": "rust",
+   "lignes": 146,
+   "exporte": [
+    "ACHAT",
+    "AJUSTEMENT",
+    "ECHANGE",
+    "ENTREE",
+    "RETOUR",
+    "RETOUR_FOURNISSEUR",
+    "TOUS",
+    "TRANSFERT",
+    "VENTE",
+    "credit_retour",
+    "est_a_decouvert",
+    "est_achat_facture",
+    "est_entrant",
+    "libelle",
+    "marge"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/src/commandes/achats.rs": {
+   "fichier": "src-tauri/src/commandes/achats.rs",
+   "langage": "rust",
+   "lignes": 608,
+   "exporte": [
+    "LigneAchat",
+    "LigneRetourFournisseur",
+    "enregistrer_achat",
+    "enregistrer_retour_fournisseur",
+    "lire_factures_fournisseur_retournables"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/auth.rs": {
+   "fichier": "src-tauri/src/commandes/auth.rs",
+   "langage": "rust",
+   "lignes": 208,
+   "exporte": [
+    "changer_mot_de_passe",
+    "connexion",
+    "creer_utilisateur",
+    "hasher_mot_de_passe_pub",
+    "lire_utilisateurs"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/avoirs.rs": {
+   "fichier": "src-tauri/src/commandes/avoirs.rs",
+   "langage": "rust",
+   "lignes": 525,
+   "exporte": [
+    "appliquer_avoir_vente",
+    "chercher_article_par_code_barre",
+    "lire_articles_avec_codes_barres",
+    "lire_avoirs_client",
+    "lire_config_scanner",
+    "rembourser_avoir",
+    "sauvegarder_code_barre_article",
+    "sauvegarder_config_scanner",
+    "total_avoirs_client"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/caisse.rs": {
+   "fichier": "src-tauri/src/commandes/caisse.rs",
+   "langage": "rust",
+   "lignes": 569,
+   "exporte": [
+    "enregistrer_depense",
+    "fermer_session_caisse",
+    "lire_depenses_du_jour",
+    "lire_mouvements_caisse_du_jour",
+    "lire_mouvements_session",
+    "lire_rapport_ecarts",
+    "lire_resume_caisse",
+    "lire_sessions_caisse",
+    "modifier_depense",
+    "ouvrir_session_caisse"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/catalogue.rs": {
+   "fichier": "src-tauri/src/commandes/catalogue.rs",
+   "langage": "rust",
+   "lignes": 467,
+   "exporte": [
+    "exporter_articles_csv",
+    "importer_articles_csv",
+    "lire_etat_stock"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/chantiers.rs": {
+   "fichier": "src-tauri/src/commandes/chantiers.rs",
+   "langage": "rust",
+   "lignes": 761,
+   "exporte": [
+    "expirer_avoirs",
+    "lire_avoirs_expires",
+    "lire_config_avoirs",
+    "lire_dettes_fournisseurs",
+    "lire_factures_fournisseur_ouvertes",
+    "lire_irrecouvrable",
+    "lire_resume_tva",
+    "lire_taux_tva",
+    "marquer_irrecouvrable",
+    "reactiver_avoir",
+    "regler_dette_fournisseur",
+    "reimputer_paiements_globaux",
+    "sauvegarder_config_avoirs",
+    "sauvegarder_tva_article"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/cheques.rs": {
+   "fichier": "src-tauri/src/commandes/cheques.rs",
+   "langage": "rust",
+   "lignes": 247,
+   "exporte": [
+    "changer_statut_cheque",
+    "enregistrer_cheque",
+    "lire_cheques"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/codebarre.rs": {
+   "fichier": "src-tauri/src/commandes/codebarre.rs",
+   "langage": "rust",
+   "lignes": 177,
+   "exporte": [
+    "definir_code_barre",
+    "generer_code_barre",
+    "generer_codes_barres_manquants",
+    "lire_articles_codes_barres"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    },
+    {
+     "source": "crate::coeur::codebarre",
+     "symboles": [
+      "generer_ean13_interne",
+      "valider_ean13",
+      "est_interne"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/creances.rs": {
+   "fichier": "src-tauri/src/commandes/creances.rs",
+   "langage": "rust",
+   "lignes": 825,
+   "exporte": [
+    "annuler_reglement",
+    "lire_creances_ouvertes",
+    "lire_donnees_recu",
+    "lire_etat_creances_client",
+    "lire_etat_creances_global",
+    "lire_reglements_client",
+    "regler_creance",
+    "societe",
+    "solder_residus_creances"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/dashboard.rs": {
+   "fichier": "src-tauri/src/commandes/dashboard.rs",
+   "langage": "rust",
+   "lignes": 429,
+   "exporte": [
+    "lire_resume_dashboard",
+    "lire_top_articles",
+    "lire_top_clients",
+    "lire_ventes_periode"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/depots.rs": {
+   "fichier": "src-tauri/src/commandes/depots.rs",
+   "langage": "rust",
+   "lignes": 574,
+   "exporte": [
+    "creer_depot",
+    "definir_depot_defaut",
+    "desactiver_depot",
+    "desactiver_depot_sur",
+    "lire_depots_detail",
+    "lire_mouvements_stock",
+    "lire_resume_par_depot",
+    "lire_stock_article_depots",
+    "lire_stock_depot",
+    "lire_stock_multi_depots",
+    "lire_stock_multi_depots_sur",
+    "lire_ventes_a_decouvert",
+    "reactiver_depot",
+    "reactiver_depot_sur",
+    "renommer_depot"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/fournisseurs.rs": {
+   "fichier": "src-tauri/src/commandes/fournisseurs.rs",
+   "langage": "rust",
+   "lignes": 775,
+   "exporte": [
+    "annuler_paiement_fournisseur",
+    "creer_fournisseur",
+    "enregistrer_ajustement_inventaire",
+    "enregistrer_entree_stock",
+    "lire_etat_dette_fournisseur",
+    "lire_etat_dettes_global",
+    "lire_fiche_fournisseur",
+    "lire_fournisseur_detail",
+    "lire_fournisseurs",
+    "lire_fournisseurs_avec_dettes",
+    "modifier_fournisseur"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/impression.rs": {
+   "fichier": "src-tauri/src/commandes/impression.rs",
+   "langage": "rust",
+   "lignes": 104,
+   "exporte": [
+    "imprimer_facture",
+    "ouvrir_avec_systeme"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/src/commandes/journal.rs": {
+   "fichier": "src-tauri/src/commandes/journal.rs",
+   "langage": "rust",
+   "lignes": 416,
+   "exporte": [
+    "lire_journal_du_jour"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/livraisons.rs": {
+   "fichier": "src-tauri/src/commandes/livraisons.rs",
+   "langage": "rust",
+   "lignes": 233,
+   "exporte": [
+    "LigneLivraison",
+    "enregistrer_livraison",
+    "etat",
+    "lire_livraison_piece"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    },
+    {
+     "source": "super::etat",
+     "symboles": [
+      "etat"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/logo.rs": {
+   "fichier": "src-tauri/src/commandes/logo.rs",
+   "langage": "rust",
+   "lignes": 203,
+   "exporte": [
+    "lire_entete_base64",
+    "lire_logo_base64",
+    "lire_pied_base64",
+    "sauvegarder_entete",
+    "sauvegarder_logo",
+    "sauvegarder_pied",
+    "supprimer_entete",
+    "supprimer_logo",
+    "supprimer_pied"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/mod.rs": {
+   "fichier": "src-tauri/src/commandes/mod.rs",
+   "langage": "rust",
+   "lignes": 27,
+   "exporte": [],
+   "importe": [],
+   "mods": [
+    "achats",
+    "auth",
+    "avoirs",
+    "caisse",
+    "catalogue",
+    "chantiers",
+    "cheques",
+    "codebarre",
+    "creances",
+    "dashboard",
+    "depots",
+    "fournisseurs",
+    "impression",
+    "journal",
+    "livraisons",
+    "logo",
+    "pagination",
+    "parametres",
+    "pieces",
+    "pieces_pos",
+    "rapports",
+    "relances",
+    "retours",
+    "sauvegarde",
+    "societe",
+    "transferts",
+    "ventes"
+   ]
+  },
+  "src-tauri/src/commandes/pagination.rs": {
+   "fichier": "src-tauri/src/commandes/pagination.rs",
+   "langage": "rust",
+   "lignes": 664,
+   "exporte": [
+    "lire_clients_pagines",
+    "lire_fournisseurs_pagines",
+    "lire_stocks_pagines",
+    "lire_ventes_paginees",
+    "lire_ventes_recentes_paginee"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/parametres.rs": {
+   "fichier": "src-tauri/src/commandes/parametres.rs",
+   "langage": "rust",
+   "lignes": 591,
+   "exporte": [
+    "ajouter_unite_vente",
+    "creer_article_complet",
+    "creer_categorie",
+    "desactiver_unite_vente",
+    "diagnostiquer_base",
+    "entretenir_base",
+    "lire_articles_complets",
+    "lire_categories",
+    "lire_config_bon_sortie",
+    "lire_config_signatures",
+    "lire_config_suivi_livraison",
+    "lire_stocks",
+    "modifier_unite_vente",
+    "sauvegarder_config_bon_sortie",
+    "sauvegarder_config_signatures",
+    "sauvegarder_config_suivi_livraison"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/pieces.rs": {
+   "fichier": "src-tauri/src/commandes/pieces.rs",
+   "langage": "rust",
+   "lignes": 2144,
+   "exporte": [
+    "LignePieceInput",
+    "annuler_facture_par_avoir",
+    "annuler_facture_par_avoir_sur",
+    "annuler_piece",
+    "changer_statut_piece",
+    "convertir_commande_en_livraison_et_facture",
+    "convertir_piece",
+    "creer_piece",
+    "creer_piece_fournisseur",
+    "creer_piece_sur",
+    "dupliquer_piece",
+    "imprimer_piece",
+    "lire_donnees_piece",
+    "lire_fiche_client",
+    "lire_lignes_piece",
+    "lire_piece_de_vente",
+    "lire_pieces_client",
+    "lire_toutes_pieces_client",
+    "lire_toutes_pieces_fournisseur",
+    "lire_vente_de_piece",
+    "modifier_piece",
+    "prochain_numero",
+    "valider_facture",
+    "valider_facture_sur"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/pieces_pos.rs": {
+   "fichier": "src-tauri/src/commandes/pieces_pos.rs",
+   "langage": "rust",
+   "lignes": 222,
+   "exporte": [
+    "creer_facture_depuis_vente",
+    "creer_facture_depuis_vente_sur",
+    "modifier_facture_pos",
+    "valider_facture_credit"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/rapports.rs": {
+   "fichier": "src-tauri/src/commandes/rapports.rs",
+   "langage": "rust",
+   "lignes": 282,
+   "exporte": [
+    "lire_rapport_ca_mensuel",
+    "lire_rapport_creances",
+    "lire_rapport_stock",
+    "lire_rapport_top_articles",
+    "lire_rapport_top_clients",
+    "lire_rapport_tva"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/relances.rs": {
+   "fichier": "src-tauri/src/commandes/relances.rs",
+   "langage": "rust",
+   "lignes": 182,
+   "exporte": [
+    "enregistrer_relance",
+    "lire_creances_relances",
+    "lire_historique_relances",
+    "lire_stats_relances"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/retours.rs": {
+   "fichier": "src-tauri/src/commandes/retours.rs",
+   "langage": "rust",
+   "lignes": 687,
+   "exporte": [
+    "enregistrer_retour",
+    "enregistrer_retour_sur",
+    "lire_avoirs_ouverts_tous",
+    "lire_ventes_recentes"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/sauvegarde.rs": {
+   "fichier": "src-tauri/src/commandes/sauvegarde.rs",
+   "langage": "rust",
+   "lignes": 243,
+   "exporte": [
+    "lire_config_sauvegarde",
+    "sauvegarde_auto_si_necessaire",
+    "sauvegarder_base",
+    "sauvegarder_config_sauvegarde"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/societe.rs": {
+   "fichier": "src-tauri/src/commandes/societe.rs",
+   "langage": "rust",
+   "lignes": 81,
+   "exporte": [
+    "lire_parametres_societe",
+    "sauvegarder_parametres_societe"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/transferts.rs": {
+   "fichier": "src-tauri/src/commandes/transferts.rs",
+   "langage": "rust",
+   "lignes": 320,
+   "exporte": [
+    "LigneTransfert",
+    "enregistrer_transfert",
+    "enregistrer_transfert_sur",
+    "lire_bon_transfert",
+    "lire_transferts"
+   ],
+   "importe": [
+    {
+     "source": "crate::commandes::ventes::EtatApp",
+     "symboles": [
+      "EtatApp"
+     ]
+    },
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/commandes/ventes.rs": {
+   "fichier": "src-tauri/src/commandes/ventes.rs",
+   "langage": "rust",
+   "lignes": 810,
+   "exporte": [
+    "EtatApp",
+    "ParamsLigneInput",
+    "creer_article_rapide",
+    "creer_client_rapide",
+    "creer_vente",
+    "creer_vente_sur",
+    "enregistrer_paiement",
+    "id_utilisateur_courant_pub",
+    "id_utilisateur_par_role",
+    "lire_articles_avec_unites",
+    "lire_articles_avec_unites_sur",
+    "lire_client_generique",
+    "lire_clients",
+    "lire_clients_avec_creances",
+    "lire_depot_defaut",
+    "lire_depots",
+    "modifier_client"
+   ],
+   "importe": [
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/persistance/journal.rs": {
+   "fichier": "src-tauri/src/persistance/journal.rs",
+   "langage": "rust",
+   "lignes": 31,
+   "exporte": [
+    "ecrire_evenement"
+   ],
+   "importe": [
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/src/persistance/mod.rs": {
+   "fichier": "src-tauri/src/persistance/mod.rs",
+   "langage": "rust",
+   "lignes": 372,
+   "exporte": [
+    "anomalies_metier",
+    "entretenir",
+    "initialiser_tables",
+    "ouvrir_base",
+    "verifier_integrite"
+   ],
+   "importe": [],
+   "mods": []
+  }
+ },
+ "importe_par": {
+  "src/components/Layout.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Layout"
+    ]
+   }
+  ],
+  "src/pages/PageLogin.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "PageLogin",
+     "UtilisateurConnecte"
+    ]
+   },
+   {
+    "par": "src/components/Layout.tsx",
+    "symboles": [
+     "UtilisateurConnecte"
+    ]
+   }
+  ],
+  "src/components/ModalChangerMdp.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "ModalChangerMdp"
+    ]
+   }
+  ],
+  "src/pages/Dashboard.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Dashboard"
+    ]
+   }
+  ],
+  "src/pages/Ventes.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Ventes"
+    ]
+   }
+  ],
+  "src/pages/Pieces.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Pieces"
+    ]
+   }
+  ],
+  "src/pages/Achats.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Achats"
+    ]
+   }
+  ],
+  "src/pages/Stock.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Stock"
+    ]
+   }
+  ],
+  "src/pages/Clients.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Clients"
+    ]
+   }
+  ],
+  "src/pages/FicheClient.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "FicheClient"
+    ]
+   }
+  ],
+  "src/pages/Fournisseurs.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Fournisseurs"
+    ]
+   }
+  ],
+  "src/pages/FicheFournisseur.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "FicheFournisseur"
+    ]
+   }
+  ],
+  "src/pages/Caisse.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Caisse"
+    ]
+   }
+  ],
+  "src/pages/Parametres.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Parametres"
+    ]
+   }
+  ],
+  "src/pages/Retours.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Retours"
+    ]
+   }
+  ],
+  "src/pages/Relances.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Relances"
+    ]
+   }
+  ],
+  "src/pages/Rapports.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Rapports"
+    ]
+   }
+  ],
+  "src/pages/Journal.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Journal"
+    ]
+   }
+  ],
+  "src/pages/Transferts.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Transferts"
+    ]
+   }
+  ],
+  "src/pages/Cheques.tsx": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "Cheques"
+    ]
+   }
+  ],
+  "src/App.tsx": [
+   {
+    "par": "src/main.tsx",
+    "symboles": [
+     "App"
+    ]
+   },
+   {
+    "par": "src/components/ModalNouvellePiece.tsx",
+    "symboles": [
+     "DEPOT_ACTIF",
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/components/ModalOuvrirCaisse.tsx",
+    "symboles": [
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/components/OngletChantiers.tsx",
+    "symboles": [
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/components/OngletDepots.tsx",
+    "symboles": [
+     "DEPOT_ACTIF",
+     "definirDepotActif"
+    ]
+   },
+   {
+    "par": "src/components/RetourFournisseur.tsx",
+    "symboles": [
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/pages/Caisse.tsx",
+    "symboles": [
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/pages/Dashboard.tsx",
+    "symboles": [
+     "DEPOT_ACTIF",
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "DEPOT_ACTIF",
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/pages/Journal.tsx",
+    "symboles": [
+     "DEPOT_ACTIF"
+    ]
+   },
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/pages/Stock.tsx",
+    "symboles": [
+     "DEPOT_ACTIF"
+    ]
+   },
+   {
+    "par": "src/pages/Transferts.tsx",
+    "symboles": [
+     "UTILISATEUR_ACTIF"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "DEPOT_ACTIF",
+     "UTILISATEUR_ACTIF",
+     "definirDepotActif"
+    ]
+   }
+  ],
+  "src/components/ui/dialog.tsx": [
+   {
+    "par": "src/components/ApercuPiece.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/components/ApercuRecu.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/components/ModalChangerMdp.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/components/ModalImpression.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/components/ModalLivraison.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/components/ModalModifierTiers.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/components/ModalNouvellePiece.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/components/ModalOuvrirCaisse.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/components/ModalsRetour.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/components/OngletChantiers.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/components/OngletDepots.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Achats.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Caisse.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Fournisseurs.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Relances.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Stock.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "Dialog",
+     "DialogContent",
+     "DialogHeader",
+     "DialogTitle"
+    ]
+   }
+  ],
+  "src/components/ui/button.tsx": [
+   {
+    "par": "src/components/ApercuPiece.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/ApercuRecu.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/FiltresAvances.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/ModalChangerMdp.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/ModalImpression.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/ModalLivraison.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/ModalModifierTiers.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/ModalNouvellePiece.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/ModalOuvrirCaisse.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/ModalsRetour.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/OngletChantiers.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/OngletCodesBarres.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/OngletDepots.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/OngletHistoriqueCaisse.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/OngletImportExport.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/Pagination.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/ParametresSociete.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/ParametresVentes.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/RetourFournisseur.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/components/ui/dialog.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Achats.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Caisse.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Cheques.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Dashboard.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Fournisseurs.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Journal.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/PageLogin.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Rapports.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Relances.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Retours.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Stock.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Transferts.tsx",
+    "symboles": [
+     "Button"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "Button"
+    ]
+   }
+  ],
+  "src/lib/genererPDF.ts": [
+   {
+    "par": "src/components/ApercuPiece.tsx",
+    "symboles": [
+     "genererImpression"
+    ]
+   },
+   {
+    "par": "src/components/ApercuPiece.tsx",
+    "symboles": [
+     "DonneesPiece",
+     "FormatImpression",
+     "Signatures"
+    ]
+   },
+   {
+    "par": "src/components/ModalImpression.tsx",
+    "symboles": [
+     "genererImpression"
+    ]
+   },
+   {
+    "par": "src/components/ModalImpression.tsx",
+    "symboles": [
+     "DonneesPiece",
+     "FormatImpression"
+    ]
+   },
+   {
+    "par": "src/components/ModalsRetour.tsx",
+    "symboles": [
+     "genererBonEchangeHTML"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "genererImpression"
+    ]
+   },
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "FormatImpression",
+     "genererImpression"
+    ]
+   }
+  ],
+  "src/lib/genererRecu.ts": [
+   {
+    "par": "src/components/ApercuRecu.tsx",
+    "symboles": [
+     "genererRecuHTML"
+    ]
+   },
+   {
+    "par": "src/components/ApercuRecu.tsx",
+    "symboles": [
+     "DonneesRecu"
+    ]
+   }
+  ],
+  "src/components/ui/input.tsx": [
+   {
+    "par": "src/components/FiltresAvances.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/ModalChangerMdp.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/ModalLivraison.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/ModalModifierTiers.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/ModalNouvellePiece.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/ModalsRetour.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/OngletChantiers.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/OngletCodesBarres.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/OngletDepots.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/ParametresSociete.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/ParametresVentes.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/RetourFournisseur.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/components/SelectUnite.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Achats.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Fournisseurs.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Journal.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/PageLogin.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Rapports.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Relances.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Retours.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Stock.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Transferts.tsx",
+    "symboles": [
+     "Input"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "Input"
+    ]
+   }
+  ],
+  "src/components/ui/label.tsx": [
+   {
+    "par": "src/components/FiltresAvances.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/components/ModalChangerMdp.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/components/ModalModifierTiers.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/components/ModalNouvellePiece.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/components/ModalOuvrirCaisse.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/components/ModalsRetour.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/components/OngletChantiers.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/components/OngletDepots.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/components/ParametresSociete.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/components/RetourFournisseur.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/Achats.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/Caisse.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/Fournisseurs.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/PageLogin.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/Rapports.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/Relances.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/Stock.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/Transferts.tsx",
+    "symboles": [
+     "Label"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "Label"
+    ]
+   }
+  ],
+  "src/components/ui/select.tsx": [
+   {
+    "par": "src/components/FiltresAvances.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/components/ModalNouvellePiece.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/components/ModalsRetour.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/components/RetourFournisseur.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/components/SelectUnite.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/pages/Achats.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/pages/Fournisseurs.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/pages/Relances.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/pages/Stock.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "Select",
+     "SelectContent",
+     "SelectItem",
+     "SelectTrigger",
+     "SelectValue"
+    ]
+   }
+  ],
+  "src/lib/utils.ts": [
+   {
+    "par": "src/components/Layout.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/ModalsRetour.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/MoneyInput.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/ParametresVentes.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/RetourFournisseur.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/ui/badge.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/ui/button.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/ui/card.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/ui/dialog.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/ui/dropdown-menu.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/ui/input.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/ui/label.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/ui/select.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/components/ui/table.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/pages/Achats.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/pages/Retours.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/pages/Stock.tsx",
+    "symboles": [
+     "cn"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "cn"
+    ]
+   }
+  ],
+  "src/components/MoneyInput.tsx": [
+   {
+    "par": "src/components/ModalOuvrirCaisse.tsx",
+    "symboles": [
+     "MoneyInput",
+     "parseMontant"
+    ]
+   },
+   {
+    "par": "src/pages/Achats.tsx",
+    "symboles": [
+     "MoneyInput",
+     "parseMontant"
+    ]
+   },
+   {
+    "par": "src/pages/Caisse.tsx",
+    "symboles": [
+     "MoneyInput",
+     "parseMontant"
+    ]
+   },
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "MoneyInput",
+     "parseMontant"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "MoneyInput",
+     "parseMontant"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "MoneyInput",
+     "parseMontant"
+    ]
+   },
+   {
+    "par": "src/pages/Fournisseurs.tsx",
+    "symboles": [
+     "MoneyInput",
+     "parseMontant"
+    ]
+   },
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "MoneyInput",
+     "parseMontant"
+    ]
+   },
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "MoneyInput",
+     "parseMontant"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "MoneyInput",
+     "parseMontant"
+    ]
+   }
+  ],
+  "src/components/ui/badge.tsx": [
+   {
+    "par": "src/components/OngletChantiers.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   },
+   {
+    "par": "src/components/ParametresVentes.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   },
+   {
+    "par": "src/pages/Achats.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   },
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   },
+   {
+    "par": "src/pages/Fournisseurs.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   },
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   },
+   {
+    "par": "src/pages/Relances.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   },
+   {
+    "par": "src/pages/Retours.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   },
+   {
+    "par": "src/pages/Stock.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "Badge"
+    ]
+   }
+  ],
+  "src/components/ui/card.tsx": [
+   {
+    "par": "src/components/OngletDepots.tsx",
+    "symboles": [
+     "Card",
+     "CardContent"
+    ]
+   },
+   {
+    "par": "src/components/OngletHistoriqueCaisse.tsx",
+    "symboles": [
+     "Card",
+     "CardContent"
+    ]
+   },
+   {
+    "par": "src/components/OngletImportExport.tsx",
+    "symboles": [
+     "Card",
+     "CardContent"
+    ]
+   },
+   {
+    "par": "src/pages/Caisse.tsx",
+    "symboles": [
+     "Card",
+     "CardContent",
+     "CardHeader",
+     "CardTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Cheques.tsx",
+    "symboles": [
+     "Card",
+     "CardContent"
+    ]
+   },
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "Card",
+     "CardContent",
+     "CardHeader",
+     "CardTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Fournisseurs.tsx",
+    "symboles": [
+     "Card",
+     "CardContent",
+     "CardHeader",
+     "CardTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Journal.tsx",
+    "symboles": [
+     "Card",
+     "CardContent",
+     "CardHeader",
+     "CardTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Retours.tsx",
+    "symboles": [
+     "Card"
+    ]
+   },
+   {
+    "par": "src/pages/Stock.tsx",
+    "symboles": [
+     "Card",
+     "CardContent",
+     "CardHeader",
+     "CardTitle"
+    ]
+   },
+   {
+    "par": "src/pages/Transferts.tsx",
+    "symboles": [
+     "Card",
+     "CardContent"
+    ]
+   }
+  ],
+  "src/lib/unites.ts": [
+   {
+    "par": "src/components/SelectUnite.tsx",
+    "symboles": [
+     "UNITES_COURANTES",
+     "normaliserUnite"
+    ]
+   }
+  ],
+  "src/components/ui/GlassIcon.tsx": [
+   {
+    "par": "src/components/ui/KpiVerre.tsx",
+    "symboles": [
+     "GlassIcon",
+     "GlassVariante"
+    ]
+   },
+   {
+    "par": "src/pages/Caisse.tsx",
+    "symboles": [
+     "GlassHalos",
+     "GlassIcon"
+    ]
+   },
+   {
+    "par": "src/pages/Dashboard.tsx",
+    "symboles": [
+     "GlassHalos"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "GlassHalos"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "GlassHalos"
+    ]
+   }
+  ],
+  "src/lib/types-api.ts": [
+   {
+    "par": "src/pages/Achats.tsx",
+    "symboles": [
+     "CreerFournisseurResultat",
+     "EnregistrerAchatResultat"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "CreanceOuverteApi"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "CreerVenteResultat"
+    ]
+   }
+  ],
+  "src/components/SelectUnite.tsx": [
+   {
+    "par": "src/pages/Achats.tsx",
+    "symboles": [
+     "SelectUnite"
+    ]
+   },
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "SelectUnite"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "SelectUnite"
+    ]
+   }
+  ],
+  "src/components/ui/KpiVerre.tsx": [
+   {
+    "par": "src/pages/Caisse.tsx",
+    "symboles": [
+     "GRILLE",
+     "KpiPetit"
+    ]
+   },
+   {
+    "par": "src/pages/Dashboard.tsx",
+    "symboles": [
+     "CARTE",
+     "GRILLE",
+     "KpiCard",
+     "KpiPetit"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "CARTE",
+     "GRILLE",
+     "KpiLigne"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "CARTE",
+     "GRILLE",
+     "KpiLigne"
+    ]
+   }
+  ],
+  "src/components/OngletHistoriqueCaisse.tsx": [
+   {
+    "par": "src/pages/Caisse.tsx",
+    "symboles": [
+     "OngletHistoriqueCaisse"
+    ]
+   }
+  ],
+  "src/lib/genererReleve.ts": [
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "DonneesReleve",
+     "DonneesReleveGlobal",
+     "genererReleveGlobalHTML",
+     "genererReleveHTML"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "DonneesReleve",
+     "genererHistoriqueReglementsHTML",
+     "genererReleveHTML"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "DonneesReleve",
+     "genererHistoriqueReglementsHTML",
+     "genererReleveHTML"
+    ]
+   },
+   {
+    "par": "src/pages/Fournisseurs.tsx",
+    "symboles": [
+     "DonneesReleve",
+     "DonneesReleveGlobal",
+     "genererReleveGlobalHTML",
+     "genererReleveHTML"
+    ]
+   }
+  ],
+  "src/components/Pagination.tsx": [
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "Pagination"
+    ]
+   },
+   {
+    "par": "src/pages/Fournisseurs.tsx",
+    "symboles": [
+     "Pagination"
+    ]
+   },
+   {
+    "par": "src/pages/Stock.tsx",
+    "symboles": [
+     "Pagination"
+    ]
+   }
+  ],
+  "src/components/ApercuPiece.tsx": [
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "ApercuPiece"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "ApercuPiece"
+    ]
+   },
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "ApercuPiece"
+    ]
+   }
+  ],
+  "src/components/ApercuRecu.tsx": [
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "ApercuRecu"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "ApercuRecu"
+    ]
+   }
+  ],
+  "src/components/ModalModifierTiers.tsx": [
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "ModalModifierTiers"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "ModalModifierTiers"
+    ]
+   }
+  ],
+  "src/components/ParametresSociete.tsx": [
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "ParametresSociete"
+    ]
+   }
+  ],
+  "src/components/ParametresVentes.tsx": [
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "OngletVentes"
+    ]
+   }
+  ],
+  "src/lib/genererManuel.ts": [
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "genererManuelHTML"
+    ]
+   }
+  ],
+  "src/components/OngletChantiers.tsx": [
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "OngletAvoirs",
+     "OngletDettes",
+     "OngletIrrecouvrable",
+     "OngletTVA"
+    ]
+   }
+  ],
+  "src/components/OngletDepots.tsx": [
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "OngletDepots"
+    ]
+   }
+  ],
+  "src/components/OngletCodesBarres.tsx": [
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "OngletCodesBarres"
+    ]
+   }
+  ],
+  "src/components/OngletImportExport.tsx": [
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "OngletImportExport"
+    ]
+   }
+  ],
+  "src/components/ui/dropdown-menu.tsx": [
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "DropdownMenu",
+     "DropdownMenuContent",
+     "DropdownMenuItem",
+     "DropdownMenuSeparator",
+     "DropdownMenuTrigger"
+    ]
+   }
+  ],
+  "src/components/ModalsRetour.tsx": [
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "ModalAvoirConserve",
+     "ModalEchange",
+     "ModalRemboursement"
+    ]
+   },
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "ArticleAchat",
+     "LigneVente",
+     "Vente"
+    ]
+   },
+   {
+    "par": "src/pages/Retours.tsx",
+    "symboles": [
+     "ModalAvoirConserve",
+     "ModalEchange",
+     "ModalRemboursement",
+     "formaterDate",
+     "formaterMontant"
+    ]
+   },
+   {
+    "par": "src/pages/Retours.tsx",
+    "symboles": [
+     "ArticleAchat",
+     "Avoir",
+     "LigneVente",
+     "Vente"
+    ]
+   }
+  ],
+  "src/components/FiltresAvances.tsx": [
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "FILTRES_VIDES",
+     "FiltresAvances",
+     "FiltresState"
+    ]
+   }
+  ],
+  "src/components/ModalNouvellePiece.tsx": [
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "ModalNouvellePiece"
+    ]
+   }
+  ],
+  "src/components/ModalLivraison.tsx": [
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "ModalLivraison"
+    ]
+   }
+  ],
+  "src/components/RetourFournisseur.tsx": [
+   {
+    "par": "src/pages/Retours.tsx",
+    "symboles": [
+     "RetourFournisseur"
+    ]
+   }
+  ],
+  "src/components/ModalOuvrirCaisse.tsx": [
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "ModalOuvrirCaisse",
+     "estCaisseFermee"
+    ]
+   }
+  ],
+  "src/components/ModalImpression.tsx": [
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "ModalImpression"
+    ]
+   }
+  ],
+  "src/lib/useScanner.ts": [
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "useScanner"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/mod.rs": [
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "achats"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "pieces"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "livraisons"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "catalogue"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "sauvegarde"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "ventes"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "parametres"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "retours"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "caisse"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "pagination"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "depots"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "transferts"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "relances"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "impression"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "logo"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "pieces_pos"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "dashboard"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "cheques"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "codebarre"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "chantiers"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "creances"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "fournisseurs"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "societe"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "avoirs"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "journal"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "auth"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "rapports"
+    ]
+   }
+  ],
+  "src-tauri/src/seed.rs": [
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "seeder"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "base_est_vide"
+    ]
+   }
+  ],
+  "src-tauri/src/persistance/mod.rs": [
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "ouvrir_base"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "initialiser_tables"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/coeur/mod.rs": [
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/tests_multi_depot.rs": [
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/utils.rs": [
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/auth.rs": [
+   {
+    "par": "src-tauri/src/seed.rs",
+    "symboles": [
+     "hasher_mot_de_passe_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/depots.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "lire_stock_multi_depots_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "desactiver_depot_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "reactiver_depot_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/ventes.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "creer_vente_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "lire_articles_avec_unites_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "ParamsLigneInput"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/achats.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/achats.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/auth.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/avoirs.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/avoirs.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/avoirs.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/caisse.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/caisse.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/catalogue.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/chantiers.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/chantiers.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/cheques.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/codebarre.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/creances.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/creances.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/creances.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/dashboard.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/depots.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/depots.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/fournisseurs.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/fournisseurs.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/journal.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/livraisons.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/livraisons.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/logo.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pagination.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/parametres.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/parametres.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces_pos.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces_pos.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/rapports.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/relances.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/relances.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/retours.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/retours.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/sauvegarde.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/sauvegarde.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/societe.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/transferts.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/transferts.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   }
+  ],
+  "src-tauri/src/coeur/pieces.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "annuler_facture_par_avoir_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "valider_facture_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "LignePieceInput"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "creer_piece_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/coeur/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/achats.rs",
+    "symboles": [
+     "prochain_numero"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/achats.rs",
+    "symboles": [
+     "peut_transferer"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "peut_transferer"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "peut_modifier"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "peut_annuler"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces_pos.rs",
+    "symboles": [
+     "prochain_numero"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/retours.rs",
+    "symboles": [
+     "prochain_numero"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/pieces.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "annuler_facture_par_avoir_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "valider_facture_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "LignePieceInput"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "creer_piece_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/coeur/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/achats.rs",
+    "symboles": [
+     "prochain_numero"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/achats.rs",
+    "symboles": [
+     "peut_transferer"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces_pos.rs",
+    "symboles": [
+     "prochain_numero"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/retours.rs",
+    "symboles": [
+     "prochain_numero"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/retours.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "enregistrer_retour_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/transferts.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "LigneTransfert"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "enregistrer_transfert_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/pieces_pos.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "creer_facture_depuis_vente_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/coeur/codebarre.rs": [
+   {
+    "par": "src-tauri/src/coeur/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/codebarre.rs": [
+   {
+    "par": "src-tauri/src/coeur/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/coeur/caisse.rs": [
+   {
+    "par": "src-tauri/src/coeur/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/caisse.rs",
+    "symboles": [
+     "ecart_caisse"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/caisse.rs",
+    "symboles": [
+     "solde_theorique"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/caisse.rs": [
+   {
+    "par": "src-tauri/src/coeur/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/coeur/stock.rs": [
+   {
+    "par": "src-tauri/src/coeur/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/depots.rs",
+    "symboles": [
+     "libelle"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/journal.rs",
+    "symboles": [
+     "libelle"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "est_a_decouvert"
+    ]
+   }
+  ],
+  "src-tauri/src/coeur/calcul.rs": [
+   {
+    "par": "src-tauri/src/coeur/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/avoirs.rs",
+    "symboles": [
+     "StatutVente"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/avoirs.rs",
+    "symboles": [
+     "statut_vente"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/chantiers.rs",
+    "symboles": [
+     "reste_exigible"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/chantiers.rs",
+    "symboles": [
+     "repartir_reglement"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/cheques.rs",
+    "symboles": [
+     "StatutVente"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/cheques.rs",
+    "symboles": [
+     "statut_vente"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/creances.rs",
+    "symboles": [
+     "statut_vente"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/creances.rs",
+    "symboles": [
+     "effet_caisse_annulation"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/creances.rs",
+    "symboles": [
+     "SEUIL_SOLDE"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/creances.rs",
+    "symboles": [
+     "reste_exigible"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/creances.rs",
+    "symboles": [
+     "StatutVente"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/creances.rs",
+    "symboles": [
+     "EffetCaisse"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/fournisseurs.rs",
+    "symboles": [
+     "effet_caisse_annulation"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/fournisseurs.rs",
+    "symboles": [
+     "reste_exigible"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/fournisseurs.rs",
+    "symboles": [
+     "EffetCaisse"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "reste_exigible"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces_pos.rs",
+    "symboles": [
+     "reste_exigible"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/retours.rs",
+    "symboles": [
+     "StatutVente"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/retours.rs",
+    "symboles": [
+     "statut_vente"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/creances.rs": [
+   {
+    "par": "src-tauri/src/commandes/fournisseurs.rs",
+    "symboles": [
+     "societe"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/catalogue.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/fournisseurs.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/avoirs.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/societe.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/cheques.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/chantiers.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/parametres.rs",
+    "symboles": [
+     "reimputer_paiements_globaux"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/achats.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/relances.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/pagination.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/rapports.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/parametres.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/dashboard.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/logo.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/journal.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/persistance/journal.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/livraisons.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "etat"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/impression.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "imprimer_facture"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/sauvegarde.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ]
+ },
+ "orphelins": [
+  "creer_tiers_test.py",
+  "generer_catalogue.py",
+  "nettoyer_imports.py",
+  "preparer_demo_video.py",
+  "src-tauri/src/portes.rs",
+  "src/components/SelecteurProfil.tsx",
+  "src/components/ui/table.tsx",
+  "src/lib/remise.ts",
+  "src/lib/session.ts",
+  "src/lib/tauri.ts",
+  "t_regles.py"
+ ],
+ "symboles_dupliques": {
+  "LigneVente": [
+   "src/components/ModalsRetour.tsx",
+   "src/lib/remise.ts"
+  ],
+  "UniteVente": [
+   "src/components/ModalsRetour.tsx",
+   "src/lib/tauri.ts"
+  ],
+  "base_par_defaut": [
+   "creer_tiers_test.py",
+   "preparer_demo_video.py"
+  ],
+  "cle_ean13": [
+   "generer_catalogue.py",
+   "src-tauri/src/coeur/codebarre.rs"
+  ],
+  "fmt": [
+   "preparer_demo_video.py",
+   "src/lib/remise.ts"
+  ],
+  "main": [
+   "creer_tiers_test.py",
+   "generer_catalogue.py",
+   "nettoyer_imports.py",
+   "preparer_demo_video.py"
+  ],
+  "peut_modifier": [
+   "src-tauri/src/coeur/pieces.rs",
+   "t_regles.py"
+  ],
+  "prochain_numero": [
+   "preparer_demo_video.py",
+   "src-tauri/src/commandes/pieces.rs",
+   "t_regles.py"
+  ],
+  "reste_exigible": [
+   "preparer_demo_video.py",
+   "src-tauri/src/coeur/calcul.rs",
+   "t_regles.py"
+  ],
+  "statut_vente": [
+   "preparer_demo_video.py",
+   "src-tauri/src/coeur/calcul.rs",
+   "t_regles.py"
+  ],
+  "supprimer": [
+   "creer_tiers_test.py",
+   "preparer_demo_video.py"
+  ],
+  "telephone": [
+   "creer_tiers_test.py",
+   "preparer_demo_video.py"
+  ],
+  "valider_facture": [
+   "src-tauri/src/commandes/pieces.rs",
+   "t_regles.py"
+  ]
+ },
+ "dependances_externes": {
+  "@tauri-apps": 76,
+  "react": 51,
+  "lucide-react": 42,
+  "@base-ui": 7,
+  "class-variance-authority": 2,
+  "vite": 1,
+  "@vitejs": 1,
+  "@tailwindcss": 1,
+  "path": 1,
+  "react-dom": 1,
+  "..": 1,
+  "clsx": 1,
+  "tailwind-merge": 1
+ }
+}
