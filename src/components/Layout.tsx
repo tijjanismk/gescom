@@ -62,7 +62,29 @@ export function Layout({
   const [depots, setDepots] = useState<Depot[]>([]);
 
   useEffect(() => {
-    invoke<Depot[]>("lire_depots").then(setDepots).catch(console.error);
+    invoke<Depot[]>("lire_depots").then(liste => {
+      setDepots(liste);
+      // Le depot memorise dans localStorage peut avoir ete ferme depuis
+      // — y compris par une version anterieure, qui ne remettait pas le
+      // filtre a zero. Il reste alors selectionne sans figurer nulle
+      // part : `lire_depots` ne renvoie que les actifs, donc le
+      // selecteur ne le propose plus, et s'il ne reste qu'un depot
+      // actif le selecteur disparait entierement (`multiDepot`).
+      //
+      // Pendant ce temps le tableau de bord continue de filtrer sur lui
+      // et affiche zero partout — zero rupture, zero CA, zero creance —
+      // sans qu'aucun ecran ne dise pourquoi, et sans moyen de revenir
+      // en arriere. L'ecran Stock, lui, ne filtre pas par depot : d'ou
+      // trois articles a regulariser d'un cote et zero rupture de
+      // l'autre.
+      //
+      // On ne corrige que si la liste a bien ete lue : une liste vide
+      // par erreur reseau ne doit pas effacer le choix de l'utilisateur.
+      if (liste.length > 0 && depotActif
+          && !liste.some(d => d.id === depotActif)) {
+        onChangerDepot(null);
+      }
+    }).catch(console.error);
   }, []);
 
   // Le sélecteur n'a de sens qu'avec plusieurs dépôts. Avec un seul,
