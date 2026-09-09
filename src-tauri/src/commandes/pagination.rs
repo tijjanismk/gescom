@@ -241,13 +241,37 @@ pub fn lire_clients_pagines(
     // creance, comme partout ailleurs (creances.rs, relances.rs,
     // dashboard.rs) — une liste fermee ne laisse pas passer un statut
     // futur par defaut.
+    // Le reste EXIGIBLE, pas le reste brut — meme regle que
+    // `coeur::calcul::reste_exigible`, appliquee par `lire_creances_ouvertes`
+    // (creances.rs). Sans elle, un residu d'arrondi de 1 a 5 F affichait
+    // un encours dans cette liste alors que l'ecran des creances, lui, ne
+    // montrait rien : deux ecrans, deux verites sur le meme client.
+    //
+    // La regle est traduite en SQL parce qu'elle doit entrer dans un
+    // agregat — impossible de rappeler la fonction Rust ligne a ligne
+    // ici. Le SEUIL reste importe de `coeur` : la valeur ne s'ecrit
+    // qu'a un seul endroit, meme si le test s'ecrit deux fois.
+    //
+    // `paye > 0` est essentiel : sans encaissement il n'y a pas de
+    // residu d'arrondi, et une petite vente de 3 F reste une creance.
+    let seuil = crate::coeur::calcul::SEUIL_SOLDE;
+    let creance_exigible = format!(
+        "CASE
+           WHEN v.statut NOT IN ('creance_ouverte','partiellement_payee') THEN 0
+           WHEN CAST(lv_sum.total AS INTEGER)
+                - CAST(COALESCE(p_sum.paye, 0) AS INTEGER) <= 0 THEN 0
+           WHEN CAST(COALESCE(p_sum.paye, 0) AS INTEGER) > 0
+            AND CAST(lv_sum.total AS INTEGER)
+                - CAST(COALESCE(p_sum.paye, 0) AS INTEGER) <= {seuil} THEN 0
+           ELSE CAST(lv_sum.total AS INTEGER)
+                - CAST(COALESCE(p_sum.paye, 0) AS INTEGER)
+         END"
+    );
+
     let sql_count = format!(
         "SELECT COUNT(*) FROM (
            SELECT c.id,
-             COALESCE(SUM(CASE
-               WHEN v.statut IN ('creance_ouverte','partiellement_payee')
-               THEN CAST(lv_sum.total AS INTEGER) - CAST(COALESCE(p_sum.paye, 0) AS INTEGER)
-               ELSE 0 END), 0) as total_creances,
+             COALESCE(SUM({}), 0) as total_creances,
              COUNT(DISTINCT CASE WHEN v.statut <> 'annulee' THEN v.id END) as nb_ventes
            FROM client c
            LEFT JOIN vente v ON v.client_id = c.id
@@ -258,7 +282,7 @@ pub fn lire_clients_pagines(
            WHERE {}
            GROUP BY c.id
            HAVING {}
-         ) WHERE 1=1", where_base, having_clause
+         ) WHERE 1=1", creance_exigible, where_base, having_clause
     );
 
     let total: i64 = conn.query_row(&sql_count, [], |row| row.get(0)).unwrap_or(0);
@@ -266,10 +290,7 @@ pub fn lire_clients_pagines(
     let offset = page * limite;
     let sql = format!(
         "SELECT c.id, c.code, c.nom, c.telephone,
-                COALESCE(SUM(CASE
-                  WHEN v.statut IN ('creance_ouverte','partiellement_payee')
-                  THEN CAST(lv_sum.total AS INTEGER) - CAST(COALESCE(p_sum.paye, 0) AS INTEGER)
-                  ELSE 0 END), 0) as total_creances,
+                COALESCE(SUM({}), 0) as total_creances,
                 COUNT(DISTINCT CASE WHEN v.statut <> 'annulee' THEN v.id END) as nb_ventes
          FROM client c
          LEFT JOIN vente v ON v.client_id = c.id
@@ -282,7 +303,7 @@ pub fn lire_clients_pagines(
          HAVING {}
          ORDER BY {}
          LIMIT {} OFFSET {}",
-        where_base, having_clause, order_by, limite, offset
+        creance_exigible, where_base, having_clause, order_by, limite, offset
     );
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
