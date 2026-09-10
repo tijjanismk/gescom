@@ -57,6 +57,7 @@ pub fn verifier_permission(
                 | "caisse:mouvementer"
                 | "pieces:creer"
                 | "pieces:lire"
+                | "retours:creer"
         ),
         "lecture" => permission.ends_with(":lire"),
         _ => false,

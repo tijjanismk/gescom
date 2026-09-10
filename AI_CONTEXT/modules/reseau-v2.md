@@ -4,10 +4,32 @@ Rôle : faire tourner Gescom sur plusieurs postes autour d'un serveur qui
 détient la base. Sessions, canal d'événements, sauvegardes, caisse par
 utilisateur.
 
-⚠️ **Migration en cours.** Le serveur exécute **31** commandes sur
-les 183 : le socle réseau, les modèles de documents (voir
-[modeles-documents](modeles-documents.md)), le comptoir, le chemin de
-vente complet, **le tableau de bord et les deux règlements**. Les autres vivent encore dans `commandes/`, en
+**Migration terminée.** Le serveur exécute **172** commandes sur 182.
+
+Les **10** restantes ne peuvent pas quitter le crate applicatif : elles
+ouvrent une fenêtre Tauri ou lisent un chemin d'application —
+`imprimer_facture`, `imprimer_piece`, `ouvrir_avec_systeme`,
+`entretenir_base`, et les six du logo, de l'en-tête et du pied.
+Un poste caisse qui les appelle reçoit `commande_inconnue` ; c'est
+voulu, l'impression et les images se font sur la machine qui a l'écran.
+
+## Comment les 141 dernières ont été portées
+
+À la main, ç'aurait été sept mille lignes recopiées. Deux outils l'ont
+fait, et c'est leur emploi qui rend la chose défendable :
+
+- un **porteur** déplace un fichier de `commandes/` vers `noyau/` en
+  coupant le texte, jamais en le récrivant : la signature perd son
+  `State<EtatApp>` au profit d'une `&Connection`, le verrou disparaît,
+  et une façade Tauri mince reste derrière ;
+- [outils/generer_socle.py](../../outils/generer_socle.py) lit ces
+  façades et écrit les poignées du serveur. Chaque façade dit son nom,
+  son module et ses paramètres — retaper 141 signatures aurait été long
+  et faux quelque part.
+
+Le bloc généré vit entre deux marqueurs dans `socle.rs`. Les 31
+poignées écrites à la main, au-dessus, ne sont pas touchées : ce sont
+celles qui demandent un traitement particulier. Les autres vivent encore dans `commandes/`, en
 `#[tauri::command]`, et ne fonctionnent qu'en monoposte. Un poste
 caisse qui les appelle reçoit `commande_inconnue`.
 
@@ -104,15 +126,19 @@ essai.
    `lire_postes` et `lire_sessions_reseau` (via le serveur) montrent la
    caisse connectée.
 
-**Ce qui ne marchera pas encore** : tout écran appelant une des 152
-commandes non portées — journal, pièces, achats, stock, retours,
-relances, rapports, paramètres. Le message est explicite
-(`commande_inconnue`), pas un plantage. Le paiement par chèque depuis
-le point de vente non plus (`enregistrer_cheque`).
+**Ce qui ne marchera pas depuis une caisse** : imprimer. Les quatre
+commandes d'impression et les six d'images restent sur la machine qui a
+l'écran. Un poste caisse peut donc tout faire sauf sortir le papier —
+à traiter avant de livrer le multiposte.
 
-Le **tableau de bord** fonctionne : c'est l'écran d'accueil, et une
-caisse y arrive avant tout le reste. Cinq « commande inconnue » en
-guise de bienvenue auraient donné l'impression d'un logiciel cassé.
+**Les droits changent en réseau.** En monoposte, aucune permission
+n'était vérifiée : l'écran seul décidait. Un poste caisse envoie du
+JSON, donc chaque écriture porte désormais une permission et
+`portes::verifier_permission` tranche. L'employé peut vendre,
+encaisser, créer un client ou un article, ouvrir et mouvementer la
+caisse, établir une pièce et enregistrer un retour. Il ne peut pas
+toucher aux achats, aux paramètres, aux utilisateurs ni aux
+transferts — c'est plus strict que le v1, et c'est délibéré.
 
 ## Les trois crates
 
@@ -225,11 +251,11 @@ les 167 commandes à migrer n'en ont toujours pas.
 
 ## Ce qui reste à faire
 
-1. Continuer de porter les commandes vers `socle.rs`, **par domaine et
-   avec leur test**. Fait : les modèles, le comptoir, la vente, la
-   facture, le tableau de bord, les deux règlements. Suivant : les
-   pièces commerciales (l'écran Pièces est le second plus utilisé après
-   la vente), puis les achats, le stock, les retours.
+1. **L'impression depuis une caisse.** Les dix commandes restées dans
+   le crate applicatif ouvrent une fenêtre ; un poste caisse doit
+   pouvoir imprimer sa facture. Le HTML se fabrique déjà dans l'écran :
+   il suffit que la caisse l'imprime chez elle, sans passer par le
+   serveur. À vérifier écran par écran.
    ⚠️ `gescom-serveur.exe` n'est toujours pas empaqueté par
    l'installeur, et n'a pas le contrôle d'installation du client.
 2. Remplacer `stock_depot.quantite` (compteur muté) par une somme de
