@@ -430,6 +430,52 @@ pub fn descendant_actif(conn: &rusqlite::Connection, piece_id: &str) -> Option<S
     ).ok()
 }
 
+/// Le stock de cette piece est-il confie a un bon en amont ?
+///
+/// Depuis que la livraison deplace le stock, une piece n'a plus le
+/// droit de le bouger deux fois. La regle est simple et physique :
+/// **le stock bouge une fois, au premier document qui constate le
+/// mouvement reel**.
+///
+/// - une facture qui descend d'un bon de livraison ne sort RIEN : la
+///   marchandise part par le bon, au fur et a mesure des livraisons ;
+/// - une facture sans bon en amont sort le stock elle-meme, comme
+///   avant. C'est le cas de toutes les pieces deja en base, et du
+///   commercant qui remet la marchandise au comptoir.
+///
+/// Consequence assumee : un bon facture mais pas encore livre laisse la
+/// marchandise en magasin. C'est vrai — elle n'est pas partie.
+///
+/// On remonte `piece_origine_id`, avec un plafond : une base modifiee a
+/// la main pourrait contenir un cycle, et une boucle infinie ici
+/// bloquerait la caisse.
+pub fn stock_confie_a_un_bon(conn: &rusqlite::Connection, piece_id: &str) -> bool {
+    const BONS: [&str; 2] = ["bon_livraison", "bon_reception"];
+    let mut courant = piece_id.to_string();
+    for _ in 0..8 {
+        let parent: Option<(String, String)> = conn
+            .query_row(
+                "SELECT p.id, p.type_piece
+                 FROM piece_commerciale c
+                 JOIN piece_commerciale p ON p.id = c.piece_origine_id
+                 WHERE c.id = ?1",
+                rusqlite::params![courant],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+        match parent {
+            Some((id, type_parent)) => {
+                if BONS.contains(&type_parent.as_str()) {
+                    return true;
+                }
+                courant = id;
+            }
+            None => return false,
+        }
+    }
+    false
+}
+
 pub fn convertir_piece(
     conn: &rusqlite::Connection,
     piece_id: String,
@@ -538,11 +584,12 @@ pub fn convertir_piece(
     // ce chemin laissait la piece a « rien de livre », alors que
     // l'action combinee (commande -> BL + facture) la marquait —  deux
     // gestes voisins, deux resultats differents.
+    //
+    // Depuis que le bon deplace le stock, ce raccourci doit passer par
+    // le MEME chemin que la saisie ligne a ligne : sinon le bon se dit
+    // livre sans que rien ne sorte du magasin.
     if nouveau_type == "bon_livraison" {
-        conn.execute(
-            "UPDATE ligne_piece SET quantite_livree = quantite WHERE piece_id = ?1",
-            rusqlite::params![nouvelle_id],
-        ).ok();
+        crate::livraisons::marquer_entierement_livre(&conn, &nouvelle_id)?;
     }
 
     // Facture issue d'un BL : elle herite de l'etat livre, sinon on
@@ -699,11 +746,13 @@ pub fn convertir_commande_en_livraison_et_facture(
     // livre » alors qu'un bon de livraison vient d'etre imprime pour
     // elle. Reste corrigeable a la main (ModalLivraison) si le depart
     // se fait en plusieurs fois.
+    //
+    // Meme chemin que la saisie ligne a ligne : c'est lui qui sort la
+    // marchandise du magasin pour le BL. La facture, elle, ne fait
+    // qu'heriter de l'etat — elle ne constate aucun mouvement, donc
+    // `marquer_entierement_livre` n'ecrit rien pour elle.
     for id in [&bl_id, &fac_id] {
-        tx.execute(
-            "UPDATE ligne_piece SET quantite_livree = quantite WHERE piece_id = ?1",
-            rusqlite::params![id],
-        ).map_err(|e| e.to_string())?;
+        crate::livraisons::marquer_entierement_livre(&tx, id)?;
     }
 
     // ---- 4. Fermer la commande ----

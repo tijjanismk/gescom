@@ -246,7 +246,13 @@ pub fn lire_journal_du_jour(
          JOIN article a ON a.id = ms.article_id
          JOIN depot d ON d.id = ms.depot_id
          LEFT JOIN utilisateur u ON u.id = ms.auteur_id
-         WHERE ms.type_mouvement IN ('entree','ajustement','transfert')
+         -- 'livraison' et 'reception' incluses : ce sont des
+         -- mouvements du jour comme les autres, et les omettre les
+         -- rendrait invisibles au commercant qui relit sa journee —
+         -- exactement ce qui etait arrive a echange, ajustement et
+         -- transfert.
+         WHERE ms.type_mouvement IN
+               ('entree','ajustement','transfert','livraison','reception')
            AND DATE(ms.date_mouvement) = ?1
            AND (?2 IS NULL OR ms.depot_id = ?2)
          ORDER BY ms.date_mouvement"

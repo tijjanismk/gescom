@@ -31,11 +31,26 @@ pub const ECHANGE: &str = "echange";
 pub const AJUSTEMENT: &str = "ajustement";
 /// Deplacement entre depots. Deux lignes par transfert, opposees.
 pub const TRANSFERT: &str = "transfert";
+/// Sortie constatee par un bon de livraison.
+///
+/// Distincte de VENTE, et ce n'est pas un detail : l'historique de
+/// stock retrouve le numero du document en joignant sur le TYPE et
+/// `operation_id`. VENTE pointe vers la table `vente`, une livraison
+/// vers `piece_commerciale`. Les confondre ferait chercher un
+/// identifiant de piece dans les ventes — le mouvement s'afficherait
+/// sans numero, donc invérifiable.
+pub const LIVRAISON: &str = "livraison";
+/// Entree constatee par un bon de reception.
+///
+/// Distincte d'ACHAT comme ENTREE l'est (D42) : a la reception, rien
+/// n'est encore facture. C'est la facture fournisseur qui suit qui
+/// cree la dette.
+pub const RECEPTION: &str = "reception";
 
 /// Tous les types connus, pour les ecrans qui filtrent.
-pub const TOUS: [&str; 8] = [
+pub const TOUS: [&str; 10] = [
     ACHAT, ENTREE, VENTE, RETOUR, RETOUR_FOURNISSEUR,
-    ECHANGE, AJUSTEMENT, TRANSFERT,
+    ECHANGE, AJUSTEMENT, TRANSFERT, LIVRAISON, RECEPTION,
 ];
 
 /// Le mouvement fait-il ENTRER de la marchandise ?
@@ -45,8 +60,8 @@ pub const TOUS: [&str; 8] = [
 /// l'appelant une fois sur deux.
 pub fn est_entrant(type_mouvement: &str) -> Option<bool> {
     match type_mouvement {
-        ACHAT | ENTREE | RETOUR => Some(true),
-        VENTE | RETOUR_FOURNISSEUR | ECHANGE => Some(false),
+        ACHAT | ENTREE | RETOUR | RECEPTION => Some(true),
+        VENTE | RETOUR_FOURNISSEUR | ECHANGE | LIVRAISON => Some(false),
         _ => None,
     }
 }
@@ -54,7 +69,9 @@ pub fn est_entrant(type_mouvement: &str) -> Option<bool> {
 /// Ce mouvement correspond-il a de la marchandise achetee au sens
 /// comptable — c'est-a-dire facturee par un fournisseur ?
 ///
-/// ENTREE en est exclue : rien n'a ete facture ni paye.
+/// ENTREE et RECEPTION en sont exclues : rien n'a ete facture ni paye.
+/// Pour une reception, c'est la facture fournisseur qui suit qui porte
+/// la dette.
 pub fn est_achat_facture(type_mouvement: &str) -> bool {
     type_mouvement == ACHAT
 }
@@ -70,6 +87,8 @@ pub fn libelle(type_mouvement: &str) -> &'static str {
         ECHANGE => "Échange",
         AJUSTEMENT => "Ajustement",
         TRANSFERT => "Transfert",
+        LIVRAISON => "Livraison",
+        RECEPTION => "Réception",
         _ => "Autre",
     }
 }

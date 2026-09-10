@@ -422,7 +422,7 @@ pub fn lire_mouvements_stock(
                 COALESCE(u.nom, '—'),
                 COALESCE(f.nom, ''),
                 CAST(COALESCE(ms.prix_achat_unitaire, 0) AS INTEGER),
-                COALESCE(pc_vente.numero, pc_ret.numero, pc_op.numero, '')
+                COALESCE(pc_vente.numero, pc_ret.numero, pc_op.numero, pc_bon.numero, '')
          FROM mouvement_stock ms
          JOIN article a ON a.id = ms.article_id
          JOIN depot d ON d.id = ms.depot_id
@@ -439,6 +439,12 @@ pub fn lire_mouvements_stock(
            AND pc_ret.id = ms.operation_id
          LEFT JOIN piece_commerciale pc_op ON ms.type_mouvement = 'achat'
            AND pc_op.id = ms.operation_id
+         -- Livraison et reception : `operation_id` porte directement
+         -- l'id du bon. Sans cette jointure le mouvement s'afficherait
+         -- sans numero, donc sans moyen de remonter au document.
+         LEFT JOIN piece_commerciale pc_bon
+           ON ms.type_mouvement IN ('livraison','reception')
+           AND pc_bon.id = ms.operation_id
          WHERE (?1 IS NULL OR ms.article_id = ?1)
            AND (?2 IS NULL OR ms.depot_id = ?2)
            AND (?3 IS NULL OR ms.type_mouvement = ?3)

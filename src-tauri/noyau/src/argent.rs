@@ -464,6 +464,16 @@ pub fn valider_facture_sur(
     let auteur_id = id_utilisateur_par_role(&conn, role);
     let now = maintenant_iso();
 
+    // Le stock bouge une fois, au premier document qui constate le
+    // mouvement reel. Si cette facture descend d'un bon de livraison,
+    // c'est le bon qui sort la marchandise, au fur et a mesure des
+    // livraisons : la facture ne fait plus que l'argent.
+    //
+    // Sans bon en amont — le cas de toutes les pieces deja en base, et
+    // du commercant qui remet la marchandise au comptoir — elle sort le
+    // stock elle-meme, exactement comme avant.
+    let stock_ailleurs = crate::pieces::stock_confie_a_un_bon(&conn, &piece_id);
+
     // Calculer les montants ligne par ligne.
     // La remise globale est REPARTIE au prorata sur chaque ligne, sinon
     // SUM(prix_pratique * quantite) ne correspond pas au montant du et la
@@ -564,18 +574,19 @@ pub fn valider_facture_sur(
         // Le stock suit desormais son mouvement : le declencheur
         // `stock_suit_les_mouvements` met le compteur a jour dans la meme
         // transaction. L'ecrire ici le compterait deux fois.
-
-        tx.execute(
-            "INSERT INTO mouvement_stock
-             (id, article_id, depot_id, type_mouvement, quantite_delta,
-              operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine)
-             VALUES (?1,?2,?3,'vente',?4,?5,?6,?7,?8,?9,'app')",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(),
-                art_id, depot_id, -qte_base,
-                vente_id, auteur_id, now, now, auteur_id
-            ],
-        ).map_err(|e| e.to_string())?;
+        if !stock_ailleurs {
+            tx.execute(
+                "INSERT INTO mouvement_stock
+                 (id, article_id, depot_id, type_mouvement, quantite_delta,
+                  operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine)
+                 VALUES (?1,?2,?3,'vente',?4,?5,?6,?7,?8,?9,'app')",
+                rusqlite::params![
+                    uuid::Uuid::new_v4().to_string(),
+                    art_id, depot_id, -qte_base,
+                    vente_id, auteur_id, now, now, auteur_id
+                ],
+            ).map_err(|e| e.to_string())?;
+        }
     }
 
     // 3. Numéro de facture lié à la vente

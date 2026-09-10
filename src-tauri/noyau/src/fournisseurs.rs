@@ -616,11 +616,12 @@ pub fn lire_fiche_fournisseur(
 
     let (_qte, nb_achats, derniere_cmd): (f64, i64, Option<String>) =
         conn.query_row(
-            // 'entree' incluse : marchandise recue de ce fournisseur,
-             // facturee ou non. Le montant du, lui, vient des pieces.
+            // 'entree' et 'reception' incluses : marchandise recue de
+             // ce fournisseur, facturee ou non. Le montant du, lui,
+             // vient des pieces.
              "SELECT COALESCE(SUM(quantite_delta), 0), COUNT(*), MAX(date_mouvement)
              FROM mouvement_stock
-             WHERE type_mouvement IN ('achat','entree') AND quantite_delta > 0
+             WHERE type_mouvement IN ('achat','entree','reception') AND quantite_delta > 0
                AND fournisseur_id = ?1",
             rusqlite::params![fournisseur_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
@@ -712,7 +713,7 @@ pub fn lire_fiche_fournisseur(
          JOIN article a ON a.id = ms.article_id
          LEFT JOIN piece_commerciale pc ON ms.type_mouvement = 'achat'
            AND pc.id = ms.operation_id
-         WHERE ms.type_mouvement IN ('achat','entree') AND ms.quantite_delta > 0
+         WHERE ms.type_mouvement IN ('achat','entree','reception') AND ms.quantite_delta > 0
            AND ms.fournisseur_id = ?1
          ORDER BY ms.date_mouvement DESC LIMIT 50"
     ).map_err(|e| e.to_string())?;
