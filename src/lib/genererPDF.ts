@@ -14,7 +14,7 @@
 // le script n'a pas ouverte. D'ou le bouton de repli, qui n'apparait
 // qu'apres 2,5 s et seulement si la fenetre est encore la. Il est
 // masque a l'impression : il ne doit jamais finir sur le papier.
-const SCRIPT_IMPRESSION = `
+export const SCRIPT_IMPRESSION = `
 <style>@media print { #gescom-fermer { display:none !important; } }</style>
 <script>
 (function () {

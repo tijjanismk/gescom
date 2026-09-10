@@ -28,6 +28,7 @@ Ordre de lecture conseillé :
 | [front-composants](modules/front-composants.md) | modales, onglets, primitives shadcn |
 | [front-lib](modules/front-lib.md) | génération des documents imprimables |
 | [reseau-v2](modules/reseau-v2.md) | **v2** — serveur, sessions, canal, caisse par utilisateur |
+| [modeles-documents](modules/modeles-documents.md) | **v2** — moteur de documents, atelier, import/export |
 
 ## Ce que la carte ne remplace pas
 

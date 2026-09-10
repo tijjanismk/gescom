@@ -15,6 +15,8 @@ import { Fournisseurs } from "@/pages/Fournisseurs";
 import { FicheFournisseur } from "@/pages/FicheFournisseur";
 import { Caisse } from "@/pages/Caisse";
 import { Parametres } from "@/pages/Parametres";
+import { Modeles } from "@/pages/Modeles";
+import { assurerModelesParDefaut } from "@/lib/modeles/service";
 import { Retours } from "@/pages/Retours";
 import { Relances } from "@/pages/Relances";
 import { Rapports } from "@/pages/Rapports";
@@ -133,6 +135,20 @@ function App() {
     if (utilisateur?.doit_changer_mdp) setModalMdp(true);
   }, []);
 
+  // Les modeles d'usine sont poses au premier demarrage, jamais
+  // reecrits ensuite. Ici et pas dans l'ecran Modeles : une facture
+  // doit pouvoir s'imprimer par un modele sans que personne ne soit
+  // jamais alle voir l'atelier.
+  //
+  // L'echec est silencieux et volontairement : une base en lecture
+  // seule ou un disque plein ne doit pas empecher d'ouvrir la caisse.
+  // L'impression retombe alors sur le generateur historique.
+  useEffect(() => {
+    assurerModelesParDefaut().catch((e) =>
+      console.error("Modeles par defaut :", e),
+    );
+  }, []);
+
   /**
    * Sauvegarde hebdomadaire.
    *
@@ -243,6 +259,7 @@ function App() {
       case "transferts": return <Transferts />;
       case "cheques":    return <Cheques />;
       case "rapports":   return <Rapports />;
+      case "modeles":    return <Modeles />;
       case "parametres": return <Parametres />;
       default:           return <Dashboard />;
     }

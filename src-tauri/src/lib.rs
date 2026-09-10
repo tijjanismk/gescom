@@ -113,6 +113,15 @@ pub fn run() {
             reseau::lire_config_reseau,
             reseau::definir_config_reseau,
             reseau::tester_serveur,
+            // ---- Modeles de documents (v2) ----
+            commandes::modeles::lire_modeles,
+            commandes::modeles::lire_modele,
+            commandes::modeles::lire_modele_actif,
+            commandes::modeles::enregistrer_modele,
+            commandes::modeles::definir_modele_actif,
+            commandes::modeles::supprimer_modele,
+            commandes::modeles::exporter_modeles,
+            commandes::modeles::importer_modeles,
             // ---- Société & factures ----
             commandes::societe::lire_parametres_societe,
             commandes::societe::sauvegarder_parametres_societe,

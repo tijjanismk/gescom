@@ -5,9 +5,11 @@ détient la base. Sessions, canal d'événements, sauvegardes, caisse par
 utilisateur.
 
 ⚠️ **Fondations posées, migration non faite.** Le serveur exécute
-**7** commandes sur les 174. Les 167 autres vivent encore dans
-`commandes/`, en `#[tauri::command]`, et ne fonctionnent qu'en
-monoposte. Un poste caisse qui les appelle reçoit `commande_inconnue`.
+**12** commandes sur les 182 : le socle réseau, plus les modèles de
+documents (voir [modeles-documents](modeles-documents.md)). Les autres
+vivent encore dans `commandes/`, en `#[tauri::command]`, et ne
+fonctionnent qu'en monoposte. Un poste caisse qui les appelle reçoit
+`commande_inconnue`.
 
 ## Les trois crates
 
@@ -122,7 +124,8 @@ les 167 commandes à migrer n'en ont toujours pas.
 
 1. Porter les commandes vers `socle.rs`, **par domaine et avec leur
    test** — en commençant par `creer_vente`, `valider_facture`,
-   `regler_dette_fournisseur`.
+   `regler_dette_fournisseur`. Les modèles de documents montrent le
+   patron : logique dans `noyau/`, deux façades minces.
 2. Remplacer `stock_depot.quantite` (compteur muté) par une somme de
    `mouvement_stock`. ⚠️ **Pas encore urgent** : le serveur ne détient
    qu'une connexion derrière un `Mutex`, donc deux ventes ne s'exécutent

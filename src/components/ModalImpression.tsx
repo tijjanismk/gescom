@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
-import { Printer, Loader2, FileText, PackageCheck } from "lucide-react";
+import {
+  Printer, Loader2, FileText, PackageCheck, LayoutTemplate,
+} from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -8,6 +10,9 @@ import { Button } from "@/components/ui/button";
 import { message } from "@tauri-apps/plugin-dialog";
 import { genererImpression } from "@/lib/genererPDF";
 import type { FormatImpression, DonneesPiece } from "@/lib/genererPDF";
+import { rendreModele } from "@/lib/modeles/rendu";
+import { contextePiece } from "@/lib/modeles/contexte";
+import type { Modele } from "@/lib/modeles/types";
 
 interface ModalImpressionProps {
   ouvert: boolean;
@@ -30,10 +35,20 @@ export function ModalImpression({ ouvert, venteId, onFermer }: ModalImpressionPr
   const [bonSortieActif, setBonSortieActif] = useState(false);
   const [avecBonSortie, setAvecBonSortie] = useState(true);
 
+  // Les modeles de l'atelier viennent s'ajouter aux formats d'origine.
+  // Ils ne les REMPLACENT pas : le generateur historique imprime la
+  // meme facture depuis des mois, et le jour ou l'on bascule doit etre
+  // choisi par le commercant, apres avoir vu son modele a l'ecran.
+  const [modeles, setModeles] = useState<Modele[]>([]);
+  const [modeleChoisi, setModeleChoisi] = useState<string | null>(null);
+
   useEffect(() => {
     invoke<boolean>("lire_config_bon_sortie")
       .then(setBonSortieActif)
       .catch(() => setBonSortieActif(false));
+    invoke<Modele[]>("lire_modeles", { genre: "facture" })
+      .then(setModeles)
+      .catch(() => setModeles([]));
   }, []);
 
   async function handleImprimer() {
@@ -77,9 +92,19 @@ export function ModalImpression({ ouvert, venteId, onFermer }: ModalImpressionPr
         ? (format === "a5" ? "a5_et_bon" : "a4_et_bon")
         : format;
 
+      const modele = modeleChoisi
+        ? modeles.find(m => m.id === modeleChoisi) ?? null
+        : null;
+
+      const html = modele
+        ? rendreModele(modele, contextePiece(donnees as any), {
+            images: { logo, entete, pied },
+          })
+        : genererImpression(
+            donnees, formatFinal, logo, entete, pied, signatures);
+
       await invoke<string>("imprimer_facture", {
-        html: genererImpression(
-          donnees, formatFinal, logo, entete, pied, signatures),
+        html,
         nomFichier: `gescom_${numero}.html`,
       });
 
@@ -109,25 +134,60 @@ export function ModalImpression({ ouvert, venteId, onFermer }: ModalImpressionPr
 
           <div className="space-y-2">
             {FORMATS.map(f => (
-              <button key={f.value} onClick={() => setFormat(f.value)}
+              <button key={f.value}
+                onClick={() => { setFormat(f.value); setModeleChoisi(null); }}
                 className={`
                   w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border-2
                   text-left transition-all
-                  ${format === f.value
+                  ${format === f.value && !modeleChoisi
                     ? "border-primary bg-primary/5"
                     : "border-border hover:border-muted-foreground"}
                 `}>
                 <FileText className={`h-4 w-4 shrink-0 ${
-                  format === f.value ? "text-primary" : "text-muted-foreground"
+                  format === f.value && !modeleChoisi
+                    ? "text-primary" : "text-muted-foreground"
                 }`} />
                 <div>
-                  <p className={`text-sm font-medium ${format === f.value ? "text-primary" : ""}`}>
+                  <p className={`text-sm font-medium ${
+                    format === f.value && !modeleChoisi ? "text-primary" : ""}`}>
                     {f.label}
                   </p>
                   <p className="text-xs text-muted-foreground">{f.desc}</p>
                 </div>
               </button>
             ))}
+
+            {modeles.length > 0 && (
+              <>
+                <p className="pt-1 text-[11px] font-semibold uppercase
+                              tracking-wide text-muted-foreground">
+                  Mes modèles
+                </p>
+                {modeles.map(m => (
+                  <button key={m.id} onClick={() => setModeleChoisi(m.id)}
+                    className={`
+                      w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border-2
+                      text-left transition-all
+                      ${modeleChoisi === m.id
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-muted-foreground"}
+                    `}>
+                    <LayoutTemplate className={`h-4 w-4 shrink-0 ${
+                      modeleChoisi === m.id ? "text-primary" : "text-muted-foreground"
+                    }`} />
+                    <div>
+                      <p className={`text-sm font-medium ${
+                        modeleChoisi === m.id ? "text-primary" : ""}`}>
+                        {m.nom}{m.actif ? " ★" : ""}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Atelier des modèles — {m.format.replace("_", " ")}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </>
+            )}
           </div>
 
           {/* Case affichée seulement si le réglage est actif : inutile
@@ -135,7 +195,8 @@ export function ModalImpression({ ouvert, venteId, onFermer }: ModalImpressionPr
           {/* Seulement en A4/A5 : le bon ne se greffe pas sur un ticket
               thermique, et une case ignorée en silence est pire que pas
               de case. */}
-          {bonSortieActif && (format === "a4" || format === "a5") && (
+          {bonSortieActif && !modeleChoisi
+            && (format === "a4" || format === "a5") && (
             <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg
                               border border-border cursor-pointer
                               hover:bg-muted/40 transition-colors">

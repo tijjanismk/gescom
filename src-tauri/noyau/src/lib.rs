@@ -18,6 +18,7 @@ pub mod protocole;
 pub mod postes;
 pub mod sessions;
 pub mod caisses;
+pub mod modeles;
 pub mod registre;
 
 /// Version du protocole client/serveur.

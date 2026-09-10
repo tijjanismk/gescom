@@ -12,7 +12,7 @@
 use serde_json::{json, Value};
 
 use gescom_noyau::registre::{Contexte, Registre};
-use gescom_noyau::{caisses, postes, sessions};
+use gescom_noyau::{caisses, modeles, postes, sessions};
 
 pub fn registre() -> Registre {
     let mut r = Registre::nouveau();
@@ -50,6 +50,42 @@ pub fn registre() -> Registre {
         let n = sessions::revoquer(c.conn, &id, &c.appelant.utilisateur_id)
             .map_err(|e| e.to_string())?;
         Ok(json!({ "revoquees": n }))
+    });
+
+    // Les modeles : c'est par la que le poste principal habille toutes
+    // les caisses. Un modele corrige ici est vu par tout le magasin au
+    // rechargement suivant — sans clef USB, sans reinstallation.
+    r.lecture("lire_modeles", |c, p| {
+        let genre = p.get("genre").and_then(Value::as_str);
+        let v = modeles::lister(c.conn, genre).map_err(|e| e.to_string())?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_modele_actif", |c, p| {
+        let genre = texte(&p, "genre")?;
+        serde_json::to_value(modeles::lire_actif(c.conn, &genre))
+            .map_err(|e| e.to_string())
+    });
+
+    r.ecriture("enregistrer_modele", "modeles:gerer", |c, p| {
+        let m: modeles::Modele = serde_json::from_value(
+            p.get("modele").cloned().unwrap_or(Value::Null),
+        )
+        .map_err(|e| format!("Modèle illisible : {e}"))?;
+        modeles::enregistrer(c.conn, &m, &c.appelant.utilisateur_id)?;
+        Ok(json!({ "id": m.id }))
+    });
+
+    r.ecriture("definir_modele_actif", "modeles:gerer", |c, p| {
+        let id = texte(&p, "id")?;
+        modeles::definir_actif(c.conn, &id)?;
+        Ok(json!({ "id": id }))
+    });
+
+    r.ecriture("supprimer_modele", "modeles:gerer", |c, p| {
+        let id = texte(&p, "id")?;
+        modeles::supprimer(c.conn, &id)?;
+        Ok(json!({ "id": id }))
     });
 
     r.lecture("lire_mode_caisse", |c, _| {

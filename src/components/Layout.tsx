@@ -6,7 +6,7 @@ import {
   ShoppingBag, Truck, RotateCcw, LogOut,
   Lock, ChevronDown, FileText,
   MessageCircle, BarChart2, BookOpen, ArrowLeftRight, Warehouse,
-  FileCheck,
+  FileCheck, LayoutTemplate,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UtilisateurConnecte } from "@/pages/PageLogin";
@@ -26,6 +26,7 @@ const NAV_PATRON = [
   { nom: "Relances",        icone: MessageCircle,   href: "relances"    },
   { nom: "Journal",         icone: BookOpen,        href: "journal"     },
   { nom: "Rapports",        icone: BarChart2,       href: "rapports"    },
+  { nom: "Modèles",         icone: LayoutTemplate,  href: "modeles"     },
   { nom: "Paramètres",      icone: Settings,        href: "parametres"  },
 ];
 

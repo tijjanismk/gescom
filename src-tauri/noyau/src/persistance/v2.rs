@@ -83,6 +83,39 @@ pub fn migrer(conn: &Connection) -> Result<()> {
     .ok();
 
     // -----------------------------------------------------------------
+    //  Modeles de documents
+    // -----------------------------------------------------------------
+    // Le modele est une DONNEE, pas du code : le commercant qui veut
+    // son logo a droite et sa colonne « reference » en plus ne doit pas
+    // attendre une version de Gescom. Et parce que c'est une donnee,
+    // le serveur la distribue a toutes les caisses.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS modele_document (
+            id          TEXT PRIMARY KEY,
+            genre       TEXT NOT NULL,
+            nom         TEXT NOT NULL,
+            format      TEXT NOT NULL DEFAULT 'a4',
+            contenu     TEXT NOT NULL,
+            est_defaut  INTEGER NOT NULL DEFAULT 0,
+            actif       INTEGER NOT NULL DEFAULT 0,
+            cree_le     TEXT NOT NULL,
+            modifie_le  TEXT NOT NULL,
+            modifie_par TEXT
+         );
+         CREATE INDEX IF NOT EXISTS idx_modele_genre ON modele_document(genre);",
+    )?;
+
+    // Un seul modele actif par genre. En base et pas seulement dans
+    // l'ecran : deux actifs, et le document imprime depend de l'ordre
+    // de lecture — donc change sans raison visible.
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_modele_actif_par_genre
+         ON modele_document(genre) WHERE actif = 1",
+        [],
+    )
+    .ok();
+
+    // -----------------------------------------------------------------
     //  Reglages
     // -----------------------------------------------------------------
     // Defaut 0 : la boutique type de Bamako a UN tiroir. Le mode

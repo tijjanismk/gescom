@@ -81,7 +81,7 @@ function esc(s: string): string {
  * coup de stylo. Le franc CFA n'a pas de centime : pas de décimales à
  * écrire.
  */
-function enLettres(n: number): string {
+export function enLettres(n: number): string {
   if (n === 0) return "zéro";
   if (n < 0) return "moins " + enLettres(-n);
 
