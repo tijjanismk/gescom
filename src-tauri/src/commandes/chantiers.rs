@@ -150,107 +150,10 @@ pub fn regler_dette_fournisseur(
     montant: i64,
     mode: String,
     note: Option<String>,
-    // Facture imputee. NULL = reglement global, reparti de la plus
-    // ancienne a la plus recente (voir imputer_paiements_fournisseur).
     piece_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    let auteur = crate::commandes::ventes::id_utilisateur_courant_pub(&conn);
-    let now = maintenant_iso();
-
-    // AVANT toute ecriture : cette fonction n'ouvre pas de transaction,
-    // donc un refus plus bas laisserait un paiement fournisseur
-    // enregistre sans mouvement de caisse en face — pire que le mal
-    // qu'on corrige.
-    let sid = crate::utils::exiger_session_caisse(&conn)?;
-
-    // Repartition ECRITE, pas devinee a la lecture.
-    //
-    // Un reglement global s'enregistrait avec `piece_id = NULL` et la
-    // repartition n'existait qu'en memoire, le temps de poser un statut.
-    // Or tous les ecrans lisent le paye d'une facture par
-    // `WHERE pf.piece_id = pc.id` : un paiement sans `piece_id`
-    // n'appartient a aucune facture. La piece affichait donc « Paye »
-    // AVEC un reste du egal au total, pendant que la fiche fournisseur
-    // — qui somme tous les paiements du tiers — paraissait juste.
-    //
-    // On ecrit desormais une ligne de paiement PAR facture couverte.
-    let parts: Vec<(Option<String>, i64)> = match piece_id {
-        // Imputation explicite depuis l'ecran Pieces : rien a repartir.
-        Some(pid) => vec![(Some(pid), montant)],
-        None => {
-            let mut st = conn.prepare(
-                "SELECT pc.id,
-                        CAST(COALESCE((SELECT SUM(lp.montant_ht + lp.montant_tva)
-                           FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0)
-                        - COALESCE((SELECT SUM(pf.montant)
-                           FROM paiement_fournisseur pf WHERE pf.piece_id = pc.id), 0)
-                        AS INTEGER)
-                 FROM piece_commerciale pc
-                 WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
-                   AND pc.type_piece = 'facture_fournisseur'
-                   AND pc.statut <> 'annule'
-                 ORDER BY pc.date_piece ASC"
-            ).map_err(|e| e.to_string())?;
-
-            let ouvertes: Vec<(String, i64)> = st.query_map(
-                rusqlite::params![fournisseur_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-
-            crate::coeur::calcul::repartir_reglement(montant, &ouvertes)
-        }
-    };
-
-    for (pid, part) in &parts {
-        conn.execute(
-            "INSERT INTO paiement_fournisseur
-             (id, fournisseur_id, montant, mode, note, auteur_id,
-              date_paiement, cree_le, origine, piece_id)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'app',?9)",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(),
-                fournisseur_id, part, mode, note, auteur, now, now, pid
-            ],
-        ).map_err(|e| e.to_string())?;
-    }
-
-    // Recalculer les statuts des factures de ce fournisseur.
-    let soldees = imputer_paiements_fournisseur(&conn, &fournisseur_id, &now)?;
-
-    // SORTIE de caisse : le reglement d'une dette sort de l'argent du
-    // tiroir. Sans ce mouvement, la cloture affiche un excedent.
-    {
-        conn.execute(
-            "INSERT INTO mouvement_caisse
-             (id, session_id, sens, moyen, montant, motif,
-              operation_id, date_mouvement, cree_le, cree_par, origine)
-             VALUES (?1,?2,'sortie',?3,?4,'reglement_fournisseur',?5,?6,?7,?8,'app')",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(),
-                sid, mode, montant, fournisseur_id, now, now, auteur
-            ],
-        ).ok();
-    }
-
-    conn.execute(
-        "INSERT INTO journal
-         (id, type_evenement, entite_type, entite_id, auteur_id,
-          nouveau_valeur, origine, date_evenement)
-         VALUES (?1,'paiement_fournisseur','fournisseur',?2,?3,?4,'app',?5)",
-        rusqlite::params![
-            uuid::Uuid::new_v4().to_string(),
-            fournisseur_id, auteur,
-            format!(r#"{{"montant":{},"mode":"{}"}}"#, montant, mode),
-            now
-        ],
-    ).ok();
-
-    Ok(serde_json::json!({
-        "montant":  montant,
-        // Numeros des factures passees a "paye" par ce reglement.
-        "soldees":  soldees,
-    }))
+    gescom_noyau::argent::regler_dette_fournisseur(&conn, fournisseur_id, montant, mode, note, piece_id)
 }
 
 /// Repare les reglements globaux enregistres AVANT la repartition
@@ -300,75 +203,8 @@ pub fn reimputer_paiements_globaux(
 ///
 /// Idempotent : une ligne imputee n'est plus reprise, et une avance
 /// reelle (rien a couvrir) reste NULL sans etre reecrite a chaque appel.
-fn reallouer_globaux(
-    conn: &rusqlite::Connection,
-    fournisseur_id: &str,
-    now: &str,
-) -> Result<i64, String> {
-    let mut st = conn.prepare(
-        "SELECT id, montant, mode, note, auteur_id, date_paiement
-         FROM paiement_fournisseur
-         WHERE fournisseur_id = ?1 AND piece_id IS NULL
-         ORDER BY date_paiement ASC"
-    ).map_err(|e| e.to_string())?;
-    let globales: Vec<(String, i64, String, Option<String>, Option<String>, String)> =
-        st.query_map(rusqlite::params![fournisseur_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
-        }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-    drop(st);
-
-    let mut reparties = 0_i64;
-
-    for (id, montant, mode, note, auteur, date_p) in globales {
-        // Restes relus A CHAQUE ligne : la precedente vient de les
-        // reduire.
-        let mut st = conn.prepare(
-            "SELECT pc.id,
-                    CAST(COALESCE((SELECT SUM(lp.montant_ht + lp.montant_tva)
-                       FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0)
-                    - COALESCE((SELECT SUM(pf.montant)
-                       FROM paiement_fournisseur pf WHERE pf.piece_id = pc.id), 0)
-                    AS INTEGER)
-             FROM piece_commerciale pc
-             WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
-               AND pc.type_piece = 'facture_fournisseur'
-               AND pc.statut <> 'annule'
-             ORDER BY pc.date_piece ASC"
-        ).map_err(|e| e.to_string())?;
-        let ouvertes: Vec<(String, i64)> = st.query_map(
-            rusqlite::params![fournisseur_id], |r| Ok((r.get(0)?, r.get(1)?)),
-        ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-        drop(st);
-
-        let parts = crate::coeur::calcul::repartir_reglement(montant, &ouvertes);
-
-        // Rien d'imputable : avance legitime, on la laisse telle quelle.
-        if parts.iter().all(|(p, _)| p.is_none()) {
-            continue;
-        }
-
-        conn.execute(
-            "DELETE FROM paiement_fournisseur WHERE id = ?1",
-            rusqlite::params![id],
-        ).map_err(|e| e.to_string())?;
-
-        for (pid, part) in &parts {
-            conn.execute(
-                "INSERT INTO paiement_fournisseur
-                 (id, fournisseur_id, montant, mode, note, auteur_id,
-                  date_paiement, cree_le, origine, piece_id)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'reimputation',?9)",
-                rusqlite::params![
-                    uuid::Uuid::new_v4().to_string(),
-                    fournisseur_id, part, mode, note, auteur, date_p, now, pid
-                ],
-            ).map_err(|e| e.to_string())?;
-        }
-        reparties += 1;
-    }
-
-    Ok(reparties)
-}
+// Deplace avec `imputer_paiements_fournisseur`, son appelant.
+pub(crate) use gescom_noyau::argent::reallouer_globaux;
 
 /// Recalcule le statut des factures fournisseur d'apres les paiements.
 ///
@@ -380,69 +216,9 @@ fn reallouer_globaux(
 /// Une facture passe a "paye" quand le cumul couvre son total, et
 /// revient a "emis" sinon (annulation d'un paiement, avoir ajoute).
 /// Retourne les numeros des factures desormais soldees.
-fn imputer_paiements_fournisseur(
-    conn: &rusqlite::Connection,
-    fournisseur_id: &str,
-    now: &str,
-) -> Result<Vec<String>, String> {
-    // L'affectation est ECRITE d'abord, puis les statuts se deduisent
-    // des seuls paiements imputes.
-    //
-    // Il y avait ici une « enveloppe » : la somme des paiements non
-    // imputes, repartie EN MEMOIRE sur les factures pour poser un
-    // statut. C'est exactement ce qui faisait diverger l'ecran Pieces
-    // (qui lit `WHERE pf.piece_id = pc.id`) de la fiche fournisseur.
-    // Corrige a l'ecriture des reglements, le trou subsistait pour les
-    // avances : un sur-paiement restait NULL et se retrouvait reparti
-    // en memoire des qu'une facture arrivait — meme bug, plus discret.
-    //
-    // Sans enveloppe, les deux vues lisent la meme chose par
-    // construction : il n'y a plus qu'une source.
-    reallouer_globaux(conn, fournisseur_id, now)?;
-
-    let mut stmt = conn.prepare(
-        "SELECT pc.id, pc.numero, pc.statut,
-                CAST(COALESCE((SELECT SUM(lp.montant_ht + lp.montant_tva)
-                   FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0) AS INTEGER),
-                CAST(COALESCE((SELECT SUM(pf.montant)
-                   FROM paiement_fournisseur pf WHERE pf.piece_id = pc.id), 0) AS INTEGER)
-         FROM piece_commerciale pc
-         WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
-           AND pc.type_piece = 'facture_fournisseur'
-           AND pc.statut <> 'annule'
-         ORDER BY pc.date_piece ASC"
-    ).map_err(|e| e.to_string())?;
-
-    let factures: Vec<(String, String, String, i64, i64)> = stmt.query_map(
-        rusqlite::params![fournisseur_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-        }
-    ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-
-    let mut soldees = Vec::new();
-
-    for (piece_id, numero, statut_actuel, total, impute) in factures {
-        let couvert = impute;
-
-        // Meme seuil que le cote client : un residu d'arrondi ne doit
-        // pas laisser une FAF eternellement "emis" (D41).
-        let nouveau = if total > 0
-            && crate::coeur::calcul::reste_exigible(total, couvert) == 0
-            { "paye" } else { "emis" };
-        if nouveau != statut_actuel {
-            conn.execute(
-                "UPDATE piece_commerciale SET statut = ?1, modifie_le = ?2
-                 WHERE id = ?3",
-                rusqlite::params![nouveau, now, piece_id],
-            ).map_err(|e| e.to_string())?;
-        }
-        if nouveau == "paye" {
-            soldees.push(numero);
-        }
-    }
-
-    Ok(soldees)
-}
+// Le corps a demenage dans `noyau::argent` avec
+// `regler_dette_fournisseur`, son unique appelant.
+pub(crate) use gescom_noyau::argent::imputer_paiements_fournisseur;
 
 // =====================================================================
 //  IRRÉCOUVRABLE

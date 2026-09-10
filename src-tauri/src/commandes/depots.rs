@@ -514,40 +514,5 @@ pub fn lire_ventes_a_decouvert(
     date_fin: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    let d1 = date_debut.filter(|s| !s.is_empty());
-    let d2 = date_fin.filter(|s| !s.is_empty());
-
-    let mut st = conn.prepare(
-        "SELECT a.nom, a.unite_base, lv.quantite, v.date_vente,
-                COALESCE(c.nom, '—'), COALESCE(d.nom, '—')
-         FROM ligne_vente lv
-         JOIN vente v ON v.id = lv.vente_id
-         JOIN article a ON a.id = lv.article_id
-         LEFT JOIN client c ON c.id = v.client_id
-         LEFT JOIN depot d ON d.id = lv.depot_source_id
-         WHERE lv.vente_a_decouvert = 1
-           AND v.statut <> 'annulee'
-           AND (?1 IS NULL OR DATE(v.date_vente) >= ?1)
-           AND (?2 IS NULL OR DATE(v.date_vente) <= ?2)
-         ORDER BY v.date_vente DESC
-         LIMIT 200"
-    ).map_err(|e| e.to_string())?;
-
-    let lignes: Vec<serde_json::Value> = st.query_map(
-        rusqlite::params![d1, d2], |r| {
-            Ok(serde_json::json!({
-                "article":    r.get::<_, String>(0)?,
-                "unite_base": r.get::<_, String>(1)?,
-                "quantite":   r.get::<_, f64>(2)?,
-                "date":       r.get::<_, String>(3)?,
-                "client":     r.get::<_, String>(4)?,
-                "depot":      r.get::<_, String>(5)?,
-            }))
-        }
-    ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-
-    Ok(serde_json::json!({
-        "nb":     lignes.len(),
-        "lignes": lignes,
-    }))
+    gescom_noyau::tableau_bord::lire_ventes_a_decouvert(&conn, date_debut, date_fin)
 }

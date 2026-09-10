@@ -233,71 +233,7 @@ pub fn enregistrer_paiement(
     utilisateur_role: Option<String>,
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    let role = utilisateur_role.as_deref().unwrap_or("employe");
-    let auteur_id = id_utilisateur_par_role(&conn, role);
-    let now = maintenant_iso();
-
-    // AVANT l'insert : cette fonction n'ouvre pas de transaction, un
-    // refus plus bas laisserait un paiement sans mouvement de caisse.
-    if mode != "avoir" {
-        crate::utils::exiger_session_caisse(&conn)?;
-    }
-
-    // Insérer le paiement
-    conn.execute(
-        "INSERT INTO paiement
-         (id, vente_id, montant, mode, date_paiement, auteur_id, cree_le, cree_par, origine)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'app')",
-        rusqlite::params![
-            uuid::Uuid::new_v4().to_string(), vente_id, montant,
-            mode, now, auteur_id, now, auteur_id
-        ],
-    ).map_err(|e| e.to_string())?;
-
-    // Mettre à jour le statut de la vente
-    let total: i64 = conn.query_row(
-        "SELECT CAST(COALESCE(SUM(prix_pratique * quantite), 0) AS INTEGER)
-         FROM ligne_vente WHERE vente_id = ?1",
-        rusqlite::params![vente_id], |r| r.get(0),
-    ).unwrap_or(0);
-
-    let total_paye: i64 = conn.query_row(
-        "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
-         FROM paiement WHERE vente_id = ?1",
-        rusqlite::params![vente_id], |r| r.get(0),
-    ).unwrap_or(0);
-
-    let statut = if total_paye >= total { "payee" }
-        else if total_paye > 0 { "partiellement_payee" }
-        else { "creance_ouverte" };
-
-    conn.execute(
-        "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
-        rusqlite::params![statut, now, vente_id],
-    ).map_err(|e| e.to_string())?;
-
-    // Alimenter la caisse si session ouverte et mode espèces/mobile
-    if mode != "avoir" {
-        let session_id: Option<String> = conn.query_row(
-            "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
-            [], |r| r.get(0),
-        ).ok();
-
-        if let Some(sid) = session_id {
-            conn.execute(
-                "INSERT INTO mouvement_caisse
-                 (id, session_id, sens, moyen, montant, motif,
-                  operation_id, date_mouvement, cree_le, cree_par, origine)
-                 VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?7,?8,'app')",
-                rusqlite::params![
-                    uuid::Uuid::new_v4().to_string(), sid, mode, montant,
-                    vente_id, now, now, auteur_id
-                ],
-            ).ok();
-        }
-    }
-
-    Ok(())
+    gescom_noyau::argent::enregistrer_paiement(&conn, vente_id, montant, mode, utilisateur_role)
 }
 
 // =====================================================================

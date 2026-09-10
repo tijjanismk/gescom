@@ -17,6 +17,7 @@ pub mod portes;
 pub mod protocole;
 pub mod postes;
 pub mod sessions;
+pub mod tableau_bord;
 pub mod caisses;
 pub mod argent;
 pub mod catalogue;

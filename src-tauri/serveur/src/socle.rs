@@ -12,7 +12,9 @@
 use serde_json::{json, Value};
 
 use gescom_noyau::registre::{Contexte, Registre};
-use gescom_noyau::{argent, caisses, catalogue, comptoir, modeles, postes, sessions};
+use gescom_noyau::{
+    argent, caisses, catalogue, comptoir, modeles, postes, sessions, tableau_bord,
+};
 
 pub fn registre() -> Registre {
     let mut r = Registre::nouveau();
@@ -43,6 +45,68 @@ pub fn registre() -> Registre {
                 .or_else(|| entier(&p, "prix_reference"))
                 .unwrap_or(0),
             entier(&p, "prixAchat").or_else(|| entier(&p, "prix_achat")),
+        )
+    });
+
+    // ---- Le tableau de bord ----
+    //
+    // L'ecran d'accueil : une caisse qui se connecte y arrive avant
+    // tout le reste. Cinq « commande_inconnue » en guise de bienvenue
+    // donneraient l'impression d'un logiciel casse.
+    r.lecture("lire_resume_dashboard", |c, p| {
+        tableau_bord::lire_resume_dashboard(c.conn, option_texte(&p, "depotId"))
+    });
+
+    r.lecture("lire_ventes_periode", |c, p| {
+        let v = tableau_bord::lire_ventes_periode(
+            c.conn,
+            option_texte(&p, "periode"),
+            option_texte(&p, "depotId"),
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_top_clients", |c, _| {
+        let v = tableau_bord::lire_top_clients(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_top_articles", |c, _| {
+        let v = tableau_bord::lire_top_articles(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_ventes_a_decouvert", |c, p| {
+        tableau_bord::lire_ventes_a_decouvert(
+            c.conn,
+            option_texte(&p, "dateDebut").or_else(|| option_texte(&p, "date_debut")),
+            option_texte(&p, "dateFin").or_else(|| option_texte(&p, "date_fin")),
+        )
+    });
+
+    // ---- Les deux reglements ----
+    //
+    // Encaisser une creance et payer un fournisseur : sans eux, une
+    // caisse vend mais ne peut pas recevoir l'argent du lendemain.
+    r.ecriture("enregistrer_paiement", "paiements:creer", |c, p| {
+        argent::enregistrer_paiement(
+            c.conn,
+            texte(&p, "venteId").or_else(|_| texte(&p, "vente_id"))?,
+            entier(&p, "montant").unwrap_or(0),
+            texte(&p, "mode")?,
+            Some(c.appelant.role.clone()),
+        )?;
+        Ok(json!({ "etat": "enregistre" }))
+    });
+
+    r.ecriture("regler_dette_fournisseur", "fournisseurs:regler", |c, p| {
+        argent::regler_dette_fournisseur(
+            c.conn,
+            texte(&p, "fournisseurId").or_else(|_| texte(&p, "fournisseur_id"))?,
+            entier(&p, "montant").unwrap_or(0),
+            texte(&p, "mode")?,
+            option_texte(&p, "note"),
+            option_texte(&p, "pieceId").or_else(|| option_texte(&p, "piece_id")),
         )
     });
 

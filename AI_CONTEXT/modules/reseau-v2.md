@@ -4,10 +4,10 @@ Rôle : faire tourner Gescom sur plusieurs postes autour d'un serveur qui
 détient la base. Sessions, canal d'événements, sauvegardes, caisse par
 utilisateur.
 
-⚠️ **Migration en cours.** Le serveur exécute **24** commandes sur
+⚠️ **Migration en cours.** Le serveur exécute **31** commandes sur
 les 183 : le socle réseau, les modèles de documents (voir
-[modeles-documents](modeles-documents.md)), les lectures du comptoir et
-**le premier chemin de vente complet**. Les autres vivent encore dans `commandes/`, en
+[modeles-documents](modeles-documents.md)), le comptoir, le chemin de
+vente complet, **le tableau de bord et les deux règlements**. Les autres vivent encore dans `commandes/`, en
 `#[tauri::command]`, et ne fonctionnent qu'en monoposte. Un poste
 caisse qui les appelle reçoit `commande_inconnue`.
 
@@ -46,6 +46,16 @@ SQL fait réellement à la base.
 - [CONFIRMÉ] Le verrou reste celui du serveur : une seule commande
   s'exécute à la fois. C'est ce qui rend le multiposte sûr **sans**
   avoir touché aux compteurs de stock.
+- [CONFIRMÉ] `enregistrer_paiement` et `regler_dette_fournisseur`
+  n'ouvrent **pas** de transaction — c'est le code d'origine, conservé
+  tel quel. Ils exigent la caisse ouverte avant le premier `INSERT`,
+  précisément parce qu'un refus plus bas laisserait un paiement sans
+  mouvement de caisse. Sous le verrou du serveur, une seule commande
+  s'exécute à la fois : la propriété tient. Elle tomberait le jour d'un
+  pool de connexions — **à reprendre avant PostgreSQL**.
+- [CONFIRMÉ] `paiements:creer` est dans la liste blanche de l'employé —
+  encaisser une créance est son métier. `fournisseurs:regler` n'y est
+  pas : payer un fournisseur reste au patron.
 
 ## L'écran de réglage réseau
 
@@ -94,11 +104,15 @@ essai.
    `lire_postes` et `lire_sessions_reseau` (via le serveur) montrent la
    caisse connectée.
 
-**Ce qui ne marchera pas encore** : tout écran appelant une des 159
-commandes non portées — tableau de bord, journal, pièces, achats,
-stock, retours, rapports. Le message est explicite
+**Ce qui ne marchera pas encore** : tout écran appelant une des 152
+commandes non portées — journal, pièces, achats, stock, retours,
+relances, rapports, paramètres. Le message est explicite
 (`commande_inconnue`), pas un plantage. Le paiement par chèque depuis
 le point de vente non plus (`enregistrer_cheque`).
+
+Le **tableau de bord** fonctionne : c'est l'écran d'accueil, et une
+caisse y arrive avant tout le reste. Cinq « commande inconnue » en
+guise de bienvenue auraient donné l'impression d'un logiciel cassé.
 
 ## Les trois crates
 
@@ -212,10 +226,10 @@ les 167 commandes à migrer n'en ont toujours pas.
 ## Ce qui reste à faire
 
 1. Continuer de porter les commandes vers `socle.rs`, **par domaine et
-   avec leur test**. Fait : les modèles, le comptoir, la vente et la
-   facture. Suivant : `enregistrer_paiement` et `regler_dette_fournisseur`
-   (les deux règlements), puis le tableau de bord, le journal, les
-   pièces, les achats.
+   avec leur test**. Fait : les modèles, le comptoir, la vente, la
+   facture, le tableau de bord, les deux règlements. Suivant : les
+   pièces commerciales (l'écran Pièces est le second plus utilisé après
+   la vente), puis les achats, le stock, les retours.
    ⚠️ `gescom-serveur.exe` n'est toujours pas empaqueté par
    l'installeur, et n'a pas le contrôle d'installation du client.
 2. Remplacer `stock_depot.quantite` (compteur muté) par une somme de
