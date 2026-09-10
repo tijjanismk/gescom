@@ -53,6 +53,34 @@ global), `coeur::stock` (types de mouvement),
 
 ## Règles métier
 
+- [CONFIRMÉ] Un **retour fournisseur sort du dépôt de la facture
+  d'achat**, pas du dépôt par défaut — la marchandise repart d'où elle
+  est entrée. Même règle que l'échange, qui sort du dépôt de la vente
+  (D43). Avant, une caisse reçue au magasin annexe était déduite du
+  principal : les deux stocks faux, aucun des deux ne le disait.
+  Résolution : paramètre explicite → dépôt de `piece_origine_id` →
+  dépôt par défaut. Test
+  `un_retour_fournisseur_sort_du_depot_de_la_facture`.
+- [CONFIRMÉ] Un retour fournisseur qui dépasse le stock est **refusé**,
+  comme le transfert (D32) et contrairement à la vente. Une vente à
+  découvert se constate — le client attend, la marchandise est souvent
+  là, c'est le stock informatique qui a du retard. Un retour, non : la
+  marchandise doit physiquement quitter la boutique. En retourner
+  cinquante quand on en détient trois est une erreur de saisie, pas un
+  événement du commerce. Tests
+  `un_retour_fournisseur_refuse_le_decouvert`,
+  `un_retour_egal_au_stock_passe` (le cas limite passe).
+- [CONFIRMÉ] Les quantités sont **cumulées par article** avant le
+  contrôle : deux lignes de trois sur un stock de quatre sont refusées
+  ensemble, alors que chacune prise seule passerait (test
+  `deux_lignes_du_meme_article_se_cumulent`).
+- [CONFIRMÉ] `lire_factures_fournisseur_retournables` expose
+  `stock_disponible` et `retournable` par ligne : le reliquat de
+  facture dit ce qui n'a pas encore été rendu, pas ce qui **peut**
+  l'être — la marchandise a pu être vendue depuis. L'écran plafonne sur
+  le plus petit des deux, sinon on saisit sa ligne pour se faire
+  refuser au clic.
+
 - [CONFIRMÉ] `enregistrer_achat` exige la caisse ouverte avant tout
   ([achats.rs:105](../../src-tauri/src/commandes/achats.rs#L105)), puis
   la ré-exige à l'intérieur de la transaction

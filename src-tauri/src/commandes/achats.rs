@@ -358,22 +358,85 @@ pub fn enregistrer_retour_fournisseur(
     motif: Option<String>,
     utilisateur_role: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    enregistrer_retour_fournisseur_sur(
+        &mut conn, fournisseur_id, depot_id, lignes, piece_origine_id,
+        mode_resolution, mode_encaissement, motif, utilisateur_role,
+    )
+}
+
+/// Logique du retour fournisseur, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test : les
+/// scenarios de `tests_multi_depot` verifient ce que le SQL fait
+/// reellement a la base, ce qu'aucun test de formule ne montre.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn enregistrer_retour_fournisseur_sur(
+    conn: &mut rusqlite::Connection,
+    fournisseur_id: String,
+    depot_id: Option<String>,
+    lignes: Vec<LigneRetourFournisseur>,
+    piece_origine_id: Option<String>,
+    mode_resolution: Option<String>,
+    mode_encaissement: Option<String>,
+    motif: Option<String>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
     if lignes.is_empty() {
         return Err("Aucune ligne a retourner".to_string());
     }
 
-    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let now = maintenant_iso();
     let role = utilisateur_role.as_deref().unwrap_or("employe");
-    let auteur = crate::commandes::ventes::id_utilisateur_par_role(&conn, role);
+    let auteur = crate::commandes::ventes::id_utilisateur_par_role(conn, role);
 
+    // Le depot du RETOUR est celui de la facture d'achat, pas le depot
+    // par defaut.
+    //
+    // La marchandise repart d'ou elle est entree. Sortir du depot par
+    // defaut une caisse recue au magasin annexe enlevait du stock a un
+    // magasin qui n'avait rien et laissait l'autre en excedent
+    // permanent — les deux faux, et aucun des deux ne le disait.
+    // Meme regle que l'echange, qui sort du depot de la vente (D43).
     let depot_id = match depot_id {
         Some(d) if !d.is_empty() => d,
-        _ => conn.query_row(
-            "SELECT id FROM depot WHERE est_defaut = 1 LIMIT 1",
-            [], |r| r.get(0),
-        ).map_err(|_| "Aucun depot par defaut configure".to_string())?,
+        _ => {
+            let du_lot: Option<String> = piece_origine_id.as_ref().and_then(|p| {
+                conn.query_row(
+                    "SELECT depot_id FROM piece_commerciale WHERE id = ?1",
+                    rusqlite::params![p],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .ok()
+                .flatten()
+                .filter(|d| !d.is_empty())
+            });
+            match du_lot {
+                Some(d) => d,
+                None => conn
+                    .query_row(
+                        "SELECT id FROM depot WHERE est_defaut = 1 LIMIT 1",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .map_err(|_| "Aucun depot par defaut configure".to_string())?,
+            }
+        }
     };
+
+    // On ne retourne pas ce qu'on n'a pas.
+    //
+    // Une vente a decouvert se constate : le client attend, la
+    // marchandise est souvent la, c'est le stock informatique qui a du
+    // retard. Un retour fournisseur, non : la marchandise doit
+    // PHYSIQUEMENT quitter la boutique pour repartir chez le
+    // fournisseur. En retourner cinquante quand on en detient trois
+    // n'est pas un evenement du commerce, c'est une erreur de saisie —
+    // et l'enregistrer creuserait un stock negatif que personne ne
+    // saurait plus rattacher a sa cause.
+    //
+    // Meme refus que le transfert (D32), pour la meme raison.
+    verifier_stock_disponible(conn, &depot_id, &lignes)?;
 
     let rembourse = mode_resolution.as_deref() == Some("remboursement");
 
@@ -381,10 +444,10 @@ pub fn enregistrer_retour_fournisseur(
     // ouvert. Un remboursement encaisse caisse fermee entrait dans la
     // dette mais pas dans le tiroir — excedent inexplique au comptage.
     if rembourse {
-        crate::utils::exiger_session_caisse(&conn)?;
+        crate::utils::exiger_session_caisse(conn)?;
     }
 
-    let numero = crate::commandes::pieces::prochain_numero(&conn, "avoir_fournisseur");
+    let numero = crate::commandes::pieces::prochain_numero(conn, "avoir_fournisseur");
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let op_id = uuid::Uuid::new_v4().to_string();
@@ -500,6 +563,60 @@ pub fn enregistrer_retour_fournisseur(
     }))
 }
 
+/// Refuse un retour qui mettrait le depot a decouvert.
+///
+/// Les quantites sont CUMULEES par article avant comparaison : deux
+/// lignes de trois sacs sur un stock de quatre doivent etre refusees
+/// ensemble, alors que chacune prise seule passerait.
+fn verifier_stock_disponible(
+    conn: &rusqlite::Connection,
+    depot_id: &str,
+    lignes: &[LigneRetourFournisseur],
+) -> Result<(), String> {
+    let mut demande: std::collections::HashMap<&str, f64> =
+        std::collections::HashMap::new();
+    for l in lignes {
+        *demande.entry(l.article_id.as_str()).or_insert(0.0) += l.quantite * l.facteur;
+    }
+
+    for (article_id, voulu) in demande {
+        if voulu <= 0.0 {
+            continue;
+        }
+        let dispo: f64 = conn
+            .query_row(
+                "SELECT COALESCE(quantite, 0) FROM stock_depot
+                 WHERE article_id = ?1 AND depot_id = ?2",
+                rusqlite::params![article_id, depot_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0.0);
+
+        if voulu > dispo {
+            let nom: String = conn
+                .query_row(
+                    "SELECT nom FROM article WHERE id = ?1",
+                    rusqlite::params![article_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or_else(|_| "cet article".to_string());
+            let depot: String = conn
+                .query_row(
+                    "SELECT nom FROM depot WHERE id = ?1",
+                    rusqlite::params![depot_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or_else(|_| "ce depot".to_string());
+            return Err(format!(
+                "Stock insuffisant pour « {nom} » dans « {depot} » : \
+                 {dispo} disponible(s), {voulu} demandé(s). La marchandise doit \
+                 être en stock pour repartir chez le fournisseur."
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Factures d'achat d'un fournisseur, avec le reliquat retournable par
 /// ligne (quantite achetee moins quantite deja retournee).
 ///
@@ -512,24 +629,29 @@ pub fn lire_factures_fournisseur_retournables(
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
+    // Le depot de la facture voyage avec elle : c'est de la que la
+    // marchandise repartira, donc c'est son stock qu'il faut montrer.
     let mut st_f = conn.prepare(
-        "SELECT id, numero, date_piece, statut
-         FROM piece_commerciale
-         WHERE tiers_type = 'fournisseur' AND tiers_id = ?1
-           AND type_piece = 'facture_fournisseur'
-           AND statut <> 'annule'
-         ORDER BY date_piece DESC LIMIT 50"
+        "SELECT pc.id, pc.numero, pc.date_piece, pc.statut,
+                pc.depot_id, COALESCE(d.nom, '')
+         FROM piece_commerciale pc
+         LEFT JOIN depot d ON d.id = pc.depot_id
+         WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
+           AND pc.type_piece = 'facture_fournisseur'
+           AND pc.statut <> 'annule'
+         ORDER BY pc.date_piece DESC LIMIT 50"
     ).map_err(|e| e.to_string())?;
 
-    let factures: Vec<(String, String, String, String)> = st_f.query_map(
-        rusqlite::params![fournisseur_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-        }
-    ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+    let factures: Vec<(String, String, String, String, Option<String>, String)> =
+        st_f.query_map(
+            rusqlite::params![fournisseur_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            }
+        ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
     let mut resultat = Vec::new();
 
-    for (piece_id, numero, date_piece, statut) in factures {
+    for (piece_id, numero, date_piece, statut, depot_id, depot_nom) in factures {
         let mut st_l = conn.prepare(
             "SELECT lp.id, lp.article_id, a.nom, lp.unite_vente_id,
                     u.libelle, u.facteur, lp.quantite, lp.prix_unitaire
@@ -583,8 +705,32 @@ pub fn lire_factures_fournisseur_retournables(
             let qte = l["quantite"].as_f64().unwrap_or(0.0);
             let deja = *retournes.get(&art).unwrap_or(&0.0);
             let restant = (qte - deja).max(0.0);
+
+            // Ce qui reste sur la facture ne dit pas ce qu'on peut
+            // rendre : la marchandise a pu etre vendue depuis. Le
+            // retour est refuse a l'enregistrement s'il depasse le
+            // stock ; l'ecran doit le dire AVANT le clic, sinon le
+            // commercant saisit sa ligne pour rien.
+            let facteur = l["facteur"].as_f64().unwrap_or(1.0).max(0.000_001);
+            let en_stock_base: f64 = match &depot_id {
+                Some(d) => conn.query_row(
+                    "SELECT COALESCE(quantite, 0) FROM stock_depot
+                     WHERE article_id = ?1 AND depot_id = ?2",
+                    rusqlite::params![art, d],
+                    |r| r.get(0),
+                ).unwrap_or(0.0),
+                // Facture sans depot (base ancienne) : on ne sait pas
+                // d'ou la marchandise repartira, donc on ne promet
+                // rien. Le refus a l'enregistrement reste le filet.
+                None => f64::INFINITY,
+            };
+            let en_stock = en_stock_base / facteur;
+
             l["deja_retourne"] = serde_json::json!(deja);
             l["quantite_restante"] = serde_json::json!(restant);
+            l["stock_disponible"] =
+                serde_json::json!(if en_stock.is_finite() { en_stock } else { -1.0 });
+            l["retournable"] = serde_json::json!(restant.min(en_stock.max(0.0)));
             l
         }).collect();
 
@@ -599,6 +745,7 @@ pub fn lire_factures_fournisseur_retournables(
             "numero":     numero,
             "date_piece": date_piece,
             "statut":     statut,
+            "depot_nom":  depot_nom,
             "total":      total,
             "lignes":     lignes,
         }));

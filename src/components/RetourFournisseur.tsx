@@ -26,6 +26,15 @@ import { UTILISATEUR_ACTIF } from "@/App";
 
 interface Fournisseur { id: string; nom: string; telephone?: string | null; }
 
+/** Ce qu'on peut réellement retourner sur une ligne. */
+function plafond(l: LigneFacture): number {
+  // `stock_disponible` vaut -1 quand la facture n'a pas de dépôt (base
+  // ancienne) : on ne sait pas d'où la marchandise repartirait, donc on
+  // ne promet rien de plus que le reliquat. Le refus à
+  // l'enregistrement reste le filet.
+  return l.stock_disponible < 0 ? l.quantite_restante : l.retournable;
+}
+
 interface LigneFacture {
   ligne_id: string;
   article_id: string;
@@ -37,6 +46,10 @@ interface LigneFacture {
   prix_achat: number;
   deja_retourne: number;
   quantite_restante: number;
+  /** Stock réel dans le dépôt de la facture. -1 : dépôt inconnu. */
+  stock_disponible: number;
+  /** Le plus petit des deux : reliquat de facture et stock réel. */
+  retournable: number;
 }
 
 interface FactureRetournable {
@@ -44,6 +57,8 @@ interface FactureRetournable {
   numero: string;
   date_piece: string;
   statut: string;
+  /** Dépôt d'où la marchandise repartira. */
+  depot_nom: string;
   total: number;
   lignes: LigneFacture[];
 }
@@ -101,10 +116,15 @@ export function RetourFournisseur({ onTermine }: { onTermine: () => void }) {
     (s, x) => s + Math.round(x.ligne.prix_achat * x.qte), 0,
   );
 
-  // Une quantité saisie ne peut pas dépasser ce qui reste retournable.
+  // Deux plafonds, pas un seul.
+  //
+  // Le reliquat de facture dit ce qu'on n'a pas encore rendu. Il ne dit
+  // pas ce qu'on PEUT rendre : la marchandise a pu être vendue depuis.
+  // Le serveur refuse le retour qui dépasse le stock ; l'écran doit le
+  // dire avant le clic, sinon on saisit sa ligne pour rien.
   const depassement = (facture?.lignes ?? []).some(l => {
     const q = parseFloat(quantites[l.ligne_id] || "0") || 0;
-    return q > l.quantite_restante;
+    return q > plafond(l);
   });
 
   async function handleValider() {
@@ -242,7 +262,10 @@ export function RetourFournisseur({ onTermine }: { onTermine: () => void }) {
                   {f.lignes.map(l => {
                     const val = quantites[l.ligne_id] || "";
                     const q = parseFloat(val) || 0;
-                    const trop = q > l.quantite_restante;
+                    const max = plafond(l);
+                    const trop = q > max;
+                    const bride = l.stock_disponible >= 0
+                      && l.stock_disponible < l.quantite_restante;
                     return (
                       <div key={l.ligne_id}
                         className="flex flex-wrap items-center gap-3 text-sm">
@@ -255,17 +278,23 @@ export function RetourFournisseur({ onTermine }: { onTermine: () => void }) {
                               <> · déjà retourné {l.deja_retourne}</>
                             )}
                           </p>
+                          {bride && (
+                            <p className="text-xs text-amber-600">
+                              En stock : {l.stock_disponible} {l.unite_libelle}
+                              {" "}— le reste a été vendu depuis.
+                            </p>
+                          )}
                         </div>
                         <div className="w-32">
                           <Input
                             type="number" min="0" step="any"
-                            max={l.quantite_restante}
-                            disabled={l.quantite_restante <= 0}
+                            max={max}
+                            disabled={max <= 0}
                             value={val}
                             onChange={e => setQuantites(p => ({
                               ...p, [l.ligne_id]: e.target.value,
                             }))}
-                            placeholder={`max ${l.quantite_restante}`}
+                            placeholder={`max ${max}`}
                             className={cn("h-8 text-sm text-right",
                               trop && "border-destructive")} />
                         </div>
@@ -278,7 +307,8 @@ export function RetourFournisseur({ onTermine }: { onTermine: () => void }) {
 
                   {depassement && (
                     <p className="text-xs text-destructive">
-                      Une quantité dépasse ce qui reste retournable.
+                      Une quantité dépasse ce qui peut être retourné —
+                      reliquat de la facture, ou stock réellement présent.
                     </p>
                   )}
 

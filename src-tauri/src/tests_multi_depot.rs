@@ -599,3 +599,190 @@ fn une_vente_couverte_n_est_pas_signalee() {
         0,
     );
 }
+
+// =====================================================================
+//  12. Le retour fournisseur sort du bon depot, et pas a decouvert
+// =====================================================================
+
+/// Cree un fournisseur et une facture d'achat rattachee a un depot.
+///
+/// La facture porte son `depot_id` depuis l'origine : c'est elle qui
+/// dit ou la marchandise est entree, donc d'ou elle doit repartir.
+fn facture_achat(b: &Banc, depot: &str, quantite: f64) -> (String, String) {
+    let fournisseur = uuid::Uuid::new_v4().to_string();
+    let piece = uuid::Uuid::new_v4().to_string();
+    let now = "2026-01-01T08:00:00.000";
+
+    b.conn.execute(
+        "INSERT INTO fournisseur
+         (id, nom, actif, cree_le, modifie_le, origine)
+         VALUES (?1, 'Ets Diallo', 1, ?2, ?2, 'test')",
+        rusqlite::params![fournisseur, now],
+    ).unwrap();
+
+    b.conn.execute(
+        "INSERT INTO piece_commerciale
+         (id, type_piece, numero, statut, tiers_type, tiers_id, depot_id,
+          auteur_id, date_piece, remise_globale, cree_le, modifie_le, origine)
+         VALUES (?1, 'facture_fournisseur', 'FAF-TEST-1', 'emis',
+                 'fournisseur', ?2, ?3, 'test', ?4, 0.0, ?4, ?4, 'test')",
+        rusqlite::params![piece, fournisseur, depot, now],
+    ).unwrap();
+
+    b.conn.execute(
+        "INSERT INTO ligne_piece
+         (id, piece_id, article_id, unite_vente_id, quantite,
+          prix_unitaire, remise_pct, remise_montant,
+          taux_tva, montant_tva, montant_ht, cree_le)
+         VALUES (?1, ?2, ?3, ?4, ?5, 4000, 0.0, 0, 0.0, 0, ?6, ?7)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), piece, b.article, b.unite,
+            quantite, (quantite * 4000.0) as i64, now
+        ],
+    ).unwrap();
+
+    (fournisseur, piece)
+}
+
+fn ligne_retour(b: &Banc, quantite: f64)
+    -> crate::commandes::achats::LigneRetourFournisseur
+{
+    crate::commandes::achats::LigneRetourFournisseur {
+        article_id: b.article.clone(),
+        unite_vente_id: b.unite.clone(),
+        quantite,
+        facteur: 1.0,
+        prix_achat: 4000,
+    }
+}
+
+/// La marchandise repart d'ou elle est entree.
+///
+/// Sans cette regle, le retour sortait du depot PAR DEFAUT : le magasin
+/// annexe gardait un stock qu'il n'avait plus, le principal descendait
+/// pour une marchandise qu'il n'avait jamais eue. Les deux faux, et
+/// aucun des deux ne le disait.
+#[test]
+fn un_retour_fournisseur_sort_du_depot_de_la_facture() {
+    let mut b = banc();
+    b.poser_stock(&b.annexe, 20.0);
+    b.poser_stock(&b.principal, 50.0);
+    let (fournisseur, piece) = facture_achat(&b, &b.annexe, 20.0);
+    let lignes = vec![ligne_retour(&b, 5.0)];
+
+    crate::commandes::achats::enregistrer_retour_fournisseur_sur(
+        &mut b.conn,
+        fournisseur,
+        // Aucun depot precise — c'est ce que fait l'ecran.
+        None,
+        lignes,
+        Some(piece),
+        Some("avoir".to_string()),
+        None,
+        None,
+        Some("patron".to_string()),
+    ).unwrap();
+
+    assert_eq!(b.stock(&b.annexe), 15.0, "la marchandise repart de l'annexe");
+    assert_eq!(b.stock(&b.principal), 50.0, "le principal ne bouge pas");
+}
+
+/// On ne retourne pas ce qu'on n'a pas.
+///
+/// Une vente a decouvert se constate — le client attend, la
+/// marchandise est souvent la. Un retour fournisseur, non : elle doit
+/// physiquement quitter la boutique.
+#[test]
+fn un_retour_fournisseur_refuse_le_decouvert() {
+    let mut b = banc();
+    b.poser_stock(&b.annexe, 3.0);
+    let (fournisseur, piece) = facture_achat(&b, &b.annexe, 50.0);
+    let lignes = vec![ligne_retour(&b, 50.0)];
+
+    let erreur = crate::commandes::achats::enregistrer_retour_fournisseur_sur(
+        &mut b.conn,
+        fournisseur,
+        None,
+        lignes,
+        Some(piece),
+        Some("avoir".to_string()),
+        None,
+        None,
+        Some("patron".to_string()),
+    ).unwrap_err();
+
+    assert!(erreur.contains("Stock insuffisant"), "{erreur}");
+
+    // Le refus doit etre TOTAL : ni stock entame, ni avoir cree, ni
+    // mouvement. Un refus qui laisse des traces est pire qu'un refus
+    // absent — il faut ensuite deviner ce qui a ete ecrit.
+    assert_eq!(b.stock(&b.annexe), 3.0);
+    assert_eq!(
+        b.compte("SELECT COUNT(*) FROM piece_commerciale
+                  WHERE type_piece = 'avoir_fournisseur'"),
+        0,
+    );
+    assert_eq!(
+        b.compte("SELECT COUNT(*) FROM mouvement_stock
+                  WHERE type_mouvement = 'retour_fournisseur'"),
+        0,
+    );
+}
+
+/// Deux lignes du meme article se cumulent avant le controle.
+///
+/// Prises separement, trois puis trois passent sur un stock de quatre.
+/// Ensemble, elles ne doivent pas.
+#[test]
+fn deux_lignes_du_meme_article_se_cumulent() {
+    let mut b = banc();
+    b.poser_stock(&b.annexe, 4.0);
+    let (fournisseur, piece) = facture_achat(&b, &b.annexe, 10.0);
+    let lignes = vec![ligne_retour(&b, 3.0), ligne_retour(&b, 3.0)];
+
+    let erreur = crate::commandes::achats::enregistrer_retour_fournisseur_sur(
+        &mut b.conn,
+        fournisseur,
+        None,
+        lignes,
+        Some(piece),
+        Some("avoir".to_string()),
+        None,
+        None,
+        Some("patron".to_string()),
+    ).unwrap_err();
+
+    assert!(erreur.contains("Stock insuffisant"), "{erreur}");
+    assert_eq!(b.stock(&b.annexe), 4.0);
+}
+
+/// Un retour qui tient exactement dans le stock passe.
+///
+/// Le controle doit refuser le depassement, pas le cas limite : sinon
+/// on ne peut plus retourner le dernier sac d'une livraison entiere.
+#[test]
+fn un_retour_egal_au_stock_passe() {
+    let mut b = banc();
+    b.poser_stock(&b.annexe, 5.0);
+    let (fournisseur, piece) = facture_achat(&b, &b.annexe, 5.0);
+    let lignes = vec![ligne_retour(&b, 5.0)];
+
+    crate::commandes::achats::enregistrer_retour_fournisseur_sur(
+        &mut b.conn,
+        fournisseur,
+        None,
+        lignes,
+        Some(piece),
+        Some("avoir".to_string()),
+        None,
+        None,
+        Some("patron".to_string()),
+    ).unwrap();
+
+    assert_eq!(b.stock(&b.annexe), 0.0);
+    assert_eq!(
+        b.compte("SELECT COUNT(*) FROM piece_commerciale
+                  WHERE type_piece = 'avoir_fournisseur'"),
+        1,
+    );
+}
