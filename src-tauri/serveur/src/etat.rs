@@ -26,6 +26,14 @@ pub struct Serveur {
     /// le prix a payer pour ne pas verifier un bcrypt a chaque appel.
     pub jetons: Mutex<HashMap<String, String>>,
     pub demarre_le: String,
+    /// Nombre de postes caisse que la licence autorise.
+    ///
+    /// Lu au demarrage et pas a chaque connexion : remplacer le fichier
+    /// de licence pendant que le service tourne ne doit pas changer le
+    /// plafond en douce. Le redemarrage est le geste explicite.
+    pub postes_max: u32,
+    /// Ce que `/sante` affiche : « Boutique X — 3 postes », ou l'essai.
+    pub licence: String,
     pub derniere_sauvegarde: Mutex<Option<String>>,
 }
 

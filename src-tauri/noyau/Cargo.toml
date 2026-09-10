@@ -15,3 +15,11 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 bcrypt = "0.15"
+# Verification de licence. Seule la cle PUBLIQUE est compilee ici :
+# extraire l'executable ne donne pas de quoi fabriquer une licence.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+sha2 = "0.10"
+base64 = "0.22"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

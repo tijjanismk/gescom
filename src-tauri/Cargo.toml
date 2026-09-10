@@ -2,7 +2,7 @@
 # Le v2 produit deux executables : ce crate (le client, fenetre
 # Tauri) et `serveur/` (sans fenetre). `noyau/` porte ce que les deux
 # partagent — calculs, schema, protocole.
-members = ["noyau", "serveur"]
+members = ["noyau", "serveur", "outils/licence"]
 
 [package]
 name = "gescom"

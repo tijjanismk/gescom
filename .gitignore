@@ -36,3 +36,10 @@ nettoyer_imports.py
 catalogue_test.csv
 __pycache__/
 *.pyc
+
+# Clef privee de signature des licences. Elle vit hors du depot
+# (%USERPROFILE%\.gescom\), ces motifs sont une seconde barriere au cas
+# ou une copie atterrirait ici par megarde.
+*.key
+licence_privee*
+*.licence

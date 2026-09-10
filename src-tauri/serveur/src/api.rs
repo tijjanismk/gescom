@@ -74,6 +74,8 @@ fn sante(srv: &Arc<Serveur>, flux: &mut TcpStream) -> std::io::Result<()> {
         postes_connectes: connectes,
         base_saine,
         derniere_sauvegarde: srv.derniere_sauvegarde.lock().ok().and_then(|v| v.clone()),
+        licence: srv.licence.clone(),
+        postes_max: srv.postes_max,
     };
     repondre_json(flux, 200, &serde_json::to_value(s).unwrap_or(Value::Null))
 }
@@ -167,6 +169,47 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
             403,
             CodeErreur::Permission,
             "Ce poste a été désactivé depuis le serveur.",
+        );
+    }
+
+    // ---- Plafond de licence ----
+    //
+    // On compte les postes INSCRITS et actifs, pas les connectes : un
+    // magasin qui achete trois postes ne doit pas pouvoir en equiper
+    // dix en les faisant travailler a tour de role.
+    //
+    // Le poste deja inscrit passe toujours : sinon, depasser le plafond
+    // une fois condamnerait tout le monde, y compris ceux qui
+    // travaillaient avant.
+    let inscrits: u32 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM poste
+             WHERE actif = 1 AND genre = 'caisse' AND id <> ?1",
+            rusqlite::params![poste.id],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0) as u32;
+
+    if srv.postes_max == 0 {
+        return erreur(
+            flux,
+            403,
+            CodeErreur::Permission,
+            &format!(
+                "Le serveur n'a pas de licence valable : {}.                  Activer la licence sur le poste principal.",
+                srv.licence
+            ),
+        );
+    }
+    if inscrits + 1 > srv.postes_max {
+        return erreur(
+            flux,
+            403,
+            CodeErreur::Permission,
+            &format!(
+                "Licence limitée à {} poste(s) ; {} sont déjà inscrits.                  Désactiver un poste depuis le serveur, ou étendre la licence.",
+                srv.postes_max, inscrits
+            ),
         );
     }
 

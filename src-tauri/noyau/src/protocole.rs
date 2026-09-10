@@ -155,4 +155,10 @@ pub struct Sante {
     pub base_saine: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub derniere_sauvegarde: Option<String>,
+    /// Etat de la licence, en clair. `default` pour qu'un poste d'une
+    /// version anterieure lise encore la reponse.
+    #[serde(default)]
+    pub licence: String,
+    #[serde(default)]
+    pub postes_max: u32,
 }

@@ -1,0 +1,18 @@
+[package]
+name = "gescom-licence"
+version = "0.1.0"
+edition = "2021"
+description = "Outil de l'editeur : engendre les clefs et signe les licences. Ne se livre PAS au client."
+publish = false
+
+[[bin]]
+name = "gescom-licence"
+path = "src/main.rs"
+
+[dependencies]
+gescom-noyau = { path = "../../noyau" }
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+getrandom = "0.2"
+base64 = "0.22"
+serde_json = "1"
+chrono = "0.4"
