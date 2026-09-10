@@ -63,6 +63,19 @@ Sortant : `coeur::calcul` (montants, statuts, répartition, effet caisse),
 
 ## Règles métier
 
+- [CONFIRMÉ] Le découvert est **constaté en base**, jamais déclaré par
+  l'écran. `creer_vente_sur` et `valider_facture_sur` relisent
+  `stock_depot` dans leur propre transaction et recalculent
+  `vente_a_decouvert` ; le drapeau envoyé par le POS n'est qu'un OU
+  (il porte le cas de la vente répartie). Le POS le calcule sur le
+  stock lu au chargement de l'écran : le croire laissait passer un
+  découvert **invisible**, donc jamais régularisé. Tests
+  `un_ecran_perime_ne_cache_pas_le_decouvert` et
+  `une_vente_couverte_n_est_pas_signalee`.
+- [CONFIRMÉ] Une vente n'est **jamais refusée** pour stock insuffisant —
+  seul le transfert l'est (D32). Un client attend au comptoir ; un
+  transfert est un mouvement interne que rien ne presse.
+
 - [CONFIRMÉ] `creer_vente` exige une session de caisse ouverte
   ([ventes.rs:455](../../src-tauri/src/commandes/ventes.rs#L455)) — de
   même `enregistrer_paiement`

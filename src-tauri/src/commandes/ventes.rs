@@ -484,6 +484,34 @@ pub(crate) fn creer_vente_sur(
         } else { 0 };
         total += montant;
 
+        // Decouvert : recalcule ICI, dans la transaction, jamais pris
+        // du POS.
+        //
+        // Le drapeau arrivait de l'ecran, ou il est calcule sur le
+        // stock lu au chargement (`lire_articles_avec_unites`). Entre
+        // ce chargement et la vente, quelqu'un d'autre a pu vendre le
+        // dernier sac — au comptoir a cote, ou depuis une autre
+        // caisse. L'ecran affiche encore 1, le caissier vend, et la
+        // ligne s'ecrit `vente_a_decouvert = 0` pendant que le stock
+        // passe a -1 : le decouvert devient INVISIBLE, donc jamais
+        // regularise. C'est le seul defaut qui compte ici — pas la
+        // vente elle-meme, qu'on accepte.
+        //
+        // `valider_facture_sur` procede deja ainsi (pieces.rs). Le
+        // POS etait la derniere voie a faire confiance au client.
+        let qte_base = ligne.quantite * ligne.facteur;
+        let dispo: f64 = tx.query_row(
+            "SELECT COALESCE(quantite, 0) FROM stock_depot
+             WHERE article_id = ?1 AND depot_id = ?2",
+            rusqlite::params![ligne.article_id, ligne.depot_source_id],
+            |r| r.get(0),
+        ).unwrap_or(0.0);
+        // Le drapeau du POS reste un OU : il porte le cas de la vente
+        // repartie, ou le manque est impute a un depot dont la ligne
+        // n'est pas celle qu'on lit ici.
+        let a_decouvert = crate::coeur::stock::est_a_decouvert(dispo, qte_base)
+            || ligne.a_decouvert.unwrap_or(false);
+
         tx.execute(
             "INSERT INTO ligne_vente
              (id, vente_id, article_id, unite_vente_id, depot_source_id,
@@ -495,13 +523,12 @@ pub(crate) fn creer_vente_sur(
                 ligne.depot_source_id, ligne.source_approvisionnement,
                 ligne.quantite, ligne.prix_reference, ligne.prix_pratique,
                 taux_tva, montant_tva,
-                ligne.a_decouvert.unwrap_or(false) as i64,
+                a_decouvert as i64,
                 now
             ],
         ).map_err(|e| e.to_string())?;
 
         // Décrément stock
-        let qte_base = ligne.quantite * ligne.facteur;
         tx.execute(
             "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
              VALUES (?1,?2,?3,0 - ?4)

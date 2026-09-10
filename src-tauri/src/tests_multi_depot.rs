@@ -536,3 +536,66 @@ fn vendre_un_sac_sort_cinquante_kilos_du_bon_depot() {
     assert_eq!(b.stock(&b.annexe), 20.0, "2 sacs = 100 kilos");
     assert_eq!(b.stock(&b.principal), 0.0);
 }
+
+// =====================================================================
+//  11. Le decouvert est constate en base, pas declare par l'ecran
+// =====================================================================
+
+/// Le POS calcule `a_decouvert` sur le stock lu au chargement de
+/// l'ecran. Entre ce chargement et la vente, quelqu'un a pu vendre le
+/// dernier sac — au comptoir a cote, ou depuis une autre caisse. Le
+/// POS envoie alors `false` de bonne foi.
+///
+/// Si on le croyait, le stock passerait a -1 SANS que la ligne
+/// apparaisse dans « ventes a decouvert » : un decouvert invisible,
+/// donc jamais regularise. C'est ce que ce test interdit.
+#[test]
+fn un_ecran_perime_ne_cache_pas_le_decouvert() {
+    let mut b = banc();
+    b.poser_stock(&b.principal, 1.0);
+    b.ouvrir_caisse();
+
+    let (client, principal) = (b.client.clone(), b.principal.clone());
+    // L'ecran croit qu'il reste 3 : il annonce false.
+    let lignes = vec![ligne(&b, &principal, 3.0, false)];
+
+    crate::commandes::ventes::creer_vente_sur(&mut b.conn,
+        client, principal.clone(), "comptant".to_string(), lignes,
+        Some("patron".to_string()), Some(1500), Some("especes".to_string()), None,
+    ).unwrap();
+
+    // La vente PASSE — on ne refuse pas un client au comptoir (D32 ne
+    // vaut que pour les transferts).
+    assert_eq!(b.stock(&principal), -2.0, "la marchandise est sortie");
+    // Mais elle est signalee.
+    assert_eq!(
+        b.compte("SELECT COUNT(*) FROM ligne_vente WHERE vente_a_decouvert = 1"),
+        1,
+        "le decouvert doit etre constate en base, meme si l'ecran dit non"
+    );
+}
+
+/// Le cas inverse : l'ecran ne doit pas non plus creer un faux
+/// decouvert quand le stock suffit. Sinon la liste « a regulariser »
+/// se remplit de lignes qui n'ont rien a regulariser, et le commercant
+/// cesse de la lire.
+#[test]
+fn une_vente_couverte_n_est_pas_signalee() {
+    let mut b = banc();
+    b.poser_stock(&b.principal, 10.0);
+    b.ouvrir_caisse();
+
+    let (client, principal) = (b.client.clone(), b.principal.clone());
+    let lignes = vec![ligne(&b, &principal, 3.0, false)];
+
+    crate::commandes::ventes::creer_vente_sur(&mut b.conn,
+        client, principal.clone(), "comptant".to_string(), lignes,
+        Some("patron".to_string()), Some(1500), Some("especes".to_string()), None,
+    ).unwrap();
+
+    assert_eq!(b.stock(&principal), 7.0);
+    assert_eq!(
+        b.compte("SELECT COUNT(*) FROM ligne_vente WHERE vente_a_decouvert = 1"),
+        0,
+    );
+}

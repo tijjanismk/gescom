@@ -124,8 +124,12 @@ les 167 commandes à migrer n'en ont toujours pas.
    test** — en commençant par `creer_vente`, `valider_facture`,
    `regler_dette_fournisseur`.
 2. Remplacer `stock_depot.quantite` (compteur muté) par une somme de
-   `mouvement_stock` : deux postes qui vendent le dernier sac réussissent
-   tous les deux aujourd'hui.
+   `mouvement_stock`. ⚠️ **Pas encore urgent** : le serveur ne détient
+   qu'une connexion derrière un `Mutex`, donc deux ventes ne s'exécutent
+   jamais en même temps — elles font la queue. La course n'apparaîtra
+   qu'avec un pool de connexions ou PostgreSQL. Le gain immédiat est
+   ailleurs : un compteur ne dit pas *pourquoi* il vaut ça, une somme
+   de mouvements si.
 3. Remplacer la numérotation par `MAX(substr(numero,-5))` par un compteur
    transactionnel : sous concurrence elle produit deux FAC-00042.
 4. Un écran de réglage réseau (mode, adresse, liste des postes) — les
