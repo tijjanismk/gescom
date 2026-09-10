@@ -397,6 +397,172 @@ pub fn enregistrer_entree_stock(
 }
 
 // =====================================================================
+//  RETOUR SANS FACTURE — le miroir de l'entrée sans facture
+// =====================================================================
+
+/// Rend au fournisseur une marchandise entrée SANS facture.
+///
+/// ## Pourquoi ce n'est pas un avoir
+///
+/// `enregistrer_retour_fournisseur` crée une pièce AVF qui vient en
+/// déduction de la dette. C'est juste quand la marchandise a été
+/// facturée : on doit moins puisqu'on rend une partie.
+///
+/// Une marchandise entrée par `enregistrer_entree_stock` n'a jamais été
+/// facturée — D42, l'entrée n'est pas un achat, elle ne crée ni dette
+/// ni mouvement de caisse. Lui fabriquer un avoir créerait un CRÉDIT
+/// chez un fournisseur à qui l'on ne doit rien, et `lire_etat_dettes_global`
+/// le déduirait d'autres factures. On aurait inventé de l'argent.
+///
+/// Le retour d'une entrée sans facture est donc, symétriquement, une
+/// simple sortie de stock : pas de pièce, pas de dette, pas de caisse.
+/// C'est le cas du dépannage entre voisins — on emprunte dix sacs au
+/// magasin d'à côté un vendredi, on les rend le lundi.
+///
+/// ## Pas de reliquat
+///
+/// Contrairement au retour sur facture, rien ne limite à « ce qui reste
+/// de cette entrée-là » : une entrée sans facture n'a aucun document
+/// que le commerçant puisse rouvrir pour vérifier. Le seul plafond qui
+/// ait un sens est le stock réellement présent.
+#[tauri::command]
+pub fn enregistrer_retour_sans_facture(
+    etat: State<EtatApp>,
+    article_id: String,
+    depot_id: Option<String>,
+    quantite: f64,
+    fournisseur_id: Option<String>,
+    motif: Option<String>,
+    utilisateur_role: Option<String>,
+) -> Result<(), String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    enregistrer_retour_sans_facture_sur(
+        &conn, article_id, depot_id, quantite, fournisseur_id, motif,
+        utilisateur_role,
+    )
+}
+
+/// Logique du retour sans facture, sur une connexion quelconque.
+///
+/// Separee de la commande pour etre jouable sur une base de test.
+pub(crate) fn enregistrer_retour_sans_facture_sur(
+    conn: &rusqlite::Connection,
+    article_id: String,
+    depot_id: Option<String>,
+    quantite: f64,
+    fournisseur_id: Option<String>,
+    motif: Option<String>,
+    utilisateur_role: Option<String>,
+) -> Result<(), String> {
+    if quantite <= 0.0 {
+        return Err("La quantité à rendre doit être positive.".to_string());
+    }
+
+    let now = maintenant_iso();
+    let role = utilisateur_role.as_deref().unwrap_or("employe");
+    let auteur = crate::commandes::ventes::id_utilisateur_par_role(conn, role);
+
+    let depot_id = match depot_id {
+        Some(d) if !d.is_empty() => d,
+        _ => conn
+            .query_row(
+                "SELECT id FROM depot WHERE est_defaut = 1 LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|_| "Aucun dépôt par défaut configuré".to_string())?,
+    };
+
+    // Même refus que le retour sur facture : la marchandise doit
+    // physiquement quitter la boutique pour repartir. En rendre plus
+    // qu'on en détient est une erreur de saisie, pas un événement.
+    let dispo: f64 = conn
+        .query_row(
+            "SELECT COALESCE(quantite, 0) FROM stock_depot
+             WHERE article_id = ?1 AND depot_id = ?2",
+            rusqlite::params![article_id, depot_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0.0);
+
+    if quantite > dispo {
+        let nom: String = conn
+            .query_row(
+                "SELECT nom FROM article WHERE id = ?1",
+                rusqlite::params![article_id],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "cet article".to_string());
+        return Err(format!(
+            "Stock insuffisant pour « {nom} » : {dispo} disponible(s), \
+             {quantite} demandé(s)."
+        ));
+    }
+
+    conn.execute(
+        "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+         VALUES (?1,?2,?3,0 - ?4)
+         ON CONFLICT(article_id, depot_id)
+         DO UPDATE SET quantite = quantite - ?4",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(),
+            article_id,
+            depot_id,
+            quantite
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let op_id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO mouvement_stock
+         (id, article_id, depot_id, type_mouvement, quantite_delta,
+          operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine,
+          fournisseur_id)
+         VALUES (?1,?2,?3,'retour_fournisseur',?4,?5,?6,?7,?8,?9,'app',?10)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(),
+            article_id,
+            depot_id,
+            -quantite,
+            op_id,
+            auteur,
+            now,
+            now,
+            auteur,
+            fournisseur_id
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Le journal est la seule trace de cette opération : elle ne
+    // produit aucune pièce que le commerçant puisse rouvrir. Le motif y
+    // est donc conservé tel qu'il a été saisi.
+    conn.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1,'retour_sans_facture','article',?2,?3,?4,'app',?5)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(),
+            article_id,
+            auteur,
+            serde_json::json!({
+                "quantite": quantite,
+                "depot_id": depot_id,
+                "fournisseur_id": fournisseur_id,
+                "motif": motif,
+            })
+            .to_string(),
+            now
+        ],
+    )
+    .ok();
+
+    Ok(())
+}
+
+// =====================================================================
 //  Ajustement inventaire
 // =====================================================================
 

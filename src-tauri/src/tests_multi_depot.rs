@@ -786,3 +786,111 @@ fn un_retour_egal_au_stock_passe() {
         1,
     );
 }
+
+// =====================================================================
+//  13. Le retour d'une marchandise entree SANS facture
+// =====================================================================
+
+/// Rendre au voisin les dix sacs empruntes vendredi ne doit creer
+/// aucun avoir.
+///
+/// Un avoir viendrait en deduction de la dette fournisseur. Or cette
+/// marchandise n'a jamais ete facturee (D42) : on ne doit rien. Lui
+/// fabriquer un avoir inventerait un credit chez un fournisseur a qui
+/// l'on ne doit rien, et il serait deduit d'autres factures.
+#[test]
+fn un_retour_sans_facture_ne_cree_ni_piece_ni_dette() {
+    let b = banc();
+    b.poser_stock(&b.annexe, 10.0);
+
+    crate::commandes::fournisseurs::enregistrer_retour_sans_facture_sur(
+        &b.conn,
+        b.article.clone(),
+        Some(b.annexe.clone()),
+        4.0,
+        None,
+        Some("Rendu au voisin".to_string()),
+        Some("patron".to_string()),
+    ).unwrap();
+
+    assert_eq!(b.stock(&b.annexe), 6.0, "la marchandise sort");
+    assert_eq!(
+        b.compte("SELECT COUNT(*) FROM piece_commerciale"),
+        0,
+        "aucune piece : rien n'a jamais ete facture",
+    );
+    assert_eq!(
+        b.compte("SELECT COUNT(*) FROM paiement_fournisseur"),
+        0,
+        "aucun mouvement d'argent",
+    );
+    assert_eq!(
+        b.compte("SELECT COUNT(*) FROM mouvement_caisse"),
+        0,
+        "le tiroir ne bouge pas",
+    );
+    // La seule trace exploitable, puisqu'il n'y a pas de document.
+    assert_eq!(
+        b.compte("SELECT COUNT(*) FROM mouvement_stock
+                  WHERE type_mouvement = 'retour_fournisseur'"),
+        1,
+    );
+    assert_eq!(
+        b.compte("SELECT COUNT(*) FROM journal
+                  WHERE type_evenement = 'retour_sans_facture'"),
+        1,
+    );
+}
+
+#[test]
+fn un_retour_sans_facture_refuse_le_decouvert() {
+    let b = banc();
+    b.poser_stock(&b.annexe, 3.0);
+
+    let erreur = crate::commandes::fournisseurs::enregistrer_retour_sans_facture_sur(
+        &b.conn,
+        b.article.clone(),
+        Some(b.annexe.clone()),
+        10.0,
+        None,
+        None,
+        Some("patron".to_string()),
+    ).unwrap_err();
+
+    assert!(erreur.contains("Stock insuffisant"), "{erreur}");
+    assert_eq!(b.stock(&b.annexe), 3.0, "rien ne bouge sur un refus");
+}
+
+#[test]
+fn un_retour_sans_facture_sort_du_depot_demande() {
+    let b = banc();
+    b.poser_stock(&b.principal, 8.0);
+    b.poser_stock(&b.annexe, 8.0);
+
+    crate::commandes::fournisseurs::enregistrer_retour_sans_facture_sur(
+        &b.conn,
+        b.article.clone(),
+        Some(b.annexe.clone()),
+        5.0,
+        None,
+        None,
+        Some("patron".to_string()),
+    ).unwrap();
+
+    assert_eq!(b.stock(&b.annexe), 3.0);
+    assert_eq!(b.stock(&b.principal), 8.0, "l'autre magasin ne bouge pas");
+}
+
+#[test]
+fn une_quantite_nulle_est_refusee() {
+    // Un retour de zero n'est pas une operation : l'enregistrer
+    // remplirait le journal de lignes qui ne disent rien.
+    let b = banc();
+    b.poser_stock(&b.annexe, 5.0);
+    assert!(
+        crate::commandes::fournisseurs::enregistrer_retour_sans_facture_sur(
+            &b.conn, b.article.clone(), Some(b.annexe.clone()), 0.0,
+            None, None, Some("patron".to_string()),
+        ).is_err()
+    );
+}

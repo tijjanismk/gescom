@@ -69,6 +69,7 @@ pub fn run() {
             commandes::fournisseurs::annuler_paiement_fournisseur,
             commandes::fournisseurs::lire_etat_dettes_global,
             commandes::fournisseurs::enregistrer_entree_stock,
+            commandes::fournisseurs::enregistrer_retour_sans_facture,
             commandes::fournisseurs::enregistrer_ajustement_inventaire,
             commandes::achats::enregistrer_achat,
             commandes::achats::enregistrer_retour_fournisseur,

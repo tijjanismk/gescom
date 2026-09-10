@@ -5,6 +5,7 @@ import {
   Wallet, Gift, ChevronDown, ChevronRight, Truck
 } from "lucide-react";
 import { RetourFournisseur } from "@/components/RetourFournisseur";
+import { RetourSansFacture } from "@/components/RetourSansFacture";
 import {
   ModalRemboursement, ModalAvoirConserve, ModalEchange,
   formaterMontant, formaterDate,
@@ -144,7 +145,12 @@ export function Retours() {
 
       {/* Onglet Retour fournisseur — flux inverse : stock sort, dette baisse */}
       {onglet === "fournisseur" && (
-        <RetourFournisseur onTermine={charger} />
+        <div className="space-y-5">
+          <RetourFournisseur onTermine={charger} />
+          {/* La marchandise entree sans facture n'a pas de facture d'ou
+              partir : elle a son propre bloc, et ne cree aucun avoir. */}
+          <RetourSansFacture onTermine={charger} />
+        </div>
       )}
 
       {/* Onglet Retours */}

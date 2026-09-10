@@ -53,6 +53,25 @@ global), `coeur::stock` (types de mouvement),
 
 ## Règles métier
 
+- [CONFIRMÉ] Rendre une marchandise entrée **sans facture** ne crée
+  **aucun avoir** (`enregistrer_retour_sans_facture`, fournisseurs.rs).
+  Un AVF vient en déduction de la dette ; or cette marchandise n'a
+  jamais été facturée (D42). Lui fabriquer un avoir inventerait un
+  crédit chez un fournisseur à qui l'on ne doit rien, et
+  `lire_etat_dettes_global` le déduirait d'autres factures. C'est donc
+  une simple sortie de stock — le miroir exact de l'entrée. Cas type :
+  les dix sacs empruntés au voisin un vendredi, rendus le lundi.
+  Tests `un_retour_sans_facture_ne_cree_ni_piece_ni_dette`,
+  `un_retour_sans_facture_refuse_le_decouvert`,
+  `un_retour_sans_facture_sort_du_depot_demande`,
+  `une_quantite_nulle_est_refusee`.
+- [CONFIRMÉ] Le retour sans facture n'a **pas de reliquat** : une
+  entrée sans facture n'a aucun document que le commerçant puisse
+  rouvrir pour vérifier. Le seul plafond qui ait un sens est le stock
+  réellement présent. Écran :
+  [RetourSansFacture.tsx](../../src/components/RetourSansFacture.tsx),
+  sous l'onglet Fournisseur de l'écran Retours.
+
 - [CONFIRMÉ] Un **retour fournisseur sort du dépôt de la facture
   d'achat**, pas du dépôt par défaut — la marchandise repart d'où elle
   est entrée. Même règle que l'échange, qui sort du dépôt de la vente
