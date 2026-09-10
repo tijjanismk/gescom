@@ -21,6 +21,7 @@
 
 mod api;
 mod canal;
+mod console;
 mod etat;
 mod http;
 mod reseau_local;
@@ -99,6 +100,7 @@ fn main() {
         canal: Canal::nouveau(),
         registre: socle::registre(),
         jetons: Mutex::new(HashMap::new()),
+        port: options.port,
         demarre_le: maintenant_iso(),
         derniere_sauvegarde: Mutex::new(None),
     });
@@ -137,6 +139,10 @@ fn main() {
     for ligne in reseau_local::conseils(options.port) {
         println!("{ligne}");
     }
+
+    println!();
+    println!("  Console : http://localhost:{}", options.port);
+    println!("            a ouvrir dans un navigateur sur ce poste.");
 
     for flux in ecouteur.incoming() {
         match flux {

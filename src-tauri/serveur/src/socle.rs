@@ -212,8 +212,7 @@ pub fn registre() -> Registre {
         if id == c.appelant.poste_id {
             return Err("Un poste ne peut pas se désactiver lui-même.".to_string());
         }
-        postes::desactiver(c.conn, &id, &c.appelant.utilisateur_id)
-            .map_err(|e| e.to_string())?;
+        postes::desactiver(c.conn, &id, &c.appelant.utilisateur_id)?;
         Ok(json!({ "poste_id": id }))
     });
 

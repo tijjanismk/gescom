@@ -163,6 +163,10 @@ pub fn repondre_json(
     ecrire(flux, code, "application/json; charset=utf-8", &texte)
 }
 
+pub fn repondre_html(flux: &mut TcpStream, html: &str) -> std::io::Result<()> {
+    ecrire(flux, 200, "text/html; charset=utf-8", html.as_bytes())
+}
+
 pub fn repondre_texte(flux: &mut TcpStream, code: u16, texte: &str) -> std::io::Result<()> {
     ecrire(flux, code, "text/plain; charset=utf-8", texte.as_bytes())
 }

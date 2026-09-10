@@ -43,9 +43,9 @@ pub fn inscrire_ou_retrouver(
         Some(id) => {
             conn.execute(
                 "UPDATE poste SET nom = ?1, dernier_contact = ?2,
-                        derniere_ip = ?3, modifie_le = ?2
-                 WHERE id = ?4",
-                params![nom, maintenant, ip, id],
+                        derniere_ip = ?3, genre = ?4, modifie_le = ?2
+                 WHERE id = ?5",
+                params![nom, maintenant, ip, genre, id],
             )?;
             id
         }
@@ -85,20 +85,40 @@ pub fn lister(conn: &Connection) -> Result<Vec<Poste>> {
     Ok(v)
 }
 
-/// Coupe l'acces d'un poste : ses sessions tombent, et il ne peut plus
-/// en ouvrir. Le geste qu'on veut avoir sous la main quand une machine
-/// disparait du magasin.
-pub fn desactiver(conn: &Connection, id: &str, par: &str) -> Result<()> {
+/// Coupe l'acces d'une caisse : ses sessions tombent, et elle ne peut
+/// plus en ouvrir. Le geste qu'on veut avoir sous la main quand une
+/// machine disparait de la boutique.
+///
+/// Rend `Err` avec un message destine au commercant, pas une erreur
+/// SQL : ce texte s'affiche tel quel dans la console du serveur.
+pub fn desactiver(conn: &Connection, id: &str, par: &str) -> std::result::Result<(), String> {
+    // Seule une caisse se desactive. Le poste « serveur » est la
+    // boutique elle-meme, et le poste « console » est l'ecran d'ou
+    // vient le clic : les eteindre enferme dehors celui qui les
+    // eteint, sans aucun chemin de retour.
+    let genre: String = conn
+        .query_row("SELECT genre FROM poste WHERE id = ?1", params![id], |r| {
+            r.get(0)
+        })
+        .map_err(|_| "Ce poste n'existe plus.".to_string())?;
+    if genre != "caisse" {
+        return Err(format!(
+            "Le poste « {genre} » ne se désactive pas : plus rien ne permettrait de le rallumer."
+        ));
+    }
+
     let maintenant = maintenant_iso();
     conn.execute(
         "UPDATE poste SET actif = 0, modifie_le = ?1 WHERE id = ?2",
         params![maintenant, id],
-    )?;
+    )
+    .map_err(|e| e.to_string())?;
     conn.execute(
         "UPDATE session_reseau SET revoque_le = ?1, revoque_par = ?2
          WHERE poste_id = ?3 AND revoque_le IS NULL",
         params![maintenant, par, id],
-    )?;
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 

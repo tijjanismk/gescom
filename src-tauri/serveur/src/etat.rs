@@ -25,6 +25,8 @@ pub struct Serveur {
     /// redemarrage vide cette table, donc reconnecte les postes — c'est
     /// le prix a payer pour ne pas verifier un bcrypt a chaque appel.
     pub jetons: Mutex<HashMap<String, String>>,
+    /// Le port ecoute, pour que la console sache s'annoncer.
+    pub port: u16,
     pub demarre_le: String,
     pub derniere_sauvegarde: Mutex<Option<String>>,
 }

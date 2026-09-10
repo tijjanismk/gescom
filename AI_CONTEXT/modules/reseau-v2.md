@@ -180,11 +180,16 @@ commandes : aucun d'eux n'a été touché.
   toutes les 24 h, 14 copies conservées.
 - [socle.rs](../../src-tauri/serveur/src/socle.rs) — **le point d'entrée de
   la migration** : c'est ici qu'on enregistre les commandes portées.
+- [reseau_local.rs](../../src-tauri/serveur/src/reseau_local.rs) — l'adresse
+  à saisir sur les caisses, et l'état du pare-feu, affichés au démarrage.
+- [console.rs](../../src-tauri/serveur/src/console.rs) — la console, une
+  page HTML entière dans une constante Rust.
 
 ## Routes
 
 | Méthode | Route | Jeton | Effet |
 |---|---|---|---|
+| GET | `/` ou `/console` | non | la console du serveur (HTML) |
 | GET | `/sante` | non | version, postes connectés, intégrité |
 | POST | `/connexion` | non | bcrypt → jeton 8 h |
 | POST | `/deconnexion` | oui | révoque la session |
@@ -192,6 +197,48 @@ commandes : aucun d'eux n'a été touché.
 | GET | `/rpc/catalogue` | non | les noms connus du serveur |
 | GET | `/canal?depuis=N` | oui | longue attente, 30 s max |
 | POST | `/sauvegarde` | oui | `VACUUM INTO` immédiat |
+
+## La console du serveur
+
+Le serveur n'a pas de fenêtre : c'est un service, il tourne sans écran.
+Mais une console noire sur le poste principal est ingérable pour un
+commerçant — il ne sait pas ce qu'elle dit, et **la fermer arrête la
+boutique**. Une vraie fenêtre demanderait une boîte à outils graphique,
+donc un moteur de rendu embarqué dans un service censé n'en avoir aucun.
+
+Le serveur parle déjà HTTP. Il sert donc sa propre page : le patron
+ouvre `http://localhost:7300` sur le poste principal — ou l'adresse du
+serveur depuis n'importe quelle caisse, ou depuis le téléphone posé sur
+le comptoir. **Zéro dépendance ajoutée, aucune ressource extérieure** :
+pas de CDN, pas de police à télécharger. Une boutique de Bamako n'a pas
+forcément Internet, et une console qui ne s'affiche pas le jour d'une
+panne ne sert à rien.
+
+Ce qu'elle montre **sans mot de passe** est exactement ce que `/sante`
+expose déjà — version, intégrité de la base, nombre de postes connectés,
+dernière sauvegarde. C'est ce qu'une caisse interroge AVANT d'avoir un
+jeton ; aucune donnée de commerce n'y passe.
+
+Le reste — nom des postes, sessions ouvertes, révocation, désactivation
+d'une caisse, sauvegarde immédiate — exige de s'identifier, avec les
+mêmes identifiants que Gescom et le même bcrypt.
+
+### Ce que la mise au point a fait apparaître
+
+Trois défauts que seule l'exécution réelle a montrés :
+
+1. La console s'inscrivait comme un poste **`caisse`**. Elle se listait
+   donc elle-même avec un bouton « Désactiver » : un clic, et le patron
+   se fermait dehors du seul écran d'où il aurait pu se rouvrir. Elle
+   s'inscrit désormais avec le genre **`console`**, et
+   `postes::desactiver` refuse tout poste qui n'est pas une caisse
+   (test `un_poste_qui_n_est_pas_une_caisse_ne_se_desactive_pas`).
+2. Les boutons envoyaient `posteId` et `sessionId` là où le socle attend
+   `poste_id` et `session_id` — le serveur répondait « Paramètre
+   manquant », donc aucun bouton ne marchait.
+3. La session de la console apparaissait dans la liste avec un bouton
+   « Déconnecter » qui déconnectait celui qui cliquait. Sa propre ligne
+   affiche maintenant « cette page ».
 
 ## Front
 
@@ -238,16 +285,32 @@ Plus aucun fichier de `src/` n'importe `@tauri-apps/api/core` hors
   ([canal.rs](../../src-tauri/serveur/src/canal.rs)).
 - [CONFIRMÉ] Un événement n'est publié que si la commande a **réussi**
   ([api.rs, `rpc`](../../src-tauri/serveur/src/api.rs)).
+- [CONFIRMÉ] Un poste qui n'est pas de genre `caisse` — le poste
+  `serveur`, le poste `console` — **ne se désactive pas** : il n'y
+  aurait plus de chemin pour le rallumer
+  ([postes.rs](../../src-tauri/noyau/src/postes.rs)).
+- [CONFIRMÉ] La console annonce une empreinte fixe (`console::EMPREINTE`)
+  pour ne pas ajouter une ligne de poste à chaque ouverture du
+  navigateur, et pour que le serveur la reconnaisse
+  ([console.rs](../../src-tauri/serveur/src/console.rs)).
 - [CONFIRMÉ] `portes::verifier_permission` est une liste **blanche** : une
   commande ajoutée demain est refusée par défaut aux rôles restreints
   (test `une_permission_inconnue_est_refusee`).
 
 ## Tests
 
-[noyau/tests/reseau.rs](../../src-tauri/noyau/tests/reseau.rs) — 11
+[noyau/tests/reseau.rs](../../src-tauri/noyau/tests/reseau.rs) — 12
 scénarios sur base en mémoire. Plus 4 tests de permissions dans
-`portes.rs`. Ce sont les seuls tests du multiposte : le socle en a,
-les 167 commandes à migrer n'en ont toujours pas.
+`portes.rs`. Ce sont les seuls tests du multiposte ; les commandes
+portées n'en ont toujours pas en propre.
+
+La console, elle, n'est pas testée automatiquement — c'est une page. Ce
+qui est vérifié, c'est **ce qu'elle appelle** : la route `/` rend bien
+du HTML, `/connexion` avec l'empreinte de la console donne un jeton, et
+`lire_postes`, `lire_sessions_reseau`, `desactiver_poste`,
+`reactiver_poste`, `revoquer_session_reseau`, `POST /sauvegarde`
+répondent chacun sur une instance réelle. C'est ainsi que les trois
+défauts ci-dessus sont sortis.
 
 ## Ce qui reste à faire
 
@@ -258,15 +321,11 @@ les 167 commandes à migrer n'en ont toujours pas.
    serveur. À vérifier écran par écran.
    ⚠️ `gescom-serveur.exe` n'est toujours pas empaqueté par
    l'installeur, et n'a pas le contrôle d'installation du client.
-2. Remplacer `stock_depot.quantite` (compteur muté) par une somme de
-   `mouvement_stock`. ⚠️ **Pas encore urgent** : le serveur ne détient
-   qu'une connexion derrière un `Mutex`, donc deux ventes ne s'exécutent
-   jamais en même temps — elles font la queue. La course n'apparaîtra
-   qu'avec un pool de connexions ou PostgreSQL. Le gain immédiat est
-   ailleurs : un compteur ne dit pas *pourquoi* il vaut ça, une somme
-   de mouvements si.
-3. Remplacer la numérotation par `MAX(substr(numero,-5))` par un compteur
+2. Remplacer la numérotation par `MAX(substr(numero,-5))` par un compteur
    transactionnel : sous concurrence elle produit deux FAC-00042.
-4. Un écran de réglage réseau (mode, adresse, liste des postes) — les
-   commandes Rust existent
-   ([reseau.rs](../../src-tauri/src/reseau.rs)), l'écran non.
+3. Le pare-feu n'a été vérifié que **depuis la même machine**, ce qui ne
+   prouve rien : seule une seconde machine sur le réseau le prouve.
+
+Faits depuis : le stock dérive maintenant de ses mouvements (voir les
+tests `stock_mouvements.rs`), et l'écran de réglage réseau existe
+([OngletReseau.tsx](../../src/components/OngletReseau.tsx)).

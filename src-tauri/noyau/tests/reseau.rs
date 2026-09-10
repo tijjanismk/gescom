@@ -225,3 +225,38 @@ fn on_ne_change_pas_de_mode_caisse_ouverte() {
     // a qui reclamer l'ecart.
     assert!(caisses::definir_par_utilisateur(&conn, true).is_err());
 }
+
+/// La console ne se desactive pas elle-meme.
+///
+/// Elle apparait dans la liste des postes, comme le serveur. Si le
+/// bouton « Desactiver » y avait le meme effet que sur une caisse, un
+/// clic suffirait a fermer le seul ecran depuis lequel on aurait pu le
+/// defaire : la connexion suivante recevrait « Ce poste a ete
+/// desactive » et il n'y aurait plus de chemin de retour.
+#[test]
+fn un_poste_qui_n_est_pas_une_caisse_ne_se_desactive_pas() {
+    let conn = base();
+    creer_utilisateur(&conn, "u1", "Patron", "patron");
+
+    for genre in ["console", "serveur"] {
+        let poste = postes::inscrire_ou_retrouver(&conn, genre, genre, genre, None)
+            .unwrap()
+            .id;
+        let refus = postes::desactiver(&conn, &poste, "patron");
+        assert!(refus.is_err(), "un poste « {genre} » a ete desactive");
+
+        let actif: i64 = conn
+            .query_row(
+                "SELECT actif FROM poste WHERE id = ?1",
+                rusqlite::params![poste],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(actif, 1, "le poste « {genre} » doit rester allume");
+    }
+
+    // La caisse, elle, se desactive toujours : la garde ne doit pas
+    // avoir emporte le cas normal.
+    let caisse = poste_test(&conn, "Caisse 1");
+    postes::desactiver(&conn, &caisse, "patron").unwrap();
+}

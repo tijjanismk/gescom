@@ -14,7 +14,7 @@ use gescom_noyau::registre::{Appelant, Contexte};
 use gescom_noyau::{caisses, persistance, postes, sessions};
 
 use crate::etat::Serveur;
-use crate::http::{repondre_json, repondre_texte, Requete};
+use crate::http::{repondre_html, repondre_json, repondre_texte, Requete};
 use crate::sauvegarde;
 
 pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Result<()> {
@@ -27,6 +27,12 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
     }
 
     match (req.methode.as_str(), req.chemin.as_str()) {
+        // La console du serveur. Ce qu'elle montre sans mot de passe
+        // est exactement ce que `/sante` expose deja : aucune donnee de
+        // commerce.
+        ("GET", "/") | ("GET", "/console") => {
+            repondre_html(flux, &crate::console::page(srv.port))
+        }
         ("GET", "/sante") => sante(srv, flux),
         ("POST", "/connexion") => connexion(srv, req, flux),
         ("POST", "/deconnexion") => deconnexion(srv, req, flux),
@@ -151,11 +157,19 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         );
     }
 
+    // La console du serveur n'est pas une caisse : elle n'encaisse
+    // pas, et surtout elle ne doit pas pouvoir etre desactivee depuis
+    // elle-meme.
+    let genre = if demande.poste_empreinte == crate::console::EMPREINTE {
+        "console"
+    } else {
+        "caisse"
+    };
     let poste = match postes::inscrire_ou_retrouver(
         &conn,
         &demande.poste_nom,
         &demande.poste_empreinte,
-        "caisse",
+        genre,
         Some(&req.ip),
     ) {
         Ok(p) => p,
