@@ -23,6 +23,7 @@ mod api;
 mod canal;
 mod etat;
 mod http;
+mod reseau_local;
 mod sauvegarde;
 mod socle;
 
@@ -129,6 +130,13 @@ fn main() {
     println!("  écoute      : http://{adresse}");
     println!("  sauvegardes : {}", sauvegarde::dossier(&srv).display());
     println!("  commandes   : {}", srv.registre.len());
+
+    // L'adresse a saisir sur les caisses, et l'etat du pare-feu.
+    // Sans ces deux lignes, la premiere installation multiposte se
+    // solde par un « Serveur injoignable » que rien n'explique.
+    for ligne in reseau_local::conseils(options.port) {
+        println!("{ligne}");
+    }
 
     for flux in ecouteur.incoming() {
         match flux {

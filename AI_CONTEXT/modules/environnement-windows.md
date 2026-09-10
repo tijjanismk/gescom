@@ -1,6 +1,6 @@
-# Environnement : Windows, Smart App Control, PowerShell
+# Environnement : Windows — contrôle d'application, pare-feu, PowerShell
 
-Deux pièges de la machine, pas du code. Ils font perdre du temps parce
+Trois pièges de la machine, pas du code. Ils font perdre du temps parce
 que leurs messages d'erreur désignent autre chose que la cause.
 
 ## 1. Smart App Control bloque les binaires fraîchement liés
@@ -66,9 +66,9 @@ un blocage supprime le fichier que cargo a nommé avant de recommencer
 — quatre fois au plus (`GESCOM_ESSAIS` pour changer). Un échec qui
 n'est pas un blocage est rendu tel quel, sans rien effacer.
 
-Le passage nominal est vérifié : les 121 tests passent au travers. Le
-chemin de reprise, lui, n'a **pas** pu être éprouvé — il faudrait qu'un
-blocage survienne pendant l'essai.
+Vérifié dans les deux cas : le passage nominal, et **la reprise elle-même**
+— un blocage est survenu pendant le portage des commandes, le script a
+supprimé le binaire, relancé, et la suite est passée sans intervention.
 
 ### La vraie décision, qui n'est pas technique
 
@@ -94,7 +94,72 @@ même racine. Le seul remède est un certificat de signature de code. À
 chiffrer avant les premières ventes : sans lui, chaque installation
 dépend de l'humeur de SmartScreen et de SAC sur la machine d'en face.
 
-## 2. PowerShell 5.1 lit un `.ps1` sans BOM comme de l'ANSI
+## 2. Le pare-feu bloque les caisses, sans rien écrire
+
+### Le symptôme
+
+La caisse affiche « Serveur injoignable ». Le serveur ne voit rien
+passer — pas de connexion refusée, pas de ligne de journal, rien. Les
+deux machines se croient en panne l'une de l'autre.
+
+### Ce que Windows fait tout seul, et pourquoi ça ne suffit pas
+
+Au premier lancement de `gescom-serveur.exe`, Windows propose une boîte
+de dialogue. Si quelqu'un clique « Autoriser », une règle est créée —
+mais mesurée sur ce poste, elle vaut :
+
+```
+Inbound Allow  profils=Public
+  …	arget\debug\gescom-serveur.exe
+```
+
+Deux défauts, chacun suffisant :
+
+- **profil Public seulement.** Un réseau de boutique est classé
+  *Privé*. La règle ne s'applique donc pas là où on en a besoin.
+- **attachée au chemin de l'exécutable.** Déplacer ou réinstaller le
+  serveur perd la règle, sans avertissement.
+
+### Le remède
+
+```powershell
+.\outils\parefeu.ps1 -Etat      # sans droits particuliers
+.\outils\parefeu.ps1 -Ouvrir    # PowerShell EN ADMINISTRATEUR
+.\outils\parefeu.ps1 -Fermer
+```
+
+[parefeu.ps1](../../outils/parefeu.ps1) pose une règle sur le **port**,
+pour les profils **Domaine et Privé**. Elle survit au déplacement de
+l'exécutable et couvre le cas réel : un réseau local de boutique.
+
+Le profil **Public est volontairement laissé de côté** — c'est celui
+des réseaux où l'on ne connaît pas ses voisins, un hôtel, un cybercafé.
+Y ouvrir la base d'un commerce serait un mauvais service.
+
+`-Etat` montre aussi les règles posées par Windows, pour qu'on ne croie
+pas la situation réglée parce qu'il y en a une.
+
+### Le serveur le dit lui-même
+
+Depuis
+[reseau_local.rs](../../src-tauri/serveur/src/reseau_local.rs), chaque
+démarrage affiche l'adresse à saisir sur les caisses et, si la règle
+manque, la commande exacte pour la poser :
+
+```
+  pour les caisses : 192.168.100.177:7300   ← l'adresse à saisir…
+
+  ⚠ PARE-FEU : aucune règle « Gescom serveur » n'autorise le port 7300.
+```
+
+L'adresse vient d'une socket UDP ouverte vers une adresse de
+documentation, **sans rien envoyer** : cela suffit à faire choisir à
+Windows l'interface qu'il utiliserait. Énumérer les cartes donnerait
+aussi les adaptateurs VMware, Hyper-V et Bluetooth — et le commerçant
+recopierait la mauvaise. C'est exactement ce qui s'est produit pendant
+la mise au point : quatre adresses virtuelles listées, la vraie absente.
+
+## 3. PowerShell 5.1 lit un `.ps1` sans BOM comme de l'ANSI
 
 Un script contenant des accents et enregistré en UTF-8 **sans** BOM
 produit des erreurs de syntaxe qui ne désignent pas la vraie ligne :
