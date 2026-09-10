@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import {
   TrendingUp, ShoppingCart, Users, Wallet,
   AlertTriangle, FileText, Clock,

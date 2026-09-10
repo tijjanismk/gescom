@@ -10,7 +10,7 @@
 // fois une vente à crédit encaissée plus tard.
 
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import {
   BookOpen, RefreshCw, Loader2, Printer, ChevronLeft, ChevronRight,

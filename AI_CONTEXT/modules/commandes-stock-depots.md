@@ -51,13 +51,13 @@ Sortant : `coeur::stock` (types de mouvement, `est_a_decouvert`),
 ## Règles métier
 
 - [CONFIRMÉ] Les 8 types de mouvement ne se déclarent qu'en un endroit,
-  [coeur/stock.rs:17-39](../../src-tauri/src/coeur/stock.rs#L17). La
+  [coeur/stock.rs:17-39](../../src-tauri/noyau/src/coeur/stock.rs#L17). La
   colonne `mouvement_stock.type_mouvement` est du **TEXT libre** : rien
   en base n'empêche d'y écrire une valeur inventée, et c'est exactement
   ce qui a désynchronisé le journal (échange, ajustement et transfert
   n'apparaissaient nulle part).
 - [CONFIRMÉ] `transfert` écrit **deux** lignes opposées, une par dépôt
-  ([coeur/stock.rs:32](../../src-tauri/src/coeur/stock.rs#L32)) ; son
+  ([coeur/stock.rs:32](../../src-tauri/noyau/src/coeur/stock.rs#L32)) ; son
   sens n'est pas dans le type mais dans le signe de `quantite_delta`.
 - [CONFIRMÉ] Un bon `BTR-AAAA-NNNNN` regroupe les lignes d'un même
   transfert via `transfert.bon` (colonne de migration, v1.2).
@@ -74,7 +74,7 @@ Sortant : `coeur::stock` (types de mouvement, `est_a_decouvert`),
   `article.code_barre` : en boutique le carton porte son propre EAN,
   différent de celui de la pièce. Une seule colonne rendait le scan d'un
   carton impossible par construction (D45, migration dans
-  [persistance/mod.rs](../../src-tauri/src/persistance/mod.rs)).
+  [persistance/mod.rs](../../src-tauri/noyau/src/persistance/mod.rs)).
 - [CONFIRMÉ] Codes internes : préfixe `20`, jamais attribué à un pays,
   donc sans collision possible
-  ([coeur/codebarre.rs:18](../../src-tauri/src/coeur/codebarre.rs#L18)).
+  ([coeur/codebarre.rs:18](../../src-tauri/noyau/src/coeur/codebarre.rs#L18)).

@@ -8,7 +8,7 @@
 // commerçant conclut que l'export ne marche pas.
 
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { message, save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 import {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { Printer, Loader2, FileText, PackageCheck } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,

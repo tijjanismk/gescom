@@ -1329,6 +1329,7 @@ dependencies = [
  "bcrypt",
  "chrono",
  "dirs 5.0.1",
+ "gescom-noyau",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1337,6 +1338,32 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-opener",
+ "uuid",
+]
+
+[[package]]
+name = "gescom-noyau"
+version = "0.2.0"
+dependencies = [
+ "bcrypt",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "gescom-serveur"
+version = "0.2.0"
+dependencies = [
+ "bcrypt",
+ "chrono",
+ "dirs 5.0.1",
+ "gescom-noyau",
+ "rusqlite",
+ "serde",
+ "serde_json",
  "uuid",
 ]
 

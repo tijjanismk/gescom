@@ -73,7 +73,7 @@ Sortant : `coeur::calcul` (montants, statuts, répartition, effet caisse),
   — une erreur de saisie sur session close ne doit toucher à rien.
 - [CONFIRMÉ] Le prédicat « client générique » existe en deux exemplaires
   — `lire_client_generique` ici et `utils::est_client_generique`
-  ([utils.rs:13](../../src-tauri/src/utils.rs#L13)). Le commentaire dit
+  ([utils.rs:13](../../src-tauri/noyau/src/utils.rs#L13)). Le commentaire dit
   la duplication volontaire ; modifier l'un impose de vérifier l'autre.
 - [CONFIRMÉ] `prix_pratique` est stocké **TTC** : la TVA est ajoutée au
   HT côté POS avant l'appel (D8). `SUM(prix_pratique × quantite)` est

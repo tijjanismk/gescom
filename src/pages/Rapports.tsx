@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import {
   TrendingUp, Users, Package, FileText,
   Loader2, Printer, Download, RefreshCw,
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { message } from "@tauri-apps/plugin-dialog";
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { appeler as tauriInvoke } from "@/lib/pont";
 
 // =====================================================================
 //  Types

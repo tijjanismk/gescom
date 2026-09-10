@@ -16,7 +16,7 @@ symbole, y compris les imports dynamiques.
 
 | Fichier | l. | Verdict |
 |---|---|---|
-| [src-tauri/src/portes.rs](../src-tauri/src/portes.rs) | 23 | **Mort, et ne compile pas.** `ErreurPermission` n'est défini nulle part, et `mod portes;` n'est pas déclaré dans `lib.rs` — le fichier n'est jamais compilé. Esquisse d'un modèle de permissions (patron / employé / lecture) jamais branchée. |
+| [src-tauri/noyau/src/portes.rs](../src-tauri/noyau/src/portes.rs) | 23 | **Mort, et ne compile pas.** `ErreurPermission` n'est défini nulle part, et `mod portes;` n'est pas déclaré dans `lib.rs` — le fichier n'est jamais compilé. Esquisse d'un modèle de permissions (patron / employé / lecture) jamais branchée. |
 | [src/components/SelecteurProfil.tsx](../src/components/SelecteurProfil.tsx) | 110 | **Mort.** Remplacé par `PageLogin.tsx` (authentification réelle). |
 | [src/components/ui/table.tsx](../src/components/ui/table.tsx) | 115 | **Mort.** Primitive shadcn jamais adoptée : 13 fichiers écrivent leur `<table>` à la main. |
 | [src/lib/session.ts](../src/lib/session.ts) | 48 | **Mort, et dupliqué.** La logique de session vit en réalité dans [App.tsx:28-60](../src/App.tsx#L28) (`CLE_SESSION`, `sauvegarderSession`). Deux copies de la même règle des 8 h ; celle-ci diverge en silence. |
@@ -88,11 +88,11 @@ Les modifier a le plus d'effets de bord.
 | [src/components/ui/input.tsx](../src/components/ui/input.tsx) | 28 |
 | [src/components/ui/label.tsx](../src/components/ui/label.tsx) | 24 |
 | [src/components/ui/dialog.tsx](../src/components/ui/dialog.tsx) | 22 |
-| [src-tauri/src/coeur/calcul.rs](../src-tauri/src/coeur/calcul.rs) | 20 |
+| [src-tauri/noyau/src/coeur/calcul.rs](../src-tauri/noyau/src/coeur/calcul.rs) | 20 |
 | [src/lib/utils.ts](../src/lib/utils.ts) | 18 |
 | [src/App.tsx](../src/App.tsx) | 17 |
 | [src/components/ui/select.tsx](../src/components/ui/select.tsx) | 15 |
-| [src-tauri/src/coeur/pieces.rs](../src-tauri/src/coeur/pieces.rs) | 13 |
+| [src-tauri/noyau/src/coeur/pieces.rs](../src-tauri/noyau/src/coeur/pieces.rs) | 13 |
 
 `commandes/ventes.rs` en tête n'est pas un hasard : il porte `EtatApp`
 (le `Mutex<Connection>`), que **toute** commande doit importer.

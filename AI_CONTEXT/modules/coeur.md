@@ -8,19 +8,19 @@ Une règle qui n'est pas ici est une règle qu'aucun test ne protège.
 
 ## Fichiers
 
-- [coeur/mod.rs](../../src-tauri/src/coeur/mod.rs) (6 l.) — déclare les
+- [coeur/mod.rs](../../src-tauri/noyau/src/coeur/mod.rs) (6 l.) — déclare les
   cinq modules. `#![allow(dead_code)]` : certaines fonctions n'ont pas
   encore d'appelant.
-- [coeur/calcul.rs](../../src-tauri/src/coeur/calcul.rs) (362 l.) —
+- [coeur/calcul.rs](../../src-tauri/noyau/src/coeur/calcul.rs) (362 l.) —
   montants, statuts de vente, imputation d'un règlement, effet caisse
   d'une annulation.
-- [coeur/pieces.rs](../../src-tauri/src/coeur/pieces.rs) (274 l.) —
+- [coeur/pieces.rs](../../src-tauri/noyau/src/coeur/pieces.rs) (274 l.) —
   immuabilité OHADA : modifier / transférer / annuler.
-- [coeur/stock.rs](../../src-tauri/src/coeur/stock.rs) (145 l.) — les 8
+- [coeur/stock.rs](../../src-tauri/noyau/src/coeur/stock.rs) (145 l.) — les 8
   types de mouvement, source unique. Marges, découvert.
-- [coeur/caisse.rs](../../src-tauri/src/coeur/caisse.rs) (52 l.) — solde
+- [coeur/caisse.rs](../../src-tauri/noyau/src/coeur/caisse.rs) (52 l.) — solde
   théorique et écart, espèces seulement.
-- [coeur/codebarre.rs](../../src-tauri/src/coeur/codebarre.rs) (127 l.) —
+- [coeur/codebarre.rs](../../src-tauri/noyau/src/coeur/codebarre.rs) (127 l.) —
   EAN-13 : clé de contrôle, génération interne préfixe `20`.
 
 ## Fonctions exposées

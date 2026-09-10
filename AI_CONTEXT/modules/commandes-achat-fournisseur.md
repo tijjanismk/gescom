@@ -62,11 +62,11 @@ global), `coeur::stock` (types de mouvement),
 - [CONFIRMÉ] `achat` (facturé, crée dette + caisse) et `entree`
   (marchandise sans facture) sont deux types **distincts** de mouvement.
   Les confondre gonflait les achats du jour d'un montant que personne ne
-  doit ([coeur/stock.rs:58](../../src-tauri/src/coeur/stock.rs#L58), D42).
+  doit ([coeur/stock.rs:58](../../src-tauri/noyau/src/coeur/stock.rs#L58), D42).
 - [CONFIRMÉ] Un règlement fournisseur global s'impute sur les factures de
   la plus ancienne à la plus récente, et la répartition est **écrite** —
   c'est la raison d'être de `repartir_reglement`
-  ([coeur/calcul.rs:28-42](../../src-tauri/src/coeur/calcul.rs#L28)) :
+  ([coeur/calcul.rs:28-42](../../src-tauri/noyau/src/coeur/calcul.rs#L28)) :
   auparavant elle n'était calculée qu'en mémoire, et deux écrans
   donnaient deux vérités sur la même facture.
 - [CONFIRMÉ] `annuler_paiement_fournisseur` est le symétrique exact de

@@ -6,7 +6,7 @@ clôture et les écarts. **Et le garde-fou qui gouverne tout le reste.**
 ## Fichiers
 
 - [commandes/caisse.rs](../../src-tauri/src/commandes/caisse.rs) (568 l.)
-- [utils.rs](../../src-tauri/src/utils.rs) (44 l.) — porte
+- [utils.rs](../../src-tauri/noyau/src/utils.rs) (44 l.) — porte
   `exiger_session_caisse`, le garde-fou.
 
 ## Commandes exposées
@@ -64,7 +64,7 @@ Appelé par : `pages/Caisse.tsx`,
 - [CONFIRMÉ] Le rapprochement porte sur `moyen = 'especes'` seulement, en
   excluant `motif = 'ouverture'` — le fond est déjà porté par
   `session_caisse.fond_ouverture` (D29,
-  [coeur/caisse.rs:1](../../src-tauri/src/coeur/caisse.rs#L1)).
+  [coeur/caisse.rs:1](../../src-tauri/noyau/src/coeur/caisse.rs#L1)).
 - [CONFIRMÉ] Mobile money et chèques sont tracés en mouvement de caisse
   mais **hors tiroir**. Les inclure créerait un écart fantôme à la
   fermeture.
@@ -72,7 +72,7 @@ Appelé par : `pages/Caisse.tsx`,
   `mouvement_caisse` n'est pas alimenté, `encaisse_jour` (table
   `paiement`) et `caisse_par_moyen` (table `mouvement_caisse`) divergent,
   et la clôture affiche un excédent inexplicable
-  ([utils.rs:25-32](../../src-tauri/src/utils.rs#L25)).
+  ([utils.rs:25-32](../../src-tauri/noyau/src/utils.rs#L25)).
 - [DÉDUIT] `modifier_depense` et `lire_depenses_du_jour` sont exposées
   mais jamais appelées — corriger une dépense n'est donc pas faisable
   depuis l'interface, même si le back sait le faire. Vérifier avant de

@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
 import { cn } from "@/lib/utils";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { SelectUnite } from "@/components/SelectUnite";
 import {

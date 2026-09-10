@@ -10,7 +10,7 @@
 // DIMINUE.
 
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import {
   Truck, Search, Loader2, Undo2, ChevronDown, ChevronRight,

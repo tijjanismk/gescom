@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import {
   AlertTriangle, Package, RefreshCw, Loader2,
   ArrowUpCircle, ClipboardList, X, Printer,

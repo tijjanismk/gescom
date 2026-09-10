@@ -1,0 +1,95 @@
+//! Quel tiroir, pour qui.
+//!
+//! Le v1 posait qu'il n'y a QU'UNE caisse ouverte a la fois (D46), et
+//! c'est vrai de la plupart des boutiques de Bamako : un comptoir, un
+//! tiroir, le patron qui compte le soir. Le v2 ne renverse pas ce
+//! choix, il le rend explicite et lui donne une alternative.
+//!
+//! ## Pourquoi ce n'est pas un detail technique
+//!
+//! A deux caissiers sur un tiroir partage, l'ecart de cloture n'est
+//! imputable a personne : c'est un chiffre que tout le monde conteste
+//! et que personne ne corrige. A deux tiroirs, chacun repond du sien.
+//! Le mode se choisit donc au niveau du COMMERCE, pas du poste.
+
+use rusqlite::{Connection, params};
+
+/// La caisse est-elle nominative ?
+pub fn par_utilisateur(conn: &Connection) -> bool {
+    conn.query_row(
+        "SELECT valeur FROM config_app WHERE cle = 'caisse_par_utilisateur'",
+        [],
+        |r| r.get::<_, String>(0),
+    )
+    .map(|v| v == "1")
+    .unwrap_or(false)
+}
+
+pub fn definir_par_utilisateur(conn: &Connection, actif: bool) -> Result<(), String> {
+    // Basculer avec des caisses ouvertes laisserait des sessions sans
+    // proprietaire dans un monde ou tout en a un — et la cloture
+    // suivante ne saurait pas a qui reclamer l'ecart.
+    let ouvertes: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM session_caisse WHERE statut = 'ouverte'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if ouvertes > 0 {
+        return Err(
+            "Fermer toutes les caisses avant de changer le mode de caisse."
+                .to_string(),
+        );
+    }
+    conn.execute(
+        "INSERT INTO config_app (cle, valeur) VALUES ('caisse_par_utilisateur', ?1)
+         ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
+        params![if actif { "1" } else { "0" }],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// La session de caisse a laquelle rattacher une operation.
+///
+/// Le refus vaut mieux que l'ecriture manquante : une operation
+/// bloquee se voit, une ecriture absente ne se voit jamais.
+pub fn exiger(
+    conn: &Connection,
+    utilisateur_id: Option<&str>,
+) -> Result<String, String> {
+    if par_utilisateur(conn) {
+        let Some(uid) = utilisateur_id else {
+            return Err(
+                "CAISSE_SANS_UTILISATEUR — la caisse est nominative : \
+                 cette operation doit indiquer qui l'enregistre."
+                    .to_string(),
+            );
+        };
+        return conn
+            .query_row(
+                "SELECT id FROM session_caisse
+                 WHERE statut = 'ouverte' AND utilisateur_id = ?1
+                 LIMIT 1",
+                params![uid],
+                |r| r.get(0),
+            )
+            .map_err(|_| {
+                "CAISSE_FERMEE — votre caisse n'est pas ouverte. \
+                 L'ouvrir pour enregistrer cette opération."
+                    .to_string()
+            });
+    }
+
+    conn.query_row(
+        "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
+        [],
+        |r| r.get(0),
+    )
+    .map_err(|_| {
+        "CAISSE_FERMEE — la caisse n'est pas ouverte. \
+         L'ouvrir pour enregistrer cette opération."
+            .to_string()
+    })
+}

@@ -1,14 +1,21 @@
 # Gescom — architecture
 
 Application de gestion commerciale **local-first** pour commerçants de
-Bamako. Un seul poste, une base SQLite, pas de serveur.
+Bamako. Les données restent dans la boutique : aucun cloud.
+
+**v1** — un poste, une base SQLite, pas de serveur.
+**v2 (en cours)** — deux exécutables : la fenêtre et
+`gescom-serveur.exe`, qui détient la base pour plusieurs caisses. Le
+monoposte reste le défaut et ne demande aucun service.
+Voir [modules/reseau-v2.md](modules/reseau-v2.md).
 
 ## Stack
 
 | Couche | Technologie |
 |---|---|
 | Coque | Tauri 2 (Rust), WebView2 |
-| Métier | Rust — `src-tauri/src/` (~15 900 l., 38 fichiers) |
+| Métier | Rust — workspace `src-tauri/` : `noyau/`, `serveur/`, l'app |
+| Réseau | HTTP/1.1 maison, un fil par connexion, **zéro dépendance** |
 | Base | SQLite via rusqlite bundled, WAL, `foreign_keys=ON` |
 | Écrans | React 18 + Vite + TypeScript — `src/` (~26 700 l., 71 fichiers) |
 | UI | shadcn/ui + Tailwind 4 |
@@ -16,7 +23,9 @@ Bamako. Un seul poste, une base SQLite, pas de serveur.
 ## Le seul pont entre les deux moitiés
 
 Front et back ne partagent **aucun** type. Ils ne communiquent que par
-`invoke("nom_commande", {...})`. Les 174 commandes sont énumérées dans
+`invoke("nom_commande", {...})` — qui passe désormais par
+[src/lib/pont.ts](../src/lib/pont.ts), seul endroit qui sache si le code
+métier tourne ici ou sur le serveur. Les 174 commandes sont énumérées dans
 `generate_handler!` — [lib.rs:39-248](../src-tauri/src/lib.rs#L39).
 
 Conséquence pratique : renommer une commande Rust ne casse **rien** à la
@@ -38,12 +47,18 @@ des commandes. Le reste est typé en ligne dans les pages.
 ## Découpage
 
 ```
-src-tauri/src/
-  coeur/          règles pures, sans I/O — 100 % testé
-  persistance/    ouverture, schema.sql, migrations, journal
-  commandes/      27 fichiers, une façade Tauri par domaine
-  seed.rs         jeu de données initial
-  tests_multi_depot.rs   scénarios sur base en mémoire
+src-tauri/
+  noyau/src/      SANS Tauri — partagé par la fenêtre et le serveur
+    coeur/          règles pures, sans I/O — 100 % testé
+    persistance/    ouverture, schema.sql, migrations, journal
+    protocole.rs    le contrat client/serveur
+    sessions.rs postes.rs caisses.rs registre.rs portes.rs
+  serveur/src/    gescom-serveur.exe — http.rs, api.rs, canal.rs, socle.rs
+  src/            l'application Tauri
+    commandes/      27 fichiers, une façade Tauri par domaine
+    reseau.rs       mode monoposte / poste caisse
+    seed.rs         jeu de données initial
+    tests_multi_depot.rs   scénarios sur base en mémoire
 
 src/
   pages/          18 écrans plein cadre, appelés par App.tsx

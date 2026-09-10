@@ -10,7 +10,7 @@
 // ne peuvent pas doubler la quantité.
 
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import { Truck, Loader2, CheckCheck } from "lucide-react";
 import {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import {
   Wallet, RefreshCw, Loader2, TrendingUp, TrendingDown,
   // `History` entre en collision avec window.History, une classe

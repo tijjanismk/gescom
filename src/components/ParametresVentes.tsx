@@ -1,7 +1,7 @@
 //! Onglet Ventes dans Paramètres — config scanner et code-barres articles.
 
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { Scan, Loader2, Save, Package, PackageCheck, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

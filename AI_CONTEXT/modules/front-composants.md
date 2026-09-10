@@ -62,7 +62,7 @@ composants maison (effet verre, tuiles de KPI).
   pose en **style inline** (D22). Un `className` sera silencieusement
   sans effet.
 - [CONFIRMÉ] `estCaisseFermee` reconnaît l'erreur Rust par sa **chaîne**
-  `CAISSE_FERMEE` ([utils.rs:40](../../src-tauri/src/utils.rs#L40)).
+  `CAISSE_FERMEE` ([utils.rs:40](../../src-tauri/noyau/src/utils.rs#L40)).
   Reformuler ce message côté Rust casse la modale d'ouverture de caisse,
   sans erreur de compilation d'aucun côté.
 - [CONFIRMÉ] `ParametresVentes.tsx` exporte `OngletVentes` : le nom du

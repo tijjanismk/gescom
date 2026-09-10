@@ -12,7 +12,7 @@
 // par lieu — un vrai chantier, pas un renommage.
 
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { message, confirm } from "@tauri-apps/plugin-dialog";
 import { DEPOT_ACTIF, definirDepotActif } from "@/App";
 import {

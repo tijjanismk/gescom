@@ -9,7 +9,7 @@
 // Pas de sélecteur de format ici : un reçu est un A5, point.
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import { Printer, Loader2, Eye, AlertTriangle } from "lucide-react";
 import {

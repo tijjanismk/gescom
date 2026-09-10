@@ -27,6 +27,7 @@ Ordre de lecture conseillé :
 | [front-pages](modules/front-pages.md) | les 18 écrans, l'état global d'`App.tsx` |
 | [front-composants](modules/front-composants.md) | modales, onglets, primitives shadcn |
 | [front-lib](modules/front-lib.md) | génération des documents imprimables |
+| [reseau-v2](modules/reseau-v2.md) | **v2** — serveur, sessions, canal, caisse par utilisateur |
 
 ## Ce que la carte ne remplace pas
 

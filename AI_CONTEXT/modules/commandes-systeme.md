@@ -72,7 +72,7 @@ front** — chaque écran imprimable recharge le logo en base64 lui-même.
   divergence de chiffres entre le tableau de bord et les rapports est
   possible et ne serait signalée par rien.
 - [CONFIRMÉ] `diagnostiquer_base` et `entretenir_base` sont ici, mais le
-  travail est fait par [persistance/mod.rs](../../src-tauri/src/persistance/mod.rs)
+  travail est fait par [persistance/mod.rs](../../src-tauri/noyau/src/persistance/mod.rs)
   (`verifier_integrite`, `anomalies_metier`, `entretenir`).
 - [CONFIRMÉ] Images en **base64 dans le HTML** d'impression (D4) : le
   document imprimé doit être autonome, il n'a pas accès au disque.

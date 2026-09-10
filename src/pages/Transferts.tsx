@@ -7,7 +7,7 @@
 // le gérant qui reçoit.
 
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import {
   ArrowLeftRight, Search, Loader2, Plus, X, Printer, RefreshCw,

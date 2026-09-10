@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 
 // =====================================================================
 //  Types — miroir des structs Rust

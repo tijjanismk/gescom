@@ -18,7 +18,7 @@ import type {
   CreerFournisseurResultat, EnregistrerAchatResultat,
 } from "@/lib/types-api";
 import { cn } from "@/lib/utils";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { SelectUnite } from "@/components/SelectUnite";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 

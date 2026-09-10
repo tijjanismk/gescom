@@ -9,7 +9,7 @@
 // FiltresVentes.
 
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { Loader2, Search, Wallet, Gift } from "lucide-react";
 import { genererBonEchangeHTML } from "@/lib/genererPDF";
 import { Button } from "@/components/ui/button";

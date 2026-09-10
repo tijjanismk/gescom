@@ -12,7 +12,7 @@
 // hauteur du contenu — il n'autorise aucun script à s'exécuter.
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import {
   Printer, Loader2, Eye, PackageCheck, AlertTriangle,

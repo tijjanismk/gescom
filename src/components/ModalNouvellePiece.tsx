@@ -2,7 +2,7 @@
 // Modal de création de pièce — client OU fournisseur selon prop `cote`
 
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { Loader2, X, UserPlus, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

@@ -2,6 +2,9 @@
 
 use rusqlite::{Connection, Result};
 
+pub mod journal;
+pub mod v2;
+
 pub fn ouvrir_base(chemin: &str) -> Result<Connection> {
     let conn = Connection::open(chemin)?;
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
@@ -336,6 +339,9 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
             origine      TEXT NOT NULL DEFAULT 'app'
         );"
     ).ok();
+
+    // ---- Multiposte (v2) ----
+    v2::migrer(conn)?;
 
     Ok(())
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { CreanceOuverteApi } from "@/lib/types-api";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import {
   ArrowLeft, User, Phone, MapPin, Mail, FileText,
   Loader2, Plus, Printer, ArrowRight, Eye, Pencil, RotateCcw,

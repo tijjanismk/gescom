@@ -1,3 +1,9 @@
+[workspace]
+# Le v2 produit deux executables : ce crate (le client, fenetre
+# Tauri) et `serveur/` (sans fenetre). `noyau/` porte ce que les deux
+# partagent — calculs, schema, protocole.
+members = ["noyau", "serveur"]
+
 [package]
 name = "gescom"
 version = "0.1.0"
@@ -30,3 +36,4 @@ tauri-plugin-dialog = "2"
 bcrypt = "0.15"
 base64 = "0.22"
 tauri-plugin-fs = "2.5.1"
+gescom-noyau = { path = "noyau" }

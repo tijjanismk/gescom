@@ -5,7 +5,7 @@
 // qui parle. Cet écran existe pour lire cette suite.
 
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import {
   History as HistoryIcon, Loader2, RefreshCw, ChevronDown, ChevronRight,
   TrendingDown, TrendingUp, CheckCircle2, AlertTriangle,

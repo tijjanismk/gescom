@@ -8,7 +8,7 @@
 // il est imprimé sur l'emballage.
 
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import {
   Barcode, Loader2, RefreshCw, Wand2, Printer, Search, Check, X,

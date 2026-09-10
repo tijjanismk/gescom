@@ -76,14 +76,14 @@ Sortant : `coeur::pieces` (les trois gardes d'immuabilité),
   l'information (CONTEXT.md, D49).
 - [CONFIRMÉ] Les trois gardes d'immuabilité (`peut_modifier`,
   `peut_transferer`, `peut_annuler`) vivent dans
-  [coeur/pieces.rs](../../src-tauri/src/coeur/pieces.rs) et sont testées
+  [coeur/pieces.rs](../../src-tauri/noyau/src/coeur/pieces.rs) et sont testées
   là-bas. Ce module les **appelle**, il ne les réimplémente pas — c'est
   à préserver.
 - [CONFIRMÉ] Une pièce ne se transfère qu'une fois, gardée par le statut
   **et** par l'existence d'un descendant non annulé. Le second verrou
   existe précisément à cause de
   `convertir_commande_en_livraison_et_facture`, qui produit deux pièces
-  d'un coup ([coeur/pieces.rs:68-75](../../src-tauri/src/coeur/pieces.rs#L68)).
+  d'un coup ([coeur/pieces.rs:68-75](../../src-tauri/noyau/src/coeur/pieces.rs#L68)).
 - [CONFIRMÉ] Un préfixe = un type = un compteur : `DEV PRO CMD BL FAC
   ACP AVC` (client), `BCF BRF FAF AVF` (fournisseur), `BTR` (transfert).
   Numérotation par `MAX(substr(numero,-5))`, jamais `COUNT` (D28) — un

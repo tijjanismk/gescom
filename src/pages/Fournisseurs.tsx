@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import {
   Truck, Plus, Search, X, Loader2,
   FileText, Banknote, ChevronDown, ChevronRight,

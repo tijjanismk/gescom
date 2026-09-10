@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   Package, Tag, Building2, Users, HardDrive,

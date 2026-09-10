@@ -13,7 +13,7 @@
 // Un champ, un bouton, et la vente reprend où elle en était.
 
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import { Wallet, Loader2 } from "lucide-react";
 import {

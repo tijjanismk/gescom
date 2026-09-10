@@ -1,7 +1,7 @@
 {
  "racine": "C:\\Users\\USER\\Documents\\projet gestion commerciale\\gescom",
  "avertissement": null,
- "nb_fichiers": 115,
+ "nb_fichiers": 132,
  "fichiers": {
   "creer_tiers_test.py": {
    "fichier": "creer_tiers_test.py",
@@ -97,7 +97,7 @@
   "preparer_demo_video.py": {
    "fichier": "preparer_demo_video.py",
    "langage": "python",
-   "lignes": 785,
+   "lignes": 923,
    "exporte": [
     "arrondi",
     "auteur_patron",
@@ -240,7 +240,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -426,7 +426,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -496,7 +496,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -563,7 +563,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -610,7 +610,7 @@
   "src/components/Layout.tsx": {
    "fichier": "src/components/Layout.tsx",
    "langage": "ts",
-   "lignes": 202,
+   "lignes": 224,
    "exporte": [
     "Layout"
    ],
@@ -623,7 +623,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -684,7 +684,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -749,7 +749,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -815,7 +815,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -874,7 +874,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -937,7 +937,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -1019,7 +1019,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -1098,7 +1098,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -1211,7 +1211,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -1292,7 +1292,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -1347,7 +1347,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -1433,7 +1433,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -1482,7 +1482,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -1567,7 +1567,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -1633,7 +1633,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -1697,7 +1697,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -2228,6 +2228,34 @@
    ],
    "importe": []
   },
+  "src/lib/pont.ts": {
+   "fichier": "src/lib/pont.ts",
+   "langage": "ts",
+   "lignes": 289,
+   "exporte": [
+    "EtatReseau",
+    "Evenement",
+    "Identite",
+    "ModeReseau",
+    "VERSION_PROTOCOLE",
+    "appeler",
+    "connecterServeur",
+    "deconnecterServeur",
+    "definirServeur",
+    "ecouterCanal",
+    "enReseau",
+    "etatReseau",
+    "sante"
+   ],
+   "importe": [
+    {
+     "source": "@tauri-apps/api/core",
+     "symboles": [
+      "invokeTauri"
+     ]
+    }
+   ]
+  },
   "src/lib/remise.ts": {
    "fichier": "src/lib/remise.ts",
    "langage": "ts",
@@ -2278,7 +2306,7 @@
    ],
    "importe": [
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -2461,7 +2489,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -2498,7 +2526,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -2607,7 +2635,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -2664,7 +2692,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -2790,7 +2818,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -2866,7 +2894,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -3024,7 +3052,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -3171,7 +3199,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -3291,7 +3319,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -3358,7 +3386,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -3410,7 +3438,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -3579,7 +3607,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -3746,7 +3774,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -3791,7 +3819,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "tauriInvoke"
      ]
@@ -3815,7 +3843,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -3905,7 +3933,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -4004,7 +4032,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -4117,7 +4145,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -4262,7 +4290,7 @@
      ]
     },
     {
-     "source": "@tauri-apps/api/core",
+     "source": "@/lib/pont",
      "symboles": [
       "invoke"
      ]
@@ -4323,21 +4351,445 @@
    "importe": [],
    "mods": []
   },
+  "src-tauri/noyau/src/caisses.rs": {
+   "fichier": "src-tauri/noyau/src/caisses.rs",
+   "langage": "rust",
+   "lignes": 96,
+   "exporte": [
+    "definir_par_utilisateur",
+    "exiger",
+    "par_utilisateur"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/noyau/src/lib.rs": {
+   "fichier": "src-tauri/noyau/src/lib.rs",
+   "langage": "rust",
+   "lignes": 30,
+   "exporte": [
+    "VERSION_PROTOCOLE"
+   ],
+   "importe": [],
+   "mods": [
+    "caisses",
+    "coeur",
+    "persistance",
+    "portes",
+    "postes",
+    "protocole",
+    "registre",
+    "sessions",
+    "utils"
+   ]
+  },
+  "src-tauri/noyau/src/portes.rs": {
+   "fichier": "src-tauri/noyau/src/portes.rs",
+   "langage": "rust",
+   "lignes": 105,
+   "exporte": [
+    "ContexteUtilisateur",
+    "ErreurPermission",
+    "verifier_permission"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/noyau/src/postes.rs": {
+   "fichier": "src-tauri/noyau/src/postes.rs",
+   "langage": "rust",
+   "lignes": 124,
+   "exporte": [
+    "Poste",
+    "desactiver",
+    "inscrire_ou_retrouver",
+    "lire",
+    "lister",
+    "reactiver"
+   ],
+   "importe": [
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/noyau/src/protocole.rs": {
+   "fichier": "src-tauri/noyau/src/protocole.rs",
+   "langage": "rust",
+   "lignes": 159,
+   "exporte": [
+    "CodeErreur",
+    "DUREE_JETON_HEURES",
+    "DemandeConnexion",
+    "Evenement",
+    "Identite",
+    "LotEvenements",
+    "PORT_DEFAUT",
+    "Reponse",
+    "Requete",
+    "Sante",
+    "depuis",
+    "erreur",
+    "ok"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/noyau/src/registre.rs": {
+   "fichier": "src-tauri/noyau/src/registre.rs",
+   "langage": "rust",
+   "lignes": 91,
+   "exporte": [
+    "Appelant",
+    "Contexte",
+    "Entree",
+    "Poignee",
+    "Registre",
+    "ecriture",
+    "is_empty",
+    "lecture",
+    "len",
+    "noms",
+    "nouveau",
+    "trouver"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/noyau/src/sessions.rs": {
+   "fichier": "src-tauri/noyau/src/sessions.rs",
+   "langage": "rust",
+   "lignes": 191,
+   "exporte": [
+    "Etat",
+    "SessionReseau",
+    "engendrer_jeton",
+    "etat",
+    "lister_actives",
+    "ouvrir",
+    "revoquer",
+    "revoquer_toutes",
+    "toucher"
+   ],
+   "importe": [
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    },
+    {
+     "source": "crate::protocole::DUREE_JETON_HEURES",
+     "symboles": [
+      "DUREE_JETON_HEURES"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/noyau/src/utils.rs": {
+   "fichier": "src-tauri/noyau/src/utils.rs",
+   "langage": "rust",
+   "lignes": 33,
+   "exporte": [
+    "est_client_generique",
+    "exiger_session_caisse",
+    "maintenant_iso"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/noyau/src/coeur/caisse.rs": {
+   "fichier": "src-tauri/noyau/src/coeur/caisse.rs",
+   "langage": "rust",
+   "lignes": 53,
+   "exporte": [
+    "ecart_caisse",
+    "solde_theorique"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/noyau/src/coeur/calcul.rs": {
+   "fichier": "src-tauri/noyau/src/coeur/calcul.rs",
+   "langage": "rust",
+   "lignes": 363,
+   "exporte": [
+    "EffetCaisse",
+    "SEUIL_SOLDE",
+    "StatutVente",
+    "ecart_prix",
+    "effet_caisse_annulation",
+    "montant_ligne",
+    "repartir_reglement",
+    "reste_du",
+    "reste_exigible",
+    "statut_vente",
+    "statut_vente_depuis_reste",
+    "total_paye",
+    "total_vente"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/noyau/src/coeur/codebarre.rs": {
+   "fichier": "src-tauri/noyau/src/coeur/codebarre.rs",
+   "langage": "rust",
+   "lignes": 128,
+   "exporte": [
+    "PREFIXE_INTERNE",
+    "cle_ean13",
+    "est_interne",
+    "generer_ean13_interne",
+    "valider_ean13"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/noyau/src/coeur/mod.rs": {
+   "fichier": "src-tauri/noyau/src/coeur/mod.rs",
+   "langage": "rust",
+   "lignes": 7,
+   "exporte": [],
+   "importe": [],
+   "mods": [
+    "caisse",
+    "calcul",
+    "codebarre",
+    "pieces",
+    "stock"
+   ]
+  },
+  "src-tauri/noyau/src/coeur/pieces.rs": {
+   "fichier": "src-tauri/noyau/src/coeur/pieces.rs",
+   "langage": "rust",
+   "lignes": 275,
+   "exporte": [
+    "est_engageante",
+    "peut_annuler",
+    "peut_modifier",
+    "peut_transferer"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/noyau/src/coeur/stock.rs": {
+   "fichier": "src-tauri/noyau/src/coeur/stock.rs",
+   "langage": "rust",
+   "lignes": 146,
+   "exporte": [
+    "ACHAT",
+    "AJUSTEMENT",
+    "ECHANGE",
+    "ENTREE",
+    "RETOUR",
+    "RETOUR_FOURNISSEUR",
+    "TOUS",
+    "TRANSFERT",
+    "VENTE",
+    "credit_retour",
+    "est_a_decouvert",
+    "est_achat_facture",
+    "est_entrant",
+    "libelle",
+    "marge"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/noyau/src/persistance/journal.rs": {
+   "fichier": "src-tauri/noyau/src/persistance/journal.rs",
+   "langage": "rust",
+   "lignes": 31,
+   "exporte": [
+    "ecrire_evenement"
+   ],
+   "importe": [
+    {
+     "source": "crate::utils::maintenant_iso",
+     "symboles": [
+      "maintenant_iso"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/noyau/src/persistance/mod.rs": {
+   "fichier": "src-tauri/noyau/src/persistance/mod.rs",
+   "langage": "rust",
+   "lignes": 378,
+   "exporte": [
+    "anomalies_metier",
+    "entretenir",
+    "initialiser_tables",
+    "ouvrir_base",
+    "verifier_integrite"
+   ],
+   "importe": [],
+   "mods": [
+    "journal",
+    "v2"
+   ]
+  },
+  "src-tauri/noyau/src/persistance/v2.rs": {
+   "fichier": "src-tauri/noyau/src/persistance/v2.rs",
+   "langage": "rust",
+   "lignes": 100,
+   "exporte": [
+    "migrer"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/noyau/tests/reseau.rs": {
+   "fichier": "src-tauri/noyau/tests/reseau.rs",
+   "langage": "rust",
+   "lignes": 228,
+   "exporte": [],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/serveur/src/api.rs": {
+   "fichier": "src-tauri/serveur/src/api.rs",
+   "langage": "rust",
+   "lignes": 402,
+   "exporte": [
+    "traiter"
+   ],
+   "importe": [
+    {
+     "source": "crate::etat::Serveur",
+     "symboles": [
+      "Serveur"
+     ]
+    },
+    {
+     "source": "crate::http",
+     "symboles": [
+      "repondre_json",
+      "repondre_texte",
+      "Requete"
+     ]
+    },
+    {
+     "source": "crate::sauvegarde",
+     "symboles": [
+      "sauvegarde"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/serveur/src/canal.rs": {
+   "fichier": "src-tauri/serveur/src/canal.rs",
+   "langage": "rust",
+   "lignes": 126,
+   "exporte": [
+    "Canal",
+    "depuis",
+    "nouveau",
+    "publier",
+    "seq_courant"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/serveur/src/etat.rs": {
+   "fichier": "src-tauri/serveur/src/etat.rs",
+   "langage": "rust",
+   "lignes": 49,
+   "exporte": [
+    "Serveur",
+    "enregistrer_jeton",
+    "oublier_jeton",
+    "session_du_jeton"
+   ],
+   "importe": [
+    {
+     "source": "crate::canal::Canal",
+     "symboles": [
+      "Canal"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/serveur/src/http.rs": {
+   "fichier": "src-tauri/serveur/src/http.rs",
+   "langage": "rust",
+   "lignes": 208,
+   "exporte": [
+    "Requete",
+    "jeton",
+    "json",
+    "lire_requete",
+    "repondre_json",
+    "repondre_texte"
+   ],
+   "importe": [],
+   "mods": []
+  },
+  "src-tauri/serveur/src/main.rs": {
+   "fichier": "src-tauri/serveur/src/main.rs",
+   "langage": "rust",
+   "lignes": 237,
+   "exporte": [],
+   "importe": [],
+   "mods": [
+    "api",
+    "canal",
+    "etat",
+    "http",
+    "sauvegarde",
+    "socle"
+   ]
+  },
+  "src-tauri/serveur/src/sauvegarde.rs": {
+   "fichier": "src-tauri/serveur/src/sauvegarde.rs",
+   "langage": "rust",
+   "lignes": 127,
+   "exporte": [
+    "dossier",
+    "maintenant",
+    "planifier"
+   ],
+   "importe": [
+    {
+     "source": "crate::etat::Serveur",
+     "symboles": [
+      "Serveur"
+     ]
+    }
+   ],
+   "mods": []
+  },
+  "src-tauri/serveur/src/socle.rs": {
+   "fichier": "src-tauri/serveur/src/socle.rs",
+   "langage": "rust",
+   "lignes": 82,
+   "exporte": [
+    "registre"
+   ],
+   "importe": [],
+   "mods": []
+  },
   "src-tauri/src/lib.rs": {
    "fichier": "src-tauri/src/lib.rs",
    "langage": "rust",
-   "lignes": 249,
+   "lignes": 257,
    "exporte": [
     "run"
    ],
    "importe": [],
    "mods": [
-    "coeur",
     "commandes",
-    "persistance",
+    "reseau",
     "seed",
-    "tests_multi_depot",
-    "utils"
+    "tests_multi_depot"
    ]
   },
   "src-tauri/src/main.rs": {
@@ -4348,13 +4800,16 @@
    "importe": [],
    "mods": []
   },
-  "src-tauri/src/portes.rs": {
-   "fichier": "src-tauri/src/portes.rs",
+  "src-tauri/src/reseau.rs": {
+   "fichier": "src-tauri/src/reseau.rs",
    "langage": "rust",
-   "lignes": 23,
+   "lignes": 187,
    "exporte": [
-    "ContexteUtilisateur",
-    "verifier_permission"
+    "ConfigReseau",
+    "definir_config_reseau",
+    "lire",
+    "lire_config_reseau",
+    "tester_serveur"
    ],
    "importe": [],
    "mods": []
@@ -4408,116 +4863,6 @@
      ]
     }
    ],
-   "mods": []
-  },
-  "src-tauri/src/utils.rs": {
-   "fichier": "src-tauri/src/utils.rs",
-   "langage": "rust",
-   "lignes": 45,
-   "exporte": [
-    "est_client_generique",
-    "exiger_session_caisse",
-    "maintenant_iso"
-   ],
-   "importe": [],
-   "mods": []
-  },
-  "src-tauri/src/coeur/caisse.rs": {
-   "fichier": "src-tauri/src/coeur/caisse.rs",
-   "langage": "rust",
-   "lignes": 53,
-   "exporte": [
-    "ecart_caisse",
-    "solde_theorique"
-   ],
-   "importe": [],
-   "mods": []
-  },
-  "src-tauri/src/coeur/calcul.rs": {
-   "fichier": "src-tauri/src/coeur/calcul.rs",
-   "langage": "rust",
-   "lignes": 363,
-   "exporte": [
-    "EffetCaisse",
-    "SEUIL_SOLDE",
-    "StatutVente",
-    "ecart_prix",
-    "effet_caisse_annulation",
-    "montant_ligne",
-    "repartir_reglement",
-    "reste_du",
-    "reste_exigible",
-    "statut_vente",
-    "statut_vente_depuis_reste",
-    "total_paye",
-    "total_vente"
-   ],
-   "importe": [],
-   "mods": []
-  },
-  "src-tauri/src/coeur/codebarre.rs": {
-   "fichier": "src-tauri/src/coeur/codebarre.rs",
-   "langage": "rust",
-   "lignes": 128,
-   "exporte": [
-    "PREFIXE_INTERNE",
-    "cle_ean13",
-    "est_interne",
-    "generer_ean13_interne",
-    "valider_ean13"
-   ],
-   "importe": [],
-   "mods": []
-  },
-  "src-tauri/src/coeur/mod.rs": {
-   "fichier": "src-tauri/src/coeur/mod.rs",
-   "langage": "rust",
-   "lignes": 7,
-   "exporte": [],
-   "importe": [],
-   "mods": [
-    "caisse",
-    "calcul",
-    "codebarre",
-    "pieces",
-    "stock"
-   ]
-  },
-  "src-tauri/src/coeur/pieces.rs": {
-   "fichier": "src-tauri/src/coeur/pieces.rs",
-   "langage": "rust",
-   "lignes": 275,
-   "exporte": [
-    "est_engageante",
-    "peut_annuler",
-    "peut_modifier",
-    "peut_transferer"
-   ],
-   "importe": [],
-   "mods": []
-  },
-  "src-tauri/src/coeur/stock.rs": {
-   "fichier": "src-tauri/src/coeur/stock.rs",
-   "langage": "rust",
-   "lignes": 146,
-   "exporte": [
-    "ACHAT",
-    "AJUSTEMENT",
-    "ECHANGE",
-    "ENTREE",
-    "RETOUR",
-    "RETOUR_FOURNISSEUR",
-    "TOUS",
-    "TRANSFERT",
-    "VENTE",
-    "credit_retour",
-    "est_a_decouvert",
-    "est_achat_facture",
-    "est_entrant",
-    "libelle",
-    "marge"
-   ],
-   "importe": [],
    "mods": []
   },
   "src-tauri/src/commandes/achats.rs": {
@@ -5002,7 +5347,7 @@
   "src-tauri/src/commandes/pagination.rs": {
    "fichier": "src-tauri/src/commandes/pagination.rs",
    "langage": "rust",
-   "lignes": 664,
+   "lignes": 685,
    "exporte": [
     "lire_clients_pagines",
     "lire_fournisseurs_pagines",
@@ -5313,40 +5658,251 @@
     }
    ],
    "mods": []
-  },
-  "src-tauri/src/persistance/journal.rs": {
-   "fichier": "src-tauri/src/persistance/journal.rs",
-   "langage": "rust",
-   "lignes": 31,
-   "exporte": [
-    "ecrire_evenement"
-   ],
-   "importe": [
-    {
-     "source": "crate::utils::maintenant_iso",
-     "symboles": [
-      "maintenant_iso"
-     ]
-    }
-   ],
-   "mods": []
-  },
-  "src-tauri/src/persistance/mod.rs": {
-   "fichier": "src-tauri/src/persistance/mod.rs",
-   "langage": "rust",
-   "lignes": 372,
-   "exporte": [
-    "anomalies_metier",
-    "entretenir",
-    "initialiser_tables",
-    "ouvrir_base",
-    "verifier_integrite"
-   ],
-   "importe": [],
-   "mods": []
   }
  },
  "importe_par": {
+  "src/lib/pont.ts": [
+   {
+    "par": "src/App.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/ApercuPiece.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/ApercuRecu.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/FiltresAvances.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/Layout.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/ModalChangerMdp.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/ModalImpression.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/ModalLivraison.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/ModalModifierTiers.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/ModalNouvellePiece.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/ModalOuvrirCaisse.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/ModalsRetour.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/OngletChantiers.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/OngletCodesBarres.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/OngletDepots.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/OngletHistoriqueCaisse.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/OngletImportExport.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/ParametresSociete.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/ParametresVentes.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/components/RetourFournisseur.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/lib/tauri.ts",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Achats.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Caisse.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Cheques.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Clients.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Dashboard.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/FicheClient.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/FicheFournisseur.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Fournisseurs.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Journal.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/PageLogin.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Parametres.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Pieces.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Rapports.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Rapports.tsx",
+    "symboles": [
+     "tauriInvoke"
+    ]
+   },
+   {
+    "par": "src/pages/Relances.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Retours.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Stock.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Transferts.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   },
+   {
+    "par": "src/pages/Ventes.tsx",
+    "symboles": [
+     "invoke"
+    ]
+   }
+  ],
   "src/components/Layout.tsx": [
    {
     "par": "src/App.tsx",
@@ -7325,199 +7881,63 @@
     ]
    }
   ],
-  "src-tauri/src/commandes/mod.rs": [
+  "src-tauri/noyau/src/portes.rs": [
    {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/noyau/src/lib.rs",
     "symboles": [
-     "achats"
+     "mod"
     ]
-   },
+   }
+  ],
+  "src-tauri/noyau/src/coeur/mod.rs": [
    {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/noyau/src/lib.rs",
     "symboles": [
-     "pieces"
+     "mod"
     ]
-   },
+   }
+  ],
+  "src-tauri/noyau/src/protocole.rs": [
    {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/noyau/src/lib.rs",
     "symboles": [
-     "livraisons"
+     "mod"
     ]
-   },
+   }
+  ],
+  "src-tauri/noyau/src/persistance/mod.rs": [
    {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "catalogue"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "sauvegarde"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "ventes"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "parametres"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "retours"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "caisse"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "pagination"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "depots"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "transferts"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "relances"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "impression"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "logo"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "pieces_pos"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "dashboard"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "cheques"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "codebarre"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/noyau/src/lib.rs",
     "symboles": [
      "mod"
     ]
    },
    {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/noyau/tests/reseau.rs",
     "symboles": [
-     "chantiers"
+     "initialiser_tables"
     ]
    },
    {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/serveur/src/api.rs",
     "symboles": [
-     "creances"
+     "verifier_integrite"
     ]
    },
    {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/serveur/src/main.rs",
     "symboles": [
-     "fournisseurs"
+     "initialiser_tables"
     ]
    },
    {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/serveur/src/main.rs",
     "symboles": [
-     "societe"
+     "verifier_integrite"
     ]
    },
    {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "avoirs"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "journal"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "auth"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "rapports"
-    ]
-   }
-  ],
-  "src-tauri/src/seed.rs": [
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "mod"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "seeder"
-    ]
-   },
-   {
-    "par": "src-tauri/src/lib.rs",
-    "symboles": [
-     "base_est_vide"
-    ]
-   }
-  ],
-  "src-tauri/src/persistance/mod.rs": [
-   {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/serveur/src/main.rs",
     "symboles": [
      "ouvrir_base"
     ]
@@ -7531,39 +7951,229 @@
    {
     "par": "src-tauri/src/lib.rs",
     "symboles": [
-     "mod"
+     "ouvrir_base"
     ]
    }
   ],
-  "src-tauri/src/coeur/mod.rs": [
+  "src-tauri/noyau/src/utils.rs": [
    {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/noyau/src/lib.rs",
     "symboles": [
      "mod"
     ]
    }
   ],
-  "src-tauri/src/tests_multi_depot.rs": [
+  "src-tauri/noyau/src/registre.rs": [
    {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/noyau/src/lib.rs",
     "symboles": [
      "mod"
     ]
    }
   ],
-  "src-tauri/src/utils.rs": [
+  "src-tauri/noyau/src/sessions.rs": [
    {
-    "par": "src-tauri/src/lib.rs",
+    "par": "src-tauri/noyau/src/lib.rs",
     "symboles": [
      "mod"
     ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "revoquer_toutes"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "Etat"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "revoquer"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "lister_actives"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "ouvrir"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "etat"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/api.rs",
+    "symboles": [
+     "Etat"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/api.rs",
+    "symboles": [
+     "revoquer"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/api.rs",
+    "symboles": [
+     "lister_actives"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/api.rs",
+    "symboles": [
+     "etat"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/api.rs",
+    "symboles": [
+     "toucher"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/api.rs",
+    "symboles": [
+     "ouvrir"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "revoquer_toutes"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/socle.rs",
+    "symboles": [
+     "revoquer"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/socle.rs",
+    "symboles": [
+     "lister_actives"
+    ]
    }
   ],
-  "src-tauri/src/commandes/auth.rs": [
+  "src-tauri/noyau/src/postes.rs": [
    {
-    "par": "src-tauri/src/seed.rs",
+    "par": "src-tauri/noyau/src/lib.rs",
     "symboles": [
-     "hasher_mot_de_passe_pub"
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "inscrire_ou_retrouver"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "desactiver"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "lister"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/api.rs",
+    "symboles": [
+     "inscrire_ou_retrouver"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "inscrire_ou_retrouver"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/socle.rs",
+    "symboles": [
+     "desactiver"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/socle.rs",
+    "symboles": [
+     "reactiver"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/socle.rs",
+    "symboles": [
+     "lister"
+    ]
+   }
+  ],
+  "src-tauri/noyau/src/caisses.rs": [
+   {
+    "par": "src-tauri/noyau/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "exiger"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "par_utilisateur"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/tests/reseau.rs",
+    "symboles": [
+     "definir_par_utilisateur"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/api.rs",
+    "symboles": [
+     "par_utilisateur"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/socle.rs",
+    "symboles": [
+     "par_utilisateur"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/socle.rs",
+    "symboles": [
+     "definir_par_utilisateur"
+    ]
+   }
+  ],
+  "src-tauri/noyau/src/coeur/codebarre.rs": [
+   {
+    "par": "src-tauri/noyau/src/coeur/mod.rs",
+    "symboles": [
+     "mod"
     ]
    },
    {
@@ -7573,23 +8183,11 @@
     ]
    }
   ],
-  "src-tauri/src/commandes/depots.rs": [
+  "src-tauri/src/commandes/codebarre.rs": [
    {
-    "par": "src-tauri/src/tests_multi_depot.rs",
+    "par": "src-tauri/noyau/src/coeur/mod.rs",
     "symboles": [
-     "lire_stock_multi_depots_sur"
-    ]
-   },
-   {
-    "par": "src-tauri/src/tests_multi_depot.rs",
-    "symboles": [
-     "desactiver_depot_sur"
-    ]
-   },
-   {
-    "par": "src-tauri/src/tests_multi_depot.rs",
-    "symboles": [
-     "reactiver_depot_sur"
+     "mod"
     ]
    },
    {
@@ -7599,301 +8197,185 @@
     ]
    }
   ],
-  "src-tauri/src/commandes/ventes.rs": [
+  "src-tauri/noyau/src/coeur/caisse.rs": [
    {
-    "par": "src-tauri/src/tests_multi_depot.rs",
+    "par": "src-tauri/noyau/src/coeur/mod.rs",
     "symboles": [
-     "creer_vente_sur"
-    ]
-   },
-   {
-    "par": "src-tauri/src/tests_multi_depot.rs",
-    "symboles": [
-     "lire_articles_avec_unites_sur"
-    ]
-   },
-   {
-    "par": "src-tauri/src/tests_multi_depot.rs",
-    "symboles": [
-     "ParamsLigneInput"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/achats.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/achats.rs",
-    "symboles": [
-     "id_utilisateur_par_role"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/auth.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/avoirs.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/avoirs.rs",
-    "symboles": [
-     "id_utilisateur_courant_pub"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/avoirs.rs",
-    "symboles": [
-     "id_utilisateur_par_role"
+     "mod"
     ]
    },
    {
     "par": "src-tauri/src/commandes/caisse.rs",
     "symboles": [
-     "EtatApp"
+     "solde_theorique"
     ]
    },
    {
     "par": "src-tauri/src/commandes/caisse.rs",
     "symboles": [
-     "id_utilisateur_par_role"
+     "ecart_caisse"
     ]
    },
    {
-    "par": "src-tauri/src/commandes/catalogue.rs",
+    "par": "src-tauri/src/commandes/mod.rs",
     "symboles": [
-     "EtatApp"
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/caisse.rs": [
+   {
+    "par": "src-tauri/noyau/src/coeur/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/noyau/src/coeur/calcul.rs": [
+   {
+    "par": "src-tauri/noyau/src/coeur/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/avoirs.rs",
+    "symboles": [
+     "StatutVente"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/avoirs.rs",
+    "symboles": [
+     "statut_vente"
     ]
    },
    {
     "par": "src-tauri/src/commandes/chantiers.rs",
     "symboles": [
-     "EtatApp"
+     "reste_exigible"
     ]
    },
    {
     "par": "src-tauri/src/commandes/chantiers.rs",
     "symboles": [
-     "id_utilisateur_courant_pub"
+     "repartir_reglement"
     ]
    },
    {
     "par": "src-tauri/src/commandes/cheques.rs",
     "symboles": [
-     "EtatApp"
+     "StatutVente"
     ]
    },
    {
-    "par": "src-tauri/src/commandes/codebarre.rs",
+    "par": "src-tauri/src/commandes/cheques.rs",
     "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/creances.rs",
-    "symboles": [
-     "id_utilisateur_par_role"
+     "statut_vente"
     ]
    },
    {
     "par": "src-tauri/src/commandes/creances.rs",
     "symboles": [
-     "EtatApp"
+     "effet_caisse_annulation"
     ]
    },
    {
     "par": "src-tauri/src/commandes/creances.rs",
     "symboles": [
-     "id_utilisateur_courant_pub"
+     "EffetCaisse"
     ]
    },
    {
-    "par": "src-tauri/src/commandes/dashboard.rs",
+    "par": "src-tauri/src/commandes/creances.rs",
     "symboles": [
-     "EtatApp"
+     "statut_vente"
     ]
    },
    {
-    "par": "src-tauri/src/commandes/depots.rs",
+    "par": "src-tauri/src/commandes/creances.rs",
     "symboles": [
-     "EtatApp"
+     "SEUIL_SOLDE"
     ]
    },
    {
-    "par": "src-tauri/src/commandes/depots.rs",
+    "par": "src-tauri/src/commandes/creances.rs",
     "symboles": [
-     "id_utilisateur_courant_pub"
+     "reste_exigible"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/creances.rs",
+    "symboles": [
+     "StatutVente"
     ]
    },
    {
     "par": "src-tauri/src/commandes/fournisseurs.rs",
     "symboles": [
-     "EtatApp"
+     "effet_caisse_annulation"
     ]
    },
    {
     "par": "src-tauri/src/commandes/fournisseurs.rs",
     "symboles": [
-     "id_utilisateur_par_role"
+     "reste_exigible"
     ]
    },
    {
-    "par": "src-tauri/src/commandes/journal.rs",
+    "par": "src-tauri/src/commandes/fournisseurs.rs",
     "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/livraisons.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/livraisons.rs",
-    "symboles": [
-     "id_utilisateur_courant_pub"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/logo.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
+     "EffetCaisse"
     ]
    },
    {
     "par": "src-tauri/src/commandes/pagination.rs",
     "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/parametres.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/parametres.rs",
-    "symboles": [
-     "id_utilisateur_courant_pub"
+     "SEUIL_SOLDE"
     ]
    },
    {
     "par": "src-tauri/src/commandes/pieces.rs",
     "symboles": [
-     "id_utilisateur_par_role"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/pieces.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/pieces.rs",
-    "symboles": [
-     "id_utilisateur_courant_pub"
+     "reste_exigible"
     ]
    },
    {
     "par": "src-tauri/src/commandes/pieces_pos.rs",
     "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/pieces_pos.rs",
-    "symboles": [
-     "id_utilisateur_par_role"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/rapports.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/relances.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/relances.rs",
-    "symboles": [
-     "id_utilisateur_courant_pub"
+     "reste_exigible"
     ]
    },
    {
     "par": "src-tauri/src/commandes/retours.rs",
     "symboles": [
-     "EtatApp"
+     "StatutVente"
     ]
    },
    {
     "par": "src-tauri/src/commandes/retours.rs",
     "symboles": [
-     "id_utilisateur_courant_pub"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/sauvegarde.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/sauvegarde.rs",
-    "symboles": [
-     "id_utilisateur_courant_pub"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/societe.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/transferts.rs",
-    "symboles": [
-     "EtatApp"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/transferts.rs",
-    "symboles": [
-     "id_utilisateur_par_role"
+     "statut_vente"
     ]
    }
   ],
-  "src-tauri/src/coeur/pieces.rs": [
+  "src-tauri/noyau/src/coeur/pieces.rs": [
    {
-    "par": "src-tauri/src/tests_multi_depot.rs",
+    "par": "src-tauri/noyau/src/coeur/mod.rs",
     "symboles": [
-     "annuler_facture_par_avoir_sur"
+     "mod"
     ]
    },
    {
     "par": "src-tauri/src/tests_multi_depot.rs",
     "symboles": [
-     "valider_facture_sur"
+     "creer_piece_sur"
     ]
    },
    {
@@ -7905,13 +8387,13 @@
    {
     "par": "src-tauri/src/tests_multi_depot.rs",
     "symboles": [
-     "creer_piece_sur"
+     "annuler_facture_par_avoir_sur"
     ]
    },
    {
-    "par": "src-tauri/src/coeur/mod.rs",
+    "par": "src-tauri/src/tests_multi_depot.rs",
     "symboles": [
-     "mod"
+     "valider_facture_sur"
     ]
    },
    {
@@ -7965,15 +8447,15 @@
   ],
   "src-tauri/src/commandes/pieces.rs": [
    {
-    "par": "src-tauri/src/tests_multi_depot.rs",
+    "par": "src-tauri/noyau/src/coeur/mod.rs",
     "symboles": [
-     "annuler_facture_par_avoir_sur"
+     "mod"
     ]
    },
    {
     "par": "src-tauri/src/tests_multi_depot.rs",
     "symboles": [
-     "valider_facture_sur"
+     "creer_piece_sur"
     ]
    },
    {
@@ -7985,13 +8467,13 @@
    {
     "par": "src-tauri/src/tests_multi_depot.rs",
     "symboles": [
-     "creer_piece_sur"
+     "annuler_facture_par_avoir_sur"
     ]
    },
    {
-    "par": "src-tauri/src/coeur/mod.rs",
+    "par": "src-tauri/src/tests_multi_depot.rs",
     "symboles": [
-     "mod"
+     "valider_facture_sur"
     ]
    },
    {
@@ -8025,125 +8507,9 @@
     ]
    }
   ],
-  "src-tauri/src/commandes/retours.rs": [
+  "src-tauri/noyau/src/coeur/stock.rs": [
    {
-    "par": "src-tauri/src/tests_multi_depot.rs",
-    "symboles": [
-     "enregistrer_retour_sur"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/commandes/transferts.rs": [
-   {
-    "par": "src-tauri/src/tests_multi_depot.rs",
-    "symboles": [
-     "LigneTransfert"
-    ]
-   },
-   {
-    "par": "src-tauri/src/tests_multi_depot.rs",
-    "symboles": [
-     "enregistrer_transfert_sur"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/commandes/pieces_pos.rs": [
-   {
-    "par": "src-tauri/src/tests_multi_depot.rs",
-    "symboles": [
-     "creer_facture_depuis_vente_sur"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/coeur/codebarre.rs": [
-   {
-    "par": "src-tauri/src/coeur/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/commandes/codebarre.rs": [
-   {
-    "par": "src-tauri/src/coeur/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/coeur/caisse.rs": [
-   {
-    "par": "src-tauri/src/coeur/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/caisse.rs",
-    "symboles": [
-     "ecart_caisse"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/caisse.rs",
-    "symboles": [
-     "solde_theorique"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/commandes/caisse.rs": [
-   {
-    "par": "src-tauri/src/coeur/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/coeur/stock.rs": [
-   {
-    "par": "src-tauri/src/coeur/mod.rs",
+    "par": "src-tauri/noyau/src/coeur/mod.rs",
     "symboles": [
      "mod"
     ]
@@ -8167,125 +8533,807 @@
     ]
    }
   ],
-  "src-tauri/src/coeur/calcul.rs": [
+  "src-tauri/noyau/src/persistance/v2.rs": [
    {
-    "par": "src-tauri/src/coeur/mod.rs",
+    "par": "src-tauri/noyau/src/persistance/mod.rs",
+    "symboles": [
+     "migrer"
+    ]
+   },
+   {
+    "par": "src-tauri/noyau/src/persistance/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/noyau/src/persistance/journal.rs": [
+   {
+    "par": "src-tauri/noyau/src/persistance/mod.rs",
     "symboles": [
      "mod"
     ]
    },
    {
-    "par": "src-tauri/src/commandes/avoirs.rs",
+    "par": "src-tauri/src/commandes/mod.rs",
     "symboles": [
-     "StatutVente"
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/journal.rs": [
+   {
+    "par": "src-tauri/noyau/src/persistance/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/serveur/src/sauvegarde.rs": [
+   {
+    "par": "src-tauri/serveur/src/api.rs",
+    "symboles": [
+     "maintenant"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "dossier"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "planifier"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/sauvegarde.rs": [
+   {
+    "par": "src-tauri/serveur/src/api.rs",
+    "symboles": [
+     "maintenant"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "dossier"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "planifier"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/serveur/src/api.rs": [
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "traiter"
+    ]
+   }
+  ],
+  "src-tauri/serveur/src/socle.rs": [
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "registre"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/serveur/src/http.rs": [
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "lire_requete"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "repondre_texte"
+    ]
+   }
+  ],
+  "src-tauri/serveur/src/canal.rs": [
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "Canal"
+    ]
+   }
+  ],
+  "src-tauri/serveur/src/etat.rs": [
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/serveur/src/main.rs",
+    "symboles": [
+     "Serveur"
+    ]
+   }
+  ],
+  "src-tauri/src/seed.rs": [
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "seeder"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "base_est_vide"
+    ]
+   }
+  ],
+  "src-tauri/noyau/tests/reseau.rs": [
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "definir_config_reseau"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "lire_config_reseau"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "tester_serveur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/reseau.rs": [
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "definir_config_reseau"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "lire_config_reseau"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "tester_serveur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/mod.rs": [
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "creances"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "achats"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "sauvegarde"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "retours"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "parametres"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "logo"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "dashboard"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "catalogue"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "codebarre"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "depots"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "fournisseurs"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "impression"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "caisse"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "auth"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "livraisons"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "chantiers"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "pagination"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "avoirs"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "pieces"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "journal"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "pieces_pos"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "societe"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "cheques"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "rapports"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "ventes"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "relances"
+    ]
+   },
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "transferts"
+    ]
+   }
+  ],
+  "src-tauri/src/tests_multi_depot.rs": [
+   {
+    "par": "src-tauri/src/lib.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/auth.rs": [
+   {
+    "par": "src-tauri/src/seed.rs",
+    "symboles": [
+     "hasher_mot_de_passe_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/depots.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "lire_stock_multi_depots_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "desactiver_depot_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "reactiver_depot_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/transferts.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "enregistrer_transfert_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "LigneTransfert"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/pieces_pos.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "creer_facture_depuis_vente_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/ventes.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "lire_articles_avec_unites_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "ParamsLigneInput"
+    ]
+   },
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "creer_vente_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/achats.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/achats.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/auth.rs",
+    "symboles": [
+     "EtatApp"
     ]
    },
    {
     "par": "src-tauri/src/commandes/avoirs.rs",
     "symboles": [
-     "statut_vente"
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/avoirs.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/avoirs.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/caisse.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/caisse.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/catalogue.rs",
+    "symboles": [
+     "EtatApp"
     ]
    },
    {
     "par": "src-tauri/src/commandes/chantiers.rs",
     "symboles": [
-     "reste_exigible"
+     "id_utilisateur_courant_pub"
     ]
    },
    {
     "par": "src-tauri/src/commandes/chantiers.rs",
     "symboles": [
-     "repartir_reglement"
+     "EtatApp"
     ]
    },
    {
     "par": "src-tauri/src/commandes/cheques.rs",
     "symboles": [
-     "StatutVente"
+     "EtatApp"
     ]
    },
    {
-    "par": "src-tauri/src/commandes/cheques.rs",
+    "par": "src-tauri/src/commandes/codebarre.rs",
     "symboles": [
-     "statut_vente"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/creances.rs",
-    "symboles": [
-     "statut_vente"
+     "EtatApp"
     ]
    },
    {
     "par": "src-tauri/src/commandes/creances.rs",
     "symboles": [
-     "effet_caisse_annulation"
+     "EtatApp"
     ]
    },
    {
     "par": "src-tauri/src/commandes/creances.rs",
     "symboles": [
-     "SEUIL_SOLDE"
+     "id_utilisateur_courant_pub"
     ]
    },
    {
     "par": "src-tauri/src/commandes/creances.rs",
     "symboles": [
-     "reste_exigible"
+     "id_utilisateur_par_role"
     ]
    },
    {
-    "par": "src-tauri/src/commandes/creances.rs",
+    "par": "src-tauri/src/commandes/dashboard.rs",
     "symboles": [
-     "StatutVente"
+     "EtatApp"
     ]
    },
    {
-    "par": "src-tauri/src/commandes/creances.rs",
+    "par": "src-tauri/src/commandes/depots.rs",
     "symboles": [
-     "EffetCaisse"
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/depots.rs",
+    "symboles": [
+     "EtatApp"
     ]
    },
    {
     "par": "src-tauri/src/commandes/fournisseurs.rs",
     "symboles": [
-     "effet_caisse_annulation"
+     "EtatApp"
     ]
    },
    {
     "par": "src-tauri/src/commandes/fournisseurs.rs",
     "symboles": [
-     "reste_exigible"
+     "id_utilisateur_par_role"
     ]
    },
    {
-    "par": "src-tauri/src/commandes/fournisseurs.rs",
+    "par": "src-tauri/src/commandes/journal.rs",
     "symboles": [
-     "EffetCaisse"
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/livraisons.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/livraisons.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/logo.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pagination.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/parametres.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/parametres.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
     ]
    },
    {
     "par": "src-tauri/src/commandes/pieces.rs",
     "symboles": [
-     "reste_exigible"
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
     ]
    },
    {
     "par": "src-tauri/src/commandes/pieces_pos.rs",
     "symboles": [
-     "reste_exigible"
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces_pos.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/rapports.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/relances.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/relances.rs",
+    "symboles": [
+     "EtatApp"
     ]
    },
    {
     "par": "src-tauri/src/commandes/retours.rs",
     "symboles": [
-     "StatutVente"
+     "id_utilisateur_courant_pub"
     ]
    },
    {
     "par": "src-tauri/src/commandes/retours.rs",
     "symboles": [
-     "statut_vente"
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/sauvegarde.rs",
+    "symboles": [
+     "id_utilisateur_courant_pub"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/sauvegarde.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/societe.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/transferts.rs",
+    "symboles": [
+     "EtatApp"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/transferts.rs",
+    "symboles": [
+     "id_utilisateur_par_role"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/retours.rs": [
+   {
+    "par": "src-tauri/src/tests_multi_depot.rs",
+    "symboles": [
+     "enregistrer_retour_sur"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
     ]
    }
   ],
@@ -8303,57 +9351,19 @@
     ]
    }
   ],
+  "src-tauri/src/commandes/rapports.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   }
+  ],
   "src-tauri/src/commandes/catalogue.rs": [
    {
     "par": "src-tauri/src/commandes/mod.rs",
     "symboles": [
      "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/commandes/fournisseurs.rs": [
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/commandes/avoirs.rs": [
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/commandes/societe.rs": [
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/commandes/cheques.rs": [
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   }
-  ],
-  "src-tauri/src/commandes/chantiers.rs": [
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/parametres.rs",
-    "symboles": [
-     "reimputer_paiements_globaux"
     ]
    }
   ],
@@ -8373,7 +9383,35 @@
     ]
    }
   ],
-  "src-tauri/src/commandes/pagination.rs": [
+  "src-tauri/src/commandes/livraisons.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "etat"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/chantiers.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/parametres.rs",
+    "symboles": [
+     "reimputer_paiements_globaux"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/fournisseurs.rs": [
    {
     "par": "src-tauri/src/commandes/mod.rs",
     "symboles": [
@@ -8381,7 +9419,7 @@
     ]
    }
   ],
-  "src-tauri/src/commandes/rapports.rs": [
+  "src-tauri/src/commandes/societe.rs": [
    {
     "par": "src-tauri/src/commandes/mod.rs",
     "symboles": [
@@ -8389,7 +9427,21 @@
     ]
    }
   ],
-  "src-tauri/src/commandes/parametres.rs": [
+  "src-tauri/src/commandes/impression.rs": [
+   {
+    "par": "src-tauri/src/commandes/mod.rs",
+    "symboles": [
+     "mod"
+    ]
+   },
+   {
+    "par": "src-tauri/src/commandes/pieces.rs",
+    "symboles": [
+     "imprimer_facture"
+    ]
+   }
+  ],
+  "src-tauri/src/commandes/avoirs.rs": [
    {
     "par": "src-tauri/src/commandes/mod.rs",
     "symboles": [
@@ -8413,7 +9465,7 @@
     ]
    }
   ],
-  "src-tauri/src/commandes/journal.rs": [
+  "src-tauri/src/commandes/pagination.rs": [
    {
     "par": "src-tauri/src/commandes/mod.rs",
     "symboles": [
@@ -8421,7 +9473,7 @@
     ]
    }
   ],
-  "src-tauri/src/persistance/journal.rs": [
+  "src-tauri/src/commandes/parametres.rs": [
    {
     "par": "src-tauri/src/commandes/mod.rs",
     "symboles": [
@@ -8429,35 +9481,7 @@
     ]
    }
   ],
-  "src-tauri/src/commandes/livraisons.rs": [
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/pieces.rs",
-    "symboles": [
-     "etat"
-    ]
-   }
-  ],
-  "src-tauri/src/commandes/impression.rs": [
-   {
-    "par": "src-tauri/src/commandes/mod.rs",
-    "symboles": [
-     "mod"
-    ]
-   },
-   {
-    "par": "src-tauri/src/commandes/pieces.rs",
-    "symboles": [
-     "imprimer_facture"
-    ]
-   }
-  ],
-  "src-tauri/src/commandes/sauvegarde.rs": [
+  "src-tauri/src/commandes/cheques.rs": [
    {
     "par": "src-tauri/src/commandes/mod.rs",
     "symboles": [
@@ -8471,7 +9495,6 @@
   "generer_catalogue.py",
   "nettoyer_imports.py",
   "preparer_demo_video.py",
-  "src-tauri/src/portes.rs",
   "src/components/SelecteurProfil.tsx",
   "src/components/ui/table.tsx",
   "src/lib/remise.ts",
@@ -8480,13 +9503,29 @@
   "t_regles.py"
  ],
  "symboles_dupliques": {
+  "Evenement": [
+   "src-tauri/noyau/src/protocole.rs",
+   "src/lib/pont.ts"
+  ],
+  "Identite": [
+   "src-tauri/noyau/src/protocole.rs",
+   "src/lib/pont.ts"
+  ],
   "LigneVente": [
    "src/components/ModalsRetour.tsx",
    "src/lib/remise.ts"
   ],
+  "Requete": [
+   "src-tauri/noyau/src/protocole.rs",
+   "src-tauri/serveur/src/http.rs"
+  ],
   "UniteVente": [
    "src/components/ModalsRetour.tsx",
    "src/lib/tauri.ts"
+  ],
+  "VERSION_PROTOCOLE": [
+   "src-tauri/noyau/src/lib.rs",
+   "src/lib/pont.ts"
   ],
   "base_par_defaut": [
    "creer_tiers_test.py",
@@ -8494,11 +9533,23 @@
   ],
   "cle_ean13": [
    "generer_catalogue.py",
-   "src-tauri/src/coeur/codebarre.rs"
+   "src-tauri/noyau/src/coeur/codebarre.rs"
+  ],
+  "depuis": [
+   "src-tauri/noyau/src/protocole.rs",
+   "src-tauri/serveur/src/canal.rs"
+  ],
+  "etat": [
+   "src-tauri/noyau/src/sessions.rs",
+   "src-tauri/src/commandes/livraisons.rs"
   ],
   "fmt": [
    "preparer_demo_video.py",
    "src/lib/remise.ts"
+  ],
+  "lire": [
+   "src-tauri/noyau/src/postes.rs",
+   "src-tauri/src/reseau.rs"
   ],
   "main": [
    "creer_tiers_test.py",
@@ -8506,8 +9557,16 @@
    "nettoyer_imports.py",
    "preparer_demo_video.py"
   ],
+  "maintenant": [
+   "creer_tiers_test.py",
+   "src-tauri/serveur/src/sauvegarde.rs"
+  ],
+  "nouveau": [
+   "src-tauri/noyau/src/registre.rs",
+   "src-tauri/serveur/src/canal.rs"
+  ],
   "peut_modifier": [
-   "src-tauri/src/coeur/pieces.rs",
+   "src-tauri/noyau/src/coeur/pieces.rs",
    "t_regles.py"
   ],
   "prochain_numero": [
@@ -8517,12 +9576,12 @@
   ],
   "reste_exigible": [
    "preparer_demo_video.py",
-   "src-tauri/src/coeur/calcul.rs",
+   "src-tauri/noyau/src/coeur/calcul.rs",
    "t_regles.py"
   ],
   "statut_vente": [
    "preparer_demo_video.py",
-   "src-tauri/src/coeur/calcul.rs",
+   "src-tauri/noyau/src/coeur/calcul.rs",
    "t_regles.py"
   ],
   "supprimer": [
@@ -8539,9 +9598,9 @@
   ]
  },
  "dependances_externes": {
-  "@tauri-apps": 76,
   "react": 51,
   "lucide-react": 42,
+  "@tauri-apps": 37,
   "@base-ui": 7,
   "class-variance-authority": 2,
   "vite": 1,

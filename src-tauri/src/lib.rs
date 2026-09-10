@@ -1,10 +1,14 @@
 //! Point d'entrée Tauri — enregistrement de toutes les commandes.
 
-mod utils;
-mod coeur;
-mod persistance;
+// Le noyau est partage avec `gescom-serveur`. On le re-exporte sous
+// les memes chemins qu'en v1 (`crate::coeur`, `crate::persistance`,
+// `crate::utils`) : les 27 fichiers de commandes n'ont pas a savoir
+// qu'ils ont change de crate.
+pub use gescom_noyau::{caisses, coeur, persistance, portes, utils};
+
 mod commandes;
 mod seed;
+mod reseau;
 
 // Scenarios joues sur les vraies commandes, base en memoire.
 #[cfg(test)]
@@ -105,6 +109,10 @@ pub fn run() {
             commandes::auth::changer_mot_de_passe,
             commandes::auth::creer_utilisateur,
             commandes::auth::lire_utilisateurs,
+            // ---- Reseau (v2) : mode monoposte / poste caisse ----
+            reseau::lire_config_reseau,
+            reseau::definir_config_reseau,
+            reseau::tester_serveur,
             // ---- Société & factures ----
             commandes::societe::lire_parametres_societe,
             commandes::societe::sauvegarder_parametres_societe,

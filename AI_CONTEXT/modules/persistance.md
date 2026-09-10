@@ -5,11 +5,11 @@ le journal. Aucune règle métier — sauf les cinq contrôles d'anomalies.
 
 ## Fichiers
 
-- [persistance/mod.rs](../../src-tauri/src/persistance/mod.rs) (371 l.) —
+- [persistance/mod.rs](../../src-tauri/noyau/src/persistance/mod.rs) (371 l.) —
   ouverture, diagnostic, migrations, entretien.
-- [persistance/schema.sql](../../src-tauri/src/persistance/schema.sql)
+- [persistance/schema.sql](../../src-tauri/noyau/src/persistance/schema.sql)
   (470 l.) — 27 `CREATE TABLE`, régénéré depuis une base réelle.
-- [persistance/journal.rs](../../src-tauri/src/persistance/journal.rs)
+- [persistance/journal.rs](../../src-tauri/noyau/src/persistance/journal.rs)
   (30 l.) — journal append-only.
 
 ## Fonctions exposées

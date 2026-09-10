@@ -1,6 +1,6 @@
 // OngletChantiers.tsx — TVA, Dettes fournisseur, Irrécouvrable, Expiration avoirs
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appeler as invoke } from "@/lib/pont";
 import {
   Loader2, Save, RefreshCw, AlertTriangle,
   CheckCircle2, Clock, XCircle
