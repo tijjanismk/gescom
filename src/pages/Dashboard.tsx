@@ -143,11 +143,15 @@ export function Dashboard() {
   const [topArticles, setTopArticles] = useState<TopArticle[]>([]);
   const [chargement, setChargement] = useState(true);
   const [derniereActu, setDerniereActu] = useState<Date>(new Date());
+  // Le message d'erreur, gardé pour l'écran et pas seulement pour la
+  // console : un commerçant n'ouvrira jamais la console.
+  const [erreur, setErreur] = useState<string | null>(null);
 
   const estPatron = UTILISATEUR_ACTIF?.role === "patron";
 
   async function charger() {
     setChargement(true);
+    setErreur(null);
     try {
       const auj = new Date().toISOString().slice(0, 10);
       const [res, tc, ta, dec] = await Promise.all([
@@ -165,6 +169,10 @@ export function Dashboard() {
       setDerniereActu(new Date());
     } catch (e) {
       console.error("Erreur dashboard :", e);
+      // `appeler` rejette avec une CHAÎNE, jamais un Error : afficher
+      // `String(e)` rend donc le message tel quel — « Serveur
+      // injoignable… », qui dit quoi faire.
+      setErreur(String(e));
     } finally {
       setChargement(false);
     }
@@ -205,8 +213,10 @@ export function Dashboard() {
         <AlertTriangle className="h-8 w-8 text-muted-foreground" />
         <p className="text-sm text-muted-foreground text-center max-w-sm">
           Impossible de charger le tableau de bord.
-          Voir la console pour le détail.
         </p>
+        {erreur && (
+          <p className="text-sm text-center max-w-sm text-red-600">{erreur}</p>
+        )}
         <Button variant="outline" size="sm" onClick={charger}>
           <RefreshCw className="h-4 w-4 mr-2" /> Réessayer
         </Button>
