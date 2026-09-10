@@ -17,9 +17,6 @@ import { Caisse } from "@/pages/Caisse";
 import { Parametres } from "@/pages/Parametres";
 import { Modeles } from "@/pages/Modeles";
 import { assurerModelesParDefaut } from "@/lib/modeles/service";
-import { PageLicence, BandeauEssai, autorise } from "@/pages/PageLicence";
-import type { EtatLicence } from "@/pages/PageLicence";
-import { enReseau } from "@/lib/pont";
 import { Retours } from "@/pages/Retours";
 import { Relances } from "@/pages/Relances";
 import { Rapports } from "@/pages/Rapports";
@@ -152,30 +149,6 @@ function App() {
     );
   }, []);
 
-  // ---- Licence ----
-  //
-  // En mode POSTE CAISSE, on ne verifie rien ici : la licence vit sur
-  // le serveur, qui compte les postes a la connexion. Demander une
-  // licence a chaque caisse obligerait le commercant qui en achete
-  // trois a activer trois machines, et ses caisses s'arreteraient au
-  // bout de trente jours.
-  const [licence, setLicence] = useState<EtatLicence | null>(null);
-  const [licenceLue, setLicenceLue] = useState(enReseau());
-
-  useEffect(() => {
-    if (enReseau()) return;
-    invoke<EtatLicence>("lire_etat_licence")
-      .then(setLicence)
-      .catch((e) => {
-        // Une verification qui echoue ne doit pas fermer la boutique :
-        // le blocage doit venir d'un refus explicite, jamais d'un bug
-        // de lecture de fichier.
-        console.error("Licence :", e);
-        setLicence(null);
-      })
-      .finally(() => setLicenceLue(true));
-  }, []);
-
   /**
    * Sauvegarde hebdomadaire.
    *
@@ -292,24 +265,9 @@ function App() {
     }
   }
 
-  // L'ecran de licence passe AVANT la connexion : sans droit d'usage,
-  // il n'y a pas de raison de demander un mot de passe.
-  if (licenceLue && licence && !autorise(licence)) {
-    return <PageLicence etat={licence} onActive={setLicence} />;
-  }
-
   if (!utilisateur) {
     return <PageLogin onConnecte={handleConnecte} />;
   }
-
-  // Le rappel n'apparait que dans la derniere semaine. Plus tot, c'est
-  // du harcelement commercial dans un logiciel de comptoir.
-  const bandeau =
-    licence?.etat === "essai"
-    && typeof licence.jours_restants === "number"
-    && licence.jours_restants <= 7
-      ? <BandeauEssai jours={licence.jours_restants} />
-      : null;
 
   // Fiche client/fournisseur → surligner l'onglet parent dans la sidebar
   const pageNavActive =
@@ -319,7 +277,6 @@ function App() {
 
   return (
     <>
-      {bandeau}
       <Layout
         pageActive={pageNavActive}
         onNaviguer={naviguer}

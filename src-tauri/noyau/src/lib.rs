@@ -19,8 +19,7 @@ pub mod postes;
 pub mod sessions;
 pub mod caisses;
 pub mod modeles;
-pub mod empreinte;
-pub mod licence;
+pub mod installation;
 pub mod registre;
 
 /// Version du protocole client/serveur.

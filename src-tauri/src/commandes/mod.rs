@@ -2,7 +2,6 @@ pub mod ventes;
 pub mod fournisseurs;
 pub mod achats;
 pub mod journal;
-pub mod licence;
 pub mod modeles;
 pub mod transferts;
 pub mod depots;

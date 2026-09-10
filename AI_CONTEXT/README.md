@@ -29,7 +29,7 @@ Ordre de lecture conseillé :
 | [front-lib](modules/front-lib.md) | génération des documents imprimables |
 | [reseau-v2](modules/reseau-v2.md) | **v2** — serveur, sessions, canal, caisse par utilisateur |
 | [modeles-documents](modules/modeles-documents.md) | **v2** — moteur de documents, atelier, import/export |
-| [licence](modules/licence.md) | **v2** — empreinte du poste, activation hors ligne, plafond de postes |
+| [installation](modules/installation.md) | **v2** — Gescom s'installe, il ne se copie pas |
 
 ## Ce que la carte ne remplace pas
 

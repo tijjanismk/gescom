@@ -9,6 +9,7 @@ pub use gescom_noyau::{caisses, coeur, persistance, portes, utils};
 mod commandes;
 mod seed;
 mod reseau;
+mod garde;
 
 // Scenarios joues sur les vraies commandes, base en memoire.
 #[cfg(test)]
@@ -19,6 +20,11 @@ use tauri::Manager;
 use commandes::ventes::EtatApp;
 
 pub fn run() {
+    // Avant TOUT le reste : Gescom s'installe, il ne se copie pas.
+    // Placé ici et pas dans `setup` — une copie lancée depuis une clé
+    // USB doit s'arrêter sans avoir ouvert la moindre base.
+    garde::exiger_installation();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -122,11 +128,6 @@ pub fn run() {
             commandes::modeles::supprimer_modele,
             commandes::modeles::exporter_modeles,
             commandes::modeles::importer_modeles,
-            // ---- Licence ----
-            commandes::licence::lire_etat_licence,
-            commandes::licence::lire_empreinte_poste,
-            commandes::licence::activer_licence,
-            commandes::licence::importer_licence_fichier,
             // ---- Société & factures ----
             commandes::societe::lire_parametres_societe,
             commandes::societe::sauvegarder_parametres_societe,

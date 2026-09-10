@@ -33,8 +33,6 @@ use std::time::Duration;
 
 use gescom_noyau::protocole::PORT_DEFAUT;
 use gescom_noyau::utils::maintenant_iso;
-use gescom_noyau::empreinte::empreinte_poste;
-use gescom_noyau::licence::{self, EtatLicence};
 use gescom_noyau::{persistance, postes, sessions};
 
 use canal::Canal;
@@ -94,18 +92,7 @@ fn main() {
         eprintln!("[avertissement] inscription du poste serveur : {e}");
     }
 
-    // ---- Licence ----
-    //
-    // Elle vit sur le poste serveur, et sur lui seul. Les caisses n'ont
-    // pas la leur : c'est le serveur qui compte les postes. Un client
-    // qui achete trois postes ne doit pas avoir a activer trois
-    // machines, ni voir ses caisses s'arreter au bout de trente jours.
-    let (postes_max, libelle_licence) = lire_licence(&chemin_base, &conn);
-    println!("  licence     : {libelle_licence}");
-
     let srv = Arc::new(Serveur {
-        postes_max,
-        licence: libelle_licence,
         conn: Mutex::new(conn),
         chemin_base: chemin_base.clone(),
         canal: Canal::nouveau(),
@@ -234,54 +221,6 @@ impl Options {
         }
         o
     }
-}
-
-/// Lit la licence posee a cote de la base.
-///
-/// Sans licence, le serveur tourne en essai : UN poste. Il ne refuse
-/// pas de demarrer — un service qui ne demarre pas est une boutique qui
-/// n'ouvre pas, et le commercant ne saurait meme pas pourquoi.
-fn lire_licence(chemin_base: &str, conn: &rusqlite::Connection) -> (u32, String) {
-    let jour = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let empreinte = empreinte_poste();
-    let chemin = std::path::Path::new(chemin_base)
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("gescom.licence");
-
-    let etat = match std::fs::read_to_string(&chemin) {
-        Ok(t) if !t.trim().is_empty() => licence::verifier(&t, &empreinte, &jour),
-        _ => {
-            let debut = licence::debut_essai(conn, &jour);
-            licence::etat_essai(&debut, &jour, &empreinte)
-        }
-    };
-
-    let libelle = match &etat {
-        EtatLicence::Valide { contenu, jours_restants } => format!(
-            "{} — {} poste(s){}",
-            contenu.boutique,
-            contenu.postes_max,
-            match jours_restants {
-                Some(j) => format!(", {j} jour(s) restants"),
-                None => String::new(),
-            }
-        ),
-        EtatLicence::Essai { jours_restants, .. } =>
-            format!("ESSAI — {jours_restants} jour(s), 1 poste"),
-        EtatLicence::EssaiTermine { .. } =>
-            format!("ESSAI TERMINE — poste {empreinte}"),
-        EtatLicence::AutrePoste { attendue, .. } =>
-            format!("LICENCE D'UN AUTRE POSTE ({attendue}) — poste {empreinte}"),
-        EtatLicence::Expiree { le, .. } => format!("EXPIREE le {le}"),
-        EtatLicence::SignatureInvalide { .. } => "SIGNATURE INVALIDE".to_string(),
-        EtatLicence::Illisible { raison, .. } => format!("ILLISIBLE : {raison}"),
-    };
-
-    if !etat.autorise() {
-        eprintln!("  ⚠ Aucune caisse ne pourra se connecter : {libelle}");
-    }
-    (etat.postes_max(), libelle)
 }
 
 /// Le meme emplacement que celui ouvert par l'application Tauri.

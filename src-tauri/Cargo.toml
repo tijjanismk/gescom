@@ -2,7 +2,7 @@
 # Le v2 produit deux executables : ce crate (le client, fenetre
 # Tauri) et `serveur/` (sans fenetre). `noyau/` porte ce que les deux
 # partagent — calculs, schema, protocole.
-members = ["noyau", "serveur", "outils/licence"]
+members = ["noyau", "serveur"]
 
 [package]
 name = "gescom"
@@ -37,3 +37,11 @@ bcrypt = "0.15"
 base64 = "0.22"
 tauri-plugin-fs = "2.5.1"
 gescom-noyau = { path = "noyau" }
+
+[target.'cfg(windows)'.dependencies]
+# Uniquement MessageBoxW : le refus de demarrer doit s'afficher AVANT
+# que la fenetre Tauri n'existe, donc sans passer par sa boucle
+# d'evenements.
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation", "Win32_UI_WindowsAndMessaging",
+] }
