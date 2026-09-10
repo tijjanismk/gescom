@@ -2,8 +2,8 @@
 //
 // Ils ne sont pas un exemple : ce sont ceux qui impriment tant que
 // personne n'a rien modifié. Ils doivent donc être corrects tout de
-// suite, sur une quincaillerie de Bamako — mentions légales, NIF, RCCM,
-// TVA à 18 %, montant en lettres pour les pièces qui circulent.
+// suite pour un commerce malien — mentions légales, NIF, RCCM, TVA à
+// 18 %, montant en lettres pour les pièces qui circulent.
 //
 // Ils vivent dans le code et non en base, pour une raison : c'est ce
 // qui rend « Réinitialiser » possible. Après une mise en page ratée un

@@ -77,8 +77,8 @@ function fmtMontant(n: number, devise: string): string {
 
 function fmtNombre(n: number): string {
   // Les quantités sont des flottants (2,5 sacs). On n'imprime les
-  // décimales que si elles existent — « 3,00 kg » sur un ticket de
-  // quincaillerie n'apporte rien et allonge la ligne.
+  // décimales que si elles existent — « 3,00 kg » sur un ticket
+  // n'apporte rien et allonge la ligne.
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(".", ",");
 }
 

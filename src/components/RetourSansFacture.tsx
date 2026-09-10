@@ -2,8 +2,8 @@
 //
 // Rendre une marchandise entrée SANS facture.
 //
-// Le cas type d'une quincaillerie de Bamako : on emprunte dix sacs au
-// magasin d'à côté un vendredi de rupture, on les rend le lundi. Rien
+// Le cas type : on emprunte dix sacs au magasin d'à côté un vendredi
+// de rupture, on les rend le lundi. Rien
 // n'a été facturé, donc rien n'est dû — et rendre ces sacs ne doit
 // créer aucun avoir, sans quoi on inventerait un crédit chez un
 // fournisseur à qui l'on ne doit rien.

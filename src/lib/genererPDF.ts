@@ -42,9 +42,9 @@ export const SCRIPT_IMPRESSION = `
 export type FormatImpression =
   | "a4" | "a5" | "thermique_58" | "thermique_80"
   // Bon de sortie : le meme document SANS AUCUN montant, remis au
-  // client pour le magasinier. Dans une quincaillerie, celui qui
-  // encaisse n'est pas celui qui delivre la marchandise ; le bon est
-  // la seule piece qui circule entre les deux.
+  // client pour le magasinier. La ou le magasin est separe de la
+  // caisse, celui qui encaisse n'est pas celui qui delivre ; le bon
+  // est la seule piece qui circule entre les deux.
   | "bon_sortie"
   // Facture ET bon dans UN document : une seule boite de dialogue.
   | "a4_et_bon"
@@ -581,7 +581,7 @@ export function genererTicketThermique(
 //  Bon de sortie — sans aucun montant
 // =====================================================================
 //
-// Cas d'usage : quincaillerie ou depot dont le magasin est separe de la
+// Cas d'usage : tout commerce dont le magasin est separe de la
 // caisse. Le client paie au comptoir, repart avec ce bon, et le
 // magasinier ne delivre la marchandise que contre ce papier signe.
 //

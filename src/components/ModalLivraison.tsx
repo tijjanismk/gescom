@@ -1,9 +1,13 @@
 // components/ModalLivraison.tsx — Suivi de livraison d'une pièce
 //
-// Purement informatif : rien ici ne touche au stock ni à la caisse. Le
-// stock sort toujours à la validation de la facture. On ne répond qu'à
-// « qu'est-ce qui est déjà parti ? », question que le paiement ne pose
-// pas — d'où un axe séparé, qui rend représentable le « payé non livré ».
+// Sur un BON — de livraison ou de réception — cet écran DÉPLACE LE
+// STOCK : c'est le bon qui constate le mouvement physique, et la
+// facture qui suit ne bouge alors plus rien (voir livraison-stock.md).
+// Il ne touche jamais à la caisse : payé et livré restent deux axes
+// séparés, ce qui rend représentable le « payé non livré ».
+//
+// Le stock bouge de l'ÉCART, pas du total : c'est pour cela que la
+// quantité saisie est le cumul et non l'incrément.
 //
 // La quantité saisie est le CUMUL livré à ce jour, pas l'incrément :
 // l'écran envoie ce qu'il affiche, donc deux enregistrements rapprochés

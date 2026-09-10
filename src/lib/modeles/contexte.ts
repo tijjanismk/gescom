@@ -228,16 +228,16 @@ export function contexteJournal(d: DonneesJournalBrutes): Record<string, unknown
  * Sans données, le commerçant règle sa mise en page à l'aveugle : les
  * colonnes semblent bien larges tant qu'aucun nom d'article ne les
  * remplit. Ces valeurs sont volontairement longues — « Ciment CIMAF
- * 42,5 R sac de 50 kg » est un vrai libellé de quincaillerie, et c'est
- * lui qui révèle une colonne trop étroite.
+ * 42,5 R sac de 50 kg » est un libellé réel, et c'est lui qui révèle
+ * une colonne trop étroite.
  */
 export function contexteExemple(genre: string): Record<string, unknown> {
   const societe = {
-    nom: "Quincaillerie du Fleuve",
+    nom: "Établissements du Fleuve",
     adresse: "Rue 224, Porte 87 — Hamdallaye ACI 2000, Bamako",
     telephone: "+223 76 12 34 56",
     telephone2: "+223 66 98 76 54",
-    email: "contact@quincaillerie-fleuve.ml",
+    email: "contact@ets-fleuve.ml",
     nif: "084512345 X",
     rccm: "MA.BKO.2019.B.1234",
     devise: "FCFA",

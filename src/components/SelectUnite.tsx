@@ -18,7 +18,7 @@ interface Props {
 
 /**
  * Liste les unités courantes, avec « Autre… » qui bascule sur un champ
- * libre — aucune liste ne couvrira toute une quincaillerie.
+ * libre — aucune liste ne couvrira tous les commerces.
  *
  * La saisie libre passe par `normaliserUnite` à la sortie du champ :
  * « M2 » devient « m² », et on évite trois orthographes pour la même

@@ -18,8 +18,8 @@ interface ArticleAvecCode {
 
 export function OngletVentes() {
   const [scannerActif, setScannerActif] = useState(false);
-  // Bon de sortie : le magasin est séparé de la caisse (quincaillerie,
-  // dépôt de matériaux). Celui qui encaisse ne délivre pas.
+  // Bon de sortie : pour les commerces où le magasin est séparé de la
+  // caisse. Celui qui encaisse n'est pas celui qui délivre.
   const [bonSortieActif, setBonSortieActif] = useState(false);
   // Livraison : axe d'information parallèle au paiement. Sans effet sur
   // le stock ni la caisse — voir livraisons.rs.

@@ -1354,9 +1354,16 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                                 <DropdownMenuSeparator />
                               </>
                             )}
-                            {/* Livraison : suivi seul, aucun effet sur le
-                                stock ni la caisse. */}
-                            {suiviLivraison && (
+                            {/* Seuls les BONS constatent un mouvement
+                                physique, et eux seuls déplacent le
+                                stock. Proposer « Livraison » sur une
+                                commande ou une facture enregistrerait un
+                                « livré » sans qu'un sac ne bouge — un
+                                bouton qui ment est pire que pas de
+                                bouton. */}
+                            {suiviLivraison &&
+                              ["bon_livraison", "bon_reception"]
+                                .includes(p.type_piece) && (
                               <>
                                 <DropdownMenuItem onClick={() => setPieceALivrer(p)}>
                                   <Truck className="h-3.5 w-3.5 mr-2" />

@@ -6,7 +6,7 @@
 // l'impression les traitent alors comme trois unités différentes.
 //
 // La liste SUGGÈRE sans enfermer : le champ « Autre… » reste ouvert,
-// parce qu'aucune liste ne couvrira jamais toute une quincaillerie.
+// parce qu'aucune liste ne couvrira jamais tous les commerces.
 
 export interface GroupeUnites {
   groupe: string;

@@ -46,8 +46,8 @@ sort*.
 **La réalité malienne décide de la porte, pas de la règle.** La plupart
 des commerçants visés remettent la marchandise au comptoir : ils
 n'ouvriront jamais l'écran de livraison, et pour eux rien ne change.
-Les quincailleries — une part importante — livrent : pour elles le bon
-devient le document qui compte. Les deux cohabitent dans la même base
+Ceux qui livrent — une part importante — ont besoin du bon, qui devient
+alors le document qui compte. Les deux cohabitent dans la même base
 sans se contredire.
 
 ## Conséquence assumée
@@ -140,9 +140,17 @@ que la marchandise sorte **deux fois** (une au bon, une à la facture),
 ou qu'elle ne sorte **jamais**, parce que chacun croit que l'autre s'en
 charge.
 
-## Ce qui reste
+## L'écran
 
-- L'écran : `suivi_livraison_actif` gouverne l'affichage, mais l'écran
-  de saisie des livraisons n'expose pas encore la réception fournisseur.
-- Le miroir fournisseur complet (BRF → FAF, FAF → AVF) — voir la
-  discussion en cours, il n'est pas fait.
+`suivi_livraison_actif` gouverne l'affichage. Quand il est actif,
+l'entrée « Livraison » (côté client) ou « Réception » (côté fournisseur)
+apparaît **sur les bons seulement** — pas sur une commande ni sur une
+facture.
+
+C'est une conséquence directe de la règle : seuls les bons constatent un
+mouvement physique. Proposer l'écran ailleurs enregistrerait un
+« livré » sans qu'un sac ne bouge, et un bouton qui ment est pire que
+pas de bouton.
+
+Le miroir fournisseur est en place : voir
+[commandes-achat-fournisseur.md](commandes-achat-fournisseur.md).

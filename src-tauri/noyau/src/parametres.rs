@@ -315,9 +315,8 @@ pub fn desactiver_unite_vente(
 //
 // Reglage d'atelier : inutile la ou le vendeur remet lui-meme la
 // marchandise, indispensable quand le magasin est separe de la caisse
-// (quincaillerie, depot de materiaux). Celui qui encaisse n'est alors
-// pas celui qui delivre, et le bon est la seule piece qui circule
-// entre les deux.
+// — le cas d'un depot. Celui qui encaisse n'est alors pas celui qui
+// delivre, et le bon est la seule piece qui circule entre les deux.
 
 pub fn lire_config_bon_sortie(conn: &rusqlite::Connection) -> Result<bool, String> {
     let v: String = conn.query_row(
