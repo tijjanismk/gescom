@@ -3,7 +3,6 @@
 use tauri::State;
 use std::sync::Mutex;
 use rusqlite::Connection;
-use crate::utils::maintenant_iso;
 
 // =====================================================================
 //  État partagé
@@ -72,55 +71,10 @@ pub fn modifier_client(
     email: Option<String>,
     nif: Option<String>,
 ) -> Result<(), String> {
-    if nom.trim().is_empty() {
-        return Err("Le nom est obligatoire".to_string());
-    }
-
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-
-    let est_generique: i64 = conn.query_row(
-        "SELECT est_generique FROM client WHERE id = ?1",
-        rusqlite::params![client_id], |r| r.get(0),
-    ).map_err(|_| "Client introuvable".to_string())?;
-
-    if est_generique == 1 {
-        return Err(
-            "Le client générique ne se modifie pas : il regroupe toutes les \
-             ventes au comptant.".to_string()
-        );
-    }
-
-    let now = maintenant_iso();
-    let auteur = id_utilisateur_courant_pub(&conn);
-
-    // `vide` plutot que la chaine vide : un champ efface doit redevenir
-    // NULL, sinon les ecrans affichent une ligne vide au lieu de rien.
-    let vide = |o: Option<String>| o.filter(|s| !s.trim().is_empty());
-
-    conn.execute(
-        "UPDATE client
-         SET nom = ?1, telephone = ?2, adresse = ?3, email = ?4, nif = ?5,
-             modifie_le = ?6, modifie_par = ?7
-         WHERE id = ?8",
-        rusqlite::params![
-            nom.trim(), vide(telephone), vide(adresse), vide(email), vide(nif),
-            now, auteur, client_id
-        ],
-    ).map_err(|e| e.to_string())?;
-
-    conn.execute(
-        "INSERT INTO journal
-         (id, type_evenement, entite_type, entite_id, auteur_id,
-          nouveau_valeur, origine, date_evenement)
-         VALUES (?1,'client_modifie','client',?2,?3,?4,'app',?5)",
-        rusqlite::params![
-            uuid::Uuid::new_v4().to_string(), client_id, auteur,
-            format!(r#"{{"nom":"{}"}}"#, nom.trim().replace('"', "'")),
-            now
-        ],
-    ).ok();
-
-    Ok(())
+    gescom_noyau::comptoir::modifier_client(
+        &conn, client_id, nom, telephone, adresse, email, nif,
+    )
 }
 
 // =====================================================================
@@ -246,33 +200,5 @@ pub fn lire_clients_avec_creances(
     etat: State<EtatApp>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare(
-        "SELECT c.id, c.code, c.nom, c.telephone,
-                CAST(COALESCE(SUM(
-                  CASE WHEN v.statut != 'payee' THEN
-                    (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
-                     FROM ligne_vente WHERE vente_id = v.id) -
-                    (SELECT COALESCE(SUM(montant), 0)
-                     FROM paiement WHERE vente_id = v.id)
-                  ELSE 0 END
-                ), 0) AS INTEGER) as total_creances,
-                COUNT(DISTINCT v.id) as nb_ventes
-         FROM client c
-         LEFT JOIN vente v ON v.client_id = c.id
-         WHERE c.actif = 1 AND c.est_generique = 0
-         GROUP BY c.id
-         ORDER BY total_creances DESC, c.nom ASC"
-    ).map_err(|e| e.to_string())?;
-
-    let x = stmt.query_map([], |row| {
-        Ok(serde_json::json!({
-            "id": row.get::<_,String>(0)?,
-            "code": row.get::<_,String>(1)?,
-            "nom": row.get::<_,String>(2)?,
-            "telephone": row.get::<_,Option<String>>(3)?,
-            "total_creances": row.get::<_,i64>(4)?,
-            "nb_ventes": row.get::<_,i64>(5)?,
-        }))
-    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-    Ok(x)
+    gescom_noyau::comptoir::lire_clients_avec_creances(&conn)
 }

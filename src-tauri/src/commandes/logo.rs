@@ -15,7 +15,6 @@
 
 use tauri::{State, Manager};
 use crate::commandes::ventes::EtatApp;
-use std::io::Read;
 
 /// Copie une image dans le repertoire de l'app. `base` vaut "logo" ou
 /// "entete" — le reste du traitement est identique.
@@ -72,63 +71,15 @@ pub fn sauvegarder_entete(
 /// Lit une image de la societe en base64, prete a etre integree dans
 /// le HTML (D4). `colonne` = "logo_chemin" ou "entete_chemin",
 /// `base` = "logo" ou "entete".
-fn lire_image_base64(
-    app: &tauri::AppHandle,
-    conn: &rusqlite::Connection,
-    colonne: &str,
-    base: &str,
-) -> Result<Option<String>, String> {
-    // `format!` sur un nom de COLONNE, pas sur une valeur : les deux
-    // seules chaines possibles sont ecrites ici, jamais recues.
-    let chemin_bd: Option<String> = conn.query_row(
-        &format!("SELECT {} FROM parametres_societe WHERE id = 1", colonne),
-        [], |r| r.get(0),
-    ).ok().flatten();
-
-    let chemin = match chemin_bd {
-        Some(c) if !c.is_empty() => c,
-        _ => {
-            // Repli : image posee dans le repertoire de l'app sans que
-            // le chemin ait ete enregistre.
-            let data_dir = app.path().app_data_dir()
-                .map_err(|e| e.to_string())?;
-            let trouve = ["png", "jpg", "jpeg", "svg", "webp"].iter()
-                .map(|e| data_dir.join(format!("{}.{}", base, e)))
-                .find(|p| p.exists());
-            match trouve {
-                Some(p) => p.to_string_lossy().to_string(),
-                None => return Ok(None),
-            }
-        }
-    };
-
-    let path = std::path::Path::new(&chemin);
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let ext = path.extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("png")
-        .to_lowercase();
-
-    let mime = match ext.as_str() {
-        "svg" => "image/svg+xml",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        _ => "image/png",
-    };
-
-    let mut fichier = std::fs::File::open(&chemin)
-        .map_err(|e| format!("Impossible de lire l'image : {}", e))?;
-    let mut buffer = Vec::new();
-    fichier.read_to_end(&mut buffer)
-        .map_err(|e| format!("Erreur lecture : {}", e))?;
-
-    use base64::Engine;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&buffer);
-    Ok(Some(format!("data:{};base64,{}", mime, b64)))
+/// Le dossier de donnees de l'application, pour le repli.
+///
+/// La lecture elle-meme vit dans `noyau::images` : le serveur doit
+/// pouvoir la faire aussi, et deux copies de cette regle auraient
+/// diverge — c'est deja arrive au calcul de dette.
+fn dossier_donnees(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_data_dir().ok()
 }
+
 
 #[tauri::command]
 pub fn lire_logo_base64(
@@ -136,7 +87,9 @@ pub fn lire_logo_base64(
     etat: State<EtatApp>,
 ) -> Result<Option<String>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    lire_image_base64(&app, &conn, "logo_chemin", "logo")
+    gescom_noyau::images::lire_base64(
+        &conn, "logo", dossier_donnees(&app).as_deref(),
+    )
 }
 
 #[tauri::command]
@@ -160,7 +113,9 @@ pub fn lire_pied_base64(
     etat: State<EtatApp>,
 ) -> Result<Option<String>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    lire_image_base64(&app, &conn, "pied_chemin", "pied")
+    gescom_noyau::images::lire_base64(
+        &conn, "pied", dossier_donnees(&app).as_deref(),
+    )
 }
 
 #[tauri::command]
@@ -178,7 +133,9 @@ pub fn lire_entete_base64(
     etat: State<EtatApp>,
 ) -> Result<Option<String>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    lire_image_base64(&app, &conn, "entete_chemin", "entete")
+    gescom_noyau::images::lire_base64(
+        &conn, "entete", dossier_donnees(&app).as_deref(),
+    )
 }
 
 /// Supprime le logo actuel.

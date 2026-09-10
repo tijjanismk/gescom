@@ -153,6 +153,38 @@ function racine(): string {
 // =====================================================================
 
 /**
+ * Les commandes qui s'exécutent TOUJOURS sur cette machine.
+ *
+ * Une caisse en réseau envoie tout au serveur — sauf ce qui n'a de sens
+ * que devant l'utilisateur :
+ *
+ * - **imprimer** : c'est la caisse qui a l'imprimante. Le serveur est
+ *   un service sans écran ; lui demander d'imprimer ne produirait rien,
+ *   ou du papier sur le poste du patron ;
+ * - **ouvrir un fichier** avec l'application du système ;
+ * - **le réglage réseau lui-même** : il vit dans le `poste.json` de
+ *   cette machine. Le demander au serveur serait circulaire — et
+ *   `tester_serveur` doit justement pouvoir échouer sans réseau ;
+ * - **import/export de modèles** : ils passent par un chemin de fichier
+ *   local, qui ne désigne rien chez le serveur.
+ *
+ * Cette liste est **fermée**. Une commande absente part au serveur :
+ * c'est le bon défaut, parce qu'une commande métier oubliée ici
+ * écrirait dans la base locale de la caisse — vide — et le commerçant
+ * verrait sa saisie disparaître sans message.
+ */
+const LOCALES = new Set([
+  "imprimer_piece",
+  "imprimer_facture",
+  "ouvrir_avec_systeme",
+  "lire_config_reseau",
+  "definir_config_reseau",
+  "tester_serveur",
+  "exporter_modeles",
+  "importer_modeles",
+]);
+
+/**
  * Appelle une commande métier, ici ou sur le serveur.
  *
  * Rejette avec une **chaîne**, jamais avec un `Error` : c'est ce que
@@ -164,7 +196,7 @@ export async function appeler<T = unknown>(
   commande: string,
   params?: Record<string, unknown>,
 ): Promise<T> {
-  if (!enReseau()) {
+  if (!enReseau() || LOCALES.has(commande)) {
     return invokeTauri<T>(commande, params);
   }
 

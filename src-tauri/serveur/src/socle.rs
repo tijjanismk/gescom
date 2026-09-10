@@ -340,6 +340,67 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
+    // -----------------------------------------------------------------
+    //  Les images de la boutique
+    // -----------------------------------------------------------------
+    // Logo, en-tete et pied sont des FICHIERS sur le disque ; la base
+    // ne garde que leur chemin. Une caisse en reseau lisait donc son
+    // propre disque, ou il n'y a rien : elle imprimait des factures
+    // sans logo ni en-tete, pendant que le poste serveur les imprimait
+    // completes. Deux factures differentes pour la meme boutique.
+    //
+    // Le dossier de repli se deduit du fichier de la base : c'est la
+    // que l'application depose ses images.
+    // Metier pur, restees dans le crate applicatif par oubli : une
+    // caisse en reseau les executait sur SA base locale — vide.
+    // Modifier un client y semblait reussir, et la modification
+    // n'existait nulle part.
+    r.ecriture("modifier_client", "clients:modifier", |c, p| {
+        let client_id: String = arg(&p, "clientId", "client_id")?;
+        let nom: String = arg(&p, "nom", "nom")?;
+        let telephone: Option<String> = arg(&p, "telephone", "telephone")?;
+        let adresse: Option<String> = arg(&p, "adresse", "adresse")?;
+        let email: Option<String> = arg(&p, "email", "email")?;
+        let nif: Option<String> = arg(&p, "nif", "nif")?;
+        gescom_noyau::comptoir::modifier_client(
+            c.conn, client_id, nom, telephone, adresse, email, nif,
+        )?;
+        Ok(serde_json::Value::Null)
+    });
+
+    r.lecture("lire_clients_avec_creances", |c, _| {
+        let v = gescom_noyau::comptoir::lire_clients_avec_creances(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_modele", |c, p| {
+        let id: String = arg(&p, "id", "id")?;
+        let v = gescom_noyau::modeles::lire(c.conn, &id)
+            .map_err(|_| "Modèle introuvable.".to_string())?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_logo_base64", |c, _| {
+        let v = gescom_noyau::images::lire_base64(
+            c.conn, "logo", dossier_des_images(c.conn).as_deref(),
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_entete_base64", |c, _| {
+        let v = gescom_noyau::images::lire_base64(
+            c.conn, "entete", dossier_des_images(c.conn).as_deref(),
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_pied_base64", |c, _| {
+        let v = gescom_noyau::images::lire_base64(
+            c.conn, "pied", dossier_des_images(c.conn).as_deref(),
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
     r.lecture("lire_factures_fournisseur_retournables", |c, p| {
         let fournisseur_id: String = arg(&p, "fournisseurId", "fournisseur_id")?;
         let v = achats::lire_factures_fournisseur_retournables(c.conn, fournisseur_id)?;
@@ -1360,3 +1421,17 @@ fn texte(p: &Value, cle: &str) -> Result<String, String> {
 /// de la signature commune.
 #[allow(dead_code)]
 fn _muet(_: &Contexte) {}
+
+/// Le dossier ou l'application depose ses images, deduit du fichier de
+/// la base.
+///
+/// C'est le repli de `images::lire_base64` : une image posee a cote de
+/// la base sans que son chemin ait ete enregistre. Le noyau ne connait
+/// pas Tauri et ne peut pas demander `app_data_dir` ; cote serveur il
+/// n'y a de toute facon pas d'application.
+fn dossier_des_images(conn: &rusqlite::Connection) -> Option<std::path::PathBuf> {
+    let chemin = conn.path()?;
+    std::path::Path::new(chemin)
+        .parent()
+        .map(|d| d.to_path_buf())
+}

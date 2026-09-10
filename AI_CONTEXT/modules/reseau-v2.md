@@ -209,6 +209,49 @@ Au démarrage sur une base neuve, le serveur imprime les comptes créés —
 sinon le patron a un serveur qui tourne et aucun moyen de savoir quoi
 taper.
 
+## Imprimer depuis une caisse en réseau
+
+L'impression est **locale par nature** : c'est la caisse qui a
+l'imprimante, et le serveur est un service sans écran. Une caisse est
+elle-même une application Tauri — elle sait donc imprimer. Le problème
+n'était pas là.
+
+### Ce qui manquait vraiment
+
+Logo, en-tête et pied de page sont des **fichiers sur le disque** ; la
+base ne garde que leur chemin. Une caisse lisait donc son propre disque,
+où il n'y a rien : elle imprimait des factures nues pendant que le poste
+serveur les imprimait complètes. **Deux factures différentes pour la
+même boutique.**
+
+La lecture vit maintenant dans
+[`noyau::images`](../../src-tauri/noyau/src/images.rs) et le serveur
+l'expose (`lire_logo_base64`, `lire_entete_base64`,
+`lire_pied_base64`) : la caisse demande, le serveur répond en base64,
+l'impression reste locale.
+
+⚠️ L'**écriture** n'est pas portée. `sauvegarder_logo` reçoit un chemin
+de fichier sur la machine qui appelle ; transmis au serveur, ce chemin
+ne désigne rien chez lui. Régler les images depuis une caisse
+demanderait de transporter les octets. **Ces réglages se font donc sur
+le poste serveur.**
+
+### Les commandes qui restent locales
+
+[pont.ts](../../src/lib/pont.ts) tient une liste **fermée** :
+`imprimer_piece`, `imprimer_facture`, `ouvrir_avec_systeme`,
+`lire_config_reseau`, `definir_config_reseau`, `tester_serveur`,
+`exporter_modeles`, `importer_modeles`.
+
+Fermée, et pas l'inverse : une commande **absente** part au serveur.
+C'est le bon défaut, parce qu'une commande métier oubliée dans la liste
+écrirait dans la base locale de la caisse — vide — et le commerçant
+verrait sa saisie disparaître sans message.
+
+C'est exactement ce qui arrivait à `modifier_client` et
+`lire_clients_avec_creances`, restées dans le crate applicatif par
+oubli. Elles sont portées.
+
 ## Routes
 
 | Méthode | Route | Jeton | Effet |

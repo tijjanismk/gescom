@@ -50,6 +50,11 @@ pub fn verifier_permission(
                 | "ventes:lire"
                 | "paiements:creer"
                 | "clients:creer"
+                // Modifier une fiche client : en monoposte l'employe le
+                // fait deja, sans aucun controle. Le lui refuser en
+                // reseau ferait deux applications differentes selon le
+                // mode, ce que personne ne comprendrait.
+                | "clients:modifier"
                 | "articles:creer"
                 | "clients:lire"
                 | "stock:lire"
