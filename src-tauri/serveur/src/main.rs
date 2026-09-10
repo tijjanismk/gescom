@@ -63,9 +63,26 @@ fn main() {
             std::process::exit(1);
         }
     };
+    let mut amorcage_fait = false;
     if let Err(e) = persistance::initialiser_tables(&conn) {
         eprintln!("Impossible d'initialiser la base : {e}");
         std::process::exit(1);
+    }
+
+    // Une base neuve n'a ni role ni compte. Sans cet amorcage, le
+    // serveur demarrait, ecoutait, et refusait toutes les connexions
+    // avec « Identifiant ou mot de passe incorrect » — sans qu'aucun
+    // ecran ne permette de creer le premier compte. Le seul remede
+    // etait de lancer la fenetre une fois sur le meme fichier.
+    match gescom_noyau::seed::amorcer_si_vide(&conn) {
+        Ok(true) => {
+            amorcage_fait = true;
+        }
+        Ok(false) => {}
+        Err(e) => {
+            eprintln!("Impossible d'amorcer la base : {e}");
+            std::process::exit(1);
+        }
     }
 
     // Une base abimee doit etre RESTAUREE, pas servie a cinq caisses
@@ -141,6 +158,14 @@ fn main() {
     }
 
     println!();
+    if amorcage_fait {
+        println!();
+        println!("  BASE NEUVE — comptes créés :");
+        println!("    admin   / admin123     (patron)");
+        println!("    employe / employe123   (employé)");
+        println!("    Les deux exigent un changement de mot de passe à la");
+        println!("    première connexion.");
+    }
     println!("  Console : http://localhost:{}", options.port);
     println!("            a ouvrir dans un navigateur sur ce poste.");
 

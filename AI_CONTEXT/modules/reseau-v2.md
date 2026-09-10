@@ -185,6 +185,30 @@ commandes : aucun d'eux n'a été touché.
 - [console.rs](../../src-tauri/serveur/src/console.rs) — la console, une
   page HTML entière dans une constante Rust.
 
+## L'amorçage d'une base neuve
+
+`seed.rs` vivait dans le crate applicatif : **seule la fenêtre
+l'appelait**. Un `gescom-serveur.exe` lancé sur une base neuve
+démarrait, écoutait, et refusait toutes les connexions avec
+« Identifiant ou mot de passe incorrect » — sans qu'aucun écran ne
+permette de créer le premier compte. La seule issue était de lancer la
+fenêtre une fois sur le même fichier.
+
+Il vit maintenant dans le noyau, comme le reste du code métier, et les
+deux exécutables passent par le même point d'entrée :
+`seed::amorcer_si_vide`. Le test de vacuité et l'amorçage étaient deux
+appels séparés — c'est ainsi qu'un appelant a pu oublier l'un des deux.
+
+Ce qu'il pose, toujours : rôles, comptes `admin` / `employe` (avec
+changement de mot de passe obligatoire à la première connexion), dépôt
+par défaut, client « Comptant », paramètres société. Les articles et
+clients fictifs ne sont créés que si `GESCOM_DEMO=1` : chez un
+commerçant ils seraient à supprimer un par un.
+
+Au démarrage sur une base neuve, le serveur imprime les comptes créés —
+sinon le patron a un serveur qui tourne et aucun moyen de savoir quoi
+taper.
+
 ## Routes
 
 | Méthode | Route | Jeton | Effet |

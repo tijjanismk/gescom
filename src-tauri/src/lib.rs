@@ -11,7 +11,6 @@ pub use gescom_noyau::{caisses, coeur, persistance, portes, utils};
 pub use gescom_noyau::catalogue as coeur_catalogue;
 
 mod commandes;
-mod seed;
 mod reseau;
 mod garde;
 
@@ -44,8 +43,8 @@ pub fn run() {
             persistance::initialiser_tables(&conn)
                 .expect("Impossible d'initialiser les tables");
 
-            if seed::base_est_vide(&conn) {
-                seed::seeder(&conn).expect("Erreur lors du seeding");
+            if let Err(e) = gescom_noyau::seed::amorcer_si_vide(&conn) {
+                eprintln!("[seed] {e}");
             }
 
             app.manage(EtatApp { conn: Mutex::new(conn) });

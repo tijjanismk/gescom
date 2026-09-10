@@ -102,7 +102,7 @@ fn banc() -> Banc {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
     crate::persistance::initialiser_tables(&conn).unwrap();
-    crate::seed::seeder(&conn).unwrap();
+    gescom_noyau::seed::seeder(&conn).unwrap();
 
     let now = "2026-01-01T08:00:00";
 

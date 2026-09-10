@@ -1,5 +1,16 @@
 //! Données de démarrage pour la première utilisation.
 //!
+//! ## Pourquoi ce module vit dans le noyau
+//!
+//! Il vivait dans le crate applicatif, et n'était donc appelé que par
+//! la fenêtre. `gescom-serveur.exe` ouvrant une base neuve n'avait NI
+//! rôle NI compte : personne ne pouvait se connecter, et aucun écran
+//! n'existait pour créer le premier compte — la seule issue était de
+//! lancer la fenêtre une fois sur le même fichier.
+//!
+//! Les deux exécutables partagent maintenant le même amorçage, comme
+//! ils partagent déjà le même code métier.
+//!
 //! DEUX niveaux :
 //!   - ESSENTIEL — toujours créé : rôles, comptes, dépôt par défaut,
 //!     client « Comptant », paramètres société. Sans eux l'application
@@ -17,7 +28,7 @@
 use rusqlite::{Connection, Result, params};
 use uuid::Uuid;
 use crate::utils::maintenant_iso;
-use crate::commandes::auth::hasher_mot_de_passe_pub;
+use crate::auth::hasher_mot_de_passe_pub;
 
 pub fn base_est_vide(conn: &Connection) -> bool {
      let count: i64 = conn
@@ -290,4 +301,19 @@ pub fn seeder(conn: &Connection) -> Result<()> {
     );
 
     Ok(())
+}
+/// Amorce la base si elle est vide, et ne fait rien sinon.
+///
+/// Point d'entree unique des deux executables. Le test de vacuite et
+/// l'amorcage etaient appeles separement, ce qui laissait a chaque
+/// appelant la possibilite d'oublier l'un des deux — c'est ainsi que le
+/// serveur s'est retrouve a ouvrir des bases sans aucun compte.
+///
+/// Rend `Ok(true)` si l'amorcage a eu lieu.
+pub fn amorcer_si_vide(conn: &Connection) -> Result<bool> {
+    if !base_est_vide(conn) {
+        return Ok(false);
+    }
+    seeder(conn)?;
+    Ok(true)
 }
