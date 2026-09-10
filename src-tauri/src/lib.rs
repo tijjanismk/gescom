@@ -5,6 +5,10 @@
 // `crate::utils`) : les 27 fichiers de commandes n'ont pas a savoir
 // qu'ils ont change de crate.
 pub use gescom_noyau::{caisses, coeur, persistance, portes, utils};
+// Alias : `catalogue` est deja le nom d'un fichier de commandes
+// (import/export CSV). Deux `crate::catalogue` differents seraient
+// une confusion garantie a la relecture.
+pub use gescom_noyau::catalogue as coeur_catalogue;
 
 mod commandes;
 mod seed;

@@ -12,10 +12,49 @@
 use serde_json::{json, Value};
 
 use gescom_noyau::registre::{Contexte, Registre};
-use gescom_noyau::{caisses, modeles, postes, sessions};
+use gescom_noyau::{caisses, catalogue, modeles, postes, sessions};
 
 pub fn registre() -> Registre {
     let mut r = Registre::nouveau();
+
+    // ---- Le comptoir ----
+    //
+    // Les cinq lectures qu'un poste caisse appelle avant de pouvoir
+    // afficher quoi que ce soit. Sans elles, une caisse connectee
+    // montre un ecran vide, et porter `creer_vente` n'aurait servi a
+    // rien : on ne peut pas vendre a un client qu'on ne voit pas.
+    r.lecture("lire_clients", |c, _| {
+        serde_json::to_value(catalogue::lire_clients(c.conn)?)
+            .map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_client_generique", |c, _| {
+        catalogue::lire_client_generique(c.conn)
+    });
+
+    r.lecture("lire_depots", |c, _| {
+        serde_json::to_value(catalogue::lire_depots(c.conn)?)
+            .map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_depot_defaut", |c, _| {
+        catalogue::lire_depot_defaut(c.conn)
+    });
+
+    r.lecture("lire_articles_avec_unites", |c, p| {
+        // Le role vient de la SESSION, jamais des parametres : un poste
+        // qui enverrait « patron » dans son appel lirait les prix
+        // d'achat. C'est tout l'interet de faire tourner la lecture
+        // chez le serveur.
+        let depot = p.get("depotId")
+            .or_else(|| p.get("depot_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let v = catalogue::lire_articles_avec_unites(
+            c.conn, Some(c.appelant.role.clone()), depot,
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_postes", |c, _| {
         let v = postes::lister(c.conn).map_err(|e| e.to_string())?;

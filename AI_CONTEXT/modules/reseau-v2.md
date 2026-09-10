@@ -4,12 +4,26 @@ Rôle : faire tourner Gescom sur plusieurs postes autour d'un serveur qui
 détient la base. Sessions, canal d'événements, sauvegardes, caisse par
 utilisateur.
 
-⚠️ **Fondations posées, migration non faite.** Le serveur exécute
-**12** commandes sur les 182 : le socle réseau, plus les modèles de
-documents (voir [modeles-documents](modeles-documents.md)). Les autres
-vivent encore dans `commandes/`, en `#[tauri::command]`, et ne
-fonctionnent qu'en monoposte. Un poste caisse qui les appelle reçoit
-`commande_inconnue`.
+⚠️ **Migration en cours.** Le serveur exécute **17** commandes sur
+les 183 : le socle réseau, les modèles de documents (voir
+[modeles-documents](modeles-documents.md)) et les cinq lectures du
+comptoir. Les autres vivent encore dans `commandes/`, en
+`#[tauri::command]`, et ne fonctionnent qu'en monoposte. Un poste
+caisse qui les appelle reçoit `commande_inconnue`.
+
+Le comptoir porté : `lire_clients`, `lire_client_generique`,
+`lire_depots`, `lire_depot_defaut`, `lire_articles_avec_unites` —
+logique dans [noyau/src/catalogue.rs](../../src-tauri/noyau/src/catalogue.rs),
+appelée par la façade Tauri comme par le serveur. Ce sont les cinq
+commandes qu'une caisse appelle avant de pouvoir afficher quoi que ce
+soit ; porter `creer_vente` d'abord n'aurait servi à rien, on ne vend
+pas à un client qu'on ne voit pas.
+
+[CONFIRMÉ] Le **rôle vient de la session**, jamais des paramètres
+d'appel : un poste qui enverrait « patron » dans son JSON lirait les
+prix d'achat. Le filtre §7 est donc appliqué côté serveur
+([socle.rs](../../src-tauri/serveur/src/socle.rs), test
+`le_prix_dachat_ne_sort_que_pour_le_patron`).
 
 ## Les trois crates
 
@@ -122,10 +136,11 @@ les 167 commandes à migrer n'en ont toujours pas.
 
 ## Ce qui reste à faire
 
-1. Porter les commandes vers `socle.rs`, **par domaine et avec leur
-   test** — en commençant par `creer_vente`, `valider_facture`,
-   `regler_dette_fournisseur`. Les modèles de documents montrent le
-   patron : logique dans `noyau/`, deux façades minces.
+1. Continuer de porter les commandes vers `socle.rs`, **par domaine et
+   avec leur test**. Fait : les modèles, les cinq lectures du comptoir.
+   Suivant : `creer_vente`, `valider_facture`, `regler_dette_fournisseur`
+   — les écritures d'argent, celles qui exigent un filet avant tout
+   changement de transport.
 2. Remplacer `stock_depot.quantite` (compteur muté) par une somme de
    `mouvement_stock`. ⚠️ **Pas encore urgent** : le serveur ne détient
    qu'une connexion derrière un `Mutex`, donc deux ventes ne s'exécutent

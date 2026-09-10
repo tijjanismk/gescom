@@ -18,6 +18,7 @@ pub mod protocole;
 pub mod postes;
 pub mod sessions;
 pub mod caisses;
+pub mod catalogue;
 pub mod modeles;
 pub mod installation;
 pub mod registre;
