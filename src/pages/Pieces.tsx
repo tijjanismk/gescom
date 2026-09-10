@@ -177,8 +177,14 @@ function fmtDate(iso: string) {
 }
 
 // =====================================================================
-//  Modal : Valider une facture → Vente
+//  Modal : Valider une facture — client ou fournisseur
 // =====================================================================
+//
+// Un seul modal pour les deux côtés : les questions sont exactement les
+// mêmes — comptant ou crédit, par quel moyen, avec quel acompte. Seul
+// le SENS de l'argent change, et c'est la commande appelée qui le sait.
+// En faire deux écrans aurait fait diverger les deux jeux de règles,
+// comme cela s'était produit pour le calcul de dette.
 
 function ModalValiderFacture({
   ouvert, piece, onFermer, onValide,
@@ -206,13 +212,18 @@ function ModalValiderFacture({
     setChargement(true);
     try {
       const role = UTILISATEUR_ACTIF?.role ?? "employe";
-      const res = await invoke<any>("valider_facture", {
-        pieceId: piece.id,
-        modeReglement,
-        modePaiement,
-        acompte: modeReglement === "credit" ? parseMontant(acompte) : null,
-        utilisateurRole: role,
-      });
+      const res = await invoke<any>(
+        piece.type_piece === "facture_fournisseur"
+          ? "valider_facture_fournisseur"
+          : "valider_facture",
+        {
+          pieceId: piece.id,
+          modeReglement,
+          modePaiement,
+          acompte: modeReglement === "credit" ? parseMontant(acompte) : null,
+          utilisateurRole: role,
+        },
+      );
       setResultat(res);
       setTimeout(() => { onValide(); }, 1500);
     } catch (e) {
@@ -227,7 +238,10 @@ function ModalValiderFacture({
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Receipt className="h-4 w-4" /> Valider la facture
+            <Receipt className="h-4 w-4" />
+            {piece?.type_piece === "facture_fournisseur"
+              ? "Valider la facture fournisseur"
+              : "Valider la facture"}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
@@ -305,7 +319,9 @@ function ModalValiderFacture({
                   disabled={chargement} className="flex-1">
                   {chargement
                     ? <Loader2 className="h-4 w-4 animate-spin" />
-                    : "Valider → Vente"}
+                    : piece.type_piece === "facture_fournisseur"
+                      ? "Valider → Dette"
+                      : "Valider → Vente"}
                 </Button>
               </div>
             </>
@@ -810,6 +826,35 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
     }
   }
 
+  /**
+   * Annuler une facture fournisseur par un avoir.
+   *
+   * Le pendant de l'annulation par avoir côté client, sauf qu'il n'y a
+   * pas de vente derrière : c'est un retour intégral. La marchandise
+   * repart, et l'avoir vient en déduction de la dette — ou le
+   * fournisseur rembourse, si on le lui demande.
+   */
+  async function handleAvoirFournisseur(p: Piece) {
+    const rembourse = window.confirm(
+      `Annuler ${p.numero} par un avoir fournisseur ?\n\n` +
+      `La marchandise repart chez le fournisseur.\n\n` +
+      `OK   → le fournisseur REMBOURSE (l'argent rentre en caisse)\n` +
+      `Annuler → l'avoir vient en déduction de la dette`,
+    );
+    try {
+      const res = await invoke<any>("annuler_facture_fournisseur_par_avoir", {
+        pieceId: p.id,
+        modeResolution: rembourse ? "remboursement" : "avoir",
+        modeEncaissement: rembourse ? "especes" : null,
+        utilisateurRole: UTILISATEUR_ACTIF?.role ?? "employe",
+      });
+      await message(`${res.numero} créé`, { title: "Avoir fournisseur", kind: "info" });
+      charger();
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+    }
+  }
+
   // `genererImpression` est le point d'entree unique : il dispatche
   // A4, A5, thermique et bon de sortie. L'ancien couple
   // genererPieceHTML / genererTicketThermique laissait chaque appelant
@@ -1160,8 +1205,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                   : CONVERSIONS_FOURNISSEUR[p.type_piece];
                 const peutTransferer = conv &&
                   !["transfere","annule","validee","paye"].includes(p.statut);
+                // Cote fournisseur aussi : une FAF naît en brouillon
+                // depuis un bon de réception, et c'est la validation qui
+                // crée la dette et sort l'argent du tiroir.
                 const peutValider =
-                  p.type_piece === "facture" && p.statut === "brouillon";
+                  ["facture", "facture_fournisseur"].includes(p.type_piece) &&
+                  p.statut === "brouillon";
                 const enRetard = p.date_echeance &&
                   new Date(p.date_echeance) < new Date() &&
                   !["paye","annule","validee"].includes(p.statut);
@@ -1455,6 +1504,20 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                             et `transfere`. Les proposer donnait un
                             bouton qui échoue à tous les coups, ce qui
                             est pire que pas de bouton. */}
+                        {/* Avoir fournisseur — une FAF déjà validée ne
+                            s'annule plus par `annuler_piece` : elle a
+                            produit une dette et du stock. Il lui faut un
+                            avoir, comme à une facture client. */}
+                        {p.type_piece === "facture_fournisseur" &&
+                          ["emis","paye"].includes(p.statut) && (
+                          <button onClick={() => handleAvoirFournisseur(p)}
+                            title="Annuler par un avoir fournisseur"
+                            className="p-1.5 rounded hover:bg-muted transition-colors
+                                       text-muted-foreground hover:text-amber-600">
+                            <Gift className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+
                         {!["validee","annule","paye","transfere"]
                           .includes(p.statut) && (
                           <button onClick={() => handleAnnuler(p)}

@@ -77,6 +77,8 @@ pub fn run() {
             commandes::fournisseurs::enregistrer_ajustement_inventaire,
             commandes::achats::enregistrer_achat,
             commandes::achats::enregistrer_retour_fournisseur,
+            commandes::achats::valider_facture_fournisseur,
+            commandes::achats::annuler_facture_fournisseur_par_avoir,
             commandes::achats::lire_factures_fournisseur_retournables,
             // ---- Paramètres articles ----
             commandes::parametres::lire_categories,

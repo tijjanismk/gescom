@@ -512,14 +512,19 @@ pub fn convertir_piece(
         ("commande_client", "facture")         => true,
         ("bon_livraison",   "facture")         => true,
 
-        // Cote fournisseur : BCF -> BRF est de la paperasse pure (copie de
-        // lignes, ajustables avant facturation), sans effet stock/argent.
-        // BRF -> facture_fournisseur n'est volontairement PAS ici : cette
-        // etape doit produire stock + dette + caisse en une transaction,
-        // ce que fait deja enregistrer_achat (achats.rs). Une conversion
-        // generique ici creerait une FAF sans paiement_fournisseur associe
-        // -> dette fantome, risque de decaissement double au reglement.
-        ("bon_commande_fournisseur", "bon_reception") => true,
+        // Cote fournisseur, le miroir exact du cote client :
+        //   BCF -> BRF          comme devis -> commande, paperasse pure ;
+        //   BRF -> FAF          comme BL -> facture, et la FAF nait en
+        //                       BROUILLON.
+        //
+        // BRF -> FAF etait refusee jusqu'ici, et pour une bonne raison :
+        // une conversion generique creait une facture sans dette ni
+        // decaissement — dette fantome, risque de payer deux fois au
+        // reglement. Ce n'est plus le cas : la FAF nait en brouillon et
+        // ne produit ses effets qu'a `achats::valider_facture_fournisseur`,
+        // exactement comme une facture client a `valider_facture`.
+        ("bon_commande_fournisseur", "bon_reception")     => true,
+        ("bon_reception",            "facture_fournisseur") => true,
 
         _ => false,
     };
@@ -557,6 +562,10 @@ pub fn convertir_piece(
         // fournisseur different presque toujours -> brouillon modifiable
         // le temps de comparer commande vs recu, avant facturation.
         "bon_reception"   => "brouillon",
+        // Jamais validee automatiquement, comme la facture client : la
+        // dette et le decaissement demandent un geste explicite.
+        "facture_fournisseur" => "brouillon",
+        "avoir_fournisseur"   => "emis",
         _                 => "brouillon",
     };
 

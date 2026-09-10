@@ -322,6 +322,24 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
+    r.ecriture("valider_facture_fournisseur", "achats:creer", |c, p| {
+        let piece_id: String = arg(&p, "pieceId", "piece_id")?;
+        let mode_reglement: String = arg(&p, "modeReglement", "mode_reglement")?;
+        let mode_paiement: Option<String> = arg(&p, "modePaiement", "mode_paiement")?;
+        let acompte: Option<i64> = arg(&p, "acompte", "acompte")?;
+        let v = achats::valider_facture_fournisseur(c.conn, piece_id, mode_reglement, mode_paiement, acompte, Some(c.appelant.role.clone()))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    r.ecriture("annuler_facture_fournisseur_par_avoir", "achats:creer", |c, p| {
+        let piece_id: String = arg(&p, "pieceId", "piece_id")?;
+        let mode_resolution: Option<String> = arg(&p, "modeResolution", "mode_resolution")?;
+        let mode_encaissement: Option<String> = arg(&p, "modeEncaissement", "mode_encaissement")?;
+        let motif: Option<String> = arg(&p, "motif", "motif")?;
+        let v = achats::annuler_facture_fournisseur_par_avoir(c.conn, piece_id, mode_resolution, mode_encaissement, motif, Some(c.appelant.role.clone()))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
     r.lecture("lire_factures_fournisseur_retournables", |c, p| {
         let fournisseur_id: String = arg(&p, "fournisseurId", "fournisseur_id")?;
         let v = achats::lire_factures_fournisseur_retournables(c.conn, fournisseur_id)?;

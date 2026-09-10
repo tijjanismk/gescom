@@ -51,6 +51,58 @@ global), `coeur::stock` (types de mouvement),
 `utils::exiger_session_caisse` (4 sites dans `achats.rs`),
 `persistance::journal`.
 
+## Le miroir du côté client
+
+La chaîne fournisseur est désormais le symétrique exact de la chaîne
+client :
+
+| Client | Fournisseur |
+|---|---|
+| devis / proforma → commande | bon de commande (BCF) |
+| commande → bon de livraison | BCF → bon de réception (BRF) |
+| BL → facture (**brouillon**) | BRF → facture fournisseur (**brouillon**) |
+| `valider_facture` → stock + encaissement | `valider_facture_fournisseur` → stock + dette + décaissement |
+| `annuler_facture_par_avoir` → AVC | `annuler_facture_fournisseur_par_avoir` → AVF |
+| `enregistrer_retour` (partiel) → AVC | `enregistrer_retour_fournisseur` (partiel) → AVF |
+
+### Ce qui manquait, et pourquoi
+
+`BRF → facture_fournisseur` était **refusée**, et pour une bonne raison
+inscrite dans le code : une conversion générique aurait créé une FAF
+sans dette ni décaissement — dette fantôme, risque de payer deux fois au
+règlement. Il n'existait qu'`enregistrer_achat`, qui fait tout d'un seul
+geste.
+
+L'écran, lui, proposait quand même le bouton « → Facture fourn. » :
+**un bouton mort**, vérifié sur instance réelle, qui répondait
+« Conversion bon_reception → facture_fournisseur non autorisée ».
+
+`achats::valider_facture_fournisseur` ferme le trou. La FAF naît en
+brouillon et ne produit ses effets qu'à la validation, exactement comme
+une facture client.
+
+### Le stock n'entre qu'une fois
+
+Depuis que la réception déplace le stock
+([livraison-stock.md](livraison-stock.md)), une FAF issue d'un BRF ne
+fait plus **que** l'argent : la marchandise est déjà entrée. Une FAF
+sans bon en amont fait entrer le stock elle-même, comme
+`enregistrer_achat`. Le résultat le dit : `stock_entre: true|false`.
+
+### L'avoir direct réutilise le retour
+
+`annuler_facture_fournisseur_par_avoir` ne réécrit aucune règle : il lit
+les lignes de la facture et délègue à
+`enregistrer_retour_fournisseur_sur` avec **toutes** les lignes. Celui-ci
+sait déjà sortir le stock du bon dépôt, refuser le découvert, et choisir
+entre déduire la dette ou encaisser un remboursement. Une seconde copie
+de ces règles aurait dérivé — c'est exactement ce qui était arrivé au
+calcul de dette.
+
+Contrairement au côté client, il n'y a pas de `vente` derrière une
+facture fournisseur : le pendant naturel de l'annulation par avoir est
+donc le retour intégral.
+
 ## Règles métier
 
 - [CONFIRMÉ] Rendre une marchandise entrée **sans facture** ne crée

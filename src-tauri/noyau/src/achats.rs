@@ -736,3 +736,330 @@ pub fn lire_factures_fournisseur_retournables(
 
     Ok(resultat)
 }
+// =====================================================================
+//  VALIDER UNE FACTURE FOURNISSEUR — le miroir de `valider_facture`
+// =====================================================================
+
+/// Valide une facture fournisseur en brouillon : dette, reglement,
+/// caisse — et le stock seulement si aucun bon ne s'en est charge.
+///
+/// ## Pourquoi cette fonction n'existait pas
+///
+/// Cote client, une facture se cree en brouillon puis se VALIDE : c'est
+/// la validation qui sort le stock et encaisse. Cote fournisseur, il n'y
+/// avait qu'`enregistrer_achat`, qui fait tout d'un seul geste. La
+/// chaine s'arretait donc au bon de reception : la conversion
+/// BRF -> FAF etait refusee, parce qu'une conversion generique aurait
+/// cree une facture sans dette ni decaissement — une dette fantome, et
+/// un risque de payer deux fois au reglement.
+///
+/// Cette fonction ferme le trou : elle est a la FAF ce que
+/// `valider_facture` est a la facture client.
+///
+/// ## Le stock
+///
+/// Depuis que la reception deplace le stock, une FAF issue d'un bon de
+/// reception ne fait plus QUE l'argent : la marchandise est deja
+/// entree. Une FAF sans bon en amont fait entrer le stock elle-meme,
+/// comme `enregistrer_achat`.
+pub fn valider_facture_fournisseur(
+    conn: &mut rusqlite::Connection,
+    piece_id: String,
+    // "comptant" -> soldee tout de suite | "credit" -> dette
+    mode_reglement: String,
+    // especes | orange_money | moov_money | cheque
+    mode_paiement: Option<String>,
+    // Acompte verse a la signature, si credit.
+    acompte: Option<i64>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (fournisseur_id, type_p, statut, depot_opt, numero):
+        (String, String, String, Option<String>, String) =
+        conn.query_row(
+            "SELECT tiers_id, type_piece, statut, depot_id, numero
+             FROM piece_commerciale WHERE id = ?1",
+            rusqlite::params![piece_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        ).map_err(|_| "Pièce introuvable".to_string())?;
+
+    if type_p != "facture_fournisseur" {
+        return Err("Seule une facture fournisseur se valide ici".to_string());
+    }
+    if statut != "brouillon" {
+        return Err(format!("Facture déjà en statut « {statut} »"));
+    }
+
+    let lignes = crate::argent::lire_lignes_raw(conn, &piece_id)?;
+    if lignes.is_empty() {
+        return Err("La facture ne contient aucune ligne".to_string());
+    }
+
+    // Le total se recalcule ICI, depuis les lignes, jamais depuis un
+    // montant transmis par l'ecran : un ecran perime ferait naitre une
+    // dette qui ne correspond a rien de ce qui est facture.
+    let total: i64 = lignes
+        .iter()
+        .map(|(_, _, qte, prix, remise_pct, _)| {
+            let brut = (*prix as f64 * qte).round() as i64;
+            let remise = (brut as f64 * remise_pct / 100.0).round() as i64;
+            brut - remise
+        })
+        .sum();
+
+    let comptant = mode_reglement == "comptant";
+    let montant_regle = if comptant { total } else { acompte.unwrap_or(0).max(0) };
+
+    // Caisse fermee : on REFUSE au lieu d'ecrire la dette sans sa sortie
+    // de caisse. Meme regle qu'`enregistrer_achat` (D46) — sinon le
+    // comptage du soir tombe faux d'exactement ce montant.
+    if montant_regle > 0 {
+        crate::utils::exiger_session_caisse(conn)?;
+    }
+
+    let role = utilisateur_role.as_deref().unwrap_or("employe");
+    let auteur = crate::argent::id_utilisateur_par_role(conn, role);
+    let now = maintenant_iso();
+    let stock_ailleurs = crate::pieces::stock_confie_a_un_bon(conn, &piece_id);
+    let depot = crate::pieces::depot_de_piece(conn, depot_opt);
+
+    // Le depot se verifie AVANT d'ouvrir la transaction : sortir par un
+    // `?` une fois `tx` en vie laisserait un retour arriere implicite,
+    // correct mais illisible.
+    if !stock_ailleurs && depot.is_none() {
+        return Err(
+            "Aucun dépôt actif : impossible de faire entrer cette marchandise."
+                .to_string(),
+        );
+    }
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // ---- 1. Stock, si aucun bon ne l'a deja fait entrer ----
+    if !stock_ailleurs {
+        let depot = depot.as_deref().unwrap_or_default();
+        for (article_id, unite_id, qte, prix, _, _) in &lignes {
+            let facteur: f64 = tx
+                .query_row(
+                    "SELECT facteur FROM unite_vente WHERE id = ?1",
+                    rusqlite::params![unite_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(1.0);
+
+            tx.execute(
+                "INSERT INTO mouvement_stock
+                 (id, article_id, depot_id, type_mouvement, quantite_delta,
+                  operation_id, auteur_id, date_mouvement, cree_le, cree_par,
+                  origine, fournisseur_id, prix_achat_unitaire)
+                 VALUES (?1,?2,?3,'achat',?4,?5,?6,?7,?7,?6,'app',?8,?9)",
+                rusqlite::params![
+                    uuid::Uuid::new_v4().to_string(),
+                    article_id, depot, qte * facteur,
+                    piece_id, auteur, now, fournisseur_id, prix
+                ],
+            ).map_err(|e| e.to_string())?;
+
+            // Le dernier prix d'achat sert a la marge : il suit la
+            // facture, pas la reception, parce que c'est la facture qui
+            // porte le prix reellement consenti.
+            tx.execute(
+                "UPDATE article SET dernier_prix_achat = ?1, modifie_le = ?2
+                 WHERE id = ?3",
+                rusqlite::params![prix, now, article_id],
+            ).ok();
+        }
+    }
+
+    // ---- 2. Statut, selon ce qui est REELLEMENT regle ----
+    let statut_piece = if montant_regle >= total && total > 0 { "paye" } else { "emis" };
+    tx.execute(
+        "UPDATE piece_commerciale SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
+        rusqlite::params![statut_piece, now, piece_id],
+    ).map_err(|e| e.to_string())?;
+
+    // ---- 3. Le reglement ----
+    // C'est CE paiement_fournisseur, et lui seul, que lit le calcul de
+    // dette. S'il manque, la FAF parait payee mais la dette affichee ne
+    // bouge pas : reglement double possible au prochain « Encaisser ».
+    if montant_regle > 0 {
+        tx.execute(
+            "INSERT INTO paiement_fournisseur
+             (id, fournisseur_id, piece_id, montant, mode, note,
+              auteur_id, date_paiement, cree_le, origine)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'app')",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                fournisseur_id, piece_id, montant_regle,
+                mode_paiement.as_deref().unwrap_or("especes"),
+                format!("Facture {numero}"),
+                auteur, now, now
+            ],
+        ).map_err(|e| e.to_string())?;
+
+        // ---- 4. La sortie de caisse ----
+        let sid = crate::utils::exiger_session_caisse(&tx)?;
+        tx.execute(
+            "INSERT INTO mouvement_caisse
+             (id, session_id, sens, moyen, montant, motif,
+              operation_id, date_mouvement, cree_le, cree_par, origine)
+             VALUES (?1,?2,'sortie',?3,?4,'achat',?5,?6,?6,?7,'app')",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                sid, mode_paiement.as_deref().unwrap_or("especes"),
+                montant_regle, piece_id, now, auteur
+            ],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    tx.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1,'facture_fournisseur_validee','piece_commerciale',?2,?3,?4,'app',?5)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), piece_id, auteur,
+            format!(
+                "{{\"total\":{total},\"regle\":{montant_regle},\"statut\":\"{statut_piece}\"}}"
+            ),
+            now
+        ],
+    ).ok();
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!({
+        "piece_id":      piece_id,
+        "numero":        numero,
+        "statut":        statut_piece,
+        "total":         total,
+        "montant_regle": montant_regle,
+        "stock_entre":   !stock_ailleurs,
+    }))
+}
+
+// =====================================================================
+//  ANNULER UNE FACTURE FOURNISSEUR PAR UN AVOIR
+// =====================================================================
+
+/// Convertit une facture fournisseur entiere en avoir, en un geste.
+///
+/// ## Pourquoi ce n'est pas une nouvelle mecanique
+///
+/// Rendre une partie d'une facture existait deja
+/// (`enregistrer_retour_fournisseur`) : il sait sortir le stock du bon
+/// depot, plafonner au reliquat de la facture, refuser le decouvert,
+/// et choisir entre deduire la dette ou encaisser un remboursement.
+///
+/// Annuler la facture ENTIERE, c'est le meme geste sur toutes les
+/// lignes. Reecrire ces regles ici en aurait fait une seconde copie
+/// qui aurait derive — c'est exactement ce qui etait arrive au calcul
+/// de dette. On lit donc les lignes et on delegue.
+///
+/// ## Ce qui differe du cote client
+///
+/// `annuler_facture_par_avoir` (pieces.rs) s'appuie sur la `vente`
+/// derriere la facture : elle l'annule, rend le stock, rembourse
+/// l'acompte. Une facture fournisseur n'a pas de vente. Le pendant
+/// naturel est donc le retour integral, qui produit la meme chose :
+/// un AVF, la marchandise qui repart, et la dette reduite d'autant.
+pub fn annuler_facture_fournisseur_par_avoir(
+    conn: &mut rusqlite::Connection,
+    piece_id: String,
+    // "avoir" (defaut) -> vient en deduction de la dette
+    // "remboursement"  -> le fournisseur rend l'argent, la caisse entre
+    mode_resolution: Option<String>,
+    mode_encaissement: Option<String>,
+    motif: Option<String>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (type_piece, statut, fournisseur_id, numero): (String, String, String, String) =
+        conn.query_row(
+            "SELECT type_piece, statut, tiers_id, numero
+             FROM piece_commerciale WHERE id = ?1",
+            rusqlite::params![piece_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .map_err(|_| "Pièce introuvable".to_string())?;
+
+    if type_piece != "facture_fournisseur" {
+        return Err("Seule une facture fournisseur s'annule ainsi".to_string());
+    }
+    if statut == "annule" {
+        return Err("Facture déjà annulée".to_string());
+    }
+    // Un brouillon n'a produit NI dette NI stock : lui fabriquer un
+    // avoir inventerait un credit chez un fournisseur a qui l'on ne doit
+    // rien. Il se supprime ou se modifie, il ne s'annule pas par avoir.
+    if statut == "brouillon" {
+        return Err(
+            "Cette facture est encore en brouillon : la modifier ou la \
+             supprimer, un avoir n'a rien à annuler."
+                .to_string(),
+        );
+    }
+
+    // Les lignes, avec le facteur de leur unite : le retour compte en
+    // unite de base, comme tout mouvement de stock.
+    let lignes: Vec<LigneRetourFournisseur> = {
+        let mut st = conn
+            .prepare(
+                "SELECT lp.article_id, lp.unite_vente_id, lp.quantite,
+                        COALESCE(uv.facteur, 1.0), lp.prix_unitaire
+                 FROM ligne_piece lp
+                 LEFT JOIN unite_vente uv ON uv.id = lp.unite_vente_id
+                 WHERE lp.piece_id = ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let v = st
+            .query_map(rusqlite::params![piece_id], |r| {
+                Ok(LigneRetourFournisseur {
+                    article_id: r.get(0)?,
+                    unite_vente_id: r.get(1)?,
+                    quantite: r.get(2)?,
+                    facteur: r.get(3)?,
+                    prix_achat: r.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect::<Vec<_>>();
+        v
+    };
+
+    if lignes.is_empty() {
+        return Err("Cette facture n'a aucune ligne à rendre".to_string());
+    }
+
+    // Le depot n'est pas transmis : `enregistrer_retour_fournisseur`
+    // prend celui de la facture d'origine, ce qui est precisement ce
+    // qu'on veut — la marchandise repart d'ou elle etait entree.
+    let resultat = enregistrer_retour_fournisseur_sur(
+        conn,
+        fournisseur_id,
+        None,
+        lignes,
+        Some(piece_id.clone()),
+        mode_resolution,
+        mode_encaissement,
+        Some(motif.unwrap_or_else(|| format!("Annulation de la facture {numero}"))),
+        utilisateur_role,
+    )?;
+
+    // La facture porte la trace de son annulation. Le statut 'annule'
+    // la sort des totaux sans la faire disparaitre : c'est la trace, et
+    // la cacher serait pire.
+    let now = maintenant_iso();
+    conn.execute(
+        "UPDATE piece_commerciale
+         SET statut = 'annule', note = ?1, modifie_le = ?2
+         WHERE id = ?3",
+        rusqlite::params![
+            "Annulée par avoir fournisseur",
+            now,
+            piece_id
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(resultat)
+}

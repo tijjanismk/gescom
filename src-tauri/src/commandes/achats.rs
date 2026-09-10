@@ -53,3 +53,29 @@ pub fn lire_factures_fournisseur_retournables(
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     gescom_noyau::achats::lire_factures_fournisseur_retournables(&conn, fournisseur_id)
 }
+
+#[tauri::command]
+pub fn valider_facture_fournisseur(
+    etat: State<EtatApp>,
+    piece_id: String,
+    mode_reglement: String,
+    mode_paiement: Option<String>,
+    acompte: Option<i64>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    gescom_noyau::achats::valider_facture_fournisseur(&mut conn, piece_id, mode_reglement, mode_paiement, acompte, utilisateur_role)
+}
+
+#[tauri::command]
+pub fn annuler_facture_fournisseur_par_avoir(
+    etat: State<EtatApp>,
+    piece_id: String,
+    mode_resolution: Option<String>,
+    mode_encaissement: Option<String>,
+    motif: Option<String>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    gescom_noyau::achats::annuler_facture_fournisseur_par_avoir(&mut conn, piece_id, mode_resolution, mode_encaissement, motif, utilisateur_role)
+}
