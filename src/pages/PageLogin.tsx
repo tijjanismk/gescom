@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { appeler as invoke } from "@/lib/pont";
+import { appeler as invoke, connecterServeur, enReseau, etatReseau } from "@/lib/pont";
 import { Store, Eye, EyeOff, Loader2, Lock, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,10 +31,25 @@ export function PageLogin({ onConnecte }: PageLoginProps) {
     setErreur("");
 
     try {
-      const utilisateur = await invoke<UtilisateurConnecte>("connexion", {
-        identifiant: identifiant.trim(),
-        motDePasse: motDePasse,
-      });
+      // En poste caisse, c'est le SERVEUR qui authentifie : la base des
+      // utilisateurs est chez lui. Vérifier ici contre une base locale
+      // vide refuserait tout le monde, et vérifier contre une base
+      // locale pleine laisserait entrer avec un mot de passe que le
+      // patron a peut-être changé depuis.
+      const utilisateur = enReseau()
+        ? await (async () => {
+            const id = await connecterServeur(identifiant.trim(), motDePasse);
+            return {
+              id: id.utilisateur_id,
+              nom: id.utilisateur_nom,
+              role: id.role as UtilisateurConnecte["role"],
+              doit_changer_mdp: id.doit_changer_mdp,
+            };
+          })()
+        : await invoke<UtilisateurConnecte>("connexion", {
+            identifiant: identifiant.trim(),
+            motDePasse: motDePasse,
+          });
       onConnecte(utilisateur);
     } catch (err) {
       setErreur(typeof err === "string" ? err : "Identifiant ou mot de passe incorrect");
@@ -46,6 +61,14 @@ export function PageLogin({ onConnecte }: PageLoginProps) {
 
   return (
     <div className="h-screen flex flex-col items-center justify-center bg-background p-8">
+
+      {enReseau() && (
+        <div className="mb-4 rounded-md border border-border bg-muted/40 px-3 py-1.5
+                        text-xs text-muted-foreground">
+          Poste caisse — connexion au serveur{" "}
+          <span className="font-mono">{etatReseau().serveur}</span>
+        </div>
+      )}
 
       {/* Logo */}
       <div className="flex items-center gap-3 mb-10">

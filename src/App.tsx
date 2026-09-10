@@ -17,6 +17,7 @@ import { Caisse } from "@/pages/Caisse";
 import { Parametres } from "@/pages/Parametres";
 import { Modeles } from "@/pages/Modeles";
 import { assurerModelesParDefaut } from "@/lib/modeles/service";
+import { synchroniserConfig, ecouterCanal, enReseau } from "@/lib/pont";
 import { Retours } from "@/pages/Retours";
 import { Relances } from "@/pages/Relances";
 import { Rapports } from "@/pages/Rapports";
@@ -114,6 +115,10 @@ function App() {
     sessionInitiale?.nav_params ?? null
   );
   const [modalMdp, setModalMdp] = useState(false);
+  // Horodatage du dernier evenement recu des autres postes. Sert de
+  // signal aux ecrans qui veulent se rafraichir ; ne declenche aucun
+  // rechargement par lui-meme.
+  const [derniereActivite, setDerniereActivite] = useState(0);
   // Sert uniquement à forcer le rendu quand le dépôt change ;
   // la valeur de référence reste DEPOT_ACTIF.
   const [depotActif, setDepotActif] = useState<string | null>(DEPOT_ACTIF);
@@ -143,11 +148,36 @@ function App() {
   // L'echec est silencieux et volontairement : une base en lecture
   // seule ou un disque plein ne doit pas empecher d'ouvrir la caisse.
   // L'impression retombe alors sur le generateur historique.
+  // Le mode reseau vit dans `poste.json`, pas dans le navigateur. On
+  // aligne le pont AVANT tout le reste : un poste caisse dont le cache
+  // a ete vide se croirait sinon monoposte, ouvrirait sa base locale
+  // vide, et le commercant conclurait que ses donnees ont disparu.
+  const [pontPret, setPontPret] = useState(false);
   useEffect(() => {
+    synchroniserConfig().finally(() => setPontPret(true));
+  }, []);
+
+  useEffect(() => {
+    if (!pontPret) return;
     assurerModelesParDefaut().catch((e) =>
       console.error("Modeles par defaut :", e),
     );
-  }, []);
+  }, [pontPret]);
+
+  // Le canal : ce que les autres caisses viennent de faire.
+  //
+  // On ne recharge pas l'ecran a chaque evenement — ce serait ecraser
+  // une saisie en cours. On garde le compte, et les ecrans qui s'y
+  // interessent le liront. Le serveur ne renvoie jamais au poste ce
+  // qu'il a lui-meme provoque.
+  useEffect(() => {
+    if (!pontPret || !utilisateur || !enReseau()) return;
+    const arreter = ecouterCanal((evenements) => {
+      console.info("[canal]", evenements.length, "evenement(s)");
+      setDerniereActivite(Date.now());
+    });
+    return arreter;
+  }, [pontPret, utilisateur?.id]);
 
   /**
    * Sauvegarde hebdomadaire.
@@ -265,6 +295,15 @@ function App() {
     }
   }
 
+  if (!pontPret) {
+    return (
+      <div className="flex h-screen items-center justify-center
+                      text-sm text-muted-foreground">
+        Démarrage…
+      </div>
+    );
+  }
+
   if (!utilisateur) {
     return <PageLogin onConnecte={handleConnecte} />;
   }
@@ -286,6 +325,7 @@ function App() {
         utilisateur={utilisateur}
         onChangerMdp={() => setModalMdp(true)}
         onDeconnecter={handleDeconnecter}
+        activiteReseau={derniereActivite}
       >
         {rendrePage()}
       </Layout>

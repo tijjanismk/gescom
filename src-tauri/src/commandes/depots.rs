@@ -407,28 +407,7 @@ pub fn lire_stock_multi_depots(
 /// Separee de la commande pour etre jouable sur une base de test :
 /// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
 /// reellement a la base, ce qu'aucun test de formule ne montre.
-pub(crate) fn lire_stock_multi_depots_sur(
-    conn: &rusqlite::Connection,
-) -> Result<Vec<serde_json::Value>, String> {
-    let mut st = conn.prepare(
-        "SELECT sd.article_id, sd.depot_id, d.nom, d.est_defaut, sd.quantite
-         FROM stock_depot sd
-         JOIN depot d ON d.id = sd.depot_id
-         WHERE d.actif = 1 AND sd.quantite <> 0"
-    ).map_err(|e| e.to_string())?;
-
-    let x = st.query_map([], |r| {
-        Ok(serde_json::json!({
-            "article_id": r.get::<_, String>(0)?,
-            "depot_id":   r.get::<_, String>(1)?,
-            "depot_nom":  r.get::<_, String>(2)?,
-            "est_defaut": r.get::<_, i64>(3)? != 0,
-            "quantite":   r.get::<_, f64>(4)?,
-        }))
-    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-
-    Ok(x)
-}
+pub(crate) use gescom_noyau::comptoir::lire_stock_multi_depots_sur;
 
 /// Historique GLOBAL des mouvements de stock.
 ///

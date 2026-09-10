@@ -34,6 +34,10 @@ export interface EtatReseau {
   mode: ModeReseau;
   /** « 192.168.1.10:7300 », sans schéma. */
   serveur: string;
+  /** Nom lisible de ce poste, tel que le serveur l'affichera. */
+  posteNom: string;
+  /** Empreinte stable, tirée une fois côté Rust. */
+  posteEmpreinte: string;
   jeton: string | null;
   posteId: string | null;
   utilisateurId: string | null;
@@ -43,6 +47,8 @@ export interface EtatReseau {
 const DEFAUT: EtatReseau = {
   mode: "monoposte",
   serveur: "",
+  posteNom: "",
+  posteEmpreinte: "",
   jeton: null,
   posteId: null,
   utilisateurId: null,
@@ -72,6 +78,49 @@ function enregistrer() {
 }
 
 export function etatReseau(): EtatReseau {
+  return { ...etat };
+}
+
+/**
+ * Aligne le pont sur ce que Rust sait.
+ *
+ * Le mode et l'adresse vivent dans `poste.json`, à côté des données —
+ * pas dans le navigateur. Le `localStorage` n'en est qu'un miroir, et
+ * il s'efface : cache vidé, profil WebView2 recréé, et un poste caisse
+ * se croirait monoposte. Il ouvrirait alors sa base locale, vide, et le
+ * commerçant conclurait que ses données ont disparu.
+ *
+ * Rust est donc la source, le navigateur la copie. À appeler au
+ * démarrage, avant le premier appel de commande.
+ */
+export async function synchroniserConfig(): Promise<EtatReseau> {
+  try {
+    const c = await invokeTauri<{
+      mode: string;
+      serveur: string;
+      poste_nom: string;
+      poste_empreinte: string;
+    }>("lire_config_reseau");
+
+    const mode: ModeReseau = c.mode === "poste" ? "poste" : "monoposte";
+    // Le serveur a changé depuis la dernière fois : le jeton qu'on
+    // garde a été émis par l'autre, il ne vaut plus rien.
+    const change = mode !== etat.mode || c.serveur !== etat.serveur;
+    etat = {
+      ...etat,
+      mode,
+      serveur: c.serveur,
+      posteNom: c.poste_nom,
+      posteEmpreinte: c.poste_empreinte,
+      ...(change ? { jeton: null, posteId: null, utilisateurId: null } : {}),
+    };
+    enregistrer();
+  } catch (e) {
+    // Pas de pont Tauri (aperçu, test) : on reste sur ce que le
+    // navigateur avait. Échouer ici empêcherait l'application de
+    // s'ouvrir pour un réglage qui, en monoposte, ne sert à rien.
+    console.error("Configuration réseau :", e);
+  }
   return { ...etat };
 }
 
@@ -170,8 +219,8 @@ export interface Identite {
 export async function connecterServeur(
   identifiant: string,
   motDePasse: string,
-  posteNom: string,
-  posteEmpreinte: string,
+  posteNom = etat.posteNom,
+  posteEmpreinte = etat.posteEmpreinte,
 ): Promise<Identite> {
   let reponse: Response;
   try {

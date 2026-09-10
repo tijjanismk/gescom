@@ -6,7 +6,7 @@ import {
   Plus, Loader2, Eye, EyeOff, ShoppingCart,
   FolderOpen, ChevronDown, ChevronRight,
   Percent, Banknote, XCircle, Clock, Warehouse, Barcode, Pencil,
-  FileSpreadsheet,
+  FileSpreadsheet, Network,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,7 @@ import { OngletTVA, OngletDettes, OngletIrrecouvrable, OngletAvoirs } from "@/co
 import { OngletDepots } from "@/components/OngletDepots";
 import { OngletCodesBarres } from "@/components/OngletCodesBarres";
 import { OngletImportExport } from "@/components/OngletImportExport";
+import { OngletReseau } from "@/components/OngletReseau";
 import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================
@@ -73,6 +74,7 @@ const ONGLETS_PATRON = [
   { key: "ventes",        label: "Ventes",        icone: ShoppingCart },
   { key: "utilisateurs",  label: "Utilisateurs",  icone: Users      },
   { key: "sauvegarde",    label: "Sauvegarde",    icone: HardDrive  },
+  { key: "reseau",        label: "Réseau",        icone: Network    },
   { key: "tva",           label: "TVA",           icone: Percent    },
   { key: "dettes",        label: "Dettes fourn.", icone: Banknote   },
   { key: "irrecouvrable", label: "Irrécouvrable", icone: XCircle    },
@@ -1031,6 +1033,7 @@ export function Parametres() {
       {onglet === "ventes"        && <OngletVentes />}
       {onglet === "utilisateurs"  && <OngletUtilisateurs />}
       {onglet === "sauvegarde"    && <OngletSauvegarde />}
+      {onglet === "reseau"        && <OngletReseau />}
       {onglet === "tva"           && <OngletTVA />}
       {onglet === "dettes"        && <OngletDettes />}
       {onglet === "irrecouvrable" && <OngletIrrecouvrable />}

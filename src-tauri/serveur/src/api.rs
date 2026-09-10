@@ -255,13 +255,13 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         }
     }
 
-    let conn = match srv.conn.lock() {
+    let mut conn = match srv.conn.lock() {
         Ok(c) => c,
         Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
     };
     let resultat = (entree.poignee)(
-        &Contexte {
-            conn: &conn,
+        &mut Contexte {
+            conn: &mut conn,
             appelant: &appelant,
         },
         params,

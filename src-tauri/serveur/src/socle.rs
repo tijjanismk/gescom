@@ -12,10 +12,90 @@
 use serde_json::{json, Value};
 
 use gescom_noyau::registre::{Contexte, Registre};
-use gescom_noyau::{caisses, catalogue, modeles, postes, sessions};
+use gescom_noyau::{argent, caisses, catalogue, comptoir, modeles, postes, sessions};
 
 pub fn registre() -> Registre {
     let mut r = Registre::nouveau();
+
+    r.lecture("lire_stock_multi_depots", |c, _| {
+        serde_json::to_value(comptoir::lire_stock_multi_depots_sur(c.conn)?)
+            .map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_config_scanner", |c, _| {
+        Ok(Value::Bool(comptoir::lire_config_scanner(c.conn)?))
+    });
+
+    r.ecriture("creer_client_rapide", "clients:creer", |c, p| {
+        comptoir::creer_client_rapide(
+            c.conn,
+            texte(&p, "nom")?,
+            option_texte(&p, "telephone"),
+        )
+    });
+
+    r.ecriture("creer_article_rapide", "articles:creer", |c, p| {
+        comptoir::creer_article_rapide(
+            c.conn,
+            texte(&p, "nom")?,
+            texte(&p, "uniteBase").or_else(|_| texte(&p, "unite_base"))?,
+            entier(&p, "prixReference")
+                .or_else(|| entier(&p, "prix_reference"))
+                .unwrap_or(0),
+            entier(&p, "prixAchat").or_else(|| entier(&p, "prix_achat")),
+        )
+    });
+
+    // ---- L'argent ----
+    //
+    // Les deux endroits ou le stock sort et ou l'argent entre. Portes
+    // avec leur code, pas recrits : le texte vient de `commandes/`, et
+    // les 26 scenarios de `tests_multi_depot` continuent de l'eprouver.
+    //
+    // Le role vient de la SESSION, comme pour les lectures. Un poste
+    // qui enverrait « patron » dans son JSON pourrait sinon franchir
+    // les controles reserves au patron.
+    r.ecriture("creer_vente", "ventes:creer", |c, p| {
+        let lignes: Vec<argent::ParamsLigneInput> = serde_json::from_value(
+            p.get("lignes").cloned().unwrap_or(Value::Array(vec![])),
+        )
+        .map_err(|e| format!("Lignes de vente illisibles : {e}"))?;
+
+        argent::creer_vente_sur(
+            c.conn,
+            texte(&p, "clientId").or_else(|_| texte(&p, "client_id"))?,
+            texte(&p, "depotId").or_else(|_| texte(&p, "depot_id"))?,
+            texte(&p, "modeReglement").or_else(|_| texte(&p, "mode_reglement"))?,
+            lignes,
+            Some(c.appelant.role.clone()),
+            entier(&p, "montantPaye").or_else(|| entier(&p, "montant_paye")),
+            option_texte(&p, "modePaiement").or_else(|| option_texte(&p, "mode_paiement")),
+            entier(&p, "avoirMontant").or_else(|| entier(&p, "avoir_montant")),
+        )
+    });
+
+    // La facture automatique du point de vente. Son echec ne bloque pas
+    // le caissier devant son client — mais sans elle, rien a imprimer.
+    r.ecriture("creer_facture_depuis_vente", "pieces:creer", |c, p| {
+        argent::creer_facture_depuis_vente_sur(
+            c.conn,
+            texte(&p, "venteId").or_else(|_| texte(&p, "vente_id"))?,
+            texte(&p, "clientId").or_else(|_| texte(&p, "client_id"))?,
+            texte(&p, "modeReglement").or_else(|_| texte(&p, "mode_reglement"))?,
+            Some(c.appelant.role.clone()),
+        )
+    });
+
+    r.ecriture("valider_facture", "pieces:creer", |c, p| {
+        argent::valider_facture_sur(
+            c.conn,
+            texte(&p, "pieceId").or_else(|_| texte(&p, "piece_id"))?,
+            texte(&p, "modeReglement").or_else(|_| texte(&p, "mode_reglement"))?,
+            option_texte(&p, "modePaiement").or_else(|| option_texte(&p, "mode_paiement")),
+            entier(&p, "acompte"),
+            Some(c.appelant.role.clone()),
+        )
+    });
 
     // ---- Le comptoir ----
     //
@@ -140,6 +220,18 @@ pub fn registre() -> Registre {
     });
 
     r
+}
+
+/// Un entier optionnel — les montants arrivent en nombre JSON.
+fn entier(p: &Value, cle: &str) -> Option<i64> {
+    p.get(cle).and_then(Value::as_i64)
+}
+
+/// Une chaine optionnelle. `null` et absence se valent : l'ecran envoie
+/// l'un ou l'autre selon les champs, et distinguer les deux ne
+/// changerait rien au comportement.
+fn option_texte(p: &Value, cle: &str) -> Option<String> {
+    p.get(cle).and_then(Value::as_str).map(str::to_string)
 }
 
 fn texte(p: &Value, cle: &str) -> Result<String, String> {

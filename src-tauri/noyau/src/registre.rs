@@ -30,11 +30,18 @@ pub struct Appelant {
 }
 
 pub struct Contexte<'a> {
-    pub conn: &'a Connection,
+    /// Mutable, parce que les ecritures d'argent ouvrent une
+    /// transaction : `Connection::transaction` exige `&mut`. Les
+    /// lectures s'en accommodent — un `&mut` se reprete en `&`.
+    ///
+    /// Le verrou reste celui du serveur : une seule commande s'execute
+    /// a la fois, et c'est ce qui rend le multiposte sur sans avoir
+    /// touche aux compteurs de stock.
+    pub conn: &'a mut Connection,
     pub appelant: &'a Appelant,
 }
 
-pub type Poignee = fn(&Contexte, Value) -> Result<Value, String>;
+pub type Poignee = fn(&mut Contexte, Value) -> Result<Value, String>;
 
 pub struct Entree {
     pub poignee: Poignee,

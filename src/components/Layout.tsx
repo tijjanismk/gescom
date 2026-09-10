@@ -6,7 +6,7 @@ import {
   ShoppingBag, Truck, RotateCcw, LogOut,
   Lock, ChevronDown, FileText,
   MessageCircle, BarChart2, BookOpen, ArrowLeftRight, Warehouse,
-  FileCheck, LayoutTemplate,
+  FileCheck, LayoutTemplate, Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UtilisateurConnecte } from "@/pages/PageLogin";
@@ -52,13 +52,33 @@ interface LayoutProps {
   utilisateur: UtilisateurConnecte;
   onChangerMdp: () => void;
   onDeconnecter: () => void;
+  /**
+   * Horodatage du dernier evenement recu des autres postes.
+   *
+   * Sert a AFFICHER, pas a recharger : un rafraichissement automatique
+   * ecraserait la saisie en cours du caissier. Le temoin dit « quelque
+   * chose a bouge ailleurs », et c'est lui qui decide de rouvrir son
+   * ecran.
+   */
+  activiteReseau?: number;
 }
 
 export function Layout({
   children, pageActive, onNaviguer, depotActif, onChangerDepot, role,
-  utilisateur, onChangerMdp, onDeconnecter,
+  utilisateur, onChangerMdp, onDeconnecter, activiteReseau = 0,
 }: LayoutProps) {
   const [sidebarOuverte, setSidebarOuverte] = useState(true);
+  const [activiteVue, setActiviteVue] = useState(0);
+
+  // Le temoin s'allume a la reception, puis s'eteint. Le laisser allume
+  // en permanence le rendrait invisible au bout d'une heure.
+  useEffect(() => {
+    if (!activiteReseau || activiteReseau === activiteVue) return;
+    setActiviteVue(activiteReseau);
+    const t = setTimeout(() => setActiviteVue(0), 4000);
+    return () => clearTimeout(t);
+  }, [activiteReseau]);
+
   const [menuUtilisateur, setMenuUtilisateur] = useState(false);
   const [depots, setDepots] = useState<Depot[]>([]);
 
@@ -109,6 +129,16 @@ export function Layout({
             <div className="flex items-center gap-2">
               <Store className="h-5 w-5 text-primary" />
               <span className="font-semibold text-sm">Gescom</span>
+              {/* Un autre poste vient d'ecrire. On le SIGNALE, on ne
+                  recharge pas : le caissier est peut-etre en pleine
+                  saisie. */}
+              {activiteVue > 0 && (
+                <span title="Un autre poste vient d'enregistrer une opération"
+                  className="flex items-center gap-1 rounded-full bg-primary/10
+                             px-1.5 py-0.5 text-[10px] text-primary">
+                  <Network className="h-3 w-3" /> réseau
+                </span>
+              )}
             </div>
           )}
           <button

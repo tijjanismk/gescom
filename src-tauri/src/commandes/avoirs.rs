@@ -307,12 +307,7 @@ pub fn lire_config_scanner(
 ) -> Result<bool, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
 
-    let actif: String = conn.query_row(
-        "SELECT valeur FROM config_app WHERE cle = 'scanner_actif'",
-        [], |r| r.get(0),
-    ).unwrap_or_else(|_| "0".to_string());
-
-    Ok(actif == "1")
+    gescom_noyau::comptoir::lire_config_scanner(&conn)
 }
 
 #[tauri::command]

@@ -50,6 +50,7 @@ pub fn verifier_permission(
                 | "ventes:lire"
                 | "paiements:creer"
                 | "clients:creer"
+                | "articles:creer"
                 | "clients:lire"
                 | "stock:lire"
                 | "caisse:ouvrir"

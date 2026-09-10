@@ -4,10 +4,10 @@ Rôle : faire tourner Gescom sur plusieurs postes autour d'un serveur qui
 détient la base. Sessions, canal d'événements, sauvegardes, caisse par
 utilisateur.
 
-⚠️ **Migration en cours.** Le serveur exécute **17** commandes sur
+⚠️ **Migration en cours.** Le serveur exécute **24** commandes sur
 les 183 : le socle réseau, les modèles de documents (voir
-[modeles-documents](modeles-documents.md)) et les cinq lectures du
-comptoir. Les autres vivent encore dans `commandes/`, en
+[modeles-documents](modeles-documents.md)), les lectures du comptoir et
+**le premier chemin de vente complet**. Les autres vivent encore dans `commandes/`, en
 `#[tauri::command]`, et ne fonctionnent qu'en monoposte. Un poste
 caisse qui les appelle reçoit `commande_inconnue`.
 
@@ -24,6 +24,81 @@ d'appel : un poste qui enverrait « patron » dans son JSON lirait les
 prix d'achat. Le filtre §7 est donc appliqué côté serveur
 ([socle.rs](../../src-tauri/serveur/src/socle.rs), test
 `le_prix_dachat_ne_sort_que_pour_le_patron`).
+
+## Le domaine argent
+
+`creer_vente`, `valider_facture` et `creer_facture_depuis_vente` vivent
+maintenant dans [noyau/src/argent.rs](../../src-tauri/noyau/src/argent.rs),
+avec `prochain_numero`, `lire_lignes_raw` et les deux résolveurs
+d'utilisateur.
+
+**Le code a déménagé, il n'a pas été récrit.** Ce sont les deux endroits
+où le stock sort et où l'argent entre ; une réécriture fidèle en
+apparence est exactement ce qui coûte ses livres à un commerçant. Le
+filet : les 26 scénarios de `tests_multi_depot` continuent de les jouer
+à travers les façades restées dans `commandes/`, et vérifient ce que le
+SQL fait réellement à la base.
+
+- [CONFIRMÉ] `Contexte.conn` est **mutable** :
+  `Connection::transaction` l'exige, et toute écriture d'argent ouvre
+  une transaction. Les lectures s'en accommodent — un `&mut` se reprête
+  en `&` ([registre.rs](../../src-tauri/noyau/src/registre.rs)).
+- [CONFIRMÉ] Le verrou reste celui du serveur : une seule commande
+  s'exécute à la fois. C'est ce qui rend le multiposte sûr **sans**
+  avoir touché aux compteurs de stock.
+
+## L'écran de réglage réseau
+
+[OngletReseau.tsx](../../src/components/OngletReseau.tsx), sous
+Paramètres → Réseau (patron seulement).
+
+- [CONFIRMÉ] Basculer en poste caisse **exige un test réussi**. Sans
+  serveur joignable, le poste n'ouvre plus sa base et ne joint pas
+  l'autre : il ne peut plus ni vendre, ni revenir en arrière autrement
+  que par cet écran.
+- [CONFIRMÉ] **Rust est la source, le navigateur la copie.** Le mode
+  vit dans `poste.json`, à côté des données. `synchroniserConfig()` est
+  appelé au démarrage, avant tout appel de commande : un cache vidé ou
+  un profil WebView2 recréé ferait sinon croire à un poste caisse qu'il
+  est monoposte — il ouvrirait sa base locale vide, et le commerçant
+  conclurait que ses données ont disparu
+  ([pont.ts](../../src/lib/pont.ts), [App.tsx](../../src/App.tsx)).
+- [CONFIRMÉ] En mode poste, c'est le **serveur** qui authentifie
+  ([PageLogin.tsx](../../src/pages/PageLogin.tsx)) : la base des
+  utilisateurs est chez lui.
+- [CONFIRMÉ] Le canal **signale**, il ne recharge pas. Un
+  rafraîchissement automatique écraserait la saisie en cours du
+  caissier ; un témoin discret s'allume dans la barre latérale et
+  s'éteint au bout de quatre secondes
+  ([Layout.tsx](../../src/components/Layout.tsx)).
+
+## Essayer le multiposte à la main
+
+Deux machines sur le même réseau local, ou une seule pour un premier
+essai.
+
+1. **Sur le poste principal**, lancer le service :
+   `gescom-serveur.exe --base "%APPDATA%\ml.gescom.app\gescom.db"`.
+   Il affiche son adresse d'écoute, le nombre de commandes servies et
+   le dossier de sauvegarde.
+2. Vérifier depuis un navigateur : `http://<ip-du-serveur>:7300/sante`.
+3. **Sur le poste caisse**, ouvrir Gescom → Paramètres → Réseau,
+   choisir « Poste caisse », saisir `<ip>:7300`, cliquer **Tester** —
+   la version du serveur et l'état de la base doivent s'afficher —
+   puis **Enregistrer**.
+4. Fermer et rouvrir Gescom. L'écran de connexion annonce le serveur.
+   S'identifier : c'est le serveur qui vérifie.
+5. Vendre. Le catalogue, les clients, les dépôts et le stock viennent
+   du serveur ; la vente et sa facture y sont écrites.
+6. Sur le poste principal, Paramètres → Réseau ne sert à rien — mais
+   `lire_postes` et `lire_sessions_reseau` (via le serveur) montrent la
+   caisse connectée.
+
+**Ce qui ne marchera pas encore** : tout écran appelant une des 159
+commandes non portées — tableau de bord, journal, pièces, achats,
+stock, retours, rapports. Le message est explicite
+(`commande_inconnue`), pas un plantage. Le paiement par chèque depuis
+le point de vente non plus (`enregistrer_cheque`).
 
 ## Les trois crates
 
@@ -137,10 +212,12 @@ les 167 commandes à migrer n'en ont toujours pas.
 ## Ce qui reste à faire
 
 1. Continuer de porter les commandes vers `socle.rs`, **par domaine et
-   avec leur test**. Fait : les modèles, les cinq lectures du comptoir.
-   Suivant : `creer_vente`, `valider_facture`, `regler_dette_fournisseur`
-   — les écritures d'argent, celles qui exigent un filet avant tout
-   changement de transport.
+   avec leur test**. Fait : les modèles, le comptoir, la vente et la
+   facture. Suivant : `enregistrer_paiement` et `regler_dette_fournisseur`
+   (les deux règlements), puis le tableau de bord, le journal, les
+   pièces, les achats.
+   ⚠️ `gescom-serveur.exe` n'est toujours pas empaqueté par
+   l'installeur, et n'a pas le contrôle d'installation du client.
 2. Remplacer `stock_depot.quantite` (compteur muté) par une somme de
    `mouvement_stock`. ⚠️ **Pas encore urgent** : le serveur ne détient
    qu'une connexion derrière un `Mutex`, donc deux ventes ne s'exécutent
