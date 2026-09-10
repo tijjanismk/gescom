@@ -29,6 +29,11 @@ dist-ssr
 # EXCEPTION : t_regles.py reste suivi, c'est la suite de tests documentee
 # dans CONTEXT.md (`python t_regles.py`), pas un script jetable.
 *.ps1
+# … sauf la boite a outils versionnee. Le motif large ci-dessus vise
+# les scripts jetables laisses a la racine ; outils/ est du contenu du
+# depot, et l'exclure faisait pointer la carte vers un fichier absent.
+!outils/
+!outils/*.ps1
 preparer_demo_video.py
 creer_tiers_test.py
 generer_catalogue.py
