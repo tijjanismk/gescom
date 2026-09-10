@@ -70,7 +70,7 @@ Vrais doublons (deux copies qui peuvent diverger) :
 
 Faux positifs — même nom, rôles distincts, pas de duplication à corriger :
 
-- `cle_ean13`, `peut_modifier`, `prochain_numero`, `reste_exigible`,
+- `cle_ean13`, `peut_modifier`, `reserver_numero`, `reste_exigible`,
   `statut_vente`, `valider_facture` : le Rust d'un côté, un script Python
   de vérification (`t_regles.py`) de l'autre. **La copie Python est là
   pour attraper une divergence** — la supprimer perdrait le contrôle.

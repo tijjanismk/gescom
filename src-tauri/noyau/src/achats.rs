@@ -100,14 +100,17 @@ pub fn enregistrer_achat(
         crate::utils::exiger_session_caisse(&conn)?;
     }
 
-    // Numéro réservé avant la transaction (lecture seule).
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // Reserve DANS la transaction : si l'enregistrement echoue plus
+    // bas, le retour arriere annule aussi l'increment, et la serie
+    // n'a pas de trou.
     let numero = if fournisseur_id.is_some() {
-        Some(crate::argent::prochain_numero(&conn, "facture_fournisseur"))
+        Some(crate::argent::reserver_numero(&tx, "facture_fournisseur")?)
     } else {
         None
     };
-
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
     let op_id = uuid::Uuid::new_v4().to_string();
     // Généré tôt pour pouvoir servir d'`operation_id` sur les mouvements de
     // stock ci-dessous : c'est ce qui permet de retrouver le numéro de
@@ -433,9 +436,12 @@ pub fn enregistrer_retour_fournisseur_sur(
         crate::utils::exiger_session_caisse(conn)?;
     }
 
-    let numero = crate::argent::prochain_numero(conn, "avoir_fournisseur");
-
     let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // Reserve DANS la transaction : si l'enregistrement echoue plus
+    // bas, le retour arriere annule aussi l'increment, et la serie
+    // n'a pas de trou.
+    let numero = crate::argent::reserver_numero(&tx, "avoir_fournisseur")?;
     let op_id = uuid::Uuid::new_v4().to_string();
     let piece_id = uuid::Uuid::new_v4().to_string();
     let mut total: i64 = 0;

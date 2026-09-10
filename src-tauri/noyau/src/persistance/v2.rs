@@ -208,6 +208,89 @@ pub fn migrer(conn: &Connection) -> Result<()> {
     )?;
 
     // -----------------------------------------------------------------
+    //  Numerotation des pieces
+    // -----------------------------------------------------------------
+    // Le numero se calculait par MAX(substr(numero, -5)) sur les pieces
+    // deja ecrites. Cette lecture est faite AVANT la transaction qui
+    // ecrit la piece : entre les deux, une autre vente peut lire le
+    // meme maximum. Les deux fabriquent alors FAC-2026-00042, et la
+    // seconde se heurte a la contrainte UNIQUE — au comptoir, un client
+    // qui attend et une facture qui refuse de s'enregistrer.
+    //
+    // Un compteur par serie remplace la lecture : il s'incremente en
+    // ecriture, donc SQLite serialise les deux demandes et chacune
+    // repart avec son numero.
+    //
+    // La cle porte la serie ET l'annee — « FAC-2026 » — parce que la
+    // numerotation repart a 1 chaque janvier.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS compteur_piece (
+            cle     TEXT PRIMARY KEY,
+            dernier INTEGER NOT NULL
+         )",
+        [],
+    )?;
+
+    // Reprise, une seule fois. Un compteur qui repartirait de zero
+    // refabriquerait FAC-2026-00001 alors que la piece existe : la
+    // contrainte UNIQUE bloquerait la premiere vente du matin de la
+    // mise a jour. On part donc du plus grand numero deja emis, serie
+    // par serie et annee par annee, telles qu'elles se lisent dans les
+    // pieces existantes.
+    let reprise_faite: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM config_app WHERE cle = 'compteurs_repris'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    if reprise_faite == 0 {
+        // « FAC-2026-00042 » : la cle est tout ce qui precede les cinq
+        // derniers chiffres et leur tiret.
+        conn.execute(
+            "INSERT OR REPLACE INTO compteur_piece (cle, dernier)
+             SELECT substr(numero, 1, length(numero) - 6),
+                    MAX(CAST(substr(numero, -5) AS INTEGER))
+             FROM piece_commerciale
+             WHERE numero IS NOT NULL AND length(numero) > 6
+             GROUP BY substr(numero, 1, length(numero) - 6)",
+            [],
+        )
+        .ok();
+
+        conn.execute(
+            "INSERT OR REPLACE INTO compteur_piece (cle, dernier)
+             SELECT substr(bon, 1, length(bon) - 6),
+                    MAX(CAST(substr(bon, -5) AS INTEGER))
+             FROM transfert
+             WHERE bon IS NOT NULL AND length(bon) > 6
+             GROUP BY substr(bon, 1, length(bon) - 6)",
+            [],
+        )
+        .ok();
+
+        // Le code-barre interne n'a ni serie ni annee : une seule suite,
+        // les dix chiffres qui suivent le prefixe « 20 ».
+        conn.execute(
+            "INSERT OR REPLACE INTO compteur_piece (cle, dernier)
+             SELECT 'codebarre',
+                    COALESCE(MAX(CAST(substr(code_barre, 3, 10) AS INTEGER)), 0)
+             FROM article
+             WHERE code_barre LIKE '20%' AND length(code_barre) = 13",
+            [],
+        )
+        .ok();
+
+        conn.execute(
+            "INSERT OR IGNORE INTO config_app (cle, valeur)
+             VALUES ('compteurs_repris', ?1)",
+            rusqlite::params![crate::utils::maintenant_iso()],
+        )
+        .ok();
+    }
+
+    // -----------------------------------------------------------------
     //  Reglages
     // -----------------------------------------------------------------
     // Defaut 0 : la boutique type de Bamako a UN tiroir. Le mode

@@ -6,18 +6,19 @@
 use crate::utils::maintenant_iso;
 use crate::coeur::codebarre::{generer_ean13_interne, valider_ean13, est_interne};
 
-/// Prochaine séquence libre pour un code interne.
+/// Reserve la prochaine sequence d'un code interne.
 ///
-/// MAX et non COUNT : `article.code_barre` est UNIQUE, et un article
-/// supprimé rejouerait un code déjà attribué. Même règle que les pièces.
-pub fn prochaine_sequence(conn: &rusqlite::Connection) -> u64 {
-    let dernier: i64 = conn.query_row(
-        "SELECT COALESCE(MAX(CAST(substr(code_barre, 3, 10) AS INTEGER)), 0)
-         FROM article
-         WHERE code_barre LIKE '20%' AND length(code_barre) = 13",
-        [], |r| r.get(0),
-    ).unwrap_or(0);
-    (dernier as u64) + 1
+/// Meme compteur transactionnel que les pieces
+/// ([`crate::argent::suivant`]) : `article.code_barre` est UNIQUE, et
+/// lire le plus grand code deja attribue laissait deux etiquetages
+/// simultanes tomber sur le meme.
+///
+/// Une seule suite, sans annee : un code-barre colle sur un sac ne se
+/// reinitialise pas au 1er janvier.
+///
+/// **Consomme une sequence a chaque appel.**
+pub fn reserver_sequence(conn: &rusqlite::Connection) -> Result<u64, String> {
+    Ok(crate::argent::suivant(conn, "codebarre")? as u64)
 }
 
 /// Attribue un code interne à un article qui n'en a pas.
@@ -38,7 +39,7 @@ pub fn generer_code_barre(
         }
     }
 
-    let seq = prochaine_sequence(&conn);
+    let seq = reserver_sequence(&conn)?;
     let code = generer_ean13_interne(seq)
         .ok_or_else(|| "Séquence de codes épuisée".to_string())?;
 
@@ -68,7 +69,7 @@ pub fn generer_codes_barres_manquants(
         v
     };
 
-    let mut seq = prochaine_sequence(&conn);
+    let mut seq = reserver_sequence(&conn)?;
     let now = maintenant_iso();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut nb = 0;

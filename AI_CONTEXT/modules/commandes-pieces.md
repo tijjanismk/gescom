@@ -18,9 +18,11 @@ modifier depuis un résumé — ouvrir le fichier.
 
 ## Fonctions clés
 
-- `prochain_numero(conn, type_piece) -> String`
-  ([pieces.rs:21](../../src-tauri/src/commandes/pieces.rs#L21)),
-  `pub(crate)` — **seul** point de génération de numéro dans le projet.
+- `reserver_numero(conn, type_piece) -> Result<String, String>`
+  ([argent.rs](../../src-tauri/noyau/src/argent.rs)), réexporté
+  `pub(crate)` par `pieces.rs` — **seul** point de génération de numéro
+  de pièce du projet. ⚠️ **Il écrit** : chaque appel consomme un numéro,
+  ce n'est pas un aperçu. Voir [numerotation.md](numerotation.md).
 - `valider_facture` ([pieces.rs:831](../../src-tauri/src/commandes/pieces.rs#L831))
   et `valider_facture_sur(tx, …)`
   ([pieces.rs:849](../../src-tauri/src/commandes/pieces.rs#L849)) —

@@ -41,7 +41,27 @@ pub fn id_utilisateur_par_role(conn: &Connection, role: &str) -> String {
     ).unwrap_or_else(|_| id_utilisateur_courant_pub(conn))
 }
 
-pub fn prochain_numero(conn: &rusqlite::Connection, type_piece: &str) -> String {
+/// Reserve le prochain numero d'une serie, et le rend.
+///
+/// **Ceci ecrit en base.** Ce n'etait pas le cas avant : on lisait le
+/// plus grand numero deja emis. Deux ventes qui lisaient ce maximum
+/// avant que l'autre n'ait ecrit sa piece repartaient avec le meme
+/// numero, et la seconde se heurtait a la contrainte UNIQUE — au
+/// comptoir, un client qui attend et une facture qui refuse.
+///
+/// Le compteur, lui, s'incremente en ecriture : SQLite serialise les
+/// deux demandes, chacune repart avec le sien.
+///
+/// Corollaire : **appeler cette fonction consomme un numero**. Elle
+/// n'est pas un apercu. Si la transaction qui suit echoue, le numero
+/// reste consomme et la serie a un trou — c'est le prix a payer, et il
+/// vaut mieux qu'un doublon. Pour que le trou n'existe pas, appeler
+/// depuis l'interieur de la transaction : le retour arriere annule
+/// aussi l'increment.
+pub fn reserver_numero(
+    conn: &rusqlite::Connection,
+    type_piece: &str,
+) -> Result<String, String> {
     let annee = chrono::Local::now().format("%Y").to_string();
     let prefix = match type_piece {
         "devis"            => "DEV",
@@ -59,18 +79,26 @@ pub fn prochain_numero(conn: &rusqlite::Connection, type_piece: &str) -> String 
         "avoir_fournisseur"        => "AVF",
         _                  => "PIE",
     };
-    // MAX et non COUNT : une piece supprimee ou deux creations simultanees
-    // rejouaient un numero deja pris (numero est UNIQUE -> erreur bloquante).
-    // On filtre sur le prefixe seul : un prefixe = un type = un compteur.
-    let motif = format!("{}-{}-%", prefix, annee);
-    let dernier: i64 = conn.query_row(
-        "SELECT COALESCE(MAX(CAST(substr(numero, -5) AS INTEGER)), 0)
-         FROM piece_commerciale WHERE numero LIKE ?1",
-        rusqlite::params![motif],
+    let cle = format!("{prefix}-{annee}");
+    let rang = suivant(conn, &cle)?;
+    Ok(format!("{prefix}-{annee}-{rang:05}"))
+}
+
+/// Le prochain rang d'un compteur, reserve pour l'appelant.
+///
+/// Un seul ordre SQL : l'increment et sa lecture ne peuvent pas etre
+/// separes par une autre connexion. Les faire en deux temps —
+/// `UPDATE` puis `SELECT` — rouvrirait exactement la fenetre qu'on
+/// vient de fermer.
+pub fn suivant(conn: &rusqlite::Connection, cle: &str) -> Result<i64, String> {
+    conn.query_row(
+        "INSERT INTO compteur_piece (cle, dernier) VALUES (?1, 1)
+         ON CONFLICT(cle) DO UPDATE SET dernier = dernier + 1
+         RETURNING dernier",
+        rusqlite::params![cle],
         |r| r.get(0),
-    ).unwrap_or(0);
-    let _ = type_piece;
-    format!("{}-{}-{:05}", prefix, annee, dernier + 1)
+    )
+    .map_err(|e| format!("Numérotation impossible ({cle}) : {e}"))
 }
 
 #[derive(serde::Deserialize)]
@@ -687,7 +715,7 @@ pub fn creer_facture_depuis_vente_sur(
     // Avant : COUNT(*) local, en parallele de prochain_numero. Deux
     // compteurs pour la meme sequence FAC- = collision sur numero UNIQUE
     // des qu'une facture est creee des deux cotes.
-    let numero = prochain_numero(&conn, "facture");
+    let numero = reserver_numero(&conn, "facture")?;
     let piece_id = uuid::Uuid::new_v4().to_string();
 
     // Statut selon ce qui est REELLEMENT encaisse, pas selon le mode

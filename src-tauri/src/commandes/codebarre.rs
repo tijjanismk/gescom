@@ -7,7 +7,7 @@ use tauri::State;
 use crate::commandes::ventes::EtatApp;
 
 #[allow(unused_imports)]
-pub use gescom_noyau::codebarre::prochaine_sequence;
+pub use gescom_noyau::codebarre::reserver_sequence;
 #[tauri::command]
 pub fn generer_code_barre(
     etat: State<EtatApp>,

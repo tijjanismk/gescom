@@ -321,11 +321,11 @@ défauts ci-dessus sont sortis.
    serveur. À vérifier écran par écran.
    ⚠️ `gescom-serveur.exe` n'est toujours pas empaqueté par
    l'installeur, et n'a pas le contrôle d'installation du client.
-2. Remplacer la numérotation par `MAX(substr(numero,-5))` par un compteur
-   transactionnel : sous concurrence elle produit deux FAC-00042.
-3. Le pare-feu n'a été vérifié que **depuis la même machine**, ce qui ne
+2. Le pare-feu n'a été vérifié que **depuis la même machine**, ce qui ne
    prouve rien : seule une seconde machine sur le réseau le prouve.
 
 Faits depuis : le stock dérive maintenant de ses mouvements (voir les
-tests `stock_mouvements.rs`), et l'écran de réglage réseau existe
+tests `stock_mouvements.rs`), la numérotation passe par un compteur
+transactionnel ([numerotation.md](numerotation.md)), et l'écran de
+réglage réseau existe
 ([OngletReseau.tsx](../../src/components/OngletReseau.tsx)).

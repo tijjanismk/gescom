@@ -71,13 +71,16 @@ def dette_fournisseur(factures, avoirs, paiements):
     a = sum(m for m, st in avoirs if st not in ('annule', 'paye'))
     return f - a - sum(paiements)
 
-def prochain_numero(existants, prefixe, annee):
-    """MAX(substr(numero,-5)) — jamais COUNT."""
-    n = 0
-    for num in existants:
-        if num.startswith(f"{prefixe}-{annee}-"):
-            n = max(n, int(num[-5:]))
-    return f"{prefixe}-{annee}-{n+1:05d}"
+def reserver_numero(compteurs, prefixe, annee):
+    """Compteur transactionnel — argent.rs::suivant.
+
+    Ne LIT pas les pieces existantes : c'etait le bug. Deux ventes qui
+    lisaient le meme MAX avant que l'autre n'ait ecrit sa piece
+    repartaient avec le meme numero.
+    """
+    cle = f"{prefixe}-{annee}"
+    compteurs[cle] = compteurs.get(cle, 0) + 1
+    return f"{cle}-{compteurs[cle]:05d}"
 
 ENGAGEANTES = {"facture","facture_acompte","avoir_client",
                "facture_fournisseur","avoir_fournisseur"}
@@ -210,17 +213,24 @@ print(f"    50 000 sessions — soldes faux : {n_caisse}")
 # =====================================================================
 print("T7  Numerotation — pas de collision")
 n_dbl = 0
+compteurs = {}
 for prefixe in ["FAC","FAF","AVC","AVF","BCF","BRF","DEV","CMD"]:
     nums = []
     for i in range(500):
-        n = prochain_numero(nums, prefixe, 2026)
+        n = reserver_numero(compteurs, prefixe, 2026)
         if n in nums: n_dbl += 1
         nums.append(n)
-        # simuler des suppressions aleatoires
+        # Une piece supprimee ne doit pas rendre son numero : le
+        # compteur ne recule jamais, meme quand la piece disparait.
         if i % 7 == 0 and len(nums) > 3:
             nums.pop(random.randrange(len(nums)-1))
 check("T7 aucune collision de numero", n_dbl == 0, f"{n_dbl} doublons")
 print(f"    8 series x 500 pieces avec suppressions — doublons : {n_dbl}")
+
+# Les series ne se marchent pas dessus : chacune a son compteur.
+avant_fac = compteurs["FAC-2026"]
+reserver_numero(compteurs, "BL", 2026)
+check("T7 series independantes", compteurs["FAC-2026"] == avant_fac)
 
 # Prefixes distincts entre types fournisseur
 prefs = {"bon_commande_fournisseur":"BCF","bon_reception":"BRF",

@@ -16,7 +16,7 @@ use crate::utils::maintenant_iso;
 //  Numérotation
 // =====================================================================
 
-pub(crate) use crate::argent::prochain_numero;
+pub(crate) use crate::argent::reserver_numero;
 pub(crate) use crate::argent::lire_lignes_raw;
 
 // =====================================================================
@@ -312,7 +312,7 @@ pub fn creer_piece_sur(
     let depot = depot_de_piece(&conn, depot_id);
     let now = maintenant_iso();
     let piece_id = uuid::Uuid::new_v4().to_string();
-    let numero = prochain_numero(&conn, &type_piece);
+    let numero = reserver_numero(&conn, &type_piece)?;
     let remise_g = remise_globale.unwrap_or(0.0);
 
     // Statut initial selon le type
@@ -499,7 +499,7 @@ pub fn convertir_piece(
 
     // Créer la nouvelle pièce
     let nouvelle_id = uuid::Uuid::new_v4().to_string();
-    let numero = prochain_numero(&conn, &nouveau_type);
+    let numero = reserver_numero(&conn, &nouveau_type)?;
 
     // La facture est toujours créée en brouillon
     let statut_nouveau = match nouveau_type.as_str() {
@@ -644,13 +644,15 @@ pub fn convertir_commande_en_livraison_et_facture(
     let now = maintenant_iso();
     let auteur = crate::argent::id_utilisateur_courant_pub(&conn);
 
-    // Les deux numéros sont réservés avant la transaction, comme le fait
-    // enregistrer_achat : `prochain_numero` est une lecture, et les deux
-    // séries sont distinctes (BL et FAC) donc sans collision entre elles.
-    let numero_bl = prochain_numero(&conn, "bon_livraison");
-    let numero_fac = prochain_numero(&conn, "facture");
-
     let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // Reserve DANS la transaction : si l'enregistrement echoue plus
+    // bas, le retour arriere annule aussi l'increment, et la serie
+    // n'a pas de trou.
+    // Deux series distinctes, BL et FAC : elles ne se marchent pas
+    // dessus, chacune a son compteur.
+    let numero_bl = reserver_numero(&tx, "bon_livraison")?;
+    let numero_fac = reserver_numero(&tx, "facture")?;
 
     let bl_id = uuid::Uuid::new_v4().to_string();
     let fac_id = uuid::Uuid::new_v4().to_string();
@@ -1217,7 +1219,7 @@ pub fn creer_piece_fournisseur(
     let auteur = crate::argent::id_utilisateur_courant_pub(&conn);
     let now = crate::utils::maintenant_iso();
     let piece_id = uuid::Uuid::new_v4().to_string();
-    let numero = prochain_numero(&conn, &type_piece);
+    let numero = reserver_numero(&conn, &type_piece)?;
     let remise_g = remise_globale.unwrap_or(0.0);
 
     let statut = match type_piece.as_str() {
@@ -1438,7 +1440,7 @@ pub fn dupliquer_piece(
     let now = maintenant_iso();
     let auteur = crate::argent::id_utilisateur_courant_pub(&conn);
     let nouvelle_id = uuid::Uuid::new_v4().to_string();
-    let numero = prochain_numero(&conn, &type_piece);
+    let numero = reserver_numero(&conn, &type_piece)?;
 
     // `piece_origine_id` reste NULL : une copie n'est pas une pièce
     // ISSUE de l'originale, c'est une seconde pièce indépendante. La
@@ -1564,12 +1566,16 @@ pub fn annuler_facture_par_avoir_sur(
         |r| Ok((r.get(0)?, r.get(1)?)),
     ).ok();
 
-    let numero_avoir = prochain_numero(&conn, "avoir_client");
     let now = maintenant_iso();
     let auteur = crate::argent::id_utilisateur_courant_pub(&conn);
     let rembourse = mode_remboursement.as_deref() != Some("avoir");
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // Reserve DANS la transaction : si l'enregistrement echoue plus
+    // bas, le retour arriere annule aussi l'increment, et la serie
+    // n'a pas de trou.
+    let numero_avoir = reserver_numero(&tx, "avoir_client")?;
     let avoir_piece_id = uuid::Uuid::new_v4().to_string();
     let mut total_avoir: i64 = 0;
     let mut acompte: i64 = 0;

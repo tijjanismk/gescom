@@ -9,7 +9,7 @@ use crate::commandes::ventes::EtatApp;
 #[allow(unused_imports)]
 pub use gescom_noyau::transferts::LigneTransfert;
 #[allow(unused_imports)]
-pub use gescom_noyau::transferts::prochain_bon;
+pub use gescom_noyau::transferts::reserver_bon;
 #[tauri::command]
 pub fn enregistrer_transfert(
     etat: State<EtatApp>,

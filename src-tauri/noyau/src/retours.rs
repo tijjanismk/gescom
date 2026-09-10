@@ -588,7 +588,7 @@ pub fn creer_avoir_client(
     // `piece_id`. Les deux existaient cote a cote sans aucun lien : un
     // avoir entierement consomme affichait son montant plein en
     // « reste » sur l'ecran Pieces, pour toujours (bug #8).
-    let numero = crate::argent::prochain_numero(conn, "avoir_client");
+    let numero = crate::argent::reserver_numero(conn, "avoir_client")?;
     let piece_id = uuid::Uuid::new_v4().to_string();
 
     conn.execute(

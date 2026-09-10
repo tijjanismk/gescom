@@ -25,18 +25,17 @@ pub struct LigneTransfert {
     pub facteur: f64,
 }
 
-/// Numéro de bon de transfert — même règle que `prochain_numero` :
-/// MAX et non COUNT, sinon une suppression rejoue un numéro.
-pub fn prochain_bon(conn: &rusqlite::Connection) -> String {
+/// Reserve le prochain numero de bon de transfert.
+///
+/// Meme compteur transactionnel que les pieces
+/// ([`crate::argent::reserver_numero`]) : lire le plus grand bon deja
+/// ecrit laissait deux transferts simultanes repartir avec BTR-2026-00007.
+///
+/// **Consomme un numero a chaque appel** — ce n'est pas un apercu.
+pub fn reserver_bon(conn: &rusqlite::Connection) -> Result<String, String> {
     let annee = chrono::Local::now().format("%Y").to_string();
-    let motif = format!("BTR-{}-%", annee);
-    let dernier: i64 = conn.query_row(
-        "SELECT COALESCE(MAX(CAST(substr(bon, -5) AS INTEGER)), 0)
-         FROM transfert WHERE bon LIKE ?1",
-        rusqlite::params![motif],
-        |r| r.get(0),
-    ).unwrap_or(0);
-    format!("BTR-{}-{:05}", annee, dernier + 1)
+    let rang = crate::argent::suivant(conn, &format!("BTR-{annee}"))?;
+    Ok(format!("BTR-{annee}-{rang:05}"))
 }
 
 /// Enregistre un transfert complet, dans une transaction unique.
@@ -126,8 +125,11 @@ pub fn enregistrer_transfert_sur(
         }
     }
 
-    let bon = prochain_bon(&conn);
     let tx = conn.transaction().map_err(|e| e.to_string())?;
+    // Le numero est reserve DANS la transaction : si le transfert
+    // echoue plus bas, le retour arriere annule aussi l'increment et
+    // la serie n'a pas de trou.
+    let bon = reserver_bon(&tx)?;
     let op_id = uuid::Uuid::new_v4().to_string();
     let mut nb = 0;
 

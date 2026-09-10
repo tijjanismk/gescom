@@ -7,7 +7,17 @@ pub mod v2;
 
 pub fn ouvrir_base(chemin: &str) -> Result<Connection> {
     let conn = Connection::open(chemin)?;
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+    // `busy_timeout` : sans lui, une ecriture qui tombe pendant une
+    // autre rend « database is locked » TOUT DE SUITE, au lieu
+    // d'attendre son tour. En WAL, deux lecteurs coexistent mais deux
+    // ecrivains non — et la reservation d'un numero de piece est
+    // precisement une ecriture tres courte que l'autre n'a qu'a
+    // laisser finir. Cinq secondes : bien au-dela de ce que dure une
+    // transaction de vente, bien en deca de la patience d'un client au
+    // comptoir.
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;",
+    )?;
     Ok(conn)
 }
 
@@ -40,7 +50,7 @@ pub fn verifier_integrite(conn: &Connection) -> Result<Option<String>> {
 ///
 /// Retourne un compte par anomalie. Zero partout = base saine.
 pub fn anomalies_metier(conn: &Connection) -> Vec<(String, i64)> {
-    let controles: [(&str, &str); 6] = [
+    let controles: [(&str, &str); 7] = [
         ("Ventes sans aucune ligne",
          "SELECT COUNT(*) FROM vente v WHERE v.statut <> 'annulee'
             AND NOT EXISTS (SELECT 1 FROM ligne_vente WHERE vente_id = v.id)"),
@@ -68,6 +78,20 @@ pub fn anomalies_metier(conn: &Connection) -> Vec<(String, i64)> {
                 SELECT SUM(ms.quantite_delta) FROM mouvement_stock ms
                 WHERE ms.article_id = sd.article_id
                   AND ms.depot_id = sd.depot_id), 0)"),
+        // Un compteur en retard sur les numeros deja emis refabriquera
+        // un numero pris, et la contrainte UNIQUE bloquera la vente au
+        // moment ou le client attend. On veut l'apprendre au demarrage,
+        // pas au comptoir. Le cas arrive si une base est restauree en
+        // partie, ou modifiee a la main.
+        ("Compteurs de numerotation en retard sur les pieces emises",
+         "SELECT COUNT(*) FROM (
+            SELECT substr(numero, 1, length(numero) - 6) AS cle,
+                   MAX(CAST(substr(numero, -5) AS INTEGER)) AS plus_haut
+            FROM piece_commerciale
+            WHERE numero IS NOT NULL AND length(numero) > 6
+            GROUP BY cle) p
+          WHERE p.plus_haut > COALESCE(
+                (SELECT dernier FROM compteur_piece WHERE cle = p.cle), 0)"),
     ];
 
     controles.iter().filter_map(|(libelle, sql)| {
