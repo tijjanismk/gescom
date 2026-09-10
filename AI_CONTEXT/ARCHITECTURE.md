@@ -17,6 +17,7 @@ Voir [modules/reseau-v2.md](modules/reseau-v2.md).
 | Métier | Rust — workspace `src-tauri/` : `noyau/`, `serveur/`, l'app |
 | Réseau | HTTP/1.1 maison, un fil par connexion, **zéro dépendance** |
 | Base | SQLite via rusqlite bundled, WAL, `foreign_keys=ON`, `busy_timeout=5000` |
+| Base (à venir) | PostgreSQL en **option du serveur** — [modules/postgresql.md](modules/postgresql.md) |
 | Écrans | React 18 + Vite + TypeScript — `src/` (~26 700 l., 71 fichiers) |
 | UI | shadcn/ui + Tailwind 4 |
 

@@ -13,11 +13,14 @@
 --  Invariants (voir CONTEXT.md) :
 --    1. Montants toujours INTEGER — FCFA, jamais de flottant
 --    2. TVA ajoutée au HT ; prix_pratique stocké TTC
---    3. Numérotation par MAX(), jamais COUNT() — numero est UNIQUE
+--    3. Numérotation par compteur transactionnel — numero est UNIQUE
 --    4. Le journal est append-only
 -- =====================================================================
 
-PRAGMA foreign_keys = ON;
+-- `PRAGMA foreign_keys` a demenage dans `ouvrir_base` : c'est un
+-- reglage de CONNEXION, pas de schema — SQLite le remet a zero a chaque
+-- ouverture, donc l'ecrire ici ne protegeait rien. Le sortir rend aussi
+-- ce fichier lisible par PostgreSQL, qui n'a pas de PRAGMA.
 
 
 -- =====================================================================
@@ -70,7 +73,9 @@ CREATE TABLE IF NOT EXISTS parametres_societe (
     logo_chemin     TEXT,
     pied_facture    TEXT DEFAULT 'Merci de votre confiance',
     devise          TEXT NOT NULL DEFAULT 'FCFA',
-    modifie_le      TEXT NOT NULL DEFAULT (datetime('now')),
+    -- CURRENT_TIMESTAMP et non datetime('now') : meme valeur pour
+    -- SQLite, et PostgreSQL le comprend.
+    modifie_le      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (id = 1)
 );
 
