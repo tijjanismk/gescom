@@ -127,16 +127,9 @@ pub fn enregistrer_achat(
         let montant = (l.prix_achat as f64 * l.quantite).round() as i64;
         total += montant;
 
-        tx.execute(
-            "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-             VALUES (?1,?2,?3,?4)
-             ON CONFLICT(article_id, depot_id)
-             DO UPDATE SET quantite = quantite + ?4",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(),
-                l.article_id, depot_id, quantite_base
-            ],
-        ).map_err(|e| e.to_string())?;
+        // Le stock suit desormais son mouvement : le declencheur
+        // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+        // transaction. L'ecrire ici le compterait deux fois.
 
         // Prix ramené à l'unité de base, pour rester homogène avec
         // quantite_delta qui est lui aussi en unité de base.
@@ -470,16 +463,9 @@ pub fn enregistrer_retour_fournisseur_sur(
         total += montant;
 
         // Sortie de stock — ON CONFLICT, jamais un UPDATE nu.
-        tx.execute(
-            "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-             VALUES (?1,?2,?3,0 - ?4)
-             ON CONFLICT(article_id, depot_id)
-             DO UPDATE SET quantite = quantite - ?4",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(),
-                l.article_id, depot_id, quantite_base
-            ],
-        ).map_err(|e| e.to_string())?;
+        // Le stock suit desormais son mouvement : le declencheur
+        // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+        // transaction. L'ecrire ici le compterait deux fois.
 
         let prix_base = if l.facteur > 0.0 {
             (l.prix_achat as f64 / l.facteur).round() as i64

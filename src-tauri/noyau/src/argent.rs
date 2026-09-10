@@ -192,16 +192,9 @@ pub fn creer_vente_sur(
         ).map_err(|e| e.to_string())?;
 
         // Décrément stock
-        tx.execute(
-            "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-             VALUES (?1,?2,?3,0 - ?4)
-             ON CONFLICT(article_id, depot_id)
-             DO UPDATE SET quantite = quantite - ?4",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(),
-                ligne.article_id, ligne.depot_source_id, qte_base
-            ],
-        ).map_err(|e| e.to_string())?;
+        // Le stock suit desormais son mouvement : le declencheur
+        // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+        // transaction. L'ecrire ici le compterait deux fois.
 
         tx.execute(
             "INSERT INTO mouvement_stock
@@ -540,15 +533,9 @@ pub fn valider_facture_sur(
         ).map_err(|e| e.to_string())?;
 
         // Décrémenter stock
-        tx.execute(
-            "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-             VALUES (?1,?2,?3,0 - ?4)
-             ON CONFLICT(article_id, depot_id)
-             DO UPDATE SET quantite = quantite - ?4",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(), art_id, depot_id, qte_base
-            ],
-        ).map_err(|e| e.to_string())?;
+        // Le stock suit desormais son mouvement : le declencheur
+        // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+        // transaction. L'ecrire ici le compterait deux fois.
 
         tx.execute(
             "INSERT INTO mouvement_stock

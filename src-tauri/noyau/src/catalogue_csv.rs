@@ -366,13 +366,24 @@ pub fn importer_articles_csv(
                     ],
                 ).map_err(|e| e.to_string())?;
 
-                tx.execute(
-                    "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-                     VALUES (?1,?2,?3,?4)",
-                    rusqlite::params![
-                        uuid::Uuid::new_v4().to_string(), art_id, depot_defaut, stock
-                    ],
-                ).ok();
+                // Le stock d'un article importe est une ENTREE, pas un
+                // chiffre pose. Avant, l'import ecrivait le compteur sans
+                // mouvement : la marchandise apparaissait dans le stock
+                // sans figurer dans aucun historique, et la somme des
+                // mouvements ne valait plus le compteur des le premier
+                // import. Le declencheur met le compteur a jour.
+                if stock != 0.0 {
+                    tx.execute(
+                        "INSERT INTO mouvement_stock
+                         (id, article_id, depot_id, type_mouvement, quantite_delta,
+                          motif, auteur_id, date_mouvement, cree_le, cree_par, origine)
+                         VALUES (?1,?2,?3,'entree',?4,?5,'import',?6,?6,'import','import')",
+                        rusqlite::params![
+                            uuid::Uuid::new_v4().to_string(), art_id, depot_defaut,
+                            stock, "Import CSV du catalogue", now
+                        ],
+                    ).ok();
+                }
 
                 crees += 1;
             }

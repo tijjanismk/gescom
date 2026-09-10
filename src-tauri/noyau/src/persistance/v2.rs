@@ -116,6 +116,98 @@ pub fn migrer(conn: &Connection) -> Result<()> {
     .ok();
 
     // -----------------------------------------------------------------
+    //  Le stock devient une consequence de ses mouvements
+    // -----------------------------------------------------------------
+    //
+    // `stock_depot.quantite` etait un compteur qu'on incrementait a onze
+    // endroits. Un compteur ne sait pas dire POURQUOI il vaut ce qu'il
+    // vaut : quand un stock est faux, il n'y a rien a auditer. Et rien
+    // n'empechait un chemin d'ecrire le compteur sans son mouvement —
+    // l'import CSV le faisait — apres quoi le stock et le journal
+    // racontaient deux histoires differentes.
+    //
+    // Desormais le compteur est maintenu par la BASE, dans la meme
+    // transaction que le mouvement qui le justifie. Il reste la pour la
+    // vitesse — le point de vente lit le stock de tout le catalogue a
+    // chaque ouverture d'ecran — mais il n'est plus qu'un cache : la
+    // verite est la somme des mouvements, et `verifier_coherence` sait
+    // comparer les deux.
+    //
+    // `mouvement_stock` n'est jamais modifie ni supprime : c'est ce qui
+    // rend un simple AFTER INSERT suffisant.
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mouvement_stock_article_depot
+         ON mouvement_stock(article_id, depot_id)",
+        [],
+    )
+    .ok();
+
+    // Reprise, une seule fois. Les bases existantes ont derive : le
+    // compteur ne vaut pas la somme, a cause de l'import CSV et de
+    // l'histoire. Basculer sans rien faire changerait tous les stocks
+    // du jour au lendemain, et le commercant y verrait une perte.
+    //
+    // On ecrit donc un mouvement d'ajustement de l'ECART, pour que la
+    // somme rejoigne le compteur — pas l'inverse. Ce que le commercant
+    // voit aujourd'hui reste ce qu'il verra demain, et l'ecart devient
+    // une ligne visible dans l'historique au lieu d'un mystere.
+    let reprise_faite: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM config_app WHERE cle = 'stock_reprise_mouvements'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    if reprise_faite == 0 {
+        let maintenant = crate::utils::maintenant_iso();
+        // Le declencheur n'existe pas encore : ces ajustements ne
+        // toucheront pas au compteur, ce qui est exactement voulu.
+        conn.execute(
+            "INSERT INTO mouvement_stock
+               (id, article_id, depot_id, type_mouvement, quantite_delta,
+                motif, auteur_id, date_mouvement, cree_le, cree_par, origine)
+             SELECT lower(hex(randomblob(16))), sd.article_id, sd.depot_id,
+                    'ajustement',
+                    sd.quantite - COALESCE((
+                        SELECT SUM(ms.quantite_delta) FROM mouvement_stock ms
+                        WHERE ms.article_id = sd.article_id
+                          AND ms.depot_id = sd.depot_id), 0),
+                    'Reprise : mise en concordance du stock et de son historique',
+                    'migration', ?1, ?1, 'migration', 'migration'
+             FROM stock_depot sd
+             WHERE sd.quantite <> COALESCE((
+                    SELECT SUM(ms.quantite_delta) FROM mouvement_stock ms
+                    WHERE ms.article_id = sd.article_id
+                      AND ms.depot_id = sd.depot_id), 0)",
+            rusqlite::params![maintenant],
+        )
+        .ok();
+
+        conn.execute(
+            "INSERT OR IGNORE INTO config_app (cle, valeur)
+             VALUES ('stock_reprise_mouvements', ?1)",
+            rusqlite::params![maintenant],
+        )
+        .ok();
+    }
+
+    // Le declencheur, pose APRES la reprise : l'inverse aurait fait
+    // compter les ajustements deux fois.
+    conn.execute_batch(
+        "CREATE TRIGGER IF NOT EXISTS stock_suit_les_mouvements
+         AFTER INSERT ON mouvement_stock
+         BEGIN
+           INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+           VALUES (lower(hex(randomblob(16))), NEW.article_id, NEW.depot_id,
+                   NEW.quantite_delta)
+           ON CONFLICT(article_id, depot_id)
+           DO UPDATE SET quantite = quantite + NEW.quantite_delta;
+         END;",
+    )?;
+
+    // -----------------------------------------------------------------
     //  Reglages
     // -----------------------------------------------------------------
     // Defaut 0 : la boutique type de Bamako a UN tiroir. Le mode

@@ -135,28 +135,14 @@ pub fn enregistrer_transfert_sur(
         let quantite_base = l.quantite * l.facteur;
 
         // Sortie du dépôt source.
-        tx.execute(
-            "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-             VALUES (?1,?2,?3, 0 - ?4)
-             ON CONFLICT(article_id, depot_id)
-             DO UPDATE SET quantite = quantite - ?4",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(),
-                l.article_id, depot_source, quantite_base
-            ],
-        ).map_err(|e| e.to_string())?;
+        // Le stock suit desormais son mouvement : le declencheur
+        // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+        // transaction. L'ecrire ici le compterait deux fois.
 
         // Entrée dans le dépôt destination.
-        tx.execute(
-            "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-             VALUES (?1,?2,?3,?4)
-             ON CONFLICT(article_id, depot_id)
-             DO UPDATE SET quantite = quantite + ?4",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(),
-                l.article_id, depot_dest, quantite_base
-            ],
-        ).map_err(|e| e.to_string())?;
+        // Le stock suit desormais son mouvement : le declencheur
+        // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+        // transaction. L'ecrire ici le compterait deux fois.
 
         // Deux mouvements, pour que l'historique de chaque dépôt soit
         // complet quand on le consulte séparément.

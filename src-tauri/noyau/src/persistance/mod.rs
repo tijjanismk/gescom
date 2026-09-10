@@ -40,7 +40,7 @@ pub fn verifier_integrite(conn: &Connection) -> Result<Option<String>> {
 ///
 /// Retourne un compte par anomalie. Zero partout = base saine.
 pub fn anomalies_metier(conn: &Connection) -> Vec<(String, i64)> {
-    let controles: [(&str, &str); 5] = [
+    let controles: [(&str, &str); 6] = [
         ("Ventes sans aucune ligne",
          "SELECT COUNT(*) FROM vente v WHERE v.statut <> 'annulee'
             AND NOT EXISTS (SELECT 1 FROM ligne_vente WHERE vente_id = v.id)"),
@@ -55,6 +55,19 @@ pub fn anomalies_metier(conn: &Connection) -> Vec<(String, i64)> {
             WHERE NOT EXISTS (SELECT 1 FROM session_caisse WHERE id = mc.session_id)"),
         ("Stock negatif",
          "SELECT COUNT(*) FROM stock_depot WHERE quantite < 0"),
+        // Le compteur de stock est un CACHE : la verite est la somme
+        // des mouvements, et le declencheur les tient egaux. Un ecart
+        // signale donc soit une ecriture directe qui a echappe au
+        // declencheur, soit une base modifiee a la main.
+        //
+        // C'est la contrepartie du changement : avant, un stock faux
+        // n'avait rien derriere lui a comparer.
+        ("Stocks qui ne correspondent pas a leurs mouvements",
+         "SELECT COUNT(*) FROM stock_depot sd
+          WHERE sd.quantite <> COALESCE((
+                SELECT SUM(ms.quantite_delta) FROM mouvement_stock ms
+                WHERE ms.article_id = sd.article_id
+                  AND ms.depot_id = sd.depot_id), 0)"),
     ];
 
     controles.iter().filter_map(|(libelle, sql)| {

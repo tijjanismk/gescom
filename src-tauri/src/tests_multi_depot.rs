@@ -60,13 +60,27 @@ impl Banc {
         );
     }
 
+    /// Pose un stock de depart PAR UN MOUVEMENT, comme le ferait une
+    /// entree reelle.
+    ///
+    /// Ecrire le compteur directement laisserait les tests eprouver un
+    /// chemin que le logiciel n'emprunte plus : depuis que le stock est
+    /// la consequence de ses mouvements, un stock sans mouvement est
+    /// precisement l'incoherence qu'on cherche a rendre impossible.
     fn poser_stock(&self, depot: &str, quantite: f64) {
+        let actuel = self.stock(depot);
+        let delta = quantite - actuel;
+        if delta == 0.0 {
+            return;
+        }
         self.conn.execute(
-            "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(article_id, depot_id) DO UPDATE SET quantite = ?4",
+            "INSERT INTO mouvement_stock
+             (id, article_id, depot_id, type_mouvement, quantite_delta,
+              motif, auteur_id, date_mouvement, cree_le, cree_par, origine)
+             VALUES (?1,?2,?3,'ajustement',?4,'stock de depart','test',
+                     '2026-01-01','2026-01-01','test','test')",
             rusqlite::params![
-                uuid::Uuid::new_v4().to_string(), self.article, depot, quantite
+                uuid::Uuid::new_v4().to_string(), self.article, depot, delta
             ],
         ).unwrap();
     }

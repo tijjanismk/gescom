@@ -283,17 +283,9 @@ pub fn enregistrer_retour_sur(
     }
 
     // 1. Remonter le stock de l'article retourné — TOUJOURS.
-    tx.execute(
-        // ON CONFLICT et non UPDATE nu : si le couple article/depot
-        // n'existe pas encore, un UPDATE ne fait rien et le retour est
-        // perdu en silence.
-        "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-         VALUES (?4, ?2, ?3, ?1)
-         ON CONFLICT(article_id, depot_id)
-         DO UPDATE SET quantite = quantite + ?1",
-        rusqlite::params![quantite_base, article_id, depot_source_id,
-                          uuid::Uuid::new_v4().to_string()],
-    ).map_err(|e| e.to_string())?;
+    // Le stock suit desormais son mouvement : le declencheur
+    // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+    // transaction. L'ecrire ici le compterait deux fois.
 
     // Mouvement de stock — entrée.
     tx.execute(
@@ -429,14 +421,9 @@ pub fn enregistrer_retour_sur(
                 let reliquat = montant_credit - montant_remplacement;
 
                 // Décrémenter le stock de l'article de remplacement.
-                tx.execute(
-                    "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-                     VALUES (?4, ?2, ?3, 0 - ?1)
-                     ON CONFLICT(article_id, depot_id)
-                     DO UPDATE SET quantite = quantite - ?1",
-                    rusqlite::params![qte_base_remp, art_remp_id, depot_remplacement,
-                                      uuid::Uuid::new_v4().to_string()],
-                ).map_err(|e| e.to_string())?;
+                // Le stock suit desormais son mouvement : le declencheur
+                // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+                // transaction. L'ecrire ici le compterait deux fois.
 
                 // Mouvement de stock — sortie remplacement.
                 tx.execute(

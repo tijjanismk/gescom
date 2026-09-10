@@ -1649,15 +1649,9 @@ pub fn annuler_facture_par_avoir_sur(
             let base = (qte - deja).max(0.0) * facteur;
             if base <= 0.0 { continue; }
 
-            tx.execute(
-                "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-                 VALUES (?1,?2,?3,?4)
-                 ON CONFLICT(article_id, depot_id)
-                 DO UPDATE SET quantite = quantite + ?4",
-                rusqlite::params![
-                    uuid::Uuid::new_v4().to_string(), art, depot_ligne, base
-                ],
-            ).map_err(|e| e.to_string())?;
+            // Le stock suit desormais son mouvement : le declencheur
+            // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+            // transaction. L'ecrire ici le compterait deux fois.
 
             tx.execute(
                 "INSERT INTO mouvement_stock

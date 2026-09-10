@@ -341,15 +341,9 @@ pub fn enregistrer_entree_stock(
     let op_id = uuid::Uuid::new_v4().to_string();
 
     // Mettre à jour le stock
-    conn.execute(
-        "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-         VALUES (?1,?2,?3,?4)
-         ON CONFLICT(article_id, depot_id)
-         DO UPDATE SET quantite = quantite + ?4",
-        rusqlite::params![
-            uuid::Uuid::new_v4().to_string(), article_id, depot_id, quantite
-        ],
-    ).map_err(|e| e.to_string())?;
+    // Le stock suit desormais son mouvement : le declencheur
+    // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+    // transaction. L'ecrire ici le compterait deux fois.
 
     // 'entree' et non 'achat' (D42) : cette commande ne cree ni facture
     // fournisseur, ni dette, ni mouvement de caisse. Les confondre
@@ -480,19 +474,9 @@ pub fn enregistrer_retour_sans_facture_sur(
         ));
     }
 
-    conn.execute(
-        "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-         VALUES (?1,?2,?3,0 - ?4)
-         ON CONFLICT(article_id, depot_id)
-         DO UPDATE SET quantite = quantite - ?4",
-        rusqlite::params![
-            uuid::Uuid::new_v4().to_string(),
-            article_id,
-            depot_id,
-            quantite
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+    // Le stock suit desormais son mouvement : le declencheur
+    // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+    // transaction. L'ecrire ici le compterait deux fois.
 
     let op_id = uuid::Uuid::new_v4().to_string();
     conn.execute(
@@ -572,15 +556,9 @@ pub fn enregistrer_ajustement_inventaire(
     let auteur = crate::argent::id_utilisateur_par_role(&conn, role);
     let op_id = uuid::Uuid::new_v4().to_string();
 
-    conn.execute(
-        "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-         VALUES (?1,?2,?3,?4)
-         ON CONFLICT(article_id, depot_id)
-         DO UPDATE SET quantite = ?4",
-        rusqlite::params![
-            uuid::Uuid::new_v4().to_string(), article_id, depot_id, quantite_reelle
-        ],
-    ).map_err(|e| e.to_string())?;
+    // Le stock suit desormais son mouvement : le declencheur
+    // `stock_suit_les_mouvements` met le compteur a jour dans la meme
+    // transaction. L'ecrire ici le compterait deux fois.
 
     conn.execute(
         "INSERT INTO mouvement_stock

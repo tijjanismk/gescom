@@ -20,6 +20,7 @@ pub struct EtatApp {
 // Ces trois-la vivent desormais dans `noyau::argent` : le serveur v2
 // execute le meme code que le comptoir. On les re-exporte pour ne pas
 // toucher aux 27 fichiers de commandes qui les appellent.
+#[allow(unused_imports)]
 pub use gescom_noyau::argent::{id_utilisateur_courant_pub, id_utilisateur_par_role};
 
 /// Récupère l'id utilisateur selon son rôle — pour le multi-utilisateur.
