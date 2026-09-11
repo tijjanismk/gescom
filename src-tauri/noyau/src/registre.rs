@@ -79,6 +79,23 @@ impl Registre {
         self
     }
 
+    /// Une ecriture que TOUT UTILISATEUR CONNECTE peut faire.
+    ///
+    /// Il n'y en a presque pas, et c'est voulu. Le cas reel : changer
+    /// SON PROPRE mot de passe. Il exigeait « utilisateurs:gerer », si
+    /// bien qu'un caissier — a qui l'amorcage impose justement de
+    /// changer son mot de passe a la premiere connexion — ne pouvait
+    /// pas le faire. Il se retrouvait enferme dehors des le premier
+    /// jour.
+    ///
+    /// Nommee explicitement pour qu'on ne l'utilise pas par paresse :
+    /// une commande sans permission se voit dans cette liste.
+    pub fn ecriture_libre(&mut self, nom: &'static str, p: Poignee) -> &mut Self {
+        self.entrees
+            .insert(nom, Entree { poignee: p, permission: None, ecrit: true });
+        self
+    }
+
     pub fn trouver(&self, nom: &str) -> Option<&Entree> {
         self.entrees.get(nom)
     }

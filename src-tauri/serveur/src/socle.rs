@@ -407,18 +407,65 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
-    r.ecriture("connexion", "utilisateurs:gerer", |c, p| {
+    r.ecriture_libre("connexion", |c, p| {
         let identifiant: String = arg(&p, "identifiant", "identifiant")?;
         let mot_de_passe: String = arg(&p, "motDePasse", "mot_de_passe")?;
         let v = auth::connexion(c.conn, identifiant, mot_de_passe)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
-    r.ecriture("changer_mot_de_passe", "utilisateurs:gerer", |c, p| {
+    r.ecriture_libre("changer_mot_de_passe", |c, p| {
         let ancien_mdp: String = arg(&p, "ancienMdp", "ancien_mdp")?;
         let nouveau_mdp: String = arg(&p, "nouveauMdp", "nouveau_mdp")?;
         let v = auth::changer_mot_de_passe(c.conn, c.appelant.utilisateur_id.clone(), ancien_mdp, nouveau_mdp)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    // -----------------------------------------------------------------
+    //  Roles et permissions
+    // -----------------------------------------------------------------
+    // Le CATALOGUE ne se lit qu'ici : c'est du code, il ne se modifie
+    // pas depuis l'ecran. Ce qui se modifie, c'est qui a quoi.
+    r.lecture("lire_catalogue_permissions", |_c, _p| {
+        Ok(gescom_noyau::roles::lire_catalogue_permissions())
+    });
+
+    r.lecture("lire_roles", |c, _p| {
+        gescom_noyau::roles::lire_roles(c.conn)
+    });
+
+    r.lecture("lire_permissions_utilisateur", |c, p| {
+        let utilisateur_id: String = arg(&p, "utilisateurId", "utilisateur_id")?;
+        gescom_noyau::roles::lire_permissions_utilisateur(c.conn, utilisateur_id)
+    });
+
+    r.ecriture("creer_role", "utilisateurs:gerer", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let description: Option<String> = arg(&p, "description", "description")?;
+        let permissions: Vec<String> = arg(&p, "permissions", "permissions")?;
+        gescom_noyau::roles::creer_role(c.conn, nom, description, permissions)
+    });
+
+    r.ecriture("modifier_role", "utilisateurs:gerer", |c, p| {
+        let role_id: String = arg(&p, "roleId", "role_id")?;
+        let description: Option<String> = arg(&p, "description", "description")?;
+        let permissions: Vec<String> = arg(&p, "permissions", "permissions")?;
+        gescom_noyau::roles::modifier_role(c.conn, role_id, description, permissions)
+    });
+
+    r.ecriture("supprimer_role", "utilisateurs:gerer", |c, p| {
+        let role_id: String = arg(&p, "roleId", "role_id")?;
+        gescom_noyau::roles::supprimer_role(c.conn, role_id)
+    });
+
+    r.ecriture("definir_permission_utilisateur", "utilisateurs:gerer", |c, p| {
+        let utilisateur_id: String = arg(&p, "utilisateurId", "utilisateur_id")?;
+        let permission: String = arg(&p, "permission", "permission")?;
+        let accorde: Option<bool> = arg(&p, "accorde", "accorde")?;
+        let par = Some(c.appelant.utilisateur_id.clone());
+        gescom_noyau::roles::definir_permission_utilisateur(
+            c.conn, utilisateur_id, permission, accorde, par,
+        )
     });
 
     r.ecriture("creer_utilisateur", "utilisateurs:gerer", |c, p| {

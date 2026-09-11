@@ -22,6 +22,7 @@ pub mod relances;
 pub mod rapports;
 pub mod retours;
 pub mod seed;
+pub mod roles;
 pub mod sauvegarde;
 pub mod cheques;
 pub mod caisse;

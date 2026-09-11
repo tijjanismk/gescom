@@ -120,6 +120,13 @@ pub fn run() {
             commandes::auth::connexion,
             commandes::auth::changer_mot_de_passe,
             commandes::auth::creer_utilisateur,
+            commandes::auth::lire_catalogue_permissions,
+            commandes::auth::lire_roles,
+            commandes::auth::creer_role,
+            commandes::auth::modifier_role,
+            commandes::auth::supprimer_role,
+            commandes::auth::lire_permissions_utilisateur,
+            commandes::auth::definir_permission_utilisateur,
             commandes::auth::lire_utilisateurs,
             // ---- Reseau (v2) : mode monoposte / poste caisse ----
             reseau::lire_config_reseau,

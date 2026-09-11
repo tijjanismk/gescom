@@ -27,9 +27,13 @@ fn compte(conn: &Connection, table: &str) -> i64 {
 
 #[test]
 fn une_base_neuve_est_vide() {
+    // « Vide » veut dire : aucun moyen d'entrer. Pas « aucune ligne » —
+    // les migrations posent des roles livres, et confondre les deux
+    // faisait croire qu'une base neuve etait deja amorcee.
     let conn = base_neuve();
     assert!(seed::base_est_vide(&conn));
-    assert_eq!(compte(&conn, "role"), 0);
+    assert_eq!(compte(&conn, "utilisateur_auth"), 0);
+    assert!(compte(&conn, "role") > 0, "les rôles livrés sont là");
 }
 
 #[test]
@@ -148,12 +152,29 @@ fn une_base_deja_peuplee_n_est_pas_amorcee() {
     let conn = base_neuve();
     conn.execute(
         "INSERT INTO role (id, nom, cree_le, modifie_le)
-         VALUES ('r1', 'patron', '2026-01-01', '2026-01-01')",
+         VALUES ('r1', 'le-role-du-commercant', '2026-01-01', '2026-01-01')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO utilisateur (id, nom, role_id, actif, cree_le, modifie_le, origine)
+         VALUES ('u1', 'Le patron', 'r1', 1, '2026-01-01', '2026-01-01', 'app')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO utilisateur_auth
+           (utilisateur_id, pseudo, mot_de_passe, doit_changer_mdp)
+         VALUES ('u1', 'lepatron', 'un-hash', 0)",
         [],
     )
     .unwrap();
 
     assert!(!seed::base_est_vide(&conn));
     assert!(!seed::amorcer_si_vide(&conn).unwrap());
-    assert_eq!(compte(&conn, "utilisateur_auth"), 0, "aucun compte créé");
+    assert_eq!(
+        compte(&conn, "utilisateur_auth"),
+        1,
+        "aucun compte d'usine ajouté"
+    );
 }

@@ -291,6 +291,158 @@ pub fn migrer(conn: &Connection) -> Result<()> {
     }
 
     // -----------------------------------------------------------------
+    //  Roles et permissions
+    // -----------------------------------------------------------------
+    // Les droits etaient codes en dur sur le NOM du role. Ajouter un
+    // caissier ou un magasinier demandait de recompiler, et donner une
+    // permission de plus a UNE personne etait impossible.
+    //
+    // `role.permissions` existait deja en base, sans jamais etre lue.
+    // On lui ajoute `acces_total` — le role passe avant toute liste —
+    // et une table pour les reglages personnels.
+    conn.execute(
+        "ALTER TABLE role ADD COLUMN acces_total INTEGER NOT NULL DEFAULT 0",
+        [],
+    )
+    .ok();
+    conn.execute(
+        "ALTER TABLE role ADD COLUMN protege INTEGER NOT NULL DEFAULT 0",
+        [],
+    )
+    .ok();
+    conn.execute(
+        "ALTER TABLE role ADD COLUMN description TEXT",
+        [],
+    )
+    .ok();
+
+    // Ce qu'on ajoute ou retire A UNE PERSONNE, par-dessus son role.
+    // `accorde` a deux valeurs : 1 ajoute, 0 retire. Le retrait existe
+    // parce que « ce caissier-la ne touche pas au tiroir » est une
+    // demande aussi courante que son inverse, et qu'y repondre en
+    // fabriquant un role par personne rendrait la liste illisible.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS utilisateur_permission (
+            utilisateur_id TEXT NOT NULL REFERENCES utilisateur(id),
+            permission     TEXT NOT NULL,
+            accorde        INTEGER NOT NULL DEFAULT 1,
+            cree_le        TEXT NOT NULL,
+            cree_par       TEXT,
+            PRIMARY KEY (utilisateur_id, permission)
+         )",
+        [],
+    )?;
+
+    // Reprise, une seule fois.
+    //
+    // C'est le point qui decide si la mise a jour se passe bien : les
+    // roles existants ont `permissions = '[]'`. Basculer sur la lecture
+    // en base sans les remplir retirerait TOUS leurs droits a tout le
+    // monde, le matin de la mise a jour. On y ecrit donc exactement ce
+    // que le code accordait jusqu'ici.
+    let roles_repris: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM config_app WHERE cle = 'roles_repris'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    if roles_repris == 0 {
+        let maintenant = crate::utils::maintenant_iso();
+
+        // `patron` pouvait tout : il garde l'acces total. Sans cela,
+        // chaque commande ajoutee demain lui serait invisible jusqu'a
+        // ce que quelqu'un pense a cocher une case.
+        conn.execute(
+            "UPDATE role SET acces_total = 1, modifie_le = ?1 WHERE nom = 'patron'",
+            rusqlite::params![maintenant],
+        )
+        .ok();
+
+        // `employe` avait une liste figee dans le code : on l'ecrit en
+        // base, a l'identique. Les permissions en `:lire` qui y
+        // figuraient sont omises — aucune lecture n'est filtree, elles
+        // ne donnaient donc aucun droit.
+        let employe = serde_json::json!([
+            "ventes:creer",
+            "paiements:creer",
+            "clients:creer",
+            "clients:modifier",
+            "articles:creer",
+            "caisse:mouvementer",
+            "pieces:creer",
+            "retours:creer"
+        ])
+        .to_string();
+        conn.execute(
+            "UPDATE role SET permissions = ?1, modifie_le = ?2 WHERE nom = 'employe'",
+            rusqlite::params![employe, maintenant],
+        )
+        .ok();
+
+        // Les roles qu'on ajoute. `INSERT OR IGNORE` : un commercant
+        // qui aurait deja cree un role « caissier » garde le sien.
+        let nouveaux: [(&str, &str, i64, i64, &str); 4] = [
+            (
+                "superadmin",
+                "Accès complet, non modifiable. Le compte de secours.",
+                1,
+                1,
+                "[]",
+            ),
+            (
+                "caissier",
+                "Encaisse, rend la monnaie, enregistre les retours.",
+                0,
+                0,
+                r#"["ventes:creer","paiements:creer","retours:creer",
+                    "clients:creer","caisse:mouvementer","pieces:creer"]"#,
+            ),
+            (
+                "magasinier",
+                "Tient le stock, reçoit et livre la marchandise.",
+                0,
+                0,
+                r#"["articles:creer","stock:transferer","depots:gerer",
+                    "livraisons:enregistrer","achats:creer"]"#,
+            ),
+            (
+                "comptable",
+                "Créances, chèques, TVA, règlements fournisseurs.",
+                0,
+                0,
+                r#"["creances:gerer","cheques:gerer","fournisseurs:regler",
+                    "avoirs:gerer","chantiers:gerer"]"#,
+            ),
+        ];
+        for (nom, description, acces, protege, permissions) in nouveaux {
+            // Le JSON est reecrit compact : les retours a la ligne du
+            // litteral ci-dessus survivraient dans la base et rendraient
+            // la colonne penible a relire.
+            let compact = serde_json::from_str::<Vec<String>>(
+                &permissions.replace('\n', " "),
+            )
+            .map(|v| serde_json::json!(v).to_string())
+            .unwrap_or_else(|_| "[]".to_string());
+            conn.execute(
+                "INSERT OR IGNORE INTO role
+                   (id, nom, permissions, acces_total, protege, description,
+                    cree_le, modifie_le, origine)
+                 VALUES (lower(hex(randomblob(16))), ?1, ?2, ?3, ?4, ?5, ?6, ?6, 'migration')",
+                rusqlite::params![nom, compact, acces, protege, description, maintenant],
+            )
+            .ok();
+        }
+
+        conn.execute(
+            "INSERT OR IGNORE INTO config_app (cle, valeur) VALUES ('roles_repris', ?1)",
+            rusqlite::params![maintenant],
+        )
+        .ok();
+    }
+
+    // -----------------------------------------------------------------
     //  Reglages
     // -----------------------------------------------------------------
     // Defaut 0 : la boutique type de Bamako a UN tiroir. Le mode

@@ -259,20 +259,24 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         );
     };
 
+    let mut conn = match srv.conn.lock() {
+        Ok(c) => c,
+        Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+    };
+
+    // Le controle vient APRES le verrou : les permissions se lisent
+    // desormais en base, et les relire a chaque appel est ce qui rend
+    // un retrait de droit immediat — comme la revocation d'une session.
+    // Les garder en memoire ferait attendre le redemarrage du serveur.
     if let Some(permission) = entree.permission {
         let ctx = ContexteUtilisateur {
             id: appelant.utilisateur_id.clone(),
             role: appelant.role.clone(),
         };
-        if let Err(e) = verifier_permission(&ctx, permission) {
+        if let Err(e) = verifier_permission(&conn, &ctx, permission) {
             return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
         }
     }
-
-    let mut conn = match srv.conn.lock() {
-        Ok(c) => c,
-        Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
-    };
     let resultat = (entree.poignee)(
         &mut Contexte {
             conn: &mut conn,
@@ -390,8 +394,17 @@ fn sauvegarde_manuelle(
         id: appelant.utilisateur_id,
         role: appelant.role,
     };
-    if let Err(e) = verifier_permission(&ctx, "sauvegarde:lancer") {
-        return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
+    // Le verrou se prend et se relache tout de suite : `sauvegarde` le
+    // reprendra pour son propre compte, et le garder ici bloquerait les
+    // caisses pendant toute la copie.
+    {
+        let conn = match srv.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+        };
+        if let Err(e) = verifier_permission(&conn, &ctx, "sauvegarde:lancer") {
+            return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
+        }
     }
 
     match sauvegarde::maintenant(srv) {

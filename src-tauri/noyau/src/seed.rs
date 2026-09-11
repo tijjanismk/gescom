@@ -33,7 +33,16 @@ use crate::auth::hasher_mot_de_passe_pub;
 pub fn base_est_vide(conn: &Connection) -> bool {
      let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM role",
+            // Les COMPTES, pas les roles.
+            //
+            // C'etait « SELECT COUNT(*) FROM role », et ca a cesse
+            // d'etre vrai le jour ou la migration s'est mise a poser des
+            // roles livres : une base neuve paraissait deja amorcee, le
+            // seed ne tournait pas, et PERSONNE ne pouvait se connecter.
+            //
+            // « Vide » veut dire une seule chose ici : il n'existe aucun
+            // moyen d'entrer.
+            "SELECT COUNT(*) FROM utilisateur_auth",
             [],
             |r| r.get(0),
         )
@@ -50,15 +59,38 @@ pub fn seeder(conn: &Connection) -> Result<()> {
     let role_patron_id = Uuid::new_v4().to_string();
     let role_employe_id = Uuid::new_v4().to_string();
 
+    // `acces_total` : le patron peut tout, et une commande ajoutee
+    // demain lui reste accessible sans que personne ait a cocher une
+    // case. Sur une base neuve, la reprise de la migration ne peut pas
+    // l'avoir fait — elle tourne avant que ce role existe.
     conn.execute(
-        "INSERT OR IGNORE INTO role (id, nom, permissions, cree_le, modifie_le, origine)
-         VALUES (?1, 'patron', '[]', ?2, ?3, ?4)",
+        "INSERT OR IGNORE INTO role
+           (id, nom, permissions, acces_total, description,
+            cree_le, modifie_le, origine)
+         VALUES (?1, 'patron', '[]', 1,
+                 'Accès complet à la boutique.', ?2, ?3, ?4)",
         params![role_patron_id, now, now, origine],
     )?;
+    // La meme liste que la reprise donne aux bases existantes : les deux
+    // chemins doivent produire le meme employe.
+    let employe = serde_json::json!([
+        "ventes:creer",
+        "paiements:creer",
+        "clients:creer",
+        "clients:modifier",
+        "articles:creer",
+        "caisse:mouvementer",
+        "pieces:creer",
+        "retours:creer"
+    ])
+    .to_string();
     conn.execute(
-        "INSERT OR IGNORE INTO role (id, nom, permissions, cree_le, modifie_le, origine)
-         VALUES (?1, 'employe', '[]', ?2, ?3, ?4)",
-        params![role_employe_id, now, now, origine],
+        "INSERT OR IGNORE INTO role
+           (id, nom, permissions, acces_total, description,
+            cree_le, modifie_le, origine)
+         VALUES (?1, 'employe', ?2, 0,
+                 'Vend, encaisse, crée clients et articles.', ?3, ?4, ?5)",
+        params![role_employe_id, employe, now, now, origine],
     )?;
 
     // ---- Utilisateurs ----

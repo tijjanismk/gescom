@@ -1,13 +1,118 @@
 //! Les portes : qui a le droit de faire quoi.
 //!
-//! Ce fichier existait en v1 mais n'etait declare dans aucun `mod` —
-//! il ne compilait pas, et referencait un type `ErreurPermission`
-//! inexistant. Le controle reel se faisait au coup par coup dans les
-//! commandes, quand il se faisait. En monoposte, c'etait tolerable :
-//! une seule personne devant l'ecran. Des qu'un poste caisse parle au
-//! serveur par le reseau, ca ne l'est plus.
+//! ## Ce que c'etait
+//!
+//! Un `match` code en dur sur le NOM du role : patron peut tout,
+//! employe a une liste figee, lecture ne lit que. La colonne
+//! `role.permissions` existait en base et n'etait jamais lue. Ajouter
+//! un role — un caissier, un magasinier — demandait de recompiler, et
+//! donner une permission de plus a une seule personne etait impossible.
+//!
+//! ## Ce que c'est
+//!
+//! Les permissions vivent en base :
+//!
+//! - `role.permissions` — la liste du role, en JSON ;
+//! - `role.acces_total` — le role passe avant toute liste ;
+//! - `utilisateur_permission` — ce qu'on ajoute ou retire A UNE
+//!   PERSONNE, par-dessus son role.
+//!
+//! Le CATALOGUE, lui, reste dans le code : c'est la liste des
+//! permissions que les commandes verifient reellement. Une permission
+//! absente du catalogue est refusee, meme si quelqu'un l'a ecrite en
+//! base — une faute de frappe dans un role ne doit pas ouvrir une porte
+//! qui n'existe pas, ni en fermer une qu'on croyait ouverte.
+//!
+//! ## Liste blanche, toujours
+//!
+//! Une commande ajoutee demain est refusee par defaut aux roles
+//! restreints. L'inverse ouvrirait chaque nouveaute a tout le monde
+//! sans que personne ne le remarque.
+//!
+//! Les deux roles a `acces_total` sont l'exception assumee : sans eux,
+//! chaque nouvelle commande serait invisible au patron jusqu'a ce que
+//! quelqu'un pense a cocher une case.
 
+use std::collections::HashSet;
 use std::fmt;
+
+// =====================================================================
+//  LE CATALOGUE
+// =====================================================================
+
+/// Une permission, telle qu'un ecran doit la presenter.
+pub struct Permission {
+    /// Ce que le code verifie. Ne change jamais : il est ecrit en base.
+    pub code: &'static str,
+    /// Ce qu'un commercant lit.
+    pub libelle: &'static str,
+    /// Pour regrouper a l'ecran.
+    pub groupe: &'static str,
+}
+
+/// Toutes les permissions que les commandes verifient reellement.
+///
+/// Etablie en relevant les `r.ecriture(nom, permission, …)` du socle —
+/// pas en imaginant ce qui serait utile. Une permission qui ne figure
+/// dans aucune commande serait une case a cocher sans effet, et c'est
+/// pire que pas de case du tout.
+///
+/// ⚠️ Les LECTURES ne sont pas encore filtrees : `r.lecture(…)` ne
+/// demande aucune permission. N'importe quel utilisateur connecte peut
+/// donc tout lire. Le catalogue ne contient volontairement aucune
+/// permission en `:lire` tant que c'est vrai.
+pub const CATALOGUE: &[Permission] = &[
+    // --- Vente ---
+    Permission { code: "ventes:creer", libelle: "Enregistrer une vente", groupe: "Vente" },
+    Permission { code: "paiements:creer", libelle: "Encaisser un paiement", groupe: "Vente" },
+    Permission { code: "retours:creer", libelle: "Enregistrer un retour client", groupe: "Vente" },
+    Permission { code: "clients:creer", libelle: "Créer un client", groupe: "Vente" },
+    Permission { code: "clients:modifier", libelle: "Modifier une fiche client", groupe: "Vente" },
+    Permission { code: "creances:gerer", libelle: "Gérer les créances et relances", groupe: "Vente" },
+    // --- Pieces ---
+    Permission { code: "pieces:creer", libelle: "Créer et convertir des pièces", groupe: "Pièces" },
+    Permission { code: "avoirs:gerer", libelle: "Gérer les avoirs", groupe: "Pièces" },
+    Permission { code: "livraisons:enregistrer", libelle: "Enregistrer livraisons et réceptions", groupe: "Pièces" },
+    Permission { code: "modeles:gerer", libelle: "Modifier les modèles de documents", groupe: "Pièces" },
+    // --- Caisse ---
+    Permission { code: "caisse:mouvementer", libelle: "Ouvrir la caisse et saisir des mouvements", groupe: "Caisse" },
+    Permission { code: "caisse:configurer", libelle: "Configurer le mode de caisse", groupe: "Caisse" },
+    Permission { code: "cheques:gerer", libelle: "Gérer les chèques", groupe: "Caisse" },
+    // --- Stock ---
+    Permission { code: "articles:creer", libelle: "Créer et modifier des articles", groupe: "Stock" },
+    Permission { code: "stock:transferer", libelle: "Transférer entre dépôts", groupe: "Stock" },
+    Permission { code: "depots:gerer", libelle: "Gérer les dépôts", groupe: "Stock" },
+    // --- Achat ---
+    Permission { code: "achats:creer", libelle: "Enregistrer un achat", groupe: "Achat" },
+    Permission { code: "fournisseurs:regler", libelle: "Régler un fournisseur", groupe: "Achat" },
+    // --- Administration ---
+    Permission { code: "utilisateurs:gerer", libelle: "Gérer les utilisateurs et les rôles", groupe: "Administration" },
+    Permission { code: "parametres:modifier", libelle: "Modifier les paramètres", groupe: "Administration" },
+    Permission { code: "postes:gerer", libelle: "Gérer les postes du réseau", groupe: "Administration" },
+    Permission { code: "sauvegarde:lancer", libelle: "Lancer une sauvegarde", groupe: "Administration" },
+    Permission { code: "chantiers:gerer", libelle: "TVA, irrécouvrables, expiration des avoirs", groupe: "Administration" },
+];
+
+/// Cette permission existe-t-elle ?
+///
+/// Tout ce qui vient de la base passe par ici. Une faute de frappe dans
+/// un role ne doit ni ouvrir une porte qui n'existe pas, ni laisser
+/// croire qu'une porte est ouverte.
+pub fn existe(code: &str) -> bool {
+    CATALOGUE.iter().any(|p| p.code == code)
+}
+
+/// Le nom du role qui ne peut jamais etre enferme dehors.
+///
+/// Il passe avant toute lecture de base : meme si les permissions
+/// etaient corrompues, meme si quelqu'un lui retirait tout, il entre.
+/// Sans cette garantie, une mauvaise manipulation sur les roles rendrait
+/// l'application definitivement inadministrable.
+pub const SUPERADMIN: &str = "superadmin";
+
+// =====================================================================
+//  L'ERREUR
+// =====================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErreurPermission {
@@ -31,81 +136,111 @@ pub struct ContexteUtilisateur {
     pub role: String,
 }
 
-/// Le patron peut tout. L'employe vend, encaisse et lit le stock. Le
-/// role lecture ne fait que lire.
+// =====================================================================
+//  LA VERIFICATION
+// =====================================================================
+
+/// Tout ce que cette personne a le droit de faire.
 ///
-/// Une liste blanche, jamais une liste noire : une commande ajoutee
-/// demain est refusee par defaut aux roles restreints. L'inverse
-/// ouvrirait chaque nouveaute a tout le monde sans que personne ne le
-/// remarque.
+/// = les permissions de son role
+///   + celles qu'on lui a ajoutees personnellement
+///   − celles qu'on lui a retirees personnellement.
+///
+/// Le retrait l'emporte sur l'ajout : entre deux lectures possibles
+/// d'un reglage contradictoire, on choisit la plus fermee.
+///
+/// Un role a `acces_total` rend tout le catalogue, et les retraits
+/// personnels ne s'y appliquent pas — sinon on pourrait enfermer dehors
+/// le seul compte capable de reparer.
+pub fn permissions_de(
+    conn: &rusqlite::Connection,
+    utilisateur_id: &str,
+    role: &str,
+) -> HashSet<String> {
+    if role == SUPERADMIN {
+        return CATALOGUE.iter().map(|p| p.code.to_string()).collect();
+    }
+
+    let (liste_json, acces_total): (String, i64) = conn
+        .query_row(
+            "SELECT COALESCE(permissions, '[]'), COALESCE(acces_total, 0)
+             FROM role WHERE nom = ?1",
+            rusqlite::params![role],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap_or_else(|_| ("[]".to_string(), 0));
+
+    if acces_total != 0 {
+        return CATALOGUE.iter().map(|p| p.code.to_string()).collect();
+    }
+
+    let mut acquises: HashSet<String> = serde_json::from_str::<Vec<String>>(&liste_json)
+        .unwrap_or_default()
+        .into_iter()
+        // Filtre par le catalogue : une permission ecrite en base mais
+        // inconnue du code ne donne aucun droit.
+        .filter(|c| existe(c))
+        .collect();
+
+    // Les reglages personnels, par-dessus.
+    let mut ajouts: Vec<String> = Vec::new();
+    let mut retraits: Vec<String> = Vec::new();
+    if let Ok(mut st) = conn.prepare(
+        "SELECT permission, accorde FROM utilisateur_permission
+         WHERE utilisateur_id = ?1",
+    ) {
+        if let Ok(lignes) = st.query_map(rusqlite::params![utilisateur_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        }) {
+            for (code, accorde) in lignes.flatten() {
+                if !existe(&code) {
+                    continue;
+                }
+                if accorde != 0 {
+                    ajouts.push(code);
+                } else {
+                    retraits.push(code);
+                }
+            }
+        }
+    }
+    for c in ajouts {
+        acquises.insert(c);
+    }
+    for c in &retraits {
+        acquises.remove(c);
+    }
+
+    acquises
+}
+
+/// Cette personne peut-elle faire cela ?
+///
+/// `conn` parce que les permissions vivent en base : les garder dans le
+/// code obligeait a recompiler pour ajouter un role, et rendait
+/// impossible d'accorder une permission a une seule personne.
 pub fn verifier_permission(
+    conn: &rusqlite::Connection,
     contexte: &ContexteUtilisateur,
     permission: &str,
 ) -> Result<(), ErreurPermission> {
-    let autorise = match contexte.role.as_str() {
-        "patron" => true,
-        "employe" => matches!(
-            permission,
-            "ventes:creer"
-                | "ventes:lire"
-                | "paiements:creer"
-                | "clients:creer"
-                // Modifier une fiche client : en monoposte l'employe le
-                // fait deja, sans aucun controle. Le lui refuser en
-                // reseau ferait deux applications differentes selon le
-                // mode, ce que personne ne comprendrait.
-                | "clients:modifier"
-                | "articles:creer"
-                | "clients:lire"
-                | "stock:lire"
-                | "caisse:ouvrir"
-                | "caisse:mouvementer"
-                | "pieces:creer"
-                | "pieces:lire"
-                | "retours:creer"
-        ),
-        "lecture" => permission.ends_with(":lire"),
-        _ => false,
+    let refus = || ErreurPermission::Refuse {
+        role: contexte.role.clone(),
+        permission: permission.to_string(),
     };
 
-    if autorise {
+    // Une permission hors catalogue est refusee a tout le monde, y
+    // compris au superadmin : elle ne correspond a aucune commande, la
+    // laisser passer masquerait une faute de frappe cote code.
+    if !existe(permission) {
+        return Err(refus());
+    }
+    if contexte.role == SUPERADMIN {
+        return Ok(());
+    }
+    if permissions_de(conn, &contexte.id, &contexte.role).contains(permission) {
         Ok(())
     } else {
-        Err(ErreurPermission::Refuse {
-            role: contexte.role.clone(),
-            permission: permission.to_string(),
-        })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn ctx(role: &str) -> ContexteUtilisateur {
-        ContexteUtilisateur { id: "u".into(), role: role.into() }
-    }
-
-    #[test]
-    fn le_patron_peut_tout() {
-        assert!(verifier_permission(&ctx("patron"), "caisse:cloturer").is_ok());
-    }
-
-    #[test]
-    fn l_employe_ne_cloture_pas() {
-        assert!(verifier_permission(&ctx("employe"), "caisse:cloturer").is_err());
-    }
-
-    #[test]
-    fn la_lecture_ne_vend_pas() {
-        assert!(verifier_permission(&ctx("lecture"), "ventes:creer").is_err());
-        assert!(verifier_permission(&ctx("lecture"), "ventes:lire").is_ok());
-    }
-
-    /// Une permission inventee doit etre refusee, pas acceptee par
-    /// defaut. C'est ce test qui garde la liste blanche blanche.
-    #[test]
-    fn une_permission_inconnue_est_refusee() {
-        assert!(verifier_permission(&ctx("employe"), "compta:cloturer").is_err());
+        Err(refus())
     }
 }
