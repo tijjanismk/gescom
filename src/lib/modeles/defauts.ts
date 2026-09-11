@@ -17,6 +17,7 @@ import type {
   ContenuModele,
   FormatValeur,
   Modele,
+  ElementPied,
 } from "./types";
 
 let compteur = 0;
@@ -53,6 +54,185 @@ const PAGE = {
 
 function contenu(blocs: Bloc[], page = PAGE): ContenuModele {
   return { version: 1, page, blocs };
+}
+
+// =====================================================================
+//  Un element du pied de page
+// =====================================================================
+
+function elementPied(
+  genre: ElementPied["genre"],
+  xMm: number,
+  yMm: number,
+  largeurMm: number,
+  hauteurMm: number,
+  extra: Partial<ElementPied> = {},
+): ElementPied {
+  return {
+    id: id("e"),
+    genre,
+    xMm,
+    yMm,
+    largeurMm,
+    hauteurMm,
+    contenu: "",
+    image: "pied",
+    alignement: "gauche",
+    taillePt: 8,
+    gras: false,
+    italique: false,
+    ...extra,
+  };
+}
+
+
+// =====================================================================
+//  Facture « classique » — la mise en page des logiciels de gestion
+// =====================================================================
+//
+// Celle que reconnaissent les commercants qui ont deja utilise un
+// logiciel de gestion : logo et societe a gauche, bloc client encadre a
+// droite, colonnes avec le taux ET le montant de TVA ligne par ligne,
+// puis un recapitulatif de TVA sous les totaux.
+//
+// Elle demande plus de place que la facture standard — c'est le prix
+// d'un document qu'un comptable peut verifier sans poser de question.
+
+function factureClassique(): Bloc[] {
+  return [
+    {
+      id: id("b"),
+      type: "entete",
+      visible: true,
+      image: "logo",
+      hauteurMm: 22,
+      afficherSociete: true,
+      alignement: "gauche",
+    },
+    {
+      id: id("b"),
+      type: "titre",
+      visible: true,
+      texte: "{{piece.type_libelle}}  N° {{piece.numero}}",
+      alignement: "droite",
+      taillePt: 15,
+      trait: true,
+    },
+    // Le bloc client, encadre et seul sur sa ligne : c'est lui qu'on
+    // cherche des yeux quand on recoit la facture.
+    {
+      id: id("b"),
+      type: "champs",
+      visible: true,
+      titre: "CLIENT",
+      colonnes: 2,
+      items: [
+        champ("Nom", "tiers.nom", "texte", false),
+        champ("Date", "piece.date_piece", "date", false),
+        champ("Code", "tiers.code"),
+        champ("Échéance", "piece.date_echeance", "date"),
+        champ("Adresse", "tiers.adresse"),
+        champ("Établi par", "piece.auteur_nom"),
+        champ("Téléphone", "tiers.telephone"),
+        champ("NIF", "tiers.nif"),
+      ],
+    },
+    // Le taux ET le montant de TVA par ligne : sans les deux, un
+    // controleur ne peut pas refaire le calcul, et c'est justement ce
+    // qu'il vient faire.
+    {
+      id: id("b"),
+      type: "tableau",
+      visible: true,
+      source: "lignes",
+      zebre: false,
+      siVide: "Aucune ligne sur cette pièce.",
+      colonnes: [
+        colonne("Réf.", "article_code", 10, "gauche", "texte"),
+        colonne("Désignation", "article_nom", 28, "gauche", "texte"),
+        colonne("Qté", "quantite", 8, "droite", "nombre"),
+        colonne("Unité", "unite_libelle", 9, "gauche", "texte"),
+        colonne("P.U. HT", "prix_unitaire", 13, "droite", "montant"),
+        colonne("Rem.", "remise_pct", 7, "droite", "nombre"),
+        colonne("TVA", "taux_tva", 7, "droite", "nombre"),
+        colonne("Montant HT", "montant_ht", 18, "droite", "montant"),
+      ],
+    },
+    {
+      id: id("b"),
+      type: "totaux",
+      visible: true,
+      accentuerDernier: true,
+      items: [
+        champ("Total HT", "totaux.total_ht", "montant", false),
+        champ("Remise", "totaux.remise", "montant"),
+        champ("Total TVA", "totaux.total_tva", "montant", false),
+        champ("Total TTC", "totaux.total_ttc", "montant", false),
+        champ("Déjà payé", "totaux.total_paye", "montant"),
+        champ("NET À PAYER", "totaux.reste", "montant", false),
+      ],
+    },
+    {
+      id: id("b"),
+      type: "texte",
+      visible: true,
+      contenu:
+        "Arrêtée la présente facture à la somme de {{totaux.total_en_lettres}}.",
+      alignement: "gauche",
+      taillePt: 9.5,
+      italique: true,
+      cadre: true,
+    },
+    {
+      id: id("b"),
+      type: "texte",
+      visible: true,
+      contenu: "{{piece.note}}",
+      alignement: "gauche",
+      taillePt: 9,
+      italique: false,
+      cadre: false,
+    },
+    {
+      id: id("b"),
+      type: "signatures",
+      visible: true,
+      gauche: "Le client",
+      droite: "Pour {{societe.nom}}",
+    },
+    // Le pied de page, DESSINE : trois zones cote a cote, placees au
+    // millimetre. Un empilement vertical ne saurait pas faire ca.
+    {
+      id: id("b"),
+      type: "pied_page",
+      visible: true,
+      hauteurMm: 22,
+      trait: true,
+      elements: [
+        elementPied("image", 0, 1, 45, 18, { image: "pied" }),
+        elementPied("texte", 48, 2, 96, 14, {
+          contenu:
+            "{{societe.nom}} — {{societe.adresse}}\n"
+            + "Tél. {{societe.telephone}} — {{societe.email}}\n"
+            + "NIF {{societe.nif}} — RCCM {{societe.rccm}}",
+          alignement: "centre",
+          taillePt: 7.5,
+        }),
+        elementPied("texte", 146, 2, 40, 8, {
+          contenu: "{{piece.numero}}",
+          alignement: "droite",
+          taillePt: 7.5,
+          gras: true,
+        }),
+        elementPied("texte", 146, 10, 40, 8, {
+          contenu: "Marchandise vendue ni reprise ni échangée.",
+          alignement: "droite",
+          taillePt: 6.5,
+          italique: true,
+        }),
+      ],
+    },
+  ];
 }
 
 // =====================================================================
@@ -561,6 +741,7 @@ function ticket(): Bloc[] {
 
 /** Identifiants stables : ce sont eux que « Réinitialiser » retrouve. */
 export const ID_FACTURE_A4 = "std-facture-a4";
+export const ID_FACTURE_CLASSIQUE = "std-facture-classique";
 export const ID_FACTURE_T80 = "std-facture-t80";
 export const ID_BON_SORTIE = "std-bon-sortie";
 export const ID_RECU = "std-recu-paiement";
@@ -582,6 +763,14 @@ export function modelesParDefaut(): Modele[] {
       nom: "Facture A4 — standard",
       format: "a4",
       contenu: contenu(facturePapier()),
+    },
+    {
+      ...commun,
+      id: ID_FACTURE_CLASSIQUE,
+      genre: "facture",
+      nom: "Facture A4 — classique (TVA détaillée)",
+      format: "a4",
+      contenu: contenu(factureClassique()),
     },
     {
       ...commun,

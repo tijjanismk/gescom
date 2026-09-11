@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { appeler as invoke } from "@/lib/pont";
+import { EditeurPiedPage } from "@/components/EditeurPiedPage";
 
 import {
   CHAMPS_PAR_GENRE, CHAMPS_PIECE, CHAMPS_SOCIETE, CHAMPS_TOTAUX,
@@ -50,6 +51,7 @@ const PALETTE: { type: TypeBloc; nom: string; aide: string }[] = [
   { type: "totaux", nom: "Totaux", aide: "Bloc de totaux aligné à droite" },
   { type: "texte", nom: "Texte", aide: "Mention libre, avec {{champs}}" },
   { type: "signatures", nom: "Signatures", aide: "Deux traits et deux noms" },
+  { type: "pied_page", nom: "Pied de page", aide: "Bande dessinée, en bas de chaque page" },
   { type: "trait", nom: "Trait", aide: "Séparateur horizontal" },
   { type: "espace", nom: "Espace", aide: "Blanc vertical" },
   { type: "saut_page", nom: "Saut de page", aide: "Force une nouvelle page" },
@@ -97,6 +99,11 @@ function blocNeuf(type: TypeBloc, genre: GenreDocument): Bloc {
       return { ...base, type, contenu: "Merci de votre confiance.", alignement: "centre", taillePt: 9, italique: true, cadre: false };
     case "signatures":
       return { ...base, type, gauche: "Le client", droite: "Pour l'entreprise" };
+    case "pied_page":
+      // Vide et 20 mm : on ne devine pas ce que le commercant veut y
+      // mettre, mais on lui donne tout de suite une bande a la bonne
+      // taille pour un cachet.
+      return { ...base, type, hauteurMm: 20, trait: true, elements: [] };
     case "espace":
       return { ...base, type, hauteurMm: 5 };
     default:
@@ -113,6 +120,7 @@ function resumeBloc(b: Bloc): string {
     case "totaux": return `${b.items.length} total/totaux`;
     case "texte": return b.contenu.slice(0, 40).replace(/\n/g, " ");
     case "signatures": return [b.gauche, b.droite].filter(Boolean).join(" · ") || "vides";
+    case "pied_page": return `${b.hauteurMm} mm, ${b.elements.length} élément(s)`;
     case "espace": return `${b.hauteurMm} mm`;
     default: return "";
   }
@@ -633,6 +641,8 @@ export function Modeles() {
                 bloc={selection}
                 champsDispo={champsDispo}
                 onChange={(patch) => majBloc(selection.id, patch)}
+                format={modele?.format ?? "a4"}
+                images={images}
               />
             ) : (
               <p className="text-xs text-muted-foreground">
@@ -802,11 +812,15 @@ function ChoixChemin({
 }
 
 function ProprietesBloc({
-  bloc, champsDispo, onChange,
+  bloc, champsDispo, onChange, format, images,
 }: {
   bloc: Bloc;
   champsDispo: ChampDisponible[];
   onChange: (patch: Record<string, unknown>) => void;
+  /** Le format décide de la largeur utile du pied, en millimètres. */
+  format: string;
+  /** Pour montrer dans l'éditeur ce qui sera réellement imprimé. */
+  images: { logo?: string | null; entete?: string | null; pied?: string | null };
 }) {
   const titre = (
     <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -931,6 +945,24 @@ function ProprietesBloc({
                    onChange={(e) => onChange({ cadre: e.target.checked })} />
             Encadré
           </label>
+        </div>
+      );
+
+    case "pied_page":
+      return (
+        <div className="space-y-2">
+          {titre}
+          <p className="text-[11px] text-muted-foreground">
+            Le pied se DESSINE : les autres blocs s'enchaînent de haut en
+            bas, celui-ci a une hauteur fixe et on y pose les choses côte
+            à côte. Il s'imprime en bas de chaque page.
+          </p>
+          <EditeurPiedPage
+            bloc={bloc}
+            format={format}
+            images={images}
+            onChange={onChange}
+          />
         </div>
       );
 

@@ -273,6 +273,48 @@ function rendreBloc(
       return `<section class="bloc sigs">${c(bloc.gauche)}${c(bloc.droite)}</section>`;
     }
 
+    case "pied_page": {
+      // Une BANDE, pas un bloc dans le flux : le pied de page doit
+      // rester en bas de la feuille, que la facture ait trois lignes ou
+      // trente. `position: fixed` a l'impression le repete sur chaque
+      // page — c'est exactement ce qu'on veut d'un cachet et de
+      // mentions legales.
+      const elements = bloc.elements
+        .map((e) => {
+          const pose =
+            `position:absolute;left:${e.xMm}mm;top:${e.yMm}mm;` +
+            `width:${e.largeurMm}mm;height:${e.hauteurMm}mm;`;
+
+          if (e.genre === "trait") {
+            return `<div style="${pose}border-top:.3mm solid #000"></div>`;
+          }
+          if (e.genre === "image") {
+            const src =
+              e.image === "pied"
+                ? images.pied
+                : e.image === "logo"
+                  ? images.logo
+                  : images.entete;
+            if (!src) return "";
+            // `contain` : une image trop grande doit rentrer dans la
+            // case qu'on lui a donnee, jamais deborder sur le corps.
+            return `<img src="${src}" alt="" style="${pose}object-fit:contain;`
+              + `object-position:${ALIGN[e.alignement]} center">`;
+          }
+          const style =
+            `${pose}font-size:${e.taillePt}pt;text-align:${ALIGN[e.alignement]};` +
+            `${e.gras ? "font-weight:700;" : ""}${e.italique ? "font-style:italic;" : ""}` +
+            `overflow:hidden;`;
+          return `<div style="${style}">${esc(
+            interpoler(e.contenu, donnees, devise),
+          )}</div>`;
+        })
+        .join("");
+
+      return `<footer class="pied${bloc.trait ? " pied-trait" : ""}"
+                      style="height:${bloc.hauteurMm}mm">${elements}</footer>`;
+    }
+
     case "trait":
       return `<hr class="bloc sep">`;
 
@@ -291,6 +333,21 @@ function rendreBloc(
 //  Feuille de style
 // =====================================================================
 
+/**
+ * La hauteur a reserver en bas de page, marge comprise.
+ *
+ * Zero s'il n'y a pas de pied : on ne reserve pas une place que
+ * personne n'occupe.
+ */
+function hauteurDuPied(modele: Modele): number {
+  const pied = modele.contenu.blocs.find(
+    (b) => b.type === "pied_page" && b.visible,
+  );
+  if (!pied || pied.type !== "pied_page") return 0;
+  // 4 mm de respiration : colle au pied, le tableau parait deborder.
+  return pied.hauteurMm + 4;
+}
+
 const LARGEUR_MM: Record<string, number> = {
   a4: 210,
   a5: 148,
@@ -302,6 +359,7 @@ function styles(modele: Modele, apercu: boolean): string {
   const { page } = modele.contenu;
   const thermique = modele.format.startsWith("thermique");
   const largeur = LARGEUR_MM[modele.format] ?? 210;
+  const hauteurPied = hauteurDuPied(modele);
   // Sur un rouleau, la hauteur est libre : `auto`. Une hauteur fixe
   // couperait le ticket au milieu d'une ligne ou cracherait du papier
   // blanc, selon le sens de l'erreur.
@@ -324,6 +382,17 @@ function styles(modele: Modele, apercu: boolean): string {
     ${apercu ? `width:${largeur}mm;padding:${marge}mm;background:#fff;margin:0 auto;` : ""}
   }
   .bloc { margin-bottom: 3mm; }
+  /* Le pied occupe sa bande, et rien d'autre : les elements y sont
+     places au millimetre depuis son coin haut-gauche. */
+  .pied { position: relative; width: 100%; }
+  .pied-trait { border-top: .3mm solid #000; padding-top: 2mm; }
+  @media print {
+    .pied { position: fixed; bottom: 0; left: 0; right: 0; }
+    /* Le corps lui laisse la place. Sans cette reserve, les dernieres
+       lignes du tableau s'impriment SOUS le pied : a l'ecran tout va
+       bien, c'est sur le papier qu'on decouvre le probleme. */
+    body { padding-bottom: ${hauteurPied}mm; }
+  }
   .entete .logo { display: block; margin-bottom: 2mm; }
   .entete[style*="center"] .logo { margin-left: auto; margin-right: auto; }
   .entete[style*="right"] .logo { margin-left: auto; }

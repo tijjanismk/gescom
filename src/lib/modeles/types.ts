@@ -78,6 +78,36 @@ export interface Champ {
   masquerSiVide: boolean;
 }
 
+/**
+ * Un élément posé librement dans le pied de page.
+ *
+ * Les autres blocs s'enchaînent de haut en bas : c'est ce qu'il faut
+ * pour un corps de facture, dont la hauteur dépend du nombre de lignes.
+ * Un pied de page, lui, a une hauteur FIXE et connue — on y place les
+ * choses côte à côte : le cachet à gauche, les mentions légales au
+ * centre, le numéro de page à droite.
+ *
+ * D'où des coordonnées en millimètres plutôt qu'un empilement. Les
+ * millimètres et non les pixels, parce que la cible est du papier.
+ */
+export interface ElementPied {
+  id: string;
+  genre: "texte" | "image" | "trait";
+  /** Depuis le coin haut-gauche de la bande, en millimètres. */
+  xMm: number;
+  yMm: number;
+  largeurMm: number;
+  hauteurMm: number;
+  /** Pour `texte` — interpolable, comme les blocs texte. */
+  contenu: string;
+  /** Pour `image` — quelle image de la société poser ici. */
+  image: "pied" | "logo" | "entete";
+  alignement: Alignement;
+  taillePt: number;
+  gras: boolean;
+  italique: boolean;
+}
+
 interface BlocBase {
   id: string;
   /** Décoché, le bloc reste dans le modèle mais ne s'imprime pas. On
@@ -134,6 +164,14 @@ export type Bloc =
       type: "signatures";
       gauche: string;
       droite: string;
+    })
+  | (BlocBase & {
+      type: "pied_page";
+      /** Hauteur de la bande réservée, en bas de chaque page. */
+      hauteurMm: number;
+      elements: ElementPied[];
+      /** Un filet au-dessus du pied, pour le détacher du corps. */
+      trait: boolean;
     })
   | (BlocBase & { type: "trait" })
   | (BlocBase & { type: "espace"; hauteurMm: number })
