@@ -384,6 +384,58 @@ fn cles_de_compteur(base: &mut Base) {
     );
 }
 
+/// Le stock est une CONSEQUENCE de ses mouvements, jamais ecrit en
+/// direct (voir livraison-stock.md). `mouvement_stock` n'a ni UPDATE ni
+/// DELETE : c'est ce qui rend un simple `AFTER INSERT` suffisant sur
+/// les deux moteurs.
+///
+/// Ce declencheur existait deja cote SQLite, mais seulement dans
+/// `persistance/v2.rs` — le chemin de la fenetre, jamais rejoue par ce
+/// module. Une base amorcee UNIQUEMENT par `Base` (tous les tests, et
+/// demain le serveur) n'avait donc aucun declencheur, et `stock_depot`
+/// restait a zero apres chaque mouvement — une base qui semble vendre
+/// mais dont le stock ne bouge jamais. Trouve en ecrivant les
+/// scenarios de `creer_vente_sur_base` / `valider_facture_sur_base`.
+///
+/// PostgreSQL n'en avait pas non plus : `donnees_demo` ecrivait
+/// `stock_depot` a la main pour compenser (voir l'historique de ce
+/// fichier). Poser le meme declencheur sur les deux moteurs supprime
+/// ce contournement — et le risque qu'un futur point d'ecriture
+/// PostgreSQL oublie de le refaire.
+fn trigger_stock(base: &mut Base) {
+    if base.est_postgres() {
+        let _ = base.executer_lot(
+            "CREATE OR REPLACE FUNCTION gescom_stock_suit_les_mouvements()
+             RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN
+                 INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+                 VALUES (md5(random()::text || clock_timestamp()::text),
+                         NEW.article_id, NEW.depot_id, NEW.quantite_delta)
+                 ON CONFLICT (article_id, depot_id)
+                 DO UPDATE SET quantite = stock_depot.quantite + NEW.quantite_delta;
+                 RETURN NEW;
+             END;
+             $$;
+             DROP TRIGGER IF EXISTS stock_suit_les_mouvements ON mouvement_stock;
+             CREATE TRIGGER stock_suit_les_mouvements
+                 AFTER INSERT ON mouvement_stock
+                 FOR EACH ROW EXECUTE FUNCTION gescom_stock_suit_les_mouvements();",
+        );
+    } else {
+        let _ = base.executer_lot(
+            "CREATE TRIGGER IF NOT EXISTS stock_suit_les_mouvements
+             AFTER INSERT ON mouvement_stock
+             BEGIN
+               INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+               VALUES (lower(hex(randomblob(16))), NEW.article_id, NEW.depot_id,
+                       NEW.quantite_delta)
+               ON CONFLICT(article_id, depot_id)
+               DO UPDATE SET quantite = quantite + NEW.quantite_delta;
+             END;",
+        );
+    }
+}
+
 /// Amorce une base neuve. Ne fait rien si elle ne l'est pas.
 ///
 /// Rend `true` si l'amorcage a eu lieu.
@@ -393,6 +445,7 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
     colonnes_roles(base);
     etiquette_magasin(base);
     cloisonnement(base);
+    trigger_stock(base);
 
     if !base_est_vide(base)? {
         return Ok(false);
@@ -616,24 +669,9 @@ pub fn donnees_demo(base: &mut Base) -> Resultat<(usize, usize)> {
             ],
         )?;
 
-        // Le declencheur `stock_suit_les_mouvements` n'existe que cote
-        // SQLite : il vient des migrations v2, pas du schema. Sur
-        // PostgreSQL on pose donc le compteur ici, a partir du meme
-        // mouvement — la somme et le compteur restent egaux.
-        if base.est_postgres() {
-            base.executer(
-                "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-                 VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT (article_id, depot_id)
-                 DO UPDATE SET quantite = stock_depot.quantite + ?4",
-                &parametres![
-                    uuid::Uuid::new_v4().to_string(),
-                    article_id,
-                    depot.clone(),
-                    *stock
-                ],
-            )?;
-        }
+        // `stock_suit_les_mouvements` (pose par `trigger_stock`, sur les
+        // deux moteurs) met `stock_depot` a jour tout seul : plus besoin
+        // de l'ecrire ici a la main, ni de distinguer les moteurs.
     }
 
     Ok((nb_articles, clients.len()))

@@ -1275,3 +1275,743 @@ pub fn lire_lignes_raw_sur(
     )
     .map_err(|e| e.0)
 }
+
+/// Un client est-il le client de passage ? `client` est cloisonnee.
+fn est_client_generique_sur(base: &mut Base, dossier: &str, client_id: &str) -> bool {
+    base.lire_une(
+        "SELECT est_generique FROM client WHERE id = ?1 AND dossier_id = ?2",
+        &parametres![client_id, dossier],
+        |r| r.get::<i64>(0),
+    )
+    .ok()
+    .flatten()
+    .map(|v| v != 0)
+    .unwrap_or(false)
+}
+
+// =====================================================================
+//  LA VENTE ET LA FACTURE, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// Le morceau annonce a part dans ETAPES.md : « 280 et 290 lignes de
+// logique d'argent, ou une erreur ne se corrige pas par un clic ».
+// Le texte suit `creer_vente_sur` / `valider_facture_sur`
+// (rusqlite) pas a pas — meme ordre d'ecriture, memes refus, memes
+// messages — avec deux differences systematiques :
+//
+// 1. Chaque table de TABLES_CLOISONNEES touchee porte son
+//    `dossier_id`, lu UNE FOIS dans `dossier` avant la transaction et
+//    clone a chaque parametre : la connexion peut changer de dossier
+//    entre deux appels, pas au milieu d'une vente.
+// 2. `article` et `unite_vente` n'en portent pas (D3) : aucun filtre
+//    sur elles, comme partout ailleurs dans le portage.
+//
+// Le filet est le meme esprit que `tests_multi_depot` cote SQLite :
+// des scenarios qui verifient ce que le SQL fait REELLEMENT a la base,
+// pas seulement que la fonction rend `Ok`.
+
+pub fn creer_vente_sur_base(
+    base: &mut Base,
+    client_id: String,
+    depot_id: String,
+    mode_reglement: String,
+    lignes: Vec<ParamsLigneInput>,
+    utilisateur_role: Option<String>,
+    montant_paye: Option<i64>,
+    mode_paiement: Option<String>,
+    avoir_montant: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let role = utilisateur_role.as_deref().unwrap_or("employe");
+    let dossier = base.dossier().to_string();
+    let auteur_id = id_utilisateur_par_role_sur(base, role);
+    let now = maintenant_iso();
+    let vente_id = uuid::Uuid::new_v4().to_string();
+
+    let client_generique = est_client_generique_sur(base, &dossier, &client_id);
+
+    // Un encaissement reel exige une caisse ouverte : sans session,
+    // l'argent entre dans le tiroir sans `mouvement_caisse`, et la
+    // cloture du soir affiche un excedent inexplicable. Verifie AVANT
+    // la transaction, comme les autres refus — rien a defaire.
+    if montant_paye.unwrap_or(0) > 0 {
+        crate::caisses::exiger_sur(base, None)?;
+    }
+
+    // D40 — refus AVANT d'ouvrir la transaction.
+    if mode_reglement == "credit" && client_generique {
+        return Err(
+            "Pas de crédit pour un client comptant. \
+             Créer ou sélectionner le client d'abord."
+                .to_string(),
+        );
+    }
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+
+    tx.executer(
+        "INSERT INTO vente
+         (id, client_id, depot_id, mode_reglement, auteur_id, statut,
+          date_vente, cree_le, modifie_le, cree_par, modifie_par, origine, dossier_id)
+         VALUES (?1,?2,?3,?4,?5,'creance_ouverte',?6,?7,?8,?9,?10,'app',?11)",
+        &parametres![
+            vente_id.clone(),
+            client_id.clone(),
+            depot_id.clone(),
+            mode_reglement.clone(),
+            auteur_id.clone(),
+            now.clone(),
+            now.clone(),
+            now.clone(),
+            auteur_id.clone(),
+            auteur_id.clone(),
+            dossier.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    let mut total: i64 = 0;
+
+    for ligne in &lignes {
+        let ligne_id = uuid::Uuid::new_v4().to_string();
+        let montant = (ligne.prix_pratique as f64 * ligne.quantite).round() as i64;
+        let taux_tva = ligne.taux_tva.unwrap_or(0.0);
+        // TVA incluse dans le prix TTC — extraction : montant × taux / (1 + taux)
+        let montant_tva = if taux_tva > 0.0 {
+            (montant as f64 * taux_tva / (1.0 + taux_tva)).round() as i64
+        } else {
+            0
+        };
+        total += montant;
+
+        // Decouvert : recalcule ICI, dans la transaction, jamais pris
+        // du POS — meme raisonnement que la version SQLite.
+        let qte_base = ligne.quantite * ligne.facteur;
+        let dispo: f64 = tx
+            .lire_une(
+                "SELECT COALESCE(quantite, 0) FROM stock_depot
+                 WHERE article_id = ?1 AND depot_id = ?2 AND dossier_id = ?3",
+                &parametres![
+                    ligne.article_id.clone(),
+                    ligne.depot_source_id.clone(),
+                    dossier.clone()
+                ],
+                |r| r.get::<f64>(0),
+            )
+            .ok()
+            .flatten()
+            .unwrap_or(0.0);
+        let a_decouvert = crate::coeur::stock::est_a_decouvert(dispo, qte_base)
+            || ligne.a_decouvert.unwrap_or(false);
+
+        tx.executer(
+            "INSERT INTO ligne_vente
+             (id, vente_id, article_id, unite_vente_id, depot_source_id,
+              source_approvisionnement, quantite, prix_reference, prix_pratique,
+              taux_tva, montant_tva, vente_a_decouvert, cree_le, origine, dossier_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,'app',?14)",
+            &parametres![
+                ligne_id.clone(),
+                vente_id.clone(),
+                ligne.article_id.clone(),
+                ligne.unite_vente_id.clone(),
+                ligne.depot_source_id.clone(),
+                ligne.source_approvisionnement.clone(),
+                ligne.quantite,
+                ligne.prix_reference,
+                ligne.prix_pratique,
+                taux_tva,
+                montant_tva,
+                a_decouvert as i64,
+                now.clone(),
+                dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+
+        // Le stock suit desormais son mouvement : le declencheur cote
+        // SQLite (ou l'ecriture directe cote PostgreSQL, voir
+        // `donnees_demo`) met le compteur a jour dans la meme
+        // transaction. L'ecrire ici le compterait deux fois.
+        tx.executer(
+            "INSERT INTO mouvement_stock
+             (id, article_id, depot_id, type_mouvement, quantite_delta,
+              operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+             VALUES (?1,?2,?3,'vente',?4,?5,?6,?7,?8,?9,'app',?10)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                ligne.article_id.clone(),
+                ligne.depot_source_id.clone(),
+                -qte_base,
+                vente_id.clone(),
+                auteur_id.clone(),
+                now.clone(),
+                now.clone(),
+                auteur_id.clone(),
+                dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+
+        // §7 — Tracer la remise. Non bloquant, comme la version SQLite.
+        if ligne.prix_pratique < ligne.prix_reference {
+            let _ = tx.executer(
+                "INSERT INTO journal
+                 (id, type_evenement, entite_type, entite_id, auteur_id,
+                  ancien_valeur, nouveau_valeur, origine, date_evenement, dossier_id)
+                 VALUES (?1,'remise_accordee','ligne_vente',?2,?3,?4,?5,'app',?6,?7)",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(),
+                    ligne_id,
+                    auteur_id.clone(),
+                    ligne.prix_reference.to_string(),
+                    ligne.prix_pratique.to_string(),
+                    now.clone(),
+                    dossier.clone()
+                ],
+            );
+        }
+    }
+
+    // =================================================================
+    //  Reglement — DANS la transaction. Une coupure au milieu
+    //  laisserait le stock sorti et la vente en creance ouverte alors
+    //  que le client a paye.
+    // =================================================================
+    let mut total_regle: i64 = 0;
+
+    // ---- Avoirs (du plus ancien au plus recent) ----
+    let avoir_demande = if client_generique {
+        0
+    } else {
+        avoir_montant.unwrap_or(0).min(total)
+    };
+    if avoir_demande > 0 {
+        let avoirs: Vec<(String, i64, Option<String>)> = tx
+            .lire_plusieurs(
+                "SELECT id, montant, piece_id FROM avoir
+                 WHERE client_id = ?1 AND statut = 'ouvert' AND dossier_id = ?2
+                 ORDER BY cree_le ASC",
+                &parametres![client_id.clone(), dossier.clone()],
+                |r| {
+                    Ok((
+                        r.get::<String>(0)?,
+                        r.get::<i64>(1)?,
+                        r.get::<Option<String>>(2)?,
+                    ))
+                },
+            )
+            .map_err(|e| e.0)?;
+
+        let mut reste = avoir_demande;
+        for (avoir_id, montant_avoir, piece_avoir) in avoirs {
+            if reste <= 0 {
+                break;
+            }
+            tx.executer(
+                "UPDATE avoir SET statut = 'consomme', vente_utilisation_id = ?1
+                 WHERE id = ?2 AND dossier_id = ?3",
+                &parametres![vente_id.clone(), avoir_id, dossier.clone()],
+            )
+            .map_err(|e| e.0)?;
+
+            if montant_avoir > reste {
+                // Solde non consomme : nouvel avoir ouvert. `piece_id`
+                // herite : l'AVC d'origine continue d'afficher le
+                // credit restant.
+                tx.executer(
+                    "INSERT INTO avoir
+                     (id, client_id, piece_id, montant, statut, cree_le, origine, dossier_id)
+                     VALUES (?1,?2,?3,?4,'ouvert',?5,'avoir_solde',?6)",
+                    &parametres![
+                        uuid::Uuid::new_v4().to_string(),
+                        client_id.clone(),
+                        piece_avoir,
+                        montant_avoir - reste,
+                        now.clone(),
+                        dossier.clone()
+                    ],
+                )
+                .map_err(|e| e.0)?;
+                total_regle += reste;
+                reste = 0;
+            } else {
+                total_regle += montant_avoir;
+                reste -= montant_avoir;
+            }
+        }
+
+        if total_regle > 0 {
+            tx.executer(
+                "INSERT INTO paiement
+                 (id, vente_id, montant, mode, date_paiement, auteur_id,
+                  cree_le, cree_par, origine, dossier_id)
+                 VALUES (?1,?2,?3,'avoir',?4,?5,?6,?7,'app',?8)",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(),
+                    vente_id.clone(),
+                    total_regle,
+                    now.clone(),
+                    auteur_id.clone(),
+                    now.clone(),
+                    auteur_id.clone(),
+                    dossier.clone()
+                ],
+            )
+            .map_err(|e| e.0)?;
+        }
+    }
+
+    // ---- Encaissement ----
+    let mode_p = mode_paiement.as_deref().unwrap_or("especes");
+    let a_encaisser = montant_paye.unwrap_or(0).min(total - total_regle).max(0);
+    if a_encaisser > 0 {
+        tx.executer(
+            "INSERT INTO paiement
+             (id, vente_id, montant, mode, date_paiement, auteur_id,
+              cree_le, cree_par, origine, dossier_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'app',?9)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                vente_id.clone(),
+                a_encaisser,
+                mode_p,
+                now.clone(),
+                auteur_id.clone(),
+                now.clone(),
+                auteur_id.clone(),
+                dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+        total_regle += a_encaisser;
+
+        // Caisse — uniquement les reglements reels, jamais les avoirs.
+        let session: Option<String> = tx
+            .lire_une(
+                "SELECT id FROM session_caisse WHERE statut = 'ouverte' AND dossier_id = ?1 LIMIT 1",
+                &parametres![dossier.clone()],
+                |r| r.get::<String>(0),
+            )
+            .ok()
+            .flatten();
+        if let Some(sid) = session {
+            let _ = tx.executer(
+                "INSERT INTO mouvement_caisse
+                 (id, session_id, sens, moyen, montant, motif,
+                  operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+                 VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?7,?8,'app',?9)",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(),
+                    sid,
+                    mode_p,
+                    a_encaisser,
+                    vente_id.clone(),
+                    now.clone(),
+                    now.clone(),
+                    auteur_id.clone(),
+                    dossier.clone()
+                ],
+            );
+        }
+    }
+
+    // ---- Statut final ----
+    let statut = if total_regle >= total {
+        "payee"
+    } else if total_regle > 0 {
+        "partiellement_payee"
+    } else {
+        "creance_ouverte"
+    };
+    tx.executer(
+        "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
+        &parametres![statut, now.clone(), vente_id.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+
+    // La table `facture` legacy n'est PLUS alimentee : piece_commerciale
+    // est le referentiel unique des documents.
+
+    let _ = tx.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1,'vente_creee','vente',?2,?3,?4,'app',?5,?6)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            vente_id.clone(),
+            auteur_id,
+            format!(r#"{{"total":{total},"regle":{total_regle}}}"#),
+            now,
+            dossier
+        ],
+    );
+
+    tx.valider().map_err(|e| e.0)?;
+
+    Ok(serde_json::json!({
+        "vente_id":    vente_id,
+        "total":       total,
+        "total_regle": total_regle,
+        "reste":       total - total_regle,
+        "statut":      statut,
+    }))
+}
+
+pub fn valider_facture_sur_base(
+    base: &mut Base,
+    piece_id: String,
+    mode_reglement: String,
+    mode_paiement: Option<String>,
+    acompte: Option<i64>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+
+    // Verifier que c'est bien une facture brouillon.
+    let (client_id, type_p, statut, remise_g, depot_id_opt, numero): (
+        String,
+        String,
+        String,
+        f64,
+        Option<String>,
+        String,
+    ) = base
+        .lire_une(
+            "SELECT tiers_id, type_piece, statut, remise_globale, depot_id, numero
+             FROM piece_commerciale WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![piece_id.clone(), dossier.clone()],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<String>(1)?,
+                    r.get::<String>(2)?,
+                    r.get::<f64>(3)?,
+                    r.get::<Option<String>>(4)?,
+                    r.get::<String>(5)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Pièce introuvable".to_string())?;
+
+    if type_p != "facture" {
+        return Err("Seules les factures peuvent être validées".to_string());
+    }
+    if statut != "brouillon" {
+        return Err(format!("Facture déjà en statut '{statut}'"));
+    }
+
+    // Lire les lignes
+    let lignes_raw = lire_lignes_raw_sur(base, &piece_id)?;
+    if lignes_raw.is_empty() {
+        return Err("La facture ne contient aucune ligne".to_string());
+    }
+
+    // Dépôt par défaut si non spécifié
+    let depot_id = match depot_id_opt {
+        Some(d) if !d.is_empty() => d,
+        _ => base
+            .lire_une(
+                "SELECT id FROM depot WHERE est_defaut = 1 AND dossier_id = ?1 LIMIT 1",
+                &parametres![dossier.clone()],
+                |r| r.get::<String>(0),
+            )
+            .map_err(|e| e.0)?
+            .ok_or_else(|| "Aucun magasin par défaut".to_string())?,
+    };
+
+    let role = utilisateur_role.as_deref().unwrap_or("employe");
+    let auteur_id = id_utilisateur_par_role_sur(base, role);
+    let now = maintenant_iso();
+
+    // Le stock bouge une fois, au premier document qui constate le
+    // mouvement reel — meme regle que cote SQLite (pieces.rs).
+    let stock_ailleurs = crate::pieces::stock_confie_a_un_bon_sur(base, &dossier, &piece_id);
+
+    // Calculer les montants ligne par ligne. La remise globale est
+    // REPARTIE au prorata sur chaque ligne, sinon
+    // SUM(prix_pratique * quantite) ne correspond pas au montant du et
+    // la creance reapparait apres reglement. La TVA est AJOUTEE au HT.
+    struct MontantsLigne {
+        montant_tva: i64,
+        prix_pratique: i64,
+    }
+    let montants: Vec<MontantsLigne> = lignes_raw
+        .iter()
+        .map(|(_, _, qte, prix, remise_pct, taux_tva)| {
+            let brut = (*prix as f64 * qte).round() as i64;
+            let remise = (brut as f64 * remise_pct / 100.0).round() as i64;
+            let ht_ligne = brut - remise;
+            let remise_g_ligne = (ht_ligne as f64 * remise_g / 100.0).round() as i64;
+            let montant_ht = ht_ligne - remise_g_ligne;
+            let montant_tva = (montant_ht as f64 * taux_tva).round() as i64;
+            let montant_ttc = montant_ht + montant_tva;
+            // Prix unitaire TTC arrondi au franc : c'est LUI qui est stocke.
+            let prix_pratique = if *qte > 0.0 {
+                (montant_ttc as f64 / qte).round() as i64
+            } else {
+                *prix
+            };
+            MontantsLigne { montant_tva, prix_pratique }
+        })
+        .collect();
+
+    // Le montant du doit etre derive des prix_pratique REELLEMENT
+    // stockes, pas de la somme arithmetique des TTC de lignes : toutes
+    // les lectures recalculent SUM(prix_pratique * quantite), et
+    // l'arrondi du prix unitaire fait diverger les deux.
+    let total_net: i64 = lignes_raw
+        .iter()
+        .enumerate()
+        .map(|(i, (_, _, qte, _, _, _))| montants[i].prix_pratique as f64 * qte)
+        .sum::<f64>() as i64; // troncature, comme le CAST de SQLite
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+
+    // 1. Créer la vente
+    let vente_id = uuid::Uuid::new_v4().to_string();
+    tx.executer(
+        // piece_id : SANS ce lien, regler_creance ne retrouve pas la
+        // piece a passer en 'paye'.
+        "INSERT INTO vente
+         (id, client_id, depot_id, mode_reglement, auteur_id, statut,
+          date_vente, cree_le, modifie_le, cree_par, modifie_par, origine,
+          piece_id, dossier_id)
+         VALUES (?1,?2,?3,?4,?5,'creance_ouverte',?6,?7,?8,?9,?10,'app',?11,?12)",
+        &parametres![
+            vente_id.clone(),
+            client_id.clone(),
+            depot_id.clone(),
+            mode_reglement.clone(),
+            auteur_id.clone(),
+            now.clone(),
+            now.clone(),
+            now.clone(),
+            auteur_id.clone(),
+            auteur_id.clone(),
+            piece_id.clone(),
+            dossier.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    // 2. Insérer les lignes de vente + décrémenter le stock
+    for (i, (art_id, uv_id, qte, prix_u, _remise_pct, taux_tva)) in lignes_raw.iter().enumerate() {
+        let montant_tva = montants[i].montant_tva;
+        let prix_pratique = montants[i].prix_pratique;
+
+        // Facteur de l'unité de vente — `unite_vente` n'est pas
+        // cloisonnee (D3), pas de filtre.
+        let facteur: f64 = tx
+            .lire_une(
+                "SELECT facteur FROM unite_vente WHERE id = ?1",
+                &parametres![uv_id.clone()],
+                |r| r.get::<f64>(0),
+            )
+            .ok()
+            .flatten()
+            .unwrap_or(1.0);
+
+        // Découvert : marchandise sortie au-dela du stock connu.
+        let qte_base = qte * facteur;
+        let dispo: f64 = tx
+            .lire_une(
+                "SELECT COALESCE(quantite, 0) FROM stock_depot
+                 WHERE article_id = ?1 AND depot_id = ?2 AND dossier_id = ?3",
+                &parametres![art_id.clone(), depot_id.clone(), dossier.clone()],
+                |r| r.get::<f64>(0),
+            )
+            .ok()
+            .flatten()
+            .unwrap_or(0.0);
+        let a_decouvert = crate::coeur::stock::est_a_decouvert(dispo, qte_base);
+
+        tx.executer(
+            "INSERT INTO ligne_vente
+             (id, vente_id, article_id, unite_vente_id, depot_source_id,
+              source_approvisionnement, quantite, prix_reference,
+              prix_pratique, taux_tva, montant_tva, vente_a_decouvert,
+              cree_le, origine, dossier_id)
+             VALUES (?1,?2,?3,?4,?5,'stock',?6,?7,?8,?9,?10,?12,?11,'app',?13)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                vente_id.clone(),
+                art_id.clone(),
+                uv_id.clone(),
+                depot_id.clone(),
+                *qte,
+                *prix_u,
+                prix_pratique,
+                *taux_tva,
+                montant_tva,
+                now.clone(),
+                a_decouvert as i64,
+                dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+
+        // Le stock suit desormais son mouvement.
+        if !stock_ailleurs {
+            tx.executer(
+                "INSERT INTO mouvement_stock
+                 (id, article_id, depot_id, type_mouvement, quantite_delta,
+                  operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+                 VALUES (?1,?2,?3,'vente',?4,?5,?6,?7,?8,?9,'app',?10)",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(),
+                    art_id.clone(),
+                    depot_id.clone(),
+                    -qte_base,
+                    vente_id.clone(),
+                    auteur_id.clone(),
+                    now.clone(),
+                    now.clone(),
+                    auteur_id.clone(),
+                    dossier.clone()
+                ],
+            )
+            .map_err(|e| e.0)?;
+        }
+    }
+
+    // 3. Numéro de facture lié à la vente — la table `facture` legacy
+    // n'est plus alimentee : piece_commerciale est le referentiel unique.
+
+    // 4. Paiement si comptant
+    if mode_reglement == "comptant" {
+        let mode_p = mode_paiement.as_deref().unwrap_or("especes");
+        tx.executer(
+            "INSERT INTO paiement
+             (id, vente_id, montant, mode, date_paiement,
+              auteur_id, cree_le, cree_par, origine, dossier_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'app',?9)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                vente_id.clone(),
+                total_net,
+                mode_p,
+                now.clone(),
+                auteur_id.clone(),
+                now.clone(),
+                auteur_id.clone(),
+                dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+
+        tx.executer(
+            "UPDATE vente SET statut = 'payee', modifie_le = ?1 WHERE id = ?2 AND dossier_id = ?3",
+            &parametres![now.clone(), vente_id.clone(), dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
+
+        // Caisse — encaissement reel, session exigee.
+        let session_id = crate::caisses::exiger_dans_tx(&mut tx, &dossier, None)?;
+        let _ = tx.executer(
+            "INSERT INTO mouvement_caisse
+             (id, session_id, sens, moyen, montant, motif,
+              operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+             VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?7,?8,'app',?9)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                session_id,
+                mode_p,
+                total_net,
+                vente_id.clone(),
+                now.clone(),
+                now.clone(),
+                auteur_id.clone(),
+                dossier.clone()
+            ],
+        );
+    } else if let Some(ac) = acompte {
+        if ac > 0 {
+            let mode_p = mode_paiement.as_deref().unwrap_or("especes");
+            tx.executer(
+                "INSERT INTO paiement
+                 (id, vente_id, montant, mode, date_paiement,
+                  auteur_id, cree_le, cree_par, origine, dossier_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'app',?9)",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(),
+                    vente_id.clone(),
+                    ac,
+                    mode_p,
+                    now.clone(),
+                    auteur_id.clone(),
+                    now.clone(),
+                    auteur_id.clone(),
+                    dossier.clone()
+                ],
+            )
+            .map_err(|e| e.0)?;
+
+            // ENTREE de caisse : l'acompte est de l'argent recu. Acompte
+            // reellement encaisse : caisse ouverte exigee.
+            let sid = crate::caisses::exiger_dans_tx(&mut tx, &dossier, None)?;
+            tx.executer(
+                "INSERT INTO mouvement_caisse
+                 (id, session_id, sens, moyen, montant, motif,
+                  operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+                 VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?7,?8,'app',?9)",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(),
+                    sid,
+                    mode_p,
+                    ac,
+                    vente_id.clone(),
+                    now.clone(),
+                    now.clone(),
+                    auteur_id.clone(),
+                    dossier.clone()
+                ],
+            )
+            .map_err(|e| e.0)?;
+
+            let statut_v = if crate::coeur::calcul::reste_exigible(total_net, ac) == 0 {
+                "payee"
+            } else {
+                "partiellement_payee"
+            };
+            tx.executer(
+                "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
+                &parametres![statut_v, now.clone(), vente_id.clone(), dossier.clone()],
+            )
+            .map_err(|e| e.0)?;
+        }
+    }
+
+    // 5. Statut de la piece selon ce qui est REELLEMENT encaisse.
+    let encaisse: i64 = if mode_reglement == "comptant" {
+        total_net
+    } else {
+        acompte.unwrap_or(0)
+    };
+    let statut_piece = if crate::coeur::calcul::reste_exigible(total_net, encaisse) == 0 {
+        "paye"
+    } else {
+        "emis"
+    };
+
+    tx.executer(
+        "UPDATE piece_commerciale
+         SET statut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
+        &parametres![statut_piece, now.clone(), piece_id, dossier],
+    )
+    .map_err(|e| e.0)?;
+
+    tx.valider().map_err(|e| e.0)?;
+
+    Ok(serde_json::json!({
+        "vente_id":       vente_id,
+        "numero_facture": numero,
+        "total_net":      total_net,
+        "statut_piece":   statut_piece,
+        "statut_vente":   if crate::coeur::calcul::reste_exigible(total_net, encaisse) == 0
+                          { "payee" }
+                          else if encaisse > 0 { "partiellement_payee" }
+                          else { "creance_ouverte" },
+    }))
+}

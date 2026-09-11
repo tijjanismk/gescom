@@ -12,7 +12,7 @@ dans [DECISIONS.md](DECISIONS.md) pour tout le reste. Ce fichier-ci ne
 dit que l'avancement — qui fait quoi, dans quel ordre.
 
 Dernière mise à jour : **11 septembre 2026**.
-État : **226 tests SQLite + 20 tests PostgreSQL**, tous au vert.
+État : **250 tests SQLite + 21 tests PostgreSQL**, tous au vert.
 
 ---
 
@@ -166,14 +166,50 @@ C'est le scénario qui sortait 5 doublons sur 100 avec l'ancien calcul.
 | constructions SQL non portables (hors placeholders) | ~60 |
 
 **Le serveur ne sait pas encore faire tourner une boutique sur
-PostgreSQL.** Vendre, facturer, encaisser passent par SQLite.
+PostgreSQL.** Vendre, facturer, encaisser passent par SQLite — même
+après ce qui suit, et c'est le point important de ce paragraphe.
 
-**Le prochain morceau est identifié et volontairement laissé seul :**
-`creer_vente_sur` (280 lignes) et `valider_facture_sur` (290 lignes).
-Ce sont les deux fonctions où une erreur ne se corrige pas par un clic —
-elles écrivent la vente, ses lignes, les mouvements de stock, le
-paiement et le mouvement de caisse. Elles méritent leur propre séance et
-leurs propres scénarios, pas d'être expédiées à la fin d'une autre.
+### `creer_vente_sur_base` et `valider_facture_sur_base` — **portées le 11/09/2026**
+
+Le morceau mis à part exprès (280 et 290 lignes, « une erreur ne se
+corrige pas par un clic ») a eu sa propre séance et ses propres
+scénarios : [argent_base.rs](../src-tauri/noyau/tests/argent_base.rs),
+13 tests — vente comptant, crédit refusé au comptant (D40), crédit
+accepté à un vrai client, encaissement sans caisse ouverte refusé,
+vente à découvert signalée, avoir plus grand que la vente (soldé + un
+reliquat rouvert), deux dossiers qui ne mélangent pas leurs ventes,
+facture comptant/à crédit avec acompte, facture déjà validée ou pas une
+facture refusées, facture dont le stock est déjà sorti par un bon.
+
+⚠️ **Porter ces deux fonctions a fait remonter deux trous dans
+l'amorçage `Base`, invisibles jusque-là parce que rien ne vérifiait
+encore un vrai mouvement de stock à travers lui :**
+- **Le déclencheur `stock_suit_les_mouvements` n'existait que côté
+  fenêtre** (`persistance/v2.rs`), jamais rejoué par `amorcage.rs`. Une
+  base amorcée uniquement par `Base` — tous les tests, et demain le
+  serveur — semblait vendre pendant que `stock_depot` restait à zéro.
+  Posé maintenant sur les **deux moteurs** dans `amorcage.rs`
+  (`trigger_stock`), ce qui a aussi permis de retirer le contournement
+  que `donnees_demo` portait pour PostgreSQL.
+- **`avoir.piece_id` manquait au schéma.** La colonne n'existait que
+  par une migration de la fenêtre (`persistance/mod.rs`), jamais dans
+  `schema.sql` — pourtant `creer_vente_sur_base` (comme la version
+  SQLite) la lit. Ajoutée à `schema.sql`, la source unique des deux
+  moteurs ; l'ancienne migration continue de s'exécuter et échoue en
+  silence, comme sur une colonne déjà là.
+
+Ni l'un ni l'autre ne s'était vu avant : les scénarios existants ne
+lisaient jamais `stock_depot` après un vrai mouvement passé par `Base`,
+ni n'écrivaient un avoir avec `piece_id`. **C'est tout l'intérêt d'avoir
+donné à ce morceau ses propres scénarios plutôt que de l'expédier à la
+fin d'un autre.**
+
+**Ce qui n'a toujours pas changé pour le commerçant :** ces deux
+fonctions vivent dans `gescom-noyau`, testées et prêtes, mais **aucun
+chemin de commande ne les appelle encore** — ni la fenêtre (qui tient
+une `Connection`, pas une `Base`), ni le serveur (D11 : il doit d'abord
+tenir une `Base` lui-même). Les brancher est un travail à part, qui
+suit D11.
 
 Ensuite : `pieces`, `achats`, `retours`, puis le reste. La façade permet
 de porter module par module sans rien casser — ce qui n'est pas porté

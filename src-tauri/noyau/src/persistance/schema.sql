@@ -397,6 +397,13 @@ CREATE TABLE IF NOT EXISTS avoir (
     id                      TEXT PRIMARY KEY,
     client_id               TEXT NOT NULL REFERENCES client(id),
     retour_id               TEXT REFERENCES retour(id),
+    -- Piece AVC d'origine (bug #8) : sans ce lien, un avoir deja
+    -- consomme continuait d'afficher son montant plein en « reste »
+    -- dans l'ecran Pieces. Sur les bases deja amorcees, la meme
+    -- colonne arrive par une migration (persistance/mod.rs) : l'ALTER
+    -- y echoue en silence des qu'elle est deja la, comme le reste des
+    -- colonnes ajoutees apres coup.
+    piece_id                TEXT,
     montant                 INTEGER NOT NULL,
     statut                  TEXT NOT NULL DEFAULT 'ouvert',
     vente_utilisation_id    TEXT REFERENCES vente(id),

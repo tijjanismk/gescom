@@ -476,6 +476,40 @@ pub fn stock_confie_a_un_bon(conn: &rusqlite::Connection, piece_id: &str) -> boo
     false
 }
 
+/// Meme regle que `stock_confie_a_un_bon`, sur l'un ou l'autre moteur.
+///
+/// Pour `valider_facture_sur_base`. `piece_commerciale` est cloisonnee :
+/// le filtre de dossier compte ici comme ailleurs — remonter la chaine
+/// des pieces d'une autre societe rendrait un verdict sur des pieces
+/// qui n'existent pas pour ce dossier.
+pub fn stock_confie_a_un_bon_sur(base: &mut crate::base::Base, dossier: &str, piece_id: &str) -> bool {
+    const BONS: [&str; 2] = ["bon_livraison", "bon_reception"];
+    let mut courant = piece_id.to_string();
+    for _ in 0..8 {
+        let parent: Option<(String, String)> = base
+            .lire_une(
+                "SELECT p.id, p.type_piece
+                 FROM piece_commerciale c
+                 JOIN piece_commerciale p ON p.id = c.piece_origine_id
+                 WHERE c.id = ?1 AND c.dossier_id = ?2 AND p.dossier_id = ?2",
+                &crate::parametres![courant, dossier],
+                |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?)),
+            )
+            .ok()
+            .flatten();
+        match parent {
+            Some((id, type_parent)) => {
+                if BONS.contains(&type_parent.as_str()) {
+                    return true;
+                }
+                courant = id;
+            }
+            None => return false,
+        }
+    }
+    false
+}
+
 pub fn convertir_piece(
     conn: &rusqlite::Connection,
     piece_id: String,
