@@ -552,3 +552,232 @@ pub fn modifier_depense(
     }
     Ok(())
 }
+
+// =====================================================================
+//  OUVRIR / FERMER LA CAISSE, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// Sans elles, une vente comptant sur PostgreSQL echoue toujours sur
+// CAISSE_FERMEE : `creer_vente_sur_base` exige une session ouverte des
+// qu'un montant est encaisse, et rien ne pouvait jusqu'ici en ouvrir
+// une. `session_caisse` et `mouvement_caisse` sont cloisonnees.
+
+use crate::base::Base;
+use crate::parametres;
+
+pub fn lire_resume_caisse_sur(base: &mut Base) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+
+    let session: Option<(String, i64, String)> = base
+        .lire_une(
+            "SELECT id, fond_ouverture, cree_le FROM session_caisse
+             WHERE statut = 'ouverte' AND dossier_id = ?1
+             ORDER BY cree_le DESC LIMIT 1",
+            &parametres![dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?, r.get::<String>(2)?)),
+        )
+        .map_err(|e| e.0)?;
+
+    let Some((session_id, fond_ouverture, ouvert_le)) = session else {
+        let nb: i64 = base
+            .lire_une(
+                "SELECT COUNT(*) FROM session_caisse WHERE dossier_id = ?1",
+                &parametres![dossier],
+                |r| r.get::<i64>(0),
+            )
+            .ok()
+            .flatten()
+            .unwrap_or(0);
+
+        return Ok(serde_json::json!({
+            "session_id":       null,
+            "statut":           if nb > 0 { "fermee" } else { "aucune" },
+            "fond_ouverture":   0,
+            "total_entrees":    0,
+            "total_sorties":    0,
+            "entrees_especes":  0,
+            "sorties_especes":  0,
+            "solde_theorique":  0,
+            "nb_transactions":  0,
+            "ouvert_le":        null,
+        }));
+    };
+
+    let mut somme = |sql: &str, params: &[crate::base::Valeur]| -> i64 {
+        base.lire_une(sql, params, |r| r.get::<i64>(0)).ok().flatten().unwrap_or(0)
+    };
+
+    let total_entrees = somme(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM mouvement_caisse
+         WHERE session_id = ?1 AND sens = 'entree' AND motif <> 'ouverture' AND dossier_id = ?2",
+        &parametres![session_id.clone(), dossier.clone()],
+    );
+    let total_sorties = somme(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM mouvement_caisse
+         WHERE session_id = ?1 AND sens = 'sortie' AND dossier_id = ?2",
+        &parametres![session_id.clone(), dossier.clone()],
+    );
+    let entrees_especes = somme(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM mouvement_caisse
+         WHERE session_id = ?1 AND sens = 'entree' AND moyen = 'especes'
+           AND motif <> 'ouverture' AND dossier_id = ?2",
+        &parametres![session_id.clone(), dossier.clone()],
+    );
+    let sorties_especes = somme(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM mouvement_caisse
+         WHERE session_id = ?1 AND sens = 'sortie' AND moyen = 'especes' AND dossier_id = ?2",
+        &parametres![session_id.clone(), dossier.clone()],
+    );
+    let nb_transactions = somme(
+        "SELECT COUNT(*) FROM mouvement_caisse WHERE session_id = ?1 AND dossier_id = ?2",
+        &parametres![session_id.clone(), dossier.clone()],
+    );
+
+    let solde_theorique =
+        crate::coeur::caisse::solde_theorique(fond_ouverture, entrees_especes, sorties_especes);
+
+    Ok(serde_json::json!({
+        "session_id":      session_id,
+        "statut":          "ouverte",
+        "fond_ouverture":  fond_ouverture,
+        "total_entrees":   total_entrees,
+        "total_sorties":   total_sorties,
+        "entrees_especes": entrees_especes,
+        "sorties_especes": sorties_especes,
+        "solde_theorique": solde_theorique,
+        "nb_transactions": nb_transactions,
+        "ouvert_le":       ouvert_le,
+    }))
+}
+
+pub fn ouvrir_session_caisse_sur(
+    base: &mut Base,
+    fond_ouverture: i64,
+    utilisateur_role: String,
+) -> Result<String, String> {
+    let dossier = base.dossier().to_string();
+    let utilisateur_id = crate::argent::id_utilisateur_par_role_sur(base, &utilisateur_role);
+    let maintenant = maintenant_iso();
+
+    let session_ouverte: i64 = base
+        .lire_une(
+            "SELECT COUNT(*) FROM session_caisse WHERE statut = 'ouverte' AND dossier_id = ?1",
+            &parametres![dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+    if session_ouverte > 0 {
+        return Err("Une session est déjà ouverte".to_string());
+    }
+
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    base.executer(
+        "INSERT INTO session_caisse
+         (id, statut, fond_ouverture, ouvert_par, cree_le, modifie_le, origine, dossier_id)
+         VALUES (?1, 'ouverte', ?2, ?3, ?4, ?5, 'app', ?6)",
+        &parametres![
+            session_id.clone(),
+            fond_ouverture,
+            utilisateur_id.clone(),
+            maintenant.clone(),
+            maintenant.clone(),
+            dossier.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    // Mouvement d'ouverture si fond > 0.
+    if fond_ouverture > 0 {
+        base.executer(
+            "INSERT INTO mouvement_caisse
+             (id, session_id, sens, moyen, montant, motif,
+              date_mouvement, cree_le, cree_par, origine, dossier_id)
+             VALUES (?1, ?2, 'entree', 'especes', ?3, 'ouverture', ?4, ?5, ?6, 'app', ?7)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                session_id.clone(),
+                fond_ouverture,
+                maintenant.clone(),
+                maintenant,
+                utilisateur_id,
+                dossier
+            ],
+        )
+        .map_err(|e| e.0)?;
+    }
+
+    Ok(session_id)
+}
+
+pub fn fermer_session_caisse_sur(
+    base: &mut Base,
+    session_id: String,
+    especes_comptees: i64,
+) -> Result<(), String> {
+    let dossier = base.dossier().to_string();
+    let maintenant = maintenant_iso();
+
+    let fond: i64 = base
+        .lire_une(
+            "SELECT fond_ouverture FROM session_caisse WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![session_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Session introuvable".to_string())?;
+
+    // ⚠️ ESPECES UNIQUEMENT — meme garde-fou que la version SQLite :
+    // le fond d'ouverture est deja dans `fond`, l'exclure du mouvement
+    // evite de le compter deux fois.
+    let entrees: i64 = base
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM mouvement_caisse
+             WHERE session_id = ?1 AND sens = 'entree' AND moyen = 'especes'
+               AND motif <> 'ouverture' AND dossier_id = ?2",
+            &parametres![session_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+    let sorties: i64 = base
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM mouvement_caisse
+             WHERE session_id = ?1 AND sens = 'sortie' AND moyen = 'especes' AND dossier_id = ?2",
+            &parametres![session_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+    let solde_theorique = crate::coeur::caisse::solde_theorique(fond, entrees, sorties);
+    let ecart = crate::coeur::caisse::ecart_caisse(especes_comptees, solde_theorique);
+
+    base.executer(
+        "UPDATE session_caisse SET
+           statut = 'fermee',
+           solde_theorique = ?1,
+           especes_comptees = ?2,
+           ecart = ?3,
+           ferme_le = ?4,
+           modifie_le = ?5
+         WHERE id = ?6 AND dossier_id = ?7",
+        &parametres![
+            solde_theorique,
+            especes_comptees,
+            ecart,
+            maintenant.clone(),
+            maintenant,
+            session_id,
+            dossier
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    Ok(())
+}

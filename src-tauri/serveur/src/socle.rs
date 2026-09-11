@@ -507,6 +507,18 @@ pub fn registre() -> Registre {
         let v = auth::changer_mot_de_passe(c.conn, c.appelant.utilisateur_id.clone(), ancien_mdp, nouveau_mdp)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    // Sans elle, le changement de mot de passe OBLIGATOIRE a la
+    // premiere connexion (amorcage.rs) bloquerait tout essai manuel sur
+    // PostgreSQL des l'ecran suivant le login — la modale ne se ferme
+    // pas tant que la commande n'a pas reussi.
+    r.aussi_sur_base("changer_mot_de_passe", |c, p| {
+        let ancien_mdp: String = arg(&p, "ancienMdp", "ancien_mdp")?;
+        let nouveau_mdp: String = arg(&p, "nouveauMdp", "nouveau_mdp")?;
+        let v = auth::changer_mot_de_passe_sur(
+            c.base, c.appelant.utilisateur_id.clone(), ancien_mdp, nouveau_mdp,
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     // -----------------------------------------------------------------
     //  Roles et permissions
@@ -626,6 +638,9 @@ pub fn registre() -> Registre {
         let v = caisse::lire_resume_caisse(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_resume_caisse", |c, _p| {
+        caisse::lire_resume_caisse_sur(c.base)
+    });
 
     r.lecture("lire_mouvements_caisse_du_jour", |c, _p| {
         let v = caisse::lire_mouvements_caisse_du_jour(c.conn)?;
@@ -637,11 +652,23 @@ pub fn registre() -> Registre {
         let v = caisse::ouvrir_session_caisse(c.conn, fond_ouverture, c.appelant.role.clone())?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("ouvrir_session_caisse", |c, p| {
+        let fond_ouverture: i64 = arg(&p, "fondOuverture", "fond_ouverture")?;
+        let v =
+            caisse::ouvrir_session_caisse_sur(c.base, fond_ouverture, c.appelant.role.clone())?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("fermer_session_caisse", "caisse:mouvementer", |c, p| {
         let session_id: String = arg(&p, "sessionId", "session_id")?;
         let especes_comptees: i64 = arg(&p, "especesComptees", "especes_comptees")?;
         let v = caisse::fermer_session_caisse(c.conn, session_id, especes_comptees)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("fermer_session_caisse", |c, p| {
+        let session_id: String = arg(&p, "sessionId", "session_id")?;
+        let especes_comptees: i64 = arg(&p, "especesComptees", "especes_comptees")?;
+        let v = caisse::fermer_session_caisse_sur(c.base, session_id, especes_comptees)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 

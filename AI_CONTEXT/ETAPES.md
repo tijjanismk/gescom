@@ -12,7 +12,7 @@ dans [DECISIONS.md](DECISIONS.md) pour tout le reste. Ce fichier-ci ne
 dit que l'avancement — qui fait quoi, dans quel ordre.
 
 Dernière mise à jour : **11 septembre 2026**.
-État : **266 tests SQLite + 21 tests PostgreSQL**, tous au vert.
+État : **273 tests SQLite + 21 tests PostgreSQL**, tous au vert.
 
 ---
 
@@ -266,6 +266,37 @@ module, comme prévu.
 [registre_base.rs](../src-tauri/noyau/tests/registre_base.rs),
 dont un qui appelle RÉELLEMENT les deux chemins d'une même commande
 sur deux bases amorcées séparément et vérifie qu'ils s'accordent.
+
+### La caisse, et le premier essai manuel — **fait le 11/09/2026**
+
+En préparant l'essai manuel sur une vraie base PostgreSQL, deux trous
+auraient bloqué le tout premier geste :
+
+- **Ouvrir la caisse.** `creer_vente_sur_base` exige une session
+  ouverte dès qu'un montant est encaissé — rien ne pouvait en ouvrir
+  une. Écrit : `caisse::{lire_resume_caisse,ouvrir_session_caisse,
+  fermer_session_caisse}_sur`, branchées au registre. 7 scénarios dans
+  [caisse_base.rs](../src-tauri/noyau/tests/caisse_base.rs), dont un
+  qui rejoue exactement le blocage (`CAISSE_FERMEE` sans caisse
+  ouverte, la vente passe une fois la caisse ouverte).
+- **Le changement de mot de passe obligatoire.** Les comptes `admin` /
+  `employe` posés par l'amorçage exigent un changement à la première
+  connexion (`doit_changer_mdp`) — la modale est obligatoire, rien
+  d'autre ne s'affiche tant qu'elle n'a pas réussi.
+  `auth::changer_mot_de_passe_sur` existait déjà (jamais branchée) ;
+  branchée.
+
+**Ce qui est maintenant essayable à la main sur une vraie base
+PostgreSQL** : connexion, changement de mot de passe obligatoire,
+catalogue, création client/article, ouverture de caisse, vente au
+comptant ou à crédit, fermeture de caisse.
+
+**Ce qui ne l'est pas encore** : le tableau de bord (aucune de ses
+commandes n'est branchée — les widgets resteront vides), la facture
+POS automatique après une vente (`creer_facture_depuis_vente` n'a
+qu'un chemin SQLite — la vente s'enregistre quand même, un
+avertissement non bloquant apparaît), l'impression, et tout le reste
+des commandes non listées ci-dessus.
 
 Deux chantiers à part :
 - la **sauvegarde** — `VACUUM INTO` n'existe pas côté PostgreSQL ;
