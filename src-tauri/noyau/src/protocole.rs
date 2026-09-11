@@ -105,6 +105,10 @@ pub struct Identite {
     pub utilisateur_id: String,
     pub utilisateur_nom: String,
     pub role: String,
+    /// Ce que cette personne a le droit de faire, calcule a la
+    /// connexion. L'ecran s'en sert pour ne montrer que ce qui marche :
+    /// sans elles, il ne pourrait que deviner d'apres le NOM du role.
+    pub permissions: Vec<String>,
     pub doit_changer_mdp: bool,
     pub poste_id: String,
     pub expire_le: String,

@@ -8,7 +8,14 @@ import { Label } from "@/components/ui/label";
 export interface UtilisateurConnecte {
   id: string;
   nom: string;
-  role: "patron" | "employe" | "lecture";
+  /**
+   * Le nom du rôle, pour l'afficher. Il n'est PLUS une énumération :
+   * le commerçant crée les rôles qu'il veut, et l'écran ne doit rien
+   * décider à partir de ce texte — c'est `permissions` qui tranche.
+   */
+  role: string;
+  /** Ce que cette personne a le droit de faire. Voir `lib/droits.ts`. */
+  permissions: string[];
   doit_changer_mdp: boolean;
 }
 
@@ -42,7 +49,8 @@ export function PageLogin({ onConnecte }: PageLoginProps) {
             return {
               id: id.utilisateur_id,
               nom: id.utilisateur_nom,
-              role: id.role as UtilisateurConnecte["role"],
+              role: id.role,
+              permissions: id.permissions ?? [],
               doit_changer_mdp: id.doit_changer_mdp,
             };
           })()

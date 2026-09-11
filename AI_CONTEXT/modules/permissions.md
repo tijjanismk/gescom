@@ -37,11 +37,12 @@ Tout ce qui vient de la base est filtré par lui : une faute de frappe
 dans un rôle ne doit ni ouvrir une porte qui n'existe pas, ni laisser
 croire qu'une porte est ouverte.
 
-⚠️ **Les lectures ne sont pas filtrées.** `r.lecture(…)` ne demande
-aucune permission : tout utilisateur connecté peut tout lire, y compris
-les marges et les prix d'achat. Le catalogue ne contient donc
-volontairement aucune permission en `:lire` — en afficher serait
-mentir. C'est le prochain chantier de ce module.
+⚠️ **Les lectures ne sont pas filtrées, et c'est une décision.**
+`r.lecture(…)` ne demande aucune permission : tout utilisateur connecté
+peut tout lire, marges et prix d'achat compris. Les rôles suffisent —
+c'est au commerçant de choisir à qui il donne un compte. Le catalogue ne
+contient donc volontairement aucune permission en `:lire` : en afficher
+qui ne feraient rien serait mentir.
 
 ### `acces_total` : l'exception assumée
 
@@ -152,12 +153,63 @@ qu'on vérifie le plus.
 `stock:transferer` il passe la porte ; après un retrait personnel de
 `caisse:mouvementer` il est refusé sur `ouvrir_session_caisse`.
 
+## L'écran
+
+`Paramètres → Rôles`
+([OngletRoles.tsx](../../src/components/OngletRoles.tsx)) : la liste des
+rôles, ce que chacun permet, et de quoi en créer d'autres. Les
+permissions s'y cochent par groupe — cliquer sur « Caisse » coche ou
+décoche toute la famille.
+
+Deux règles de présentation, qui comptent plus qu'on ne croit :
+
+- un rôle à **accès total** montre ses cases cochées : afficher une
+  liste vide laisserait croire qu'il ne peut rien ;
+- le rôle **protégé** n'offre aucun bouton. Un bouton qui échoue à tous
+  les coups est pire que pas de bouton.
+
+### Le menu et les onglets suivent les permissions
+
+`role === "patron"` décidait de tout : la barre latérale, les onglets de
+Paramètres, le choix de rôle à la création d'un utilisateur. Cela
+marchait avec deux rôles. Avec des rôles créés par le commerçant, un
+« magasinier » tombait dans la liste de l'employé — **sans Transferts,
+qui est justement son travail**.
+
+Le serveur renvoie donc les permissions **avec l'identité**, à la
+connexion, et [droits.ts](../../src/lib/droits.ts) les lit :
+
+```ts
+const navigation = NAV.filter(n => !n.droit || peut(n.droit));
+```
+
+⚠️ Ceci ne sécurise rien — c'est du confort. Cacher un bouton évite
+qu'on clique dessus pour rien ; le refus qui compte est celui du noyau,
+à chaque appel. Un écran périmé ne peut pas ouvrir une porte que le
+serveur ferme.
+
+Les écrans qui ne font que **lire** — Tableau de bord, Stock, Journal,
+Rapports — restent visibles par tous. Le noyau ne filtre pas les
+lectures : les cacher ici ne serait qu'un décor, et mieux vaut une règle
+vraie qu'une règle qui fait semblant.
+
+Mesuré sur un serveur réel : le patron voit 16 entrées de menu, une
+caissière 10. Et comme on lui avait personnellement ajouté
+`stock:transferer` puis retiré `caisse:mouvementer`, son menu montre
+« Transferts » et pas « Caisse » — les réglages individuels remontent
+jusqu'à la barre latérale.
+
 ## Ce qui reste
 
-1. **Filtrer les lectures.** C'est le trou le plus visible : un caissier
-   voit les marges et les prix d'achat.
-2. **L'écran.** Les sept commandes existent des deux côtés (fenêtre et
-   serveur) ; il n'y a pas encore d'interface pour s'en servir.
-3. **Aucun compte `superadmin` n'est créé** par l'amorçage : le rôle
+1. **La confidentialité des lectures n'est pas traitée**, et c'est une
+   décision : les rôles suffisent, c'est au commerçant de choisir à qui
+   il donne un compte. Un caissier voit donc les marges. Le jour où ce
+   sera un sujet, le catalogue accueillera des permissions en `:lire` et
+   `r.lecture` prendra un argument.
+2. **Aucun compte `superadmin` n'est créé** par l'amorçage : le rôle
    existe, personne ne le porte. À décider — un compte de secours livré
    avec un mot de passe connu est aussi un risque.
+3. **Les permissions d'une personne** se modifient par commande
+   (`definir_permission_utilisateur`), mais l'écran ne l'expose pas
+   encore : les ajouts et retraits individuels se font pour l'instant
+   par le serveur.

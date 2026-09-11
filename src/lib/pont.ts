@@ -307,6 +307,8 @@ export interface Identite {
   utilisateur_id: string;
   utilisateur_nom: string;
   role: string;
+  /** Ce que cette personne a le droit de faire, calculé par le serveur. */
+  permissions: string[];
   doit_changer_mdp: boolean;
   poste_id: string;
   expire_le: string;

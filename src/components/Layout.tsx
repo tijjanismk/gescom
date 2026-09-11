@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { peut } from "@/lib/droits";
 import { appeler as invoke } from "@/lib/pont";
 import {
   ShoppingCart, Package, Users, Wallet,
@@ -11,32 +12,34 @@ import {
 import { cn } from "@/lib/utils";
 import type { UtilisateurConnecte } from "@/pages/PageLogin";
 
-const NAV_PATRON = [
-  { nom: "Tableau de bord", icone: BarChart3,      href: "dashboard"   },
-  { nom: "Ventes",          icone: ShoppingCart,    href: "ventes"      },
-  { nom: "Achats",          icone: ShoppingBag,     href: "achats"      },
-  { nom: "Pièces",          icone: FileText,        href: "pieces"      },
-  { nom: "Stock",           icone: Package,         href: "stock"       },
-  { nom: "Clients",         icone: Users,           href: "clients"     },
-  { nom: "Fournisseurs",    icone: Truck,           href: "fournisseurs"},
-  { nom: "Caisse",          icone: Wallet,          href: "caisse"      },
-  { nom: "Retours",         icone: RotateCcw,       href: "retours"     },
-  { nom: "Transferts",      icone: ArrowLeftRight,  href: "transferts"  },
-  { nom: "Chèques",         icone: FileCheck,       href: "cheques"     },
-  { nom: "Relances",        icone: MessageCircle,   href: "relances"    },
-  { nom: "Journal",         icone: BookOpen,        href: "journal"     },
-  { nom: "Rapports",        icone: BarChart2,       href: "rapports"    },
-  { nom: "Modèles",         icone: LayoutTemplate,  href: "modeles"     },
-  { nom: "Paramètres",      icone: Settings,        href: "parametres"  },
-];
-
-const NAV_EMPLOYE = [
-  { nom: "Ventes",          icone: ShoppingCart,    href: "ventes"      },
-  { nom: "Achats",          icone: ShoppingBag,     href: "achats"      },
-  { nom: "Pièces",          icone: FileText,        href: "pieces"      },
-  { nom: "Stock",           icone: Package,         href: "stock"       },
-  { nom: "Clients",         icone: Users,           href: "clients"     },
-  { nom: "Retours",         icone: RotateCcw,       href: "retours"     },
+// Chaque entree dit DE QUOI elle a besoin.
+//
+// C'etait deux listes figees, choisies par `role === "patron"`. Depuis
+// que le commercant cree ses propres roles, un « magasinier » tombait
+// dans la liste de l'employe — sans Transferts, qui est justement son
+// travail.
+//
+// `droit` absent = visible par tous. Ce sont les ecrans qui ne font que
+// LIRE : le noyau ne filtre pas les lectures, les cacher ici ne serait
+// donc qu'un decor. Mieux vaut une regle vraie qu'une regle qui fait
+// semblant.
+const NAV = [
+  { nom: "Tableau de bord", icone: BarChart3,      href: "dashboard"                                },
+  { nom: "Ventes",          icone: ShoppingCart,   href: "ventes",       droit: "ventes:creer"       },
+  { nom: "Achats",          icone: ShoppingBag,    href: "achats",       droit: "achats:creer"       },
+  { nom: "Pièces",          icone: FileText,       href: "pieces",       droit: "pieces:creer"       },
+  { nom: "Stock",           icone: Package,        href: "stock"                                    },
+  { nom: "Clients",         icone: Users,          href: "clients",      droit: "clients:creer"      },
+  { nom: "Fournisseurs",    icone: Truck,          href: "fournisseurs", droit: "achats:creer"       },
+  { nom: "Caisse",          icone: Wallet,         href: "caisse",       droit: "caisse:mouvementer" },
+  { nom: "Retours",         icone: RotateCcw,      href: "retours",      droit: "retours:creer"      },
+  { nom: "Transferts",      icone: ArrowLeftRight, href: "transferts",   droit: "stock:transferer"   },
+  { nom: "Chèques",         icone: FileCheck,      href: "cheques",      droit: "cheques:gerer"      },
+  { nom: "Relances",        icone: MessageCircle,  href: "relances",     droit: "creances:gerer"     },
+  { nom: "Journal",         icone: BookOpen,       href: "journal"                                  },
+  { nom: "Rapports",        icone: BarChart2,      href: "rapports"                                 },
+  { nom: "Modèles",         icone: LayoutTemplate, href: "modeles",      droit: "modeles:gerer"      },
+  { nom: "Paramètres",      icone: Settings,       href: "parametres"                               },
 ];
 
 interface Depot { id: string; nom: string; est_defaut?: boolean; }
@@ -112,7 +115,7 @@ export function Layout({
   // l'afficher ajouterait une décision inutile au quotidien.
   const multiDepot = depots.length > 1;
 
-  const navigation = role === "patron" ? NAV_PATRON : NAV_EMPLOYE;
+  const navigation = NAV.filter(n => !n.droit || peut(n.droit));
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">

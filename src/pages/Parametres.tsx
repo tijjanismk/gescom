@@ -6,7 +6,7 @@ import {
   Plus, Loader2, Eye, EyeOff, ShoppingCart,
   FolderOpen, ChevronDown, ChevronRight,
   Percent, Banknote, XCircle, Clock, Warehouse, Barcode, Pencil,
-  FileSpreadsheet, Network,
+  FileSpreadsheet, Network, Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,8 @@ import { OngletDepots } from "@/components/OngletDepots";
 import { OngletCodesBarres } from "@/components/OngletCodesBarres";
 import { OngletImportExport } from "@/components/OngletImportExport";
 import { OngletReseau } from "@/components/OngletReseau";
+import { OngletRoles } from "@/components/OngletRoles";
+import { peut } from "@/lib/droits";
 import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================
@@ -64,33 +66,31 @@ function fmt(n: number): string {
 //  Onglets disponibles selon le rôle
 // =====================================================================
 
-const ONGLETS_PATRON = [
-  { key: "societe",       label: "Société",       icone: Building2  },
-  { key: "depots",        label: "Dépôts",        icone: Warehouse  },
-  { key: "articles",      label: "Articles",      icone: Package    },
-  { key: "codesbarres",   label: "Codes-barres",  icone: Barcode    },
-  { key: "importexport",  label: "Import/Export", icone: FileSpreadsheet },
-  { key: "categories",    label: "Catégories",    icone: Tag        },
-  { key: "ventes",        label: "Ventes",        icone: ShoppingCart },
-  { key: "utilisateurs",  label: "Utilisateurs",  icone: Users      },
-  { key: "sauvegarde",    label: "Sauvegarde",    icone: HardDrive  },
-  { key: "reseau",        label: "Réseau",        icone: Network    },
-  { key: "tva",           label: "TVA",           icone: Percent    },
-  { key: "dettes",        label: "Dettes fourn.", icone: Banknote   },
-  { key: "irrecouvrable", label: "Irrécouvrable", icone: XCircle    },
-  { key: "avoirs",        label: "Avoirs",        icone: Clock      },
-];
-
-// Un employe ne voit que 4 onglets — c'est voulu. Il n'a rien a faire
-// dans la TVA, les dettes ou les utilisateurs.
+// Chaque onglet dit DE QUOI il a besoin.
 //
-// « Sauvegarde » a ete RETIRE : la commande produit une copie complete
-// de la base, prix d'achat et marges compris. C'est au patron.
-const ONGLETS_EMPLOYE = [
-  { key: "articles",    label: "Articles",     icone: Package      },
-  { key: "categories",  label: "Catégories",   icone: Tag          },
-  { key: "ventes",      label: "Ventes",       icone: ShoppingCart },
-  { key: "codesbarres", label: "Codes-barres", icone: Barcode      },
+// C'etait deux listes figees, choisies par `role === "patron"`. Depuis
+// que le commercant cree ses propres roles, ca ne tenait plus : un
+// « caissier » tombait dans la liste de l'employe, et un role fabrique
+// a la main n'avait droit a rien.
+//
+// L'onglet s'affiche si la personne a la permission. Rien de plus :
+// c'est la meme liste blanche que le noyau, vue de l'ecran.
+const ONGLETS = [
+  { key: "societe",       label: "Société",       icone: Building2,       droit: "parametres:modifier" },
+  { key: "depots",        label: "Dépôts",        icone: Warehouse,       droit: "depots:gerer" },
+  { key: "articles",      label: "Articles",      icone: Package,         droit: "articles:creer" },
+  { key: "codesbarres",   label: "Codes-barres",  icone: Barcode,         droit: "articles:creer" },
+  { key: "importexport",  label: "Import/Export", icone: FileSpreadsheet, droit: "parametres:modifier" },
+  { key: "categories",    label: "Catégories",    icone: Tag,             droit: "articles:creer" },
+  { key: "ventes",        label: "Ventes",        icone: ShoppingCart,    droit: "parametres:modifier" },
+  { key: "utilisateurs",  label: "Utilisateurs",  icone: Users,           droit: "utilisateurs:gerer" },
+  { key: "roles",         label: "Rôles",         icone: Shield,          droit: "utilisateurs:gerer" },
+  { key: "sauvegarde",    label: "Sauvegarde",    icone: HardDrive,       droit: "sauvegarde:lancer" },
+  { key: "reseau",        label: "Réseau",        icone: Network,         droit: "postes:gerer" },
+  { key: "tva",           label: "TVA",           icone: Percent,         droit: "chantiers:gerer" },
+  { key: "dettes",        label: "Dettes fourn.", icone: Banknote,        droit: "fournisseurs:regler" },
+  { key: "irrecouvrable", label: "Irrécouvrable", icone: XCircle,         droit: "chantiers:gerer" },
+  { key: "avoirs",        label: "Avoirs",        icone: Clock,           droit: "avoirs:gerer" },
 ];
 
 // =====================================================================
@@ -105,6 +105,27 @@ function ModalNouvelUtilisateur({
   const [email, setEmail] = useState("");
   const [mdp, setMdp] = useState("");
   const [role, setRole] = useState("employe");
+  // Les vrais roles, pas deux valeurs ecrites en dur : le commercant
+  // cree les siens, et un role absent de cette liste serait
+  // inattribuable depuis l'ecran qui sert justement a attribuer.
+  const [roles, setRoles] = useState<{ nom: string; description: string }[]>([]);
+
+  // Charges a l'ouverture du modal, pas au montage : la liste peut
+  // avoir change depuis l'onglet « Roles », juste a cote.
+  useEffect(() => {
+    if (!ouvert) return;
+    invoke<{ nom: string; description: string }[]>("lire_roles")
+      .then(r => {
+        setRoles(r);
+        // Si « employe » n'existe plus — le commercant a pu le
+        // supprimer — on se rabat sur le premier role venu plutot que
+        // de laisser un choix vide qui echouerait a l'enregistrement.
+        if (!r.some(x => x.nom === "employe") && r.length > 0) {
+          setRole(r[0].nom);
+        }
+      })
+      .catch(() => setRoles([]));
+  }, [ouvert]);
   const [visible, setVisible] = useState(false);
   const [chargement, setChargement] = useState(false);
 
@@ -150,8 +171,11 @@ function ModalNouvelUtilisateur({
               <Select value={role} onValueChange={v => { if (v) setRole(v); }}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="patron">Patron</SelectItem>
-                  <SelectItem value="employe">Employé</SelectItem>
+                  {roles.map(r => (
+                    <SelectItem key={r.nom} value={r.nom}>
+                      {r.nom}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -993,9 +1017,22 @@ function OngletCategories() {
 // =====================================================================
 
 export function Parametres() {
-  const estPatron = UTILISATEUR_ACTIF?.role === "patron";
-  const onglets = estPatron ? ONGLETS_PATRON : ONGLETS_EMPLOYE;
-  const [onglet, setOnglet] = useState(onglets[0].key);
+  const onglets = ONGLETS.filter(o => peut(o.droit));
+  const [onglet, setOnglet] = useState(onglets[0]?.key ?? "");
+
+  // Aucun onglet : le dire, plutot que d'afficher un cadre vide dont
+  // personne ne comprend ce qu'il attend.
+  if (onglets.length === 0) {
+    return (
+      <div className="flex-1 overflow-auto p-6">
+        <h1 className="text-2xl font-semibold mb-6">Paramètres</h1>
+        <p className="text-sm text-muted-foreground">
+          Votre rôle ne donne accès à aucun réglage. Demandez au
+          responsable de la boutique.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 overflow-auto p-6">
@@ -1032,6 +1069,7 @@ export function Parametres() {
       {onglet === "categories"    && <OngletCategories />}
       {onglet === "ventes"        && <OngletVentes />}
       {onglet === "utilisateurs"  && <OngletUtilisateurs />}
+      {onglet === "roles"         && <OngletRoles />}
       {onglet === "sauvegarde"    && <OngletSauvegarde />}
       {onglet === "reseau"        && <OngletReseau />}
       {onglet === "tva"           && <OngletTVA />}

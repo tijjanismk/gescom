@@ -195,11 +195,18 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
     )
     .ok();
 
+    let mut permissions: Vec<String> =
+        gescom_noyau::portes::permissions_de(&conn, &utilisateur_id, &role)
+            .into_iter()
+            .collect();
+    permissions.sort();
+
     let identite = Identite {
         jeton: jeton.clone(),
         utilisateur_id,
         utilisateur_nom: nom,
         role,
+        permissions,
         doit_changer_mdp: doit_changer != 0,
         poste_id: poste.id.clone(),
         expire_le,

@@ -47,10 +47,22 @@ pub fn connexion(
         rusqlite::params![maintenant, utilisateur_id],
     ).ok();
 
+    // Les permissions voyagent avec l'identite : sans elles, l'ecran ne
+    // peut que deviner d'apres le NOM du role — et c'est justement ce
+    // qu'on vient de supprimer. Un « caissier » tombait alors dans la
+    // liste de l'employe, un role fabrique par le commercant n'avait
+    // droit a rien.
+    let mut permissions: Vec<String> =
+        crate::portes::permissions_de(conn, &utilisateur_id, &role)
+            .into_iter()
+            .collect();
+    permissions.sort();
+
     Ok(serde_json::json!({
         "id":               utilisateur_id,
         "nom":              nom,
         "role":             role,
+        "permissions":      permissions,
         "doit_changer_mdp": doit_changer != 0,
     }))
 }
