@@ -286,6 +286,173 @@ pub fn traduire_parametres(sql: &str) -> String {
     sortie
 }
 
+// =====================================================================
+//  LA PLOMBERIE
+// =====================================================================
+//
+// Extraite pour que la `Base` et la `Transaction` la partagent. Sans
+// cela, chacune aurait sa copie des memes quatre operations — et une
+// correction appliquee a l'une seule finirait par se voir un jour ou
+// une vente s'ecrit dans un cas et pas dans l'autre.
+//
+// `rusqlite::Transaction` se dereference en `Connection`, et
+// `postgres::GenericClient` couvre `Client` comme `Transaction` : les
+// deux moteurs se pretent au partage, chacun a sa facon.
+
+fn sqlite_executer(
+    c: &rusqlite::Connection,
+    sql: &str,
+    params: &[Valeur],
+) -> Resultat<u64> {
+    let p = params_sqlite(params);
+    let refs: Vec<&dyn rusqlite::ToSql> =
+        p.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
+    Ok(c.execute(sql, refs.as_slice())? as u64)
+}
+
+fn sqlite_lire_une<T>(
+    c: &rusqlite::Connection,
+    sql: &str,
+    params: &[Valeur],
+    lire: impl FnOnce(&Ligne<'_>) -> Resultat<T>,
+) -> Resultat<Option<T>> {
+    let p = params_sqlite(params);
+    let refs: Vec<&dyn rusqlite::ToSql> =
+        p.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
+    let mut st = c.prepare(sql)?;
+    let mut lignes = st.query(refs.as_slice())?;
+    match lignes.next()? {
+        Some(r) => Ok(Some(lire(&Ligne::Sqlite(r))?)),
+        None => Ok(None),
+    }
+}
+
+fn sqlite_lire_plusieurs<T>(
+    c: &rusqlite::Connection,
+    sql: &str,
+    params: &[Valeur],
+    mut lire: impl FnMut(&Ligne<'_>) -> Resultat<T>,
+) -> Resultat<Vec<T>> {
+    let p = params_sqlite(params);
+    let refs: Vec<&dyn rusqlite::ToSql> =
+        p.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
+    let mut st = c.prepare(sql)?;
+    let mut lignes = st.query(refs.as_slice())?;
+    let mut sortie = Vec::new();
+    while let Some(r) = lignes.next()? {
+        sortie.push(lire(&Ligne::Sqlite(r))?);
+    }
+    Ok(sortie)
+}
+
+fn pg_executer<C: postgres::GenericClient>(
+    c: &mut C,
+    sql: &str,
+    params: &[Valeur],
+) -> Resultat<u64> {
+    let sql = traduire_parametres(sql);
+    let p = params_pg(params);
+    let refs: Vec<&(dyn postgres::types::ToSql + Sync)> =
+        p.iter().map(|v| v.as_ref()).collect();
+    Ok(c.execute(sql.as_str(), refs.as_slice())?)
+}
+
+fn pg_lire_une<C: postgres::GenericClient, T>(
+    c: &mut C,
+    sql: &str,
+    params: &[Valeur],
+    lire: impl FnOnce(&Ligne<'_>) -> Resultat<T>,
+) -> Resultat<Option<T>> {
+    let sql = traduire_parametres(sql);
+    let p = params_pg(params);
+    let refs: Vec<&(dyn postgres::types::ToSql + Sync)> =
+        p.iter().map(|v| v.as_ref()).collect();
+    let lignes = c.query(sql.as_str(), refs.as_slice())?;
+    match lignes.first() {
+        Some(r) => Ok(Some(lire(&Ligne::Pg(r))?)),
+        None => Ok(None),
+    }
+}
+
+fn pg_lire_plusieurs<C: postgres::GenericClient, T>(
+    c: &mut C,
+    sql: &str,
+    params: &[Valeur],
+    mut lire: impl FnMut(&Ligne<'_>) -> Resultat<T>,
+) -> Resultat<Vec<T>> {
+    let sql = traduire_parametres(sql);
+    let p = params_pg(params);
+    let refs: Vec<&(dyn postgres::types::ToSql + Sync)> =
+        p.iter().map(|v| v.as_ref()).collect();
+    let mut sortie = Vec::new();
+    for r in c.query(sql.as_str(), refs.as_slice())? {
+        sortie.push(lire(&Ligne::Pg(&r))?);
+    }
+    Ok(sortie)
+}
+
+// =====================================================================
+//  UNE TRANSACTION
+// =====================================================================
+
+/// Tout ou rien.
+///
+/// Indispensable des qu'on touche a l'argent : une vente ecrit la
+/// vente, ses lignes, les mouvements de stock, le paiement et le
+/// mouvement de caisse. Si l'un echoue, AUCUN ne doit rester — sinon le
+/// stock sort sans que l'argent entre, et le comptage du soir tombe
+/// faux sans rien pour l'expliquer.
+///
+/// **Rien n'est ecrit tant que `valider` n'est pas appele.** Une
+/// transaction abandonnee retombe d'elle-meme : c'est le bon defaut,
+/// parce qu'un oubli doit couter une vente non enregistree, jamais une
+/// demi-vente.
+pub enum Transaction<'a> {
+    Sqlite(rusqlite::Transaction<'a>),
+    Pg(postgres::Transaction<'a>),
+}
+
+impl Transaction<'_> {
+    pub fn executer(&mut self, sql: &str, params: &[Valeur]) -> Resultat<u64> {
+        match self {
+            Transaction::Sqlite(t) => sqlite_executer(t, sql, params),
+            Transaction::Pg(t) => pg_executer(t, sql, params),
+        }
+    }
+
+    pub fn lire_une<T>(
+        &mut self,
+        sql: &str,
+        params: &[Valeur],
+        lire: impl FnOnce(&Ligne<'_>) -> Resultat<T>,
+    ) -> Resultat<Option<T>> {
+        match self {
+            Transaction::Sqlite(t) => sqlite_lire_une(t, sql, params, lire),
+            Transaction::Pg(t) => pg_lire_une(t, sql, params, lire),
+        }
+    }
+
+    pub fn lire_plusieurs<T>(
+        &mut self,
+        sql: &str,
+        params: &[Valeur],
+        lire: impl FnMut(&Ligne<'_>) -> Resultat<T>,
+    ) -> Resultat<Vec<T>> {
+        match self {
+            Transaction::Sqlite(t) => sqlite_lire_plusieurs(t, sql, params, lire),
+            Transaction::Pg(t) => pg_lire_plusieurs(t, sql, params, lire),
+        }
+    }
+
+    /// Ecrit tout, pour de bon.
+    pub fn valider(self) -> Resultat<()> {
+        match self {
+            Transaction::Sqlite(t) => Ok(t.commit()?),
+            Transaction::Pg(t) => Ok(t.commit()?),
+        }
+    }
+}
+
 impl Base {
     /// Ouvre SQLite (un chemin) ou PostgreSQL (une URL).
     ///
@@ -320,19 +487,16 @@ impl Base {
     /// Une ecriture. Rend le nombre de lignes touchees.
     pub fn executer(&mut self, sql: &str, params: &[Valeur]) -> Resultat<u64> {
         match self {
-            Base::Sqlite(c) => {
-                let p = params_sqlite(params);
-                let refs: Vec<&dyn rusqlite::ToSql> =
-                    p.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
-                Ok(c.execute(sql, refs.as_slice())? as u64)
-            }
-            Base::Pg(c) => {
-                let sql = traduire_parametres(sql);
-                let p = params_pg(params);
-                let refs: Vec<&(dyn postgres::types::ToSql + Sync)> =
-                    p.iter().map(|v| v.as_ref()).collect();
-                Ok(c.execute(sql.as_str(), refs.as_slice())?)
-            }
+            Base::Sqlite(c) => sqlite_executer(c, sql, params),
+            Base::Pg(c) => pg_executer(c.as_mut(), sql, params),
+        }
+    }
+
+    /// Ouvre une transaction : tout ou rien.
+    pub fn transaction(&mut self) -> Resultat<Transaction<'_>> {
+        match self {
+            Base::Sqlite(c) => Ok(Transaction::Sqlite(c.transaction()?)),
+            Base::Pg(c) => Ok(Transaction::Pg(c.transaction()?)),
         }
     }
 
@@ -355,28 +519,8 @@ impl Base {
         lire: impl FnOnce(&Ligne<'_>) -> Resultat<T>,
     ) -> Resultat<Option<T>> {
         match self {
-            Base::Sqlite(c) => {
-                let p = params_sqlite(params);
-                let refs: Vec<&dyn rusqlite::ToSql> =
-                    p.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
-                let mut st = c.prepare(sql)?;
-                let mut lignes = st.query(refs.as_slice())?;
-                match lignes.next()? {
-                    Some(r) => Ok(Some(lire(&Ligne::Sqlite(r))?)),
-                    None => Ok(None),
-                }
-            }
-            Base::Pg(c) => {
-                let sql = traduire_parametres(sql);
-                let p = params_pg(params);
-                let refs: Vec<&(dyn postgres::types::ToSql + Sync)> =
-                    p.iter().map(|v| v.as_ref()).collect();
-                let lignes = c.query(sql.as_str(), refs.as_slice())?;
-                match lignes.first() {
-                    Some(r) => Ok(Some(lire(&Ligne::Pg(r))?)),
-                    None => Ok(None),
-                }
-            }
+            Base::Sqlite(c) => sqlite_lire_une(c, sql, params, lire),
+            Base::Pg(c) => pg_lire_une(c.as_mut(), sql, params, lire),
         }
     }
 
@@ -385,32 +529,11 @@ impl Base {
         &mut self,
         sql: &str,
         params: &[Valeur],
-        mut lire: impl FnMut(&Ligne<'_>) -> Resultat<T>,
+        lire: impl FnMut(&Ligne<'_>) -> Resultat<T>,
     ) -> Resultat<Vec<T>> {
         match self {
-            Base::Sqlite(c) => {
-                let p = params_sqlite(params);
-                let refs: Vec<&dyn rusqlite::ToSql> =
-                    p.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
-                let mut st = c.prepare(sql)?;
-                let mut lignes = st.query(refs.as_slice())?;
-                let mut sortie = Vec::new();
-                while let Some(r) = lignes.next()? {
-                    sortie.push(lire(&Ligne::Sqlite(r))?);
-                }
-                Ok(sortie)
-            }
-            Base::Pg(c) => {
-                let sql = traduire_parametres(sql);
-                let p = params_pg(params);
-                let refs: Vec<&(dyn postgres::types::ToSql + Sync)> =
-                    p.iter().map(|v| v.as_ref()).collect();
-                let mut sortie = Vec::new();
-                for r in c.query(sql.as_str(), refs.as_slice())? {
-                    sortie.push(lire(&Ligne::Pg(&r))?);
-                }
-                Ok(sortie)
-            }
+            Base::Sqlite(c) => sqlite_lire_plusieurs(c, sql, params, lire),
+            Base::Pg(c) => pg_lire_plusieurs(c.as_mut(), sql, params, lire),
         }
     }
 

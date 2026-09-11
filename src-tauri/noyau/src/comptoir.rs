@@ -266,3 +266,282 @@ pub fn lire_clients_avec_creances(
         .collect();
     Ok(x)
 }
+
+// =====================================================================
+//  LES MEMES, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// Troisieme lot du portage. Celui-ci ECRIT : c'est le premier a le
+// faire, et c'est pour cela qu'il vient avant `argent`. On eprouve
+// l'insertion, le conflit de doublon et la transaction sur des clients
+// et des articles — ou une erreur se corrige — avant de toucher a une
+// vente, ou elle ne se corrige pas.
+
+use crate::base::Base;
+use crate::parametres;
+
+/// L'identifiant de l'utilisateur courant, sur l'un ou l'autre moteur.
+///
+/// Le repli sur « system » est deliberе : une operation ne doit jamais
+/// echouer parce qu'on ne sait pas QUI la fait — elle doit s'ecrire, et
+/// le journal dira qu'on ne savait pas.
+fn auteur_courant(base: &mut Base) -> String {
+    base.lire_une(
+        "SELECT id FROM utilisateur WHERE actif = 1 ORDER BY cree_le LIMIT 1",
+        &[],
+        |r| r.get::<String>(0),
+    )
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| "system".to_string())
+}
+
+pub fn creer_client_rapide_sur(
+    base: &mut Base,
+    nom: String,
+    telephone: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let now = maintenant_iso();
+    let id = uuid::Uuid::new_v4().to_string();
+    let auteur = auteur_courant(base);
+
+    // Le code suit le NOMBRE de clients reels : le client generique ne
+    // compte pas, sinon la numerotation commencerait a 2.
+    let nb = base
+        .lire_une(
+            "SELECT COUNT(*) FROM client WHERE est_generique = 0",
+            &[],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    let code = format!("CLIENT{:05}", nb + 1);
+
+    base.executer(
+        "INSERT INTO client
+           (id, code, nom, telephone, est_generique, actif,
+            cree_le, modifie_le, cree_par, modifie_par, origine)
+         VALUES (?1,?2,?3,?4,0,1,?5,?5,?6,?6,'app')",
+        &parametres![
+            id.clone(),
+            code.clone(),
+            nom.clone(),
+            telephone.clone(),
+            now,
+            auteur
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    Ok(serde_json::json!({
+        "id": id, "code": code, "nom": nom, "telephone": telephone
+    }))
+}
+
+pub fn creer_article_rapide_sur(
+    base: &mut Base,
+    nom: String,
+    unite_base: String,
+    prix_reference: i64,
+    prix_achat: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let nom = nom.trim().to_string();
+    if nom.is_empty() {
+        return Err("Le nom de l'article est obligatoire".to_string());
+    }
+
+    // Un doublon de nom casse l'import CSV, qui rapproche les articles
+    // par `lower(nom)` et en mettrait deux a jour a la fois.
+    if let Some(existant) = base
+        .lire_une(
+            "SELECT nom FROM article WHERE lower(nom) = lower(?1) AND actif = 1",
+            &parametres![nom.clone()],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+    {
+        return Err(format!("L'article « {existant} » existe déjà."));
+    }
+
+    let now = maintenant_iso();
+    let art_id = uuid::Uuid::new_v4().to_string();
+    let unite_id = uuid::Uuid::new_v4().to_string();
+    let auteur = auteur_courant(base);
+
+    let depot_id = base
+        .lire_une(
+            "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
+            &[],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Aucun dépôt actif".to_string())?;
+
+    // Une TRANSACTION : l'article, son unite et sa ligne de stock
+    // forment un tout. Un article sans unite de vente ne se vend pas,
+    // et il faudrait le reparer a la main dans la base.
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+
+    tx.executer(
+        "INSERT INTO article
+           (id, nom, unite_base, gere_en_stock, attributs, actif,
+            dernier_prix_achat, cree_le, modifie_le, cree_par, modifie_par, origine)
+         VALUES (?1,?2,?3,1,'{}',1,?4,?5,?5,?6,?6,'app')",
+        &parametres![
+            art_id.clone(),
+            nom.clone(),
+            unite_base.clone(),
+            prix_achat,
+            now.clone(),
+            auteur.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    tx.executer(
+        "INSERT INTO unite_vente
+           (id, article_id, libelle, facteur, prix_reference, actif,
+            cree_le, modifie_le, cree_par, modifie_par, origine)
+         VALUES (?1,?2,?3,1.0,?4,1,?5,?5,?6,?6,'app')",
+        &parametres![
+            unite_id.clone(),
+            art_id.clone(),
+            unite_base.clone(),
+            prix_reference,
+            now,
+            auteur
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    tx.executer(
+        "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+         VALUES (?1,?2,?3,0)
+         ON CONFLICT (article_id, depot_id) DO NOTHING",
+        &parametres![uuid::Uuid::new_v4().to_string(), art_id.clone(), depot_id],
+    )
+    .map_err(|e| e.0)?;
+
+    tx.valider().map_err(|e| e.0)?;
+
+    Ok(serde_json::json!({
+        "id": art_id, "nom": nom, "unite_base": unite_base, "stock": 0.0,
+        "unites": [{"id": unite_id, "libelle": unite_base,
+                    "facteur": 1.0, "prix_reference": prix_reference}]
+    }))
+}
+
+pub fn modifier_client_sur(
+    base: &mut Base,
+    client_id: String,
+    nom: String,
+    telephone: Option<String>,
+    adresse: Option<String>,
+    email: Option<String>,
+    nif: Option<String>,
+) -> Result<(), String> {
+    if nom.trim().is_empty() {
+        return Err("Le nom est obligatoire".to_string());
+    }
+
+    let est_generique = base
+        .lire_une(
+            "SELECT est_generique FROM client WHERE id = ?1",
+            &parametres![client_id.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Client introuvable".to_string())?;
+
+    if est_generique == 1 {
+        return Err("Le client générique ne se modifie pas : il regroupe toutes les \
+                    ventes au comptant."
+            .to_string());
+    }
+
+    let now = maintenant_iso();
+    let auteur = auteur_courant(base);
+    // `vide` plutot que la chaine vide : un champ efface doit redevenir
+    // NULL, sinon les ecrans affichent une ligne vide au lieu de rien.
+    let vide = |o: Option<String>| o.filter(|s| !s.trim().is_empty());
+
+    base.executer(
+        "UPDATE client
+         SET nom = ?1, telephone = ?2, adresse = ?3, email = ?4, nif = ?5,
+             modifie_le = ?6, modifie_par = ?7
+         WHERE id = ?8",
+        &parametres![
+            nom.trim(),
+            vide(telephone),
+            vide(adresse),
+            vide(email),
+            vide(nif),
+            now.clone(),
+            auteur.clone(),
+            client_id.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    let _ = base.executer(
+        "INSERT INTO journal
+           (id, type_evenement, entite_type, entite_id, auteur_id,
+            nouveau_valeur, origine, date_evenement)
+         VALUES (?1,'client_modifie','client',?2,?3,?4,'app',?5)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            client_id,
+            auteur,
+            format!("{{\"nom\":\"{}\"}}", nom.trim().replace('"', "'")),
+            now
+        ],
+    );
+
+    Ok(())
+}
+
+pub fn lire_clients_avec_creances_sur(
+    base: &mut Base,
+) -> Result<Vec<serde_json::Value>, String> {
+    base.lire_plusieurs(
+        "SELECT c.id, c.code, c.nom, c.telephone,
+                CAST(COALESCE(SUM(
+                  CASE WHEN v.statut <> 'payee' THEN
+                    (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
+                     FROM ligne_vente WHERE vente_id = v.id) -
+                    (SELECT COALESCE(SUM(montant), 0)
+                     FROM paiement WHERE vente_id = v.id)
+                  ELSE 0 END
+                ), 0) AS BIGINT) as total_creances,
+                COUNT(DISTINCT v.id) as nb_ventes
+         FROM client c
+         LEFT JOIN vente v ON v.client_id = c.id
+         WHERE c.actif = 1 AND c.est_generique = 0
+         GROUP BY c.id, c.code, c.nom, c.telephone
+         ORDER BY total_creances DESC, c.nom ASC",
+        &[],
+        |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<String>(0)?,
+                "code": r.get::<String>(1)?,
+                "nom": r.get::<String>(2)?,
+                "telephone": r.get::<Option<String>>(3)?,
+                "total_creances": r.get::<i64>(4)?,
+                "nb_ventes": r.get::<i64>(5)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn lire_config_scanner_sur(base: &mut Base) -> Result<bool, String> {
+    Ok(base
+        .lire_une(
+            "SELECT valeur FROM config_app WHERE cle = 'scanner_actif'",
+            &[],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+        .map(|v| v == "1")
+        .unwrap_or(false))
+}

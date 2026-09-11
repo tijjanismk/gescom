@@ -1148,3 +1148,130 @@ pub fn reallouer_globaux(
 
     Ok(reparties)
 }
+
+// =====================================================================
+//  LA FONDATION, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// Quatrieme lot du portage. PAS encore `creer_vente` ni
+// `valider_facture` : 280 et 290 lignes de logique d'argent, ou une
+// erreur ne se corrige pas par un clic. Elles viennent ensuite, seules,
+// avec leurs propres scenarios.
+//
+// Ce qui est porte ici est ce dont TOUT le reste depend :
+//
+// - `suivant` — le compteur de numerotation. C'est la piece la plus
+//   sensible a la concurrence de tout le noyau : l'ancienne lecture par
+//   MAX() produisait 5 doublons sur 100 sous quatre connexions. Un seul
+//   ordre SQL, `ON CONFLICT ... RETURNING`, que les deux moteurs
+//   acceptent ;
+// - de quoi savoir QUI ecrit, et lire les lignes d'une piece.
+
+use crate::base::Base;
+use crate::parametres;
+
+pub fn id_utilisateur_courant_sur(base: &mut Base) -> String {
+    base.lire_une(
+        "SELECT id FROM utilisateur WHERE actif = 1 ORDER BY cree_le LIMIT 1",
+        &[],
+        |r| r.get::<String>(0),
+    )
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| "system".to_string())
+}
+
+/// L'auteur a inscrire, d'apres son role.
+///
+/// Le repli sur l'utilisateur courant est delibere : une ecriture
+/// d'argent ne doit jamais echouer parce qu'on ne sait pas exactement
+/// qui la fait. Elle s'ecrit, et le journal dit ce qu'on savait.
+pub fn id_utilisateur_par_role_sur(base: &mut Base, role: &str) -> String {
+    base.lire_une(
+        "SELECT u.id FROM utilisateur u
+         JOIN role r ON r.id = u.role_id
+         WHERE r.nom = ?1 AND u.actif = 1 LIMIT 1",
+        &parametres![role],
+        |r| r.get::<String>(0),
+    )
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| id_utilisateur_courant_sur(base))
+}
+
+/// Le prochain rang d'un compteur, reserve pour l'appelant.
+///
+/// Un seul ordre SQL : l'increment et sa lecture ne peuvent pas etre
+/// separes par une autre connexion. Les faire en deux temps rouvrirait
+/// exactement la fenetre qu'on a fermee — et cette fenetre valait
+/// 5 doublons sur 100 numeros, mesures.
+pub fn suivant_sur(base: &mut Base, cle: &str) -> Result<i64, String> {
+    base.lire_une(
+        "INSERT INTO compteur_piece (cle, dernier) VALUES (?1, 1)
+         ON CONFLICT (cle) DO UPDATE SET dernier = compteur_piece.dernier + 1
+         RETURNING dernier",
+        &parametres![cle],
+        |r| r.get::<i64>(0),
+    )
+    .map_err(|e| format!("Numérotation impossible ({cle}) : {}", e.0))?
+    .ok_or_else(|| format!("Numérotation impossible ({cle}) : aucun rang rendu"))
+}
+
+/// Reserve le prochain numero d'une serie, et le rend.
+///
+/// **Ceci ecrit en base** : chaque appel consomme un numero, ce n'est
+/// pas un apercu.
+pub fn reserver_numero_sur(base: &mut Base, type_piece: &str) -> Result<String, String> {
+    let annee = chrono::Local::now().format("%Y").to_string();
+    let prefix = prefixe_de(type_piece);
+    let cle = format!("{prefix}-{annee}");
+    let rang = suivant_sur(base, &cle)?;
+    Ok(format!("{prefix}-{annee}-{rang:05}"))
+}
+
+/// Le prefixe d'une serie.
+///
+/// Extrait pour que les deux versions — SQLite et Base — ne puissent
+/// pas diverger : un prefixe qui change d'un cote donnerait deux series
+/// pour le meme type de piece, et la contrainte UNIQUE finirait par
+/// bloquer une vente au comptoir.
+pub fn prefixe_de(type_piece: &str) -> &'static str {
+    match type_piece {
+        "devis" => "DEV",
+        "proforma" => "PRO",
+        "commande_client" => "CMD",
+        "bon_livraison" => "BL",
+        "facture" => "FAC",
+        "facture_acompte" => "ACP",
+        "avoir_client" => "AVC",
+        "bon_commande_fournisseur" => "BCF",
+        "bon_reception" => "BRF",
+        "facture_fournisseur" => "FAF",
+        "avoir_fournisseur" => "AVF",
+        _ => "PIE",
+    }
+}
+
+/// Les lignes d'une piece : article, unite, quantite, prix, remise, TVA.
+pub fn lire_lignes_raw_sur(
+    base: &mut Base,
+    piece_id: &str,
+) -> Result<Vec<(String, String, f64, i64, f64, f64)>, String> {
+    base.lire_plusieurs(
+        "SELECT article_id, unite_vente_id, quantite, prix_unitaire,
+                remise_pct, taux_tva
+         FROM ligne_piece WHERE piece_id = ?1",
+        &parametres![piece_id],
+        |r| {
+            Ok((
+                r.get::<String>(0)?,
+                r.get::<String>(1)?,
+                r.get::<f64>(2)?,
+                r.get::<i64>(3)?,
+                r.get::<f64>(4)?,
+                r.get::<f64>(5)?,
+            ))
+        },
+    )
+    .map_err(|e| e.0)
+}

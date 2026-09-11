@@ -198,3 +198,180 @@ pub fn lire_articles_avec_unites(
     );
     Ok(articles)
 }
+
+// =====================================================================
+//  LES MEMES, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// Deuxieme lot du portage, apres « se connecter ». Ce sont les lectures
+// qu'un poste caisse fait AVANT d'afficher quoi que ce soit : sans
+// elles, une caisse branchee sur PostgreSQL montre un ecran vide.
+//
+// Que des SELECT. C'est ce qui en fait le bon lot suivant — on eprouve
+// le chemin sur des requetes a jointures, des agregats et des colonnes
+// nulles, sans risquer une ecriture d'argent.
+
+use crate::base::{Base, Resultat};
+use crate::parametres;
+
+pub fn lire_clients_sur(base: &mut Base) -> Result<Vec<Value>, String> {
+    base.lire_plusieurs(
+        "SELECT id, code, nom, telephone FROM client
+         WHERE actif = 1 ORDER BY nom ASC",
+        &[],
+        |r| {
+            Ok(json!({
+                "id": r.get::<String>(0)?,
+                "code": r.get::<String>(1)?,
+                "nom": r.get::<String>(2)?,
+                "telephone": r.get::<Option<String>>(3)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn lire_client_generique_sur(base: &mut Base) -> Result<Value, String> {
+    base.lire_une(
+        "SELECT id, code, nom FROM client WHERE est_generique = 1 LIMIT 1",
+        &[],
+        |r| {
+            Ok(json!({
+                "id": r.get::<String>(0)?,
+                "code": r.get::<String>(1)?,
+                "nom": r.get::<String>(2)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)?
+    .ok_or_else(|| "Aucun client générique".to_string())
+}
+
+pub fn lire_depots_sur(base: &mut Base) -> Result<Vec<Value>, String> {
+    base.lire_plusieurs(
+        "SELECT id, nom, est_defaut FROM depot WHERE actif = 1
+         ORDER BY est_defaut DESC, nom ASC",
+        &[],
+        |r| {
+            Ok(json!({
+                "id": r.get::<String>(0)?,
+                "nom": r.get::<String>(1)?,
+                "est_defaut": r.get::<i64>(2)? != 0,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn lire_depot_defaut_sur(base: &mut Base) -> Result<Value, String> {
+    base.lire_une(
+        "SELECT id, nom FROM depot WHERE est_defaut = 1 LIMIT 1",
+        &[],
+        |r| {
+            Ok(json!({
+                "id": r.get::<String>(0)?,
+                "nom": r.get::<String>(1)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)?
+    .ok_or_else(|| "Aucun dépôt par défaut".to_string())
+}
+
+/// Le depot a servir : celui demande s'il existe et vit, sinon le
+/// defaut.
+///
+/// Un depot inconnu ou desactive ne doit pas faire echouer l'ecran —
+/// il se retrouve memorise dans la barre laterale bien apres avoir ete
+/// ferme, et le commercant ne comprendrait pas pourquoi sa caisse
+/// refuse de s'ouvrir.
+fn depot_a_servir(base: &mut Base, demande: Option<String>) -> Resultat<String> {
+    if let Some(d) = demande.filter(|d| !d.is_empty()) {
+        if let Some(id) = base.lire_une(
+            "SELECT id FROM depot WHERE id = ?1 AND actif = 1",
+            &parametres![d],
+            |r| r.get::<String>(0),
+        )? {
+            return Ok(id);
+        }
+    }
+    base.lire_une(
+        "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
+        &[],
+        |r| r.get::<String>(0),
+    )?
+    .ok_or_else(|| crate::base::Erreur("Aucun dépôt par défaut".into()))
+}
+
+pub fn lire_articles_avec_unites_sur(
+    base: &mut Base,
+    role: Option<String>,
+    depot_id: Option<String>,
+) -> Result<Vec<Value>, String> {
+    let est_patron = role.as_deref() == Some("patron");
+    let depot_id = depot_a_servir(base, depot_id).map_err(|e| e.0)?;
+
+    let lignes = base
+        .lire_plusieurs(
+            "SELECT a.id, a.nom, a.unite_base, a.dernier_prix_achat,
+                    u.id, u.libelle, u.facteur, u.prix_reference,
+                    COALESCE(sd.quantite, 0) as stock,
+                    COALESCE(a.taux_tva_defaut, 0.0) as taux_tva_defaut
+             FROM article a
+             JOIN unite_vente u ON u.article_id = a.id AND u.actif = 1
+             LEFT JOIN stock_depot sd ON sd.article_id = a.id AND sd.depot_id = ?1
+             WHERE a.actif = 1
+             ORDER BY a.nom, u.facteur ASC",
+            &parametres![depot_id],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<String>(1)?,
+                    r.get::<String>(2)?,
+                    r.get::<Option<i64>>(3)?,
+                    r.get::<String>(4)?,
+                    r.get::<String>(5)?,
+                    r.get::<f64>(6)?,
+                    r.get::<i64>(7)?,
+                    r.get::<f64>(8)?,
+                    r.get::<f64>(9)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+
+    let mut articles: Vec<Value> = Vec::new();
+    let mut courant_id = String::new();
+
+    for (art_id, art_nom, unite_base, prix_achat, u_id, u_libelle, facteur, prix_ref, stock, taux_tva)
+        in lignes
+    {
+        let unite = json!({
+            "id": u_id, "libelle": u_libelle,
+            "facteur": facteur, "prix_reference": prix_ref,
+        });
+        if art_id != courant_id {
+            courant_id = art_id.clone();
+            let mut art = json!({
+                "id": art_id, "nom": art_nom,
+                "unite_base": unite_base, "stock": stock,
+                "taux_tva_defaut": taux_tva,
+                "unites": [unite],
+            });
+            // Le prix d'achat est filtre ICI et non dans l'ecran : un
+            // poste caisse recoit la reponse telle quelle, et un employe
+            // n'a pas a connaitre la marge du patron parce qu'il sait
+            // ouvrir les outils du navigateur.
+            if est_patron {
+                art["dernier_prix_achat"] =
+                    prix_achat.map(|p| json!(p)).unwrap_or(Value::Null);
+            }
+            articles.push(art);
+        } else if let Some(last) = articles.last_mut() {
+            if let Some(unites) = last["unites"].as_array_mut() {
+                unites.push(unite);
+            }
+        }
+    }
+    Ok(articles)
+}

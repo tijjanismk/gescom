@@ -226,3 +226,214 @@ fn un_poste_desactive_coupe_la_session_sur_postgresql() {
         Etat::PosteFerme
     ));
 }
+
+// =====================================================================
+//  CATALOGUE ET COMPTOIR
+// =====================================================================
+
+fn base_peuplee() -> Option<gescom_noyau::base::Base> {
+    let mut base = pg()?;
+    base.executer_lot("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").unwrap();
+    amorcage::amorcer(&mut base).unwrap();
+    amorcage::donnees_demo(&mut base).unwrap();
+    Some(base)
+}
+
+#[test]
+fn le_catalogue_se_lit_sur_postgresql() {
+    use gescom_noyau::catalogue;
+    let Some(mut base) = base_peuplee() else { return };
+
+    let clients = catalogue::lire_clients_sur(&mut base).unwrap();
+    assert_eq!(clients.len(), 5, "4 clients de démo + le générique");
+    assert!(catalogue::lire_client_generique_sur(&mut base).is_ok());
+
+    let depots = catalogue::lire_depots_sur(&mut base).unwrap();
+    assert_eq!(depots.len(), 1);
+    assert_eq!(depots[0]["est_defaut"], true);
+
+    let articles =
+        catalogue::lire_articles_avec_unites_sur(&mut base, Some("patron".into()), None)
+            .unwrap();
+    assert_eq!(articles.len(), 8);
+
+    // Les unites sont regroupees sous leur article, pas etalees.
+    let sucre = articles.iter().find(|a| a["nom"] == "Sucre").expect("Sucre");
+    assert_eq!(sucre["unites"].as_array().unwrap().len(), 2);
+    assert_eq!(sucre["stock"], 200.0);
+}
+
+#[test]
+fn le_prix_d_achat_ne_sort_que_pour_le_patron_sur_postgresql() {
+    // Le filtre est cote serveur : un employe ne doit pas connaitre la
+    // marge parce qu'il sait ouvrir les outils du navigateur.
+    use gescom_noyau::catalogue;
+    let Some(mut base) = base_peuplee() else { return };
+
+    let employe =
+        catalogue::lire_articles_avec_unites_sur(&mut base, Some("employe".into()), None)
+            .unwrap();
+    assert!(
+        employe.iter().all(|a| a.get("dernier_prix_achat").is_none()),
+        "aucun prix d'achat pour l'employé"
+    );
+}
+
+#[test]
+fn un_depot_inconnu_retombe_sur_le_defaut_sur_postgresql() {
+    // Un depot desactive reste memorise dans la barre laterale : la
+    // caisse doit s'ouvrir quand meme.
+    use gescom_noyau::catalogue;
+    let Some(mut base) = base_peuplee() else { return };
+    let a = catalogue::lire_articles_avec_unites_sur(
+        &mut base, None, Some("depot-fantome".into()),
+    )
+    .expect("l'écran doit s'ouvrir");
+    assert_eq!(a.len(), 8);
+}
+
+#[test]
+fn le_comptoir_ecrit_sur_postgresql() {
+    use gescom_noyau::comptoir;
+    let Some(mut base) = base_peuplee() else { return };
+
+    let c = comptoir::creer_client_rapide_sur(
+        &mut base, "Awa Traoré".into(), Some("76112233".into()),
+    )
+    .expect("client créé");
+    assert_eq!(c["code"], "CLIENT00005", "le générique ne compte pas");
+
+    comptoir::modifier_client_sur(
+        &mut base,
+        c["id"].as_str().unwrap().to_string(),
+        "Awa Traoré Diallo".into(),
+        Some("76000000".into()),
+        Some("Badalabougou".into()),
+        None,
+        None,
+    )
+    .expect("client modifié");
+
+    let relu = base
+        .lire_une(
+            "SELECT nom, adresse, email FROM client WHERE id = ?1",
+            &gescom_noyau::parametres![c["id"].as_str().unwrap()],
+            |r| Ok((r.get::<String>(0)?, r.get::<Option<String>>(1)?, r.get::<Option<String>>(2)?)),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(relu.0, "Awa Traoré Diallo", "l'accent survit");
+    assert_eq!(relu.1.as_deref(), Some("Badalabougou"));
+    assert_eq!(relu.2, None, "un champ vide redevient NULL");
+}
+
+#[test]
+fn un_article_naît_avec_son_unité_ou_pas_du_tout() {
+    // La transaction : un article sans unite de vente ne se vend pas,
+    // et il faudrait le reparer a la main dans la base.
+    use gescom_noyau::comptoir;
+    let Some(mut base) = base_peuplee() else { return };
+
+    let a = comptoir::creer_article_rapide_sur(
+        &mut base, "Ciment CIMAF".into(), "sac".into(), 5500, Some(4800),
+    )
+    .expect("article créé");
+
+    let unites = base
+        .lire_une(
+            "SELECT COUNT(*) FROM unite_vente WHERE article_id = ?1",
+            &gescom_noyau::parametres![a["id"].as_str().unwrap()],
+            |r| r.get::<i64>(0),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(unites, 1);
+
+    // Le doublon est refuse, et rien n'est ecrit.
+    let avant = base
+        .lire_une("SELECT COUNT(*) FROM article", &[], |r| r.get::<i64>(0))
+        .unwrap()
+        .unwrap();
+    assert!(comptoir::creer_article_rapide_sur(
+        &mut base, "ciment cimaf".into(), "sac".into(), 5500, None,
+    )
+    .is_err(), "le doublon, même en minuscules, doit être refusé");
+    let apres = base
+        .lire_une("SELECT COUNT(*) FROM article", &[], |r| r.get::<i64>(0))
+        .unwrap()
+        .unwrap();
+    assert_eq!(avant, apres);
+}
+
+// =====================================================================
+//  LA NUMEROTATION — la piece la plus sensible a la concurrence
+// =====================================================================
+
+#[test]
+fn la_numerotation_marche_sur_postgresql() {
+    use gescom_noyau::argent;
+    let Some(mut base) = base_peuplee() else { return };
+
+    assert_eq!(argent::reserver_numero_sur(&mut base, "facture").unwrap(),
+               format!("FAC-{}-00001", chrono::Local::now().format("%Y")));
+    assert_eq!(argent::reserver_numero_sur(&mut base, "facture").unwrap(),
+               format!("FAC-{}-00002", chrono::Local::now().format("%Y")));
+
+    // Chaque serie a son compteur : un bon de livraison ne doit pas
+    // faire avancer les factures.
+    assert_eq!(argent::reserver_numero_sur(&mut base, "bon_livraison").unwrap(),
+               format!("BL-{}-00001", chrono::Local::now().format("%Y")));
+}
+
+/// Deux connexions qui reservent en meme temps, sur PostgreSQL.
+///
+/// C'est le seul test qui prouve quelque chose sur la numerotation :
+/// l'ancienne lecture par MAX() sortait 5 doublons sur 100 dans ce
+/// scenario. Ici, quatre fils partent ensemble contre la MEME base.
+#[test]
+fn deux_caisses_qui_facturent_en_meme_temps_sur_postgresql() {
+    use gescom_noyau::{argent, base::Base};
+    use std::sync::{Arc, Barrier};
+
+    let Some(url) = std::env::var("GESCOM_PG").ok() else { return };
+    {
+        let Some(mut base) = base_peuplee() else { return };
+        // On repart d'un compteur propre.
+        base.executer("DELETE FROM compteur_piece", &[]).unwrap();
+    }
+
+    const FILS: usize = 4;
+    const PAR_FIL: usize = 25;
+    let depart = Arc::new(Barrier::new(FILS));
+    let mut mains = Vec::new();
+
+    for _ in 0..FILS {
+        let url = url.clone();
+        let depart = Arc::clone(&depart);
+        mains.push(std::thread::spawn(move || {
+            let mut base = Base::ouvrir(&url).expect("connexion");
+            depart.wait();
+            (0..PAR_FIL)
+                .map(|_| argent::reserver_numero_sur(&mut base, "facture").unwrap())
+                .collect::<Vec<_>>()
+        }));
+    }
+
+    let mut tous: Vec<String> = Vec::new();
+    for m in mains {
+        tous.extend(m.join().expect("un fil a paniqué"));
+    }
+
+    let mut uniques = tous.clone();
+    uniques.sort();
+    uniques.dedup();
+    assert_eq!(
+        uniques.len(),
+        tous.len(),
+        "un numéro est sorti deux fois — c'est exactement le bug corrigé"
+    );
+    // Et la suite est continue : ni trou, ni saut.
+    let an = chrono::Local::now().format("%Y");
+    assert_eq!(uniques.first().unwrap(), &format!("FAC-{an}-00001"));
+    assert_eq!(uniques.last().unwrap(), &format!("FAC-{an}-{:05}", FILS * PAR_FIL));
+}

@@ -7,7 +7,7 @@ projet a déjà payé une estimation à la louche (« 614 `rusqlite::`,
 1556 placeholders » était faux d'un facteur deux).
 
 Dernière mise à jour : **11 septembre 2026**.
-État : **200 tests SQLite + 7 tests PostgreSQL**, tous au vert.
+État : **207 tests SQLite + 14 tests PostgreSQL**, tous au vert.
 
 ---
 
@@ -83,11 +83,10 @@ chemin. Voir [ARCHITECTURE.md](ARCHITECTURE.md).
 ## v2 — ce qui RESTE
 
 ### Bloquant avant de vendre
-1. **Le pare-feu n'a jamais été vérifié depuis un second appareil.**
-   Tout a été testé depuis la même machine, ce qui ne prouve rien :
-   Windows ne filtre pas la boucle locale. Un téléphone sur le même
-   Wi-Fi suffit — `http://<adresse>:7300/sante`.
-   *C'est le point le plus rentable du reste de la liste.*
+1. ~~Le pare-feu~~ — **vérifié le 11/09/2026** : un téléphone sur le
+   même Wi-Fi joint le serveur. La règle posée par `parefeu.ps1` marche
+   depuis un vrai second appareil, pas seulement depuis la boucle
+   locale.
 2. **L'installeur n'est pas signé.** Chaque installation dépend de
    l'humeur de SmartScreen. Auto-signé + racine posée à la main tient
    tant qu'on déploie soi-même.
@@ -120,16 +119,36 @@ chemin. Voir [ARCHITECTURE.md](ARCHITECTURE.md).
   touchées. → [base.rs](../src-tauri/noyau/src/base.rs)
 - **Amorçage portable** : schéma, tables v2, rôles, comptes, dépôt,
   client générique, et les données de démonstration.
-- **Premier module porté : se connecter.** `auth`, `sessions`,
-  `portes::permissions_de`. La règle des permissions vit dans **une
-  fonction pure** appelée par les deux lectures — deux copies d'un
-  calcul de droits finissent toujours par diverger.
+- **Transactions** : `Base::transaction()` — tout ou rien, sur les deux
+  moteurs. Indispensable dès qu'on touche à l'argent. La plomberie est
+  partagée entre `Base` et `Transaction`, pour qu'une correction ne
+  s'applique pas à une seule.
 - Erreurs PostgreSQL lisibles : `db error` devenait trois mots inutiles,
   on remonte maintenant la contrainte, la colonne et la table.
 
-Vérifié sur une base réelle : 33 tables, 8 articles, 2 comptes, connexion
-du patron avec ses 23 permissions, session ouverte puis révoquée, poste
-désactivé qui coupe la session.
+### Les modules portés, dans l'ordre
+
+| lot | modules | ce qu'il débloque |
+|---|---|---|
+| 1 | `auth`, `sessions`, `portes` | **entrer** dans la base |
+| 2 | `catalogue` | l'écran de caisse s'affiche |
+| 3 | `comptoir` | créer clients et articles — le premier lot qui **écrit** |
+| 4 | fondation d'`argent` | la **numérotation**, dont tout dépend |
+
+La règle des permissions vit dans une **fonction pure** appelée par les
+deux lectures : deux copies d'un calcul de droits finissent toujours par
+diverger, et personne ne s'en aperçoit avant qu'un caissier fasse ce
+qu'il ne devait pas. Même principe pour le préfixe des séries.
+
+Vérifié sur une base réelle : connexion du patron avec ses 23
+permissions, catalogue de 8 articles avec leurs unités regroupées, prix
+d'achat masqué pour l'employé, dépôt inconnu qui retombe sur le défaut,
+client créé puis modifié (accent conservé, champ vidé redevenu NULL),
+article refusé en doublon sans rien écrire.
+
+Et le test qui compte le plus : **quatre connexions PostgreSQL
+simultanées réservant 100 numéros — aucun doublon, suite continue.**
+C'est le scénario qui sortait 5 doublons sur 100 avec l'ancien calcul.
 
 ### Reste — le vrai volume
 
@@ -144,9 +163,16 @@ désactivé qui coupe la session.
 **Le serveur ne sait pas encore faire tourner une boutique sur
 PostgreSQL.** Vendre, facturer, encaisser passent par SQLite.
 
-Ordre proposé : `catalogue` → `comptoir` → `argent` → `pieces` → le
-reste. La façade permet de porter module par module sans rien casser :
-ce qui n'est pas porté continue de tourner.
+**Le prochain morceau est identifié et volontairement laissé seul :**
+`creer_vente_sur` (280 lignes) et `valider_facture_sur` (290 lignes).
+Ce sont les deux fonctions où une erreur ne se corrige pas par un clic —
+elles écrivent la vente, ses lignes, les mouvements de stock, le
+paiement et le mouvement de caisse. Elles méritent leur propre séance et
+leurs propres scénarios, pas d'être expédiées à la fin d'une autre.
+
+Ensuite : `pieces`, `achats`, `retours`, puis le reste. La façade permet
+de porter module par module sans rien casser — ce qui n'est pas porté
+continue de tourner sur SQLite.
 
 Deux chantiers à part :
 - la **sauvegarde** — `VACUUM INTO` n'existe pas côté PostgreSQL ;
