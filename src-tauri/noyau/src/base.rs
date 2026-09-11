@@ -252,7 +252,24 @@ impl<T: DeLigne> DeLigne for Option<T> {
 // =====================================================================
 
 /// La connexion, quel que soit le moteur.
-pub enum Base {
+///
+/// Elle porte aussi **le dossier sur lequel elle travaille**. Ce n'est
+/// pas un detail de rangement : tant que le dossier vivait ailleurs —
+/// dans un argument, dans un reglage, dans la tete de l'appelant — il
+/// pouvait manquer. Attache a la connexion, il est toujours la.
+pub struct Base {
+    moteur: Moteur,
+    dossier: String,
+    /// Refuser les requetes qui oublient `dossier_id`.
+    ///
+    /// Eteint par defaut : les 739 points d'appel ne sont pas encore
+    /// cloisonnes, et allumer partout d'un coup ferait echouer tout ce
+    /// qui marche aujourd'hui. On l'allume module par module, au fur et
+    /// a mesure du portage — la meme progression que la facade.
+    audit: bool,
+}
+
+enum Moteur {
     Sqlite(rusqlite::Connection),
     Pg(Box<postgres::Client>),
 }
@@ -407,16 +424,31 @@ fn pg_lire_plusieurs<C: postgres::GenericClient, T>(
 /// transaction abandonnee retombe d'elle-meme : c'est le bon defaut,
 /// parce qu'un oubli doit couter une vente non enregistree, jamais une
 /// demi-vente.
-pub enum Transaction<'a> {
+pub struct Transaction<'a> {
+    moteur: MoteurTx<'a>,
+    audit: bool,
+}
+
+enum MoteurTx<'a> {
     Sqlite(rusqlite::Transaction<'a>),
     Pg(postgres::Transaction<'a>),
 }
 
 impl Transaction<'_> {
+    fn controler(&self, sql: &str) -> Resultat<()> {
+        if self.audit {
+            if let Some(reproche) = crate::dossiers::requete_non_cloisonnee(sql) {
+                return Err(Erreur(reproche));
+            }
+        }
+        Ok(())
+    }
+
     pub fn executer(&mut self, sql: &str, params: &[Valeur]) -> Resultat<u64> {
-        match self {
-            Transaction::Sqlite(t) => sqlite_executer(t, sql, params),
-            Transaction::Pg(t) => pg_executer(t, sql, params),
+        self.controler(sql)?;
+        match &mut self.moteur {
+            MoteurTx::Sqlite(t) => sqlite_executer(t, sql, params),
+            MoteurTx::Pg(t) => pg_executer(t, sql, params),
         }
     }
 
@@ -426,9 +458,10 @@ impl Transaction<'_> {
         params: &[Valeur],
         lire: impl FnOnce(&Ligne<'_>) -> Resultat<T>,
     ) -> Resultat<Option<T>> {
-        match self {
-            Transaction::Sqlite(t) => sqlite_lire_une(t, sql, params, lire),
-            Transaction::Pg(t) => pg_lire_une(t, sql, params, lire),
+        self.controler(sql)?;
+        match &mut self.moteur {
+            MoteurTx::Sqlite(t) => sqlite_lire_une(t, sql, params, lire),
+            MoteurTx::Pg(t) => pg_lire_une(t, sql, params, lire),
         }
     }
 
@@ -438,17 +471,18 @@ impl Transaction<'_> {
         params: &[Valeur],
         lire: impl FnMut(&Ligne<'_>) -> Resultat<T>,
     ) -> Resultat<Vec<T>> {
-        match self {
-            Transaction::Sqlite(t) => sqlite_lire_plusieurs(t, sql, params, lire),
-            Transaction::Pg(t) => pg_lire_plusieurs(t, sql, params, lire),
+        self.controler(sql)?;
+        match &mut self.moteur {
+            MoteurTx::Sqlite(t) => sqlite_lire_plusieurs(t, sql, params, lire),
+            MoteurTx::Pg(t) => pg_lire_plusieurs(t, sql, params, lire),
         }
     }
 
     /// Ecrit tout, pour de bon.
     pub fn valider(self) -> Resultat<()> {
-        match self {
-            Transaction::Sqlite(t) => Ok(t.commit()?),
-            Transaction::Pg(t) => Ok(t.commit()?),
+        match self.moteur {
+            MoteurTx::Sqlite(t) => Ok(t.commit()?),
+            MoteurTx::Pg(t) => Ok(t.commit()?),
         }
     }
 }
@@ -457,54 +491,112 @@ impl Base {
     /// Ouvre SQLite (un chemin) ou PostgreSQL (une URL).
     ///
     /// L'URL decide : c'est le seul reglage, et il tient dans la ligne
-    /// de commande du serveur.
+    /// de commande comme dans `poste.json`.
+    ///
+    /// La connexion s'ouvre sur le dossier d'origine. Une installation
+    /// qui n'en connait qu'un — c'est le cas de toutes celles qui
+    /// existent aujourd'hui — n'a donc rien a faire.
     pub fn ouvrir(cible: &str) -> Resultat<Self> {
-        if cible.starts_with("postgres://") || cible.starts_with("postgresql://") {
-            let client = postgres::Client::connect(cible, postgres::NoTls)?;
-            Ok(Base::Pg(Box::new(client)))
+        let moteur = if cible.starts_with("postgres://") || cible.starts_with("postgresql://") {
+            Moteur::Pg(Box::new(postgres::Client::connect(cible, postgres::NoTls)?))
         } else {
             let conn = rusqlite::Connection::open(cible)?;
             conn.execute_batch(
                 "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; \
                  PRAGMA busy_timeout=5000;",
             )?;
-            Ok(Base::Sqlite(conn))
+            Moteur::Sqlite(conn)
+        };
+        let mut base = Base {
+            moteur,
+            dossier: crate::dossiers::DOSSIER_DEFAUT.to_string(),
+            audit: false,
+        };
+        base.annoncer_le_dossier()?;
+        Ok(base)
+    }
+
+    /// Le dossier sur lequel cette connexion travaille.
+    pub fn dossier(&self) -> &str {
+        &self.dossier
+    }
+
+    /// Change de dossier.
+    ///
+    /// Cote PostgreSQL, la valeur est aussi posee dans la session :
+    /// c'est elle qui alimente la valeur par defaut de `dossier_id`,
+    /// pour qu'une insertion tombe dans le bon dossier meme quand
+    /// l'appelant ne pense pas a le dire.
+    pub fn choisir_dossier(&mut self, dossier_id: &str) -> Resultat<()> {
+        self.dossier = dossier_id.to_string();
+        self.annoncer_le_dossier()
+    }
+
+    fn annoncer_le_dossier(&mut self) -> Resultat<()> {
+        let dossier = self.dossier.clone();
+        if let Moteur::Pg(c) = &mut self.moteur {
+            // `set_config` et non `SET` : `SET` n'accepte pas de
+            // parametre, et concatener une valeur dans du SQL est la
+            // porte ouverte a l'injection.
+            c.execute("SELECT set_config('gescom.dossier', $1, false)", &[&dossier])?;
         }
+        Ok(())
+    }
+
+    /// Allume ou eteint le refus des requetes non cloisonnees.
+    pub fn auditer(&mut self, actif: bool) {
+        self.audit = actif;
+    }
+
+    /// Refuse la requete si elle oublie le cloisonnement.
+    ///
+    /// L'erreur arrive AVANT l'execution : une requete qui melange deux
+    /// societes ne doit pas rendre un resultat qu'on pourrait lire.
+    fn controler(&self, sql: &str) -> Resultat<()> {
+        if self.audit {
+            if let Some(reproche) = crate::dossiers::requete_non_cloisonnee(sql) {
+                return Err(Erreur(reproche));
+            }
+        }
+        Ok(())
     }
 
     pub fn est_postgres(&self) -> bool {
-        matches!(self, Base::Pg(_))
+        matches!(self.moteur, Moteur::Pg(_))
     }
 
     /// Le nom du moteur, pour les messages de demarrage.
     pub fn moteur(&self) -> &'static str {
-        match self {
-            Base::Sqlite(_) => "SQLite",
-            Base::Pg(_) => "PostgreSQL",
+        match self.moteur {
+            Moteur::Sqlite(_) => "SQLite",
+            Moteur::Pg(_) => "PostgreSQL",
         }
     }
 
     /// Une ecriture. Rend le nombre de lignes touchees.
     pub fn executer(&mut self, sql: &str, params: &[Valeur]) -> Resultat<u64> {
-        match self {
-            Base::Sqlite(c) => sqlite_executer(c, sql, params),
-            Base::Pg(c) => pg_executer(c.as_mut(), sql, params),
+        self.controler(sql)?;
+        match &mut self.moteur {
+            Moteur::Sqlite(c) => sqlite_executer(c, sql, params),
+            Moteur::Pg(c) => pg_executer(c.as_mut(), sql, params),
         }
     }
 
     /// Ouvre une transaction : tout ou rien.
     pub fn transaction(&mut self) -> Resultat<Transaction<'_>> {
-        match self {
-            Base::Sqlite(c) => Ok(Transaction::Sqlite(c.transaction()?)),
-            Base::Pg(c) => Ok(Transaction::Pg(c.transaction()?)),
-        }
+        let audit = self.audit;
+        let moteur = match &mut self.moteur {
+            Moteur::Sqlite(c) => MoteurTx::Sqlite(c.transaction()?),
+            Moteur::Pg(c) => MoteurTx::Pg(c.transaction()?),
+        };
+        Ok(Transaction { moteur, audit })
     }
 
-    /// Plusieurs ordres d'un coup, sans parametre. Pour le schema.
+    /// Plusieurs instructions d'un coup (schema, migrations).
     pub fn executer_lot(&mut self, sql: &str) -> Resultat<()> {
-        match self {
-            Base::Sqlite(c) => Ok(c.execute_batch(sql)?),
-            Base::Pg(c) => Ok(c.batch_execute(sql)?),
+        match &mut self.moteur {
+            Moteur::Sqlite(c) => Ok(c.execute_batch(sql)?),
+            Moteur::Pg(c) => Ok(c.batch_execute(sql)?),
         }
     }
 
@@ -518,9 +610,10 @@ impl Base {
         params: &[Valeur],
         lire: impl FnOnce(&Ligne<'_>) -> Resultat<T>,
     ) -> Resultat<Option<T>> {
-        match self {
-            Base::Sqlite(c) => sqlite_lire_une(c, sql, params, lire),
-            Base::Pg(c) => pg_lire_une(c.as_mut(), sql, params, lire),
+        self.controler(sql)?;
+        match &mut self.moteur {
+            Moteur::Sqlite(c) => sqlite_lire_une(c, sql, params, lire),
+            Moteur::Pg(c) => pg_lire_une(c.as_mut(), sql, params, lire),
         }
     }
 
@@ -531,37 +624,29 @@ impl Base {
         params: &[Valeur],
         lire: impl FnMut(&Ligne<'_>) -> Resultat<T>,
     ) -> Resultat<Vec<T>> {
-        match self {
-            Base::Sqlite(c) => sqlite_lire_plusieurs(c, sql, params, lire),
-            Base::Pg(c) => pg_lire_plusieurs(c.as_mut(), sql, params, lire),
+        self.controler(sql)?;
+        match &mut self.moteur {
+            Moteur::Sqlite(c) => sqlite_lire_plusieurs(c, sql, params, lire),
+            Moteur::Pg(c) => pg_lire_plusieurs(c.as_mut(), sql, params, lire),
         }
     }
 
-    /// La connexion SQLite en ecriture, pour batir un `Contexte`.
+    /// La connexion SQLite en ecriture, quand il en FAUT une.
     ///
-    /// C'est le point de passage de la migration : le serveur detient
-    /// une `Base`, et les 187 poignees qui parlent encore rusqlite
-    /// recoivent la connexion d'ici. Sur PostgreSQL il n'y en a pas, et
-    /// l'appelant doit le dire clairement plutot que d'echouer sur un
-    /// message incomprehensible.
+    /// Rend `None` sur PostgreSQL : l'appelant doit le dire clairement
+    /// plutot que d'echouer sur un message incomprehensible.
     pub fn sqlite_mut(&mut self) -> Option<&mut rusqlite::Connection> {
-        match self {
-            Base::Sqlite(c) => Some(c),
-            Base::Pg(_) => None,
+        match &mut self.moteur {
+            Moteur::Sqlite(c) => Some(c),
+            Moteur::Pg(_) => None,
         }
     }
 
-    /// La connexion SQLite, pour tout ce qui n'est pas encore porte.
-    ///
-    /// C'est le point de passage assume pendant la migration : les
-    /// modules qui parlent encore rusqlite directement continuent de
-    /// fonctionner. Rend `None` sur PostgreSQL — et l'appelant doit
-    /// alors dire clairement que la fonction n'est pas portee, plutot
-    /// que d'echouer sur un message incomprehensible.
+    /// La connexion SQLite en lecture.
     pub fn sqlite(&self) -> Option<&rusqlite::Connection> {
-        match self {
-            Base::Sqlite(c) => Some(c),
-            Base::Pg(_) => None,
+        match &self.moteur {
+            Moteur::Sqlite(c) => Some(c),
+            Moteur::Pg(_) => None,
         }
     }
 }
@@ -582,12 +667,46 @@ fn params_sqlite(params: &[Valeur]) -> Vec<rusqlite::types::Value> {
         .collect()
 }
 
+/// Un NULL qui n'annonce aucun type.
+///
+/// `Option::<String>::None` annoncait TEXT. PostgreSQL, lui, deduit le
+/// type attendu de la colonne : pour `dernier_prix_achat`, il attend un
+/// entier. Recevant un NULL etiquete TEXT, il refusait la requete avec
+/// « error serializing parameter 3 » — un message qui ne nomme ni la
+/// colonne, ni la table, ni le type attendu.
+///
+/// Le cas n'a rien d'exotique : c'est un article cree sans prix
+/// d'achat, une adresse laissee vide, une date non renseignee. Il ne
+/// s'etait pas vu parce que SQLite accepte tout, et que les scenarios
+/// PostgreSQL renseignaient tous ces champs.
+///
+/// `accepts` rend `true` pour n'importe quel type : un NULL n'a pas de
+/// contenu a serialiser, donc rien qui puisse etre du mauvais type.
+#[derive(Debug)]
+struct Nul;
+
+impl postgres::types::ToSql for Nul {
+    fn to_sql(
+        &self,
+        _: &postgres::types::Type,
+        _: &mut bytes::BytesMut,
+    ) -> Result<postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        Ok(postgres::types::IsNull::Yes)
+    }
+
+    fn accepts(_: &postgres::types::Type) -> bool {
+        true
+    }
+
+    postgres::types::to_sql_checked!();
+}
+
 fn params_pg(params: &[Valeur]) -> Vec<Box<dyn postgres::types::ToSql + Sync>> {
     params
         .iter()
         .map(|v| -> Box<dyn postgres::types::ToSql + Sync> {
             match v {
-                Valeur::Nul => Box::new(Option::<String>::None),
+                Valeur::Nul => Box::new(Nul),
                 Valeur::Entier(i) => Box::new(*i),
                 Valeur::Reel(f) => Box::new(*f),
                 Valeur::Texte(s) => Box::new(s.clone()),

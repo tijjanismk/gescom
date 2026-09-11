@@ -1,6 +1,6 @@
 # Gescom — Manuel d'utilisation
 
-*Version 1.14 — à imprimer et garder près de la caisse.*
+*Version 1.15 — à imprimer et garder près de la caisse.*
 
 ---
 
@@ -447,6 +447,41 @@ lui, et les ventes en sortent.
 
 > La caisse reste commune : il n'y a qu'un tiroir.
 
+> **Le sélecteur n'apparaît qu'à partir de deux dépôts ouverts.** Avec un
+> seul, il n'y a rien à choisir : il reste masqué.
+
+## Ouvrir, renommer, fermer
+
+**Paramètres → Dépôts.**
+
+**Créer** un dépôt, le **renommer**, ou désigner celui **par défaut** —
+celui que la caisse et les ventes proposent d'abord.
+
+## Fermer un dépôt
+
+Une réserve qu'on n'utilise plus se **ferme** ; elle ne se supprime pas.
+Son historique reste entier : les ventes qui en sont sorties, les
+transferts, les mouvements de stock.
+
+Un dépôt fermé disparaît des sélecteurs. Il n'apparaît plus ni dans les
+ventes, ni dans les transferts, ni dans le filtre du tableau de bord.
+
+**S'il reste du stock dedans**, Gescom vous le dit et demande
+confirmation. La marchandise n'est pas perdue : elle est **gelée**. Elle
+sort des états de stock tant que le dépôt est fermé, et revient telle
+quelle à la réouverture. Rien n'a bougé, rien n'a été transféré.
+
+> **Si le dépôt fermé était celui que vous consultiez**, le filtre
+> repasse tout seul sur **Tous les dépôts**. Sans quoi le tableau de bord
+> continuerait d'afficher les chiffres d'un lieu fermé — c'est-à-dire des
+> zéros partout, sans dire pourquoi, et sans moyen d'en sortir puisque le
+> sélecteur ne propose plus ce dépôt.
+
+## Rouvrir
+
+**Paramètres → Dépôts → Rouvrir.** Le dépôt revient dans les sélecteurs,
+avec le stock qu'il avait au moment de la fermeture.
+
 ## Transférer
 
 **Transferts.** Choisissez le départ, l'arrivée, les articles. Un bon
@@ -454,6 +489,9 @@ numéroté est créé, imprimable et signable par celui qui reçoit.
 
 Un transfert n'est **ni une vente ni un achat** : votre chiffre
 d'affaires ne bouge pas.
+
+> Un transfert **refuse** de mettre le dépôt de départ à découvert. On ne
+> déplace que ce qu'on a.
 
 ---
 

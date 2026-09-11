@@ -411,8 +411,8 @@ pub fn enregistrer_retour_sur(
                     "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
                     [], |r| r.get(0),
                 )).map_err(|_| {
-                    "Aucun dépôt actif pour sortir le remplacement. \
-                     Vérifier Paramètres → Dépôts.".to_string()
+                    "Aucun magasin actif pour sortir le remplacement. \
+                     Vérifier Paramètres → Magasins.".to_string()
                 })?;
 
                 let qte_base_remp = qte_remp * facteur_remp;

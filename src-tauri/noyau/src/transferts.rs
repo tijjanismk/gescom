@@ -72,7 +72,7 @@ pub fn enregistrer_transfert_sur(
         return Err("Aucune ligne à transférer".to_string());
     }
     if depot_source == depot_dest {
-        return Err("Les dépôts source et destination sont identiques".to_string());
+        return Err("Les magasins source et destination sont identiques".to_string());
     }
 
     let now = maintenant_iso();

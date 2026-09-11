@@ -6,8 +6,13 @@ fin. Les chiffres qu'il contient sont **mesurés**, jamais estimés — ce
 projet a déjà payé une estimation à la louche (« 614 `rusqlite::`,
 1556 placeholders » était faux d'un facteur deux).
 
+Les décisions d'architecture ne vivent PAS ici : elles sont dans
+[PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md) pour le multi-dossier, et
+dans [DECISIONS.md](DECISIONS.md) pour tout le reste. Ce fichier-ci ne
+dit que l'avancement — qui fait quoi, dans quel ordre.
+
 Dernière mise à jour : **11 septembre 2026**.
-État : **207 tests SQLite + 14 tests PostgreSQL**, tous au vert.
+État : **226 tests SQLite + 20 tests PostgreSQL**, tous au vert.
 
 ---
 
@@ -184,29 +189,144 @@ Deux chantiers à part :
 
 ## v3 — décidé, pas commencé
 
-### Multi-société et multi-dossier
+### Multi-société et multi-dossier — **tranché le 11/09/2026**
+
 Modèle Ciel : un dossier = **une société × un exercice**, avec une date
 de début, une date de fin, et une prolongation possible.
 
-⚠️ **À trancher AVANT de porter les 739 appels.** Le découpage en
-dossiers décide de la forme de la base : l'ajouter après obligerait à
-reprendre chaque requête une seconde fois.
+**Forme retenue : une colonne `dossier_id`.** L'autre option — une base
+par dossier — n'aurait demandé aucun filtre, mais interdisait toute vue
+consolidée.
 
-Deux formes possibles, non tranchées :
+Le prix est connu et tient en une phrase : *une requête qui oublie le
+filtre mélange deux sociétés*. Et elle ne le dit pas — elle rend des
+chiffres plausibles, calculés sur les ventes de quelqu'un d'autre.
+C'est pourquoi le garde-fou a été construit **avant** les colonnes.
 
-| | avantage | prix |
-|---|---|---|
-| une base par dossier | étanche, archivage naturel, **aucune requête à changer** | pas de vue consolidée |
-| une colonne `dossier_id` | vue consolidée, changement instantané | une requête qui oublie le filtre **mélange deux sociétés** |
+#### Fait : la fondation
 
-### Dépôt → magasin
-`depot` et `magasin` désignent la même chose. Renommer à l'écran coûte
-une heure ; renommer jusque dans la base touche ~200 requêtes et demande
-une migration.
+| | |
+|---|---|
+| table `dossier` | société, début, fin, `prolonge_jusqu_au`, `clos` |
+| colonne `dossier_id` | sur les **23 tables cloisonnées**, plus son index |
+| `Base` porte son dossier | il ne vit plus dans un argument qu'on peut oublier |
+| détecteur de requête non filtrée | nomme les tables en cause, refuse **avant** d'exécuter |
+| règle des dates d'exercice | fonction pure, 9 scénarios |
 
-**À faire en même temps que le multi-dossier**, qui rouvre de toute
-façon la forme de la base. Séparément, ce serait reprendre les mêmes
-fichiers deux fois.
+**Ce qui n'est PAS cloisonné**, et c'est voulu : `utilisateur`, `role`,
+`poste`, `session_reseau`, `modele_document`. Un caissier qui change de
+société reste le même caissier.
+
+**`compteur_piece` non plus** — sa clé porte le dossier
+(`<dossier>:<série>`). La numérotation est la seule chose du projet où
+un doublon se voit chez le commerçant et ne se répare pas : on ne
+remanie pas sa table pour une raison de forme.
+
+#### Ce qui change le coût du reste du portage
+
+Sur PostgreSQL, `dossier_id` a pour valeur par défaut le dossier de la
+**session**. Une insertion tombe donc dans le bon dossier *sans que
+l'appelant le dise* — vérifié sur la vraie base.
+
+Conséquence directe : **les 480 `params!` n'ont pas à être rouverts**
+pour y glisser un argument de plus. Seules les **lectures** devront
+porter le filtre. La dette annoncée avant l'arbitrage était surévaluée
+de plus de moitié.
+
+#### Fait aussi : les suites de numéros, et les modules déjà portés
+
+**La numérotation est cloisonnée.** Chaque dossier a sa propre suite :
+deux sociétés qui facturent le même jour ont chacune leur
+`FAC-2026-00001`. Les quatre appelants — pièces, transferts,
+code-barre, fournisseurs — passent par le même préfixe, posé dans
+`suivant` et non chez eux : un seul qui l'oublierait suffirait à
+mélanger deux suites.
+
+⚠️ **Une migration accompagne ce changement, et elle n'est pas
+facultative.** Les bases existantes portent la clé `FAC-2026` ; le code
+cherche désormais `<dossier>:FAC-2026`. Sans migration il ne trouverait
+rien, repartirait de 1, et refabriquerait un numéro déjà émis — la
+contrainte UNIQUE bloquerait alors la première facture du matin de la
+mise à jour, au comptoir, devant le client. La migration est rejouable
+et couverte par ses scénarios.
+
+**`catalogue`, `comptoir` et la fondation d'`argent` portent leur
+filtre**, détecteur allumé sur leurs scénarios — sur les deux moteurs.
+Un test appelle chaque fonction portée avec le détecteur actif : un
+filtre oublié échoue là, pas chez un commerçant qui verrait le
+catalogue d'une autre société sans s'en douter. Porter un module de
+plus, c'est l'ajouter à cette liste et laisser le détecteur dire ce qui
+manque.
+
+#### Deux défauts trouvés en route
+
+- **Deux tables de préfixes.** `reserver_numero` portait sa propre copie
+  de la table que `prefixe_de` était censée centraliser — le
+  commentaire de `prefixe_de` annonçait déjà le risque. Un préfixe
+  changé d'un seul côté aurait donné deux séries pour le même type de
+  pièce.
+- **Un `NULL` sans type refusé par PostgreSQL.** Un champ laissé vide
+  sur une colonne numérique — un article sans prix d'achat — échouait
+  sur « error serializing parameter 3 », un message qui ne nomme ni la
+  colonne, ni la table. Le cas ne s'était jamais vu parce que SQLite
+  accepte tout et que les scénarios PostgreSQL renseignaient ce champ.
+
+#### Corrigé le 11/09/2026 : les articles n'auraient jamais dû être cloisonnés
+
+La fondation posée plus tôt le même jour cloisonnait `categorie`,
+`article`, `unite_vente` — [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md)
+tranche l'inverse : un article est une chose, pas une relation, commune
+à tous les dossiers. Corrigé dans `dossiers.rs`, `catalogue.rs`,
+`comptoir.rs`. `stock_depot` reste cloisonné — c'est le stock qui
+appartient au magasin. 226 tests SQLite toujours au vert ; les
+scénarios PostgreSQL n'ont pas pu être rejoués faute d'instance
+accessible dans cette séance. Détail dans PLAN-MULTISOCIETE.md §10.
+
+#### Reste — et ce qui n'est pas encore vrai
+
+⚠️ **Le multi-dossier n'est toujours pas utilisable.** Ce qui est porté
+est cloisonné ; tout le reste ne l'est pas. Avec un seul dossier rien
+ne change ; avec deux, les écrans non portés mélangeraient tout.
+
+1. Poser le filtre sur les modules restants — `pieces`, `achats`,
+   `retours`, le reste — en les ajoutant à la liste du détecteur.
+2. **Un dossier neuf n'a ni magasin ni client de passage** : le
+   catalogue refuse de s'ouvrir, en disant ce qui manque. C'est la
+   preuve que le cloisonnement mord, et le cahier des charges de
+   l'écran de création : poser le magasin par défaut et le client de
+   passage, comme l'amorçage le fait pour le premier dossier.
+3. Les écrans : créer, changer, prolonger, clore un dossier.
+4. **Le garde-fou moteur manque.** PostgreSQL sait refuser lui-même une
+   requête non cloisonnée (RLS), mais **le contourne pour un
+   superutilisateur** — or l'application se connecte en `postgres`.
+   Tant que ce sera le cas, le cloisonnement repose sur le code. Un
+   rôle applicatif dédié est le vrai correctif.
+5. Une connexion réutilisée (pool) doit reposer son dossier à chaque
+   prise, sinon elle garde celui du précédent.
+
+### Dépôt → magasin — **à l'écran : FAIT le 11/09/2026**
+`depot` et `magasin` désignent la même chose.
+
+Ce qui a changé : **les 67 textes que le commerçant lit** — écrans,
+messages d'erreur, libellés de permissions. Plus l'étiquette du magasin
+d'usine, rattrapée par une migration idempotente qui ne touche que le
+nom exact posé à l'amorçage : un commerçant qui a renommé son magasin
+garde son nom.
+
+Ce qui n'a **pas** changé, et c'est voulu :
+- les identifiants — `depot_id`, `lire_depots`, la colonne `depot` ;
+- les **commentaires du code**, qui parlent de l'entité `depot`. Les
+  aligner sur l'étiquette d'écran ferait croire que la base a été
+  renommée.
+
+La séparation était propre et vérifiable : **toute** occurrence
+accentuée (« dépôt ») était du texte affiché, **toute** occurrence sans
+accent (`depot`) un identifiant. C'est ce qui a rendu le renommage sûr.
+
+Le renommage **jusque dans la base** touche ~200 requêtes et demande une
+migration. Il reste prévu, **en même temps que le multi-dossier**, qui
+rouvre de toute façon la forme de la base — séparément, ce serait
+reprendre les mêmes fichiers deux fois.
 
 ---
 

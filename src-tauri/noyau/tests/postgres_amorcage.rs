@@ -7,6 +7,7 @@
 
 use gescom_noyau::amorcage;
 use gescom_noyau::base::Base;
+use gescom_noyau::parametres;
 
 fn pg() -> Option<Base> {
     let url = std::env::var("GESCOM_PG").ok()?;
@@ -436,4 +437,205 @@ fn deux_caisses_qui_facturent_en_meme_temps_sur_postgresql() {
     let an = chrono::Local::now().format("%Y");
     assert_eq!(uniques.first().unwrap(), &format!("FAC-{an}-00001"));
     assert_eq!(uniques.last().unwrap(), &format!("FAC-{an}-{:05}", FILS * PAR_FIL));
+}
+
+// =====================================================================
+//  LE CLOISONNEMENT PAR DOSSIER
+// =====================================================================
+
+/// Le test qui decide du cout de tout le portage.
+///
+/// Sur PostgreSQL, `dossier_id` a pour valeur par defaut le dossier de
+/// la SESSION. Si cela marche, les 480 `params!` du projet n'ont pas a
+/// etre rouverts pour y glisser un argument de plus : une insertion
+/// tombe dans le bon dossier parce que la connexion sait lequel c'est.
+///
+/// Si cela ne marchait pas, il faudrait toucher chaque insertion du
+/// noyau — et chaque endroit touche est un endroit qu'on peut casser.
+#[test]
+fn une_insertion_suit_le_dossier_de_la_session_sur_postgresql() {
+    let Some(mut base) = pg() else { return };
+    base.executer_lot("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").unwrap();
+    amorcage::amorcer(&mut base).unwrap();
+
+    base.choisir_dossier("dossier-2027").unwrap();
+    base.executer(
+        "INSERT INTO client (id, code, nom, est_generique, actif, cree_le, modifie_le, origine)
+         VALUES ('c-2027', 'CLIENT00001', 'Awa', 0, 1, '2027-01-05', '2027-01-05', 'test')",
+        &[],
+    )
+    .unwrap();
+
+    let dossier = base
+        .lire_une(
+            "SELECT dossier_id FROM client WHERE id = 'c-2027'",
+            &[],
+            |r| r.get::<String>(0),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        dossier, "dossier-2027",
+        "l'insertion n'a pas suivi le dossier de la session"
+    );
+}
+
+#[test]
+fn deux_dossiers_ne_melangent_pas_leurs_clients_sur_postgresql() {
+    let Some(mut base) = pg() else { return };
+    base.executer_lot("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").unwrap();
+    amorcage::amorcer(&mut base).unwrap();
+
+    for (dossier, id, nom) in [
+        ("dossier-a", "c-a", "Awa"),
+        ("dossier-b", "c-b", "Modibo"),
+    ] {
+        base.choisir_dossier(dossier).unwrap();
+        base.executer(
+            "INSERT INTO client (id, code, nom, est_generique, actif, cree_le, modifie_le, origine)
+             VALUES (?1, ?2, ?3, 0, 1, '2026-09-11', '2026-09-11', 'test')",
+            &parametres![id, format!("CODE-{id}"), nom],
+        )
+        .unwrap();
+    }
+
+    let chez_b = base
+        .lire_plusieurs(
+            "SELECT nom FROM client WHERE est_generique = 0 AND dossier_id = ?1",
+            &parametres!["dossier-b"],
+            |r| r.get::<String>(0),
+        )
+        .unwrap();
+    assert_eq!(chez_b, vec!["Modibo".to_string()], "chacun chez soi");
+}
+
+/// Une base migree ne laisse aucune ligne derriere elle.
+///
+/// C'est la peur legitime devant ce genre de changement : que les
+/// donnees d'avant se retrouvent dans un dossier que plus personne ne
+/// regarde. Les donnees de demonstration servent ici de base « deja
+/// remplie » qu'on cloisonne apres coup.
+#[test]
+fn les_donnees_existantes_restent_visibles_apres_le_cloisonnement() {
+    let Some(mut base) = pg() else { return };
+    base.executer_lot("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").unwrap();
+    amorcage::amorcer(&mut base).unwrap();
+    let (articles, _) = amorcage::donnees_demo(&mut base).unwrap();
+
+    // Amorcer une seconde fois rejoue le cloisonnement sur une base qui
+    // a desormais des lignes.
+    amorcage::amorcer(&mut base).unwrap();
+
+    // `article` n'est plus cloisonne (D3 du plan multi-societe) : pas de
+    // filtre de dossier ici, juste le compte brut.
+    let visibles = base
+        .lire_une("SELECT COUNT(*) FROM article", &[], |r| r.get::<i64>(0))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        visibles as usize, articles,
+        "des articles ont été perdus par le cloisonnement"
+    );
+}
+
+/// Le meme controle que sur SQLite, sur le moteur de production.
+///
+/// Les deux moteurs ne se trompent pas de la meme facon : PostgreSQL
+/// remplit `dossier_id` tout seul a l'insertion, SQLite non. Une
+/// fonction peut donc passer d'un cote et pas de l'autre — ce qui
+/// serait le pire des cas, puisque les tests tournent surtout sur
+/// SQLite et que le commercant, lui, sera sur PostgreSQL.
+#[test]
+fn tout_ce_qui_est_porte_passe_le_detecteur_sur_postgresql() {
+    use gescom_noyau::{catalogue, comptoir};
+
+    let Some(mut base) = pg() else { return };
+    base.executer_lot("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").unwrap();
+    amorcage::amorcer(&mut base).unwrap();
+    base.auditer(true);
+
+    catalogue::lire_clients_sur(&mut base).expect("clients");
+    catalogue::lire_client_generique_sur(&mut base).expect("client générique");
+    catalogue::lire_depots_sur(&mut base).expect("magasins");
+    catalogue::lire_depot_defaut_sur(&mut base).expect("magasin par défaut");
+    catalogue::lire_articles_avec_unites_sur(&mut base, Some("patron".into()), None)
+        .expect("catalogue");
+
+    let client = comptoir::creer_client_rapide_sur(&mut base, "Awa".into(), None)
+        .expect("créer un client");
+    comptoir::modifier_client_sur(
+        &mut base,
+        client["id"].as_str().unwrap().to_string(),
+        "Awa Traoré".into(),
+        Some("76000000".into()),
+        None,
+        None,
+        None,
+    )
+    .expect("modifier un client");
+    comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None)
+        .expect("créer un article");
+    comptoir::lire_clients_avec_creances_sur(&mut base).expect("créances");
+}
+
+/// Les clients sont cloisonnes, les articles ne le sont pas (D3 du plan
+/// multi-societe) — et les deux moteurs doivent s'accorder.
+#[test]
+fn deux_dossiers_ne_melangent_pas_leurs_clients_mais_partagent_leurs_articles_sur_postgresql() {
+    use gescom_noyau::{catalogue, comptoir};
+
+    let Some(mut base) = pg() else { return };
+    base.executer_lot("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").unwrap();
+    amorcage::amorcer(&mut base).unwrap();
+    base.auditer(true);
+
+    comptoir::creer_client_rapide_sur(&mut base, "Awa".into(), None).unwrap();
+    comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None)
+        .unwrap();
+
+    base.choisir_dossier("dossier-b").unwrap();
+    let clients = catalogue::lire_clients_sur(&mut base).expect("clients");
+    assert!(
+        clients.is_empty(),
+        "le second dossier hérite des clients du premier : {clients:?}"
+    );
+
+    let visible = base
+        .lire_une(
+            "SELECT COUNT(*) FROM article WHERE nom = 'Ciment'",
+            &[],
+            |r| r.get::<i64>(0),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        visible, 1,
+        "un article créé dans un dossier doit rester visible depuis l'autre"
+    );
+}
+
+/// Un champ laisse vide sur une colonne numerique.
+///
+/// PostgreSQL deduit le type attendu de la colonne. Un NULL etiquete
+/// TEXT presente a un entier faisait echouer la requete sur « error
+/// serializing parameter 3 » — sans nommer ni la colonne, ni la table.
+///
+/// Le cas est banal : un article cree sans prix d'achat. Il ne s'etait
+/// pas vu parce que SQLite accepte tout et que les scenarios
+/// PostgreSQL renseignaient ce champ.
+#[test]
+fn un_champ_vide_passe_sur_une_colonne_numerique() {
+    use gescom_noyau::comptoir;
+    let Some(mut base) = pg() else { return };
+    base.executer_lot("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").unwrap();
+    amorcage::amorcer(&mut base).unwrap();
+
+    comptoir::creer_article_rapide_sur(
+        &mut base,
+        "Ciment sans prix d'achat".into(),
+        "sac".into(),
+        5_000,
+        None,
+    )
+    .expect("un article sans prix d'achat doit pouvoir naître");
 }

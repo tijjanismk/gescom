@@ -62,7 +62,7 @@ pub fn enregistrer_achat(
         _ => conn.query_row(
             "SELECT id FROM depot WHERE est_defaut = 1 LIMIT 1",
             [], |r| r.get(0),
-        ).map_err(|_| "Aucun dépôt par défaut configuré".to_string())?,
+        ).map_err(|_| "Aucun magasin par défaut configuré".to_string())?,
     };
 
     // Un bon de reception ne se facture qu'UNE fois — meme garde-fou que
@@ -827,7 +827,7 @@ pub fn valider_facture_fournisseur(
     // correct mais illisible.
     if !stock_ailleurs && depot.is_none() {
         return Err(
-            "Aucun dépôt actif : impossible de faire entrer cette marchandise."
+            "Aucun magasin actif : impossible de faire entrer cette marchandise."
                 .to_string(),
         );
     }

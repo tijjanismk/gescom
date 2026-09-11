@@ -63,22 +63,13 @@ pub fn reserver_numero(
     type_piece: &str,
 ) -> Result<String, String> {
     let annee = chrono::Local::now().format("%Y").to_string();
-    let prefix = match type_piece {
-        "devis"            => "DEV",
-        "proforma"         => "PRO",
-        "commande_client"  => "CMD",
-        "bon_livraison"    => "BL",
-        "facture"          => "FAC",
-        "facture_acompte"  => "ACP",
-        "avoir_client"     => "AVC",
-        // Cote fournisseur — absents jusqu'ici : les 4 types tombaient sur
-        // "PIE" avec un compteur par type, donc collision sur numero UNIQUE.
-        "bon_commande_fournisseur" => "BCF",
-        "bon_reception"            => "BRF",
-        "facture_fournisseur"      => "FAF",
-        "avoir_fournisseur"        => "AVF",
-        _                  => "PIE",
-    };
+    // `prefixe_de` et non une seconde table de prefixes : cette
+    // fonction en portait une copie, et le commentaire de `prefixe_de`
+    // annoncait deja le risque. Deux tables finissent toujours par
+    // diverger, et un prefixe qui change d'un seul cote donne deux
+    // series pour le meme type de piece — jusqu'a ce que la contrainte
+    // UNIQUE bloque une vente au comptoir.
+    let prefix = prefixe_de(type_piece);
     let cle = format!("{prefix}-{annee}");
     let rang = suivant(conn, &cle)?;
     Ok(format!("{prefix}-{annee}-{rang:05}"))
@@ -91,6 +82,12 @@ pub fn reserver_numero(
 /// `UPDATE` puis `SELECT` — rouvrirait exactement la fenetre qu'on
 /// vient de fermer.
 pub fn suivant(conn: &rusqlite::Connection, cle: &str) -> Result<i64, String> {
+    // Ce chemin est celui de l'application, qui ne connait qu'un
+    // dossier. Le prefixe est pose ICI et non chez l'appelant : il y a
+    // quatre appelants — pieces, transferts, code-barre, fournisseurs —
+    // et un seul qui oublierait suffirait a melanger deux suites.
+    let cle = crate::dossiers::cle_compteur(crate::dossiers::DOSSIER_DEFAUT, cle);
+    let cle = cle.as_str();
     conn.query_row(
         "INSERT INTO compteur_piece (cle, dernier) VALUES (?1, 1)
          ON CONFLICT(cle) DO UPDATE SET dernier = dernier + 1
@@ -457,7 +454,7 @@ pub fn valider_facture_sur(
         _ => conn.query_row(
             "SELECT id FROM depot WHERE est_defaut = 1 LIMIT 1",
             [], |r| r.get(0)
-        ).map_err(|_| "Aucun dépôt par défaut".to_string())?,
+        ).map_err(|_| "Aucun magasin par défaut".to_string())?,
     };
 
     let role = utilisateur_role.as_deref().unwrap_or("employe");
@@ -1206,6 +1203,8 @@ pub fn id_utilisateur_par_role_sur(base: &mut Base, role: &str) -> String {
 /// exactement la fenetre qu'on a fermee — et cette fenetre valait
 /// 5 doublons sur 100 numeros, mesures.
 pub fn suivant_sur(base: &mut Base, cle: &str) -> Result<i64, String> {
+    let cle = crate::dossiers::cle_compteur(base.dossier(), cle);
+    let cle = cle.as_str();
     base.lire_une(
         "INSERT INTO compteur_piece (cle, dernier) VALUES (?1, 1)
          ON CONFLICT (cle) DO UPDATE SET dernier = compteur_piece.dernier + 1
@@ -1257,11 +1256,12 @@ pub fn lire_lignes_raw_sur(
     base: &mut Base,
     piece_id: &str,
 ) -> Result<Vec<(String, String, f64, i64, f64, f64)>, String> {
+    let dossier = base.dossier().to_string();
     base.lire_plusieurs(
         "SELECT article_id, unite_vente_id, quantite, prix_unitaire,
                 remise_pct, taux_tva
-         FROM ligne_piece WHERE piece_id = ?1",
-        &parametres![piece_id],
+         FROM ligne_piece WHERE piece_id = ?1 AND dossier_id = ?2",
+        &parametres![piece_id, dossier],
         |r| {
             Ok((
                 r.get::<String>(0)?,

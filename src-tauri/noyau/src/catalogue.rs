@@ -215,10 +215,11 @@ use crate::base::{Base, Resultat};
 use crate::parametres;
 
 pub fn lire_clients_sur(base: &mut Base) -> Result<Vec<Value>, String> {
+    let dossier = base.dossier().to_string();
     base.lire_plusieurs(
         "SELECT id, code, nom, telephone FROM client
-         WHERE actif = 1 ORDER BY nom ASC",
-        &[],
+         WHERE actif = 1 AND dossier_id = ?1 ORDER BY nom ASC",
+        &parametres![dossier],
         |r| {
             Ok(json!({
                 "id": r.get::<String>(0)?,
@@ -232,9 +233,11 @@ pub fn lire_clients_sur(base: &mut Base) -> Result<Vec<Value>, String> {
 }
 
 pub fn lire_client_generique_sur(base: &mut Base) -> Result<Value, String> {
+    let dossier = base.dossier().to_string();
     base.lire_une(
-        "SELECT id, code, nom FROM client WHERE est_generique = 1 LIMIT 1",
-        &[],
+        "SELECT id, code, nom FROM client
+         WHERE est_generique = 1 AND dossier_id = ?1 LIMIT 1",
+        &parametres![dossier],
         |r| {
             Ok(json!({
                 "id": r.get::<String>(0)?,
@@ -248,10 +251,12 @@ pub fn lire_client_generique_sur(base: &mut Base) -> Result<Value, String> {
 }
 
 pub fn lire_depots_sur(base: &mut Base) -> Result<Vec<Value>, String> {
+    let dossier = base.dossier().to_string();
     base.lire_plusieurs(
-        "SELECT id, nom, est_defaut FROM depot WHERE actif = 1
+        "SELECT id, nom, est_defaut FROM depot
+         WHERE actif = 1 AND dossier_id = ?1
          ORDER BY est_defaut DESC, nom ASC",
-        &[],
+        &parametres![dossier],
         |r| {
             Ok(json!({
                 "id": r.get::<String>(0)?,
@@ -264,9 +269,11 @@ pub fn lire_depots_sur(base: &mut Base) -> Result<Vec<Value>, String> {
 }
 
 pub fn lire_depot_defaut_sur(base: &mut Base) -> Result<Value, String> {
+    let dossier = base.dossier().to_string();
     base.lire_une(
-        "SELECT id, nom FROM depot WHERE est_defaut = 1 LIMIT 1",
-        &[],
+        "SELECT id, nom FROM depot
+         WHERE est_defaut = 1 AND dossier_id = ?1 LIMIT 1",
+        &parametres![dossier],
         |r| {
             Ok(json!({
                 "id": r.get::<String>(0)?,
@@ -275,7 +282,7 @@ pub fn lire_depot_defaut_sur(base: &mut Base) -> Result<Value, String> {
         },
     )
     .map_err(|e| e.0)?
-    .ok_or_else(|| "Aucun dépôt par défaut".to_string())
+    .ok_or_else(|| "Aucun magasin par défaut".to_string())
 }
 
 /// Le depot a servir : celui demande s'il existe et vit, sinon le
@@ -286,21 +293,27 @@ pub fn lire_depot_defaut_sur(base: &mut Base) -> Result<Value, String> {
 /// ferme, et le commercant ne comprendrait pas pourquoi sa caisse
 /// refuse de s'ouvrir.
 fn depot_a_servir(base: &mut Base, demande: Option<String>) -> Resultat<String> {
+    let dossier = base.dossier().to_string();
     if let Some(d) = demande.filter(|d| !d.is_empty()) {
+        // Le filtre de dossier compte ici AUTANT que le `actif = 1` :
+        // un identifiant memorise dans la barre laterale pourrait
+        // designer le magasin d'une autre societe, et la caisse
+        // servirait son stock sans rien signaler.
         if let Some(id) = base.lire_une(
-            "SELECT id FROM depot WHERE id = ?1 AND actif = 1",
-            &parametres![d],
+            "SELECT id FROM depot WHERE id = ?1 AND actif = 1 AND dossier_id = ?2",
+            &parametres![d, dossier.clone()],
             |r| r.get::<String>(0),
         )? {
             return Ok(id);
         }
     }
     base.lire_une(
-        "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
-        &[],
+        "SELECT id FROM depot
+         WHERE est_defaut = 1 AND actif = 1 AND dossier_id = ?1 LIMIT 1",
+        &parametres![dossier],
         |r| r.get::<String>(0),
     )?
-    .ok_or_else(|| crate::base::Erreur("Aucun dépôt par défaut".into()))
+    .ok_or_else(|| crate::base::Erreur("Aucun magasin par défaut".into()))
 }
 
 pub fn lire_articles_avec_unites_sur(
@@ -310,7 +323,13 @@ pub fn lire_articles_avec_unites_sur(
 ) -> Result<Vec<Value>, String> {
     let est_patron = role.as_deref() == Some("patron");
     let depot_id = depot_a_servir(base, depot_id).map_err(|e| e.0)?;
+    let dossier = base.dossier().to_string();
 
+    // `article` et `unite_vente` sont communs a tous les dossiers (D3 du
+    // plan multi-societe) : pas de filtre dessus. Le stock, lui, reste
+    // celui d'UN magasin d'UN dossier — le filtre porte sur `stock_depot`,
+    // dans la jointure et non le WHERE, pour ne pas transformer le LEFT
+    // JOIN en INNER quand un article n'a encore aucun stock ici.
     let lignes = base
         .lire_plusieurs(
             "SELECT a.id, a.nom, a.unite_base, a.dernier_prix_achat,
@@ -319,10 +338,11 @@ pub fn lire_articles_avec_unites_sur(
                     COALESCE(a.taux_tva_defaut, 0.0) as taux_tva_defaut
              FROM article a
              JOIN unite_vente u ON u.article_id = a.id AND u.actif = 1
-             LEFT JOIN stock_depot sd ON sd.article_id = a.id AND sd.depot_id = ?1
+             LEFT JOIN stock_depot sd
+                 ON sd.article_id = a.id AND sd.depot_id = ?1 AND sd.dossier_id = ?2
              WHERE a.actif = 1
              ORDER BY a.nom, u.facteur ASC",
-            &parametres![depot_id],
+            &parametres![depot_id, dossier],
             |r| {
                 Ok((
                     r.get::<String>(0)?,

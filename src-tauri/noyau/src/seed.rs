@@ -132,7 +132,7 @@ pub fn seeder(conn: &Connection) -> Result<()> {
     conn.execute(
         "INSERT OR IGNORE INTO depot
          (id, nom, est_defaut, actif, cree_le, modifie_le, origine)
-         VALUES (?1, 'Dépôt principal', 1, 1, ?2, ?3, ?4)",
+         VALUES (?1, 'Magasin principal', 1, 1, ?2, ?3, ?4)",
         params![depot_id, now, now, origine],
     )?;
 

@@ -151,12 +151,12 @@ export function Layout({
           </button>
         </div>
 
-        {/* Dépôt actif — masqué s'il n'y a qu'un seul dépôt */}
+        {/* Magasin actif — masqué s'il n'y a qu'un seul magasin */}
         {multiDepot && sidebarOuverte && (
           <div className="px-2 pt-2">
             <label className="text-[10px] uppercase text-muted-foreground
                               px-1 mb-1 flex items-center gap-1">
-              <Warehouse className="h-3 w-3" /> Dépôt
+              <Warehouse className="h-3 w-3" /> Magasin
             </label>
             <select
               value={depotActif ?? ""}
@@ -164,7 +164,7 @@ export function Layout({
               className="w-full h-8 text-xs border border-border rounded-md
                          bg-background px-2 focus:outline-none
                          focus:ring-1 focus:ring-primary">
-              <option value="">Tous les dépôts</option>
+              <option value="">Tous les magasins</option>
               {depots.map(d => (
                 <option key={d.id} value={d.id}>{d.nom}</option>
               ))}

@@ -146,7 +146,14 @@ function App() {
   //
   // L'affectation doit avoir lieu pendant le rendu, avant que le moindre
   // enfant ne soit monte.
-  if (utilisateur && UTILISATEUR_ACTIF?.id !== utilisateur.id) {
+  //
+  // La garde compare l'OBJET, pas l'identifiant. Elle comparait
+  // `?.id !== utilisateur.id` : une session restauree du navigateur
+  // avec une liste de permissions vide n'etait alors JAMAIS remplacee
+  // par une identite fraiche, puisque c'est le meme identifiant. Le
+  // patron se retrouvait avec les seuls onglets non proteges — cinq —
+  // et « aucun reglage », sans qu'aucune reconnexion n'y change rien.
+  if (utilisateur && UTILISATEUR_ACTIF !== utilisateur) {
     UTILISATEUR_ACTIF = utilisateur;
   }
 

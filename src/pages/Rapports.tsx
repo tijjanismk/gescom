@@ -323,7 +323,7 @@ export function Rapports() {
     const html = genererHTMLRapport("État du stock", `
       <table>
         <thead><tr>
-          <th>Article</th><th>Dépôt</th><th class="droite">Qté</th>
+          <th>Article</th><th>Magasin</th><th class="droite">Qté</th>
           <th class="droite">P.A. (F)</th><th class="droite">Valeur (F)</th>
           <th>Statut</th>
         </tr></thead>
@@ -340,7 +340,7 @@ export function Rapports() {
     await exporterExcel([{
       nom: "Stock",
       donnees: stock.map(a => ({
-        "Article": a.nom, "Dépôt": a.depot, "Quantité": a.quantite,
+        "Article": a.nom, "Magasin": a.depot, "Quantité": a.quantite,
         "Unité": a.unite, "Prix achat (F)": a.prix_achat,
         "Valeur stock (F)": a.valeur_stock, "Statut": a.statut,
       }))
@@ -610,7 +610,7 @@ export function Rapports() {
                     <thead className="bg-muted text-xs">
                       <tr>
                         <th className="text-left px-4 py-2.5">Article</th>
-                        <th className="text-left px-3 py-2.5">Dépôt</th>
+                        <th className="text-left px-3 py-2.5">Magasin</th>
                         <th className="text-right px-4 py-2.5">Quantité</th>
                         <th className="text-right px-4 py-2.5">P.A. (F)</th>
                         <th className="text-right px-4 py-2.5">Valeur (F)</th>

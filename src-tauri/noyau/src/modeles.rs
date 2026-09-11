@@ -125,7 +125,12 @@ fn ligne(r: &rusqlite::Row) -> ResSql<Modele> {
         contenu: serde_json::from_str(&contenu).unwrap_or(serde_json::Value::Null),
         est_defaut: r.get::<_, i64>(5)? != 0,
         actif: r.get::<_, i64>(6)? != 0,
-        modifie_le: r.get(7)?,
+        // Tolerante a une date absente, pour la meme raison que le
+        // contenu juste au-dessus : une seule ligne mal formee ne doit
+        // pas emporter TOUTE la liste. Sinon l'ecran des modeles
+        // s'ouvre sur une erreur, et le modele fautif devient
+        // impossible a supprimer puisqu'on ne le voit plus.
+        modifie_le: r.get::<_, Option<String>>(7)?.unwrap_or_default(),
     })
 }
 

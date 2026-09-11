@@ -177,7 +177,7 @@ pub fn importer_articles_csv(
     let depot_defaut: String = conn.query_row(
         "SELECT id FROM depot WHERE est_defaut = 1 LIMIT 1",
         [], |r| r.get(0),
-    ).map_err(|_| "Aucun dépôt par défaut".to_string())?;
+    ).map_err(|_| "Aucun magasin par défaut".to_string())?;
 
     let contenu = contenu.trim_start_matches('\u{FEFF}');
     let mut lignes = contenu.lines();

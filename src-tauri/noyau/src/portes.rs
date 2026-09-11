@@ -80,8 +80,8 @@ pub const CATALOGUE: &[Permission] = &[
     Permission { code: "cheques:gerer", libelle: "Gérer les chèques", groupe: "Caisse" },
     // --- Stock ---
     Permission { code: "articles:creer", libelle: "Créer et modifier des articles", groupe: "Stock" },
-    Permission { code: "stock:transferer", libelle: "Transférer entre dépôts", groupe: "Stock" },
-    Permission { code: "depots:gerer", libelle: "Gérer les dépôts", groupe: "Stock" },
+    Permission { code: "stock:transferer", libelle: "Transférer entre magasins", groupe: "Stock" },
+    Permission { code: "depots:gerer", libelle: "Gérer les magasins", groupe: "Stock" },
     // --- Achat ---
     Permission { code: "achats:creer", libelle: "Enregistrer un achat", groupe: "Achat" },
     Permission { code: "fournisseurs:regler", libelle: "Régler un fournisseur", groupe: "Achat" },

@@ -44,6 +44,7 @@ pub mod societe;
 pub mod tableau_bord;
 pub mod amorcage;
 pub mod base;
+pub mod dossiers;
 pub mod caisses;
 pub mod argent;
 pub mod catalogue;

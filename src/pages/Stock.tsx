@@ -406,7 +406,7 @@ function OngletMouvements() {
                 <th className="text-left px-3 py-2 font-medium">Date</th>
                 <th className="text-left px-3 py-2 font-medium">Type</th>
                 <th className="text-left px-3 py-2 font-medium">Article</th>
-                <th className="text-left px-3 py-2 font-medium">Dépôt</th>
+                <th className="text-left px-3 py-2 font-medium">Magasin</th>
                 <th className="text-left px-3 py-2 font-medium">Motif</th>
                 <th className="text-left px-3 py-2 font-medium">Facture</th>
                 <th className="text-right px-3 py-2 font-medium">Qté</th>
@@ -709,7 +709,7 @@ function genererEtatStockHTML(d: any): string {
   <thead>
     <tr style="background:#f0f0f0;border-bottom:2px solid #000">
       <th style="text-align:left;padding:6px 8px">Article</th>
-      <th style="text-align:left;padding:6px 8px">Dépôt</th>
+      <th style="text-align:left;padding:6px 8px">Magasin</th>
       <th style="text-align:right;padding:6px 8px">Théorique</th>
       <th style="text-align:left;padding:6px 8px">Unité</th>
       <th style="text-align:right;padding:6px 8px">Valeur</th>
@@ -818,7 +818,7 @@ function genererMouvementsHTML(
 
   <table>
     <thead><tr>
-      <th>Date</th><th>Type</th><th>Article</th><th>Dépôt</th>
+      <th>Date</th><th>Type</th><th>Article</th><th>Magasin</th>
       <th>Motif</th><th>Facture</th><th>Auteur</th><th style="text-align:right">Quantité</th>
     </tr></thead>
     <tbody>${corps}</tbody>

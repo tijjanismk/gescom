@@ -437,7 +437,7 @@ function ModalRepartition({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Le dépôt courant ne suffit pas. Indiquer combien vient de
+            Le magasin courant ne suffit pas. Indiquer combien vient de
             chaque endroit, puis envoyer quelqu'un chercher le complément
             avant de valider.
           </p>
@@ -481,12 +481,12 @@ function ModalRepartition({
           </div>
 
           {/* Le manque n'est plus une erreur : c'est une vente à
-              découvert, autorisée comme en mono-dépôt. Elle est imputée
-              au dépôt où se tient le vendeur. */}
+              découvert, autorisée comme en mono-magasin. Elle est imputée
+              au magasin où se tient le vendeur. */}
           {manque > 0 && (
             <p className="text-xs text-orange-700">
               {manque} unité(s) au-delà du stock — imputée(s) à{" "}
-              {depotActif?.nom ?? "ce dépôt"}. À régulariser par une entrée
+              {depotActif?.nom ?? "ce magasin"}. À régulariser par une entrée
               ou un achat.
             </p>
           )}
@@ -499,7 +499,7 @@ function ModalRepartition({
 
           {depassements.length > 0 && (
             <p className="text-xs text-destructive">
-              Une quantité dépasse le stock d'un dépôt. Laisser le manque
+              Une quantité dépasse le stock d'un magasin. Laisser le manque
               en découvert plutôt que de le cacher dans une ligne.
             </p>
           )}

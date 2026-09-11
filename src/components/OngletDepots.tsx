@@ -94,7 +94,7 @@ function ModalDepot({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Warehouse className="h-4 w-4" />
-            {depot ? "Renommer le dépôt" : "Nouveau dépôt"}
+            {depot ? "Renommer le magasin" : "Nouveau magasin"}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
@@ -110,7 +110,7 @@ function ModalDepot({
               <input type="checkbox" checked={parDefaut}
                 onChange={e => setParDefaut(e.target.checked)}
                 className="w-3.5 h-3.5 rounded accent-primary" />
-              <span className="text-sm">Définir comme dépôt par défaut</span>
+              <span className="text-sm">Définir comme magasin par défaut</span>
             </label>
           )}
 
@@ -184,22 +184,22 @@ export function OngletDepots() {
     const aDuStock = d.unites_stock > 0 || d.unites_manque > 0;
 
     const detail = aDuStock
-      ? `\n\nCe dépôt garde ` +
+      ? `\n\nCe magasin garde ` +
         [
           d.unites_stock > 0 ? `${fmtQte(d.unites_stock)} unité(s) en stock` : "",
           d.unites_manque > 0 ? `${fmtQte(d.unites_manque)} unité(s) à découvert` : "",
         ].filter(Boolean).join(" et ") +
         `.\nCe stock ne sera ni transféré ni soldé : il est gelé en ` +
         `l'état et sort des ventes, des transferts et de l'écran Stock. ` +
-        `Il revient intact si le dépôt est réactivé. L'opération est ` +
+        `Il revient intact si le magasin est réactivé. L'opération est ` +
         `inscrite au journal.`
       : "";
 
     const ok = await confirm(
       `Désactiver « ${d.nom} » ?\n\n` +
-      `Le dépôt n'apparaîtra plus dans les sélecteurs. ` +
+      `Le magasin n'apparaîtra plus dans les sélecteurs. ` +
       `Son historique est conservé.` + detail,
-      { title: "Désactiver le dépôt", kind: "warning" },
+      { title: "Désactiver le magasin", kind: "warning" },
     );
     if (!ok) return;
     try {
@@ -241,11 +241,11 @@ export function OngletDepots() {
 
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Dépôts</h2>
+          <h2 className="text-lg font-semibold">Magasins</h2>
           <p className="text-xs text-muted-foreground">
-            Chaque dépôt a son propre stock. Le sélecteur en haut de la
+            Chaque magasin a son propre stock. Le sélecteur en haut de la
             barre latérale filtre le tableau de bord et le journal.
-            La caisse reste unique, commune à tous les dépôts.
+            La caisse reste unique, commune à tous les magasins.
           </p>
         </div>
         <div className="flex gap-2">
@@ -253,7 +253,7 @@ export function OngletDepots() {
             <RefreshCw className="h-4 w-4 mr-2" /> Actualiser
           </Button>
           <Button size="sm" onClick={() => { setAModifier(null); setModal(true); }}>
-            <Plus className="h-4 w-4 mr-2" /> Nouveau dépôt
+            <Plus className="h-4 w-4 mr-2" /> Nouveau magasin
           </Button>
         </div>
       </div>
@@ -262,7 +262,7 @@ export function OngletDepots() {
         <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
           <Warehouse className="h-4 w-4 text-muted-foreground shrink-0" />
           <p className="text-xs text-muted-foreground">
-            Un seul dépôt : le sélecteur reste masqué dans la barre
+            Un seul magasin : le sélecteur reste masqué dans la barre
             latérale. Il apparaîtra dès le second.
           </p>
         </div>
@@ -303,7 +303,7 @@ export function OngletDepots() {
             <div className="flex items-center gap-1">
               {!d.est_defaut && d.actif && (
                 <button onClick={() => definirDefaut(d)}
-                  title="Définir comme dépôt par défaut"
+                  title="Définir comme magasin par défaut"
                   className="p-1.5 rounded hover:bg-muted text-muted-foreground
                              hover:text-primary">
                   <Star className="h-3.5 w-3.5" />
@@ -348,7 +348,7 @@ export function OngletDepots() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="text-left py-2 text-xs font-medium
-                                 text-muted-foreground">Dépôt</th>
+                                 text-muted-foreground">Magasin</th>
                   <th className="text-right py-2 text-xs font-medium
                                  text-muted-foreground">Ventes</th>
                   <th className="text-right py-2 text-xs font-medium
@@ -399,7 +399,7 @@ export function OngletDepots() {
               </tfoot>
             </table>
             <p className="text-xs text-muted-foreground mt-3">
-              Les transferts entre dépôts n'apparaissent pas ici : ils
+              Les transferts entre magasins n'apparaissent pas ici : ils
               déplacent du stock, ils ne créent pas de chiffre d'affaires.
             </p>
           </CardContent>

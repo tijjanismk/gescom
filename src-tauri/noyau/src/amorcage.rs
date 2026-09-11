@@ -226,6 +226,134 @@ fn colonnes_roles(base: &mut Base) {
     }
 }
 
+/// Rattrape l'etiquette du magasin d'usine sur les bases deja amorcees.
+///
+/// A l'ecran, « depot » s'appelle desormais « magasin ». Les bases
+/// creees avant portent encore `Depot principal`, et un ecran qui dit
+/// « magasin » partout sauf dans sa propre liste deroulante donne
+/// l'impression que ce sont deux choses differentes.
+///
+/// La condition sur le nom EXACT est le garde-fou : un commercant qui a
+/// renomme son magasin garde son nom. On ne corrige que l'etiquette
+/// qu'on avait posee soi-meme.
+///
+/// L'entite du code, elle, s'appelle toujours `depot`. Le renommage
+/// jusque dans la base touche ~200 requetes et demande une migration :
+/// il est prevu, il n'est pas fait ici.
+fn etiquette_magasin(base: &mut Base) {
+    let _ = base.executer(
+        "UPDATE depot SET nom = 'Magasin principal'
+         WHERE nom = 'Dépôt principal' AND est_defaut = 1",
+        &[],
+    );
+}
+
+/// Pose le cloisonnement par dossier.
+///
+/// Idempotent comme le reste : les `ALTER` echouent en silence quand la
+/// colonne existe deja, ce qui est le cas normal au deuxieme demarrage.
+///
+/// ## Pourquoi une valeur par defaut, et laquelle
+///
+/// Les bases existantes ont des lignes. Une colonne `NOT NULL` sans
+/// defaut les rejetterait toutes. Le defaut les rattache donc au
+/// dossier d'origine — ce qui est exactement la verite : elles ont ete
+/// ecrites du temps ou il n'y en avait qu'un.
+///
+/// Sur PostgreSQL, le defaut n'est pas une constante mais
+/// `gescom_dossier()`, qui lit le dossier de la session. **Une
+/// insertion tombe donc dans le bon dossier sans que l'appelant ait a
+/// le dire.** C'est ce qui evite de rouvrir les 480 `params!` du
+/// projet pour y glisser un argument de plus — et chaque endroit qu'on
+/// ne rouvre pas est un endroit qu'on ne casse pas.
+fn cloisonnement(base: &mut Base) {
+    let pg = base.est_postgres();
+    let defaut = crate::dossiers::DOSSIER_DEFAUT;
+
+    if pg {
+        // `STABLE` et non `VOLATILE` : la valeur ne change pas dans une
+        // requete, et PostgreSQL peut l'evaluer une seule fois.
+        let _ = base.executer_lot(&format!(
+            "CREATE OR REPLACE FUNCTION gescom_dossier() RETURNS text
+             LANGUAGE sql STABLE AS $$
+               SELECT COALESCE(
+                        NULLIF(current_setting('gescom.dossier', true), ''),
+                        '{defaut}')
+             $$;"
+        ));
+    }
+
+    let _ = base.executer(
+        "CREATE TABLE IF NOT EXISTS dossier (
+            id                TEXT PRIMARY KEY,
+            code              TEXT NOT NULL UNIQUE,
+            societe           TEXT NOT NULL,
+            exercice_debut    TEXT NOT NULL,
+            exercice_fin      TEXT NOT NULL,
+            prolonge_jusqu_au TEXT,
+            clos              INTEGER NOT NULL DEFAULT 0,
+            cree_le           TEXT NOT NULL,
+            modifie_le        TEXT NOT NULL
+         )",
+        &[],
+    );
+
+    // Le dossier d'origine. Son identifiant est fixe : c'est lui que
+    // portent les lignes deja ecrites.
+    let annee = maintenant_iso().chars().take(4).collect::<String>();
+    let now = maintenant_iso();
+    let _ = base.executer(
+        "INSERT INTO dossier
+           (id, code, societe, exercice_debut, exercice_fin, clos, cree_le, modifie_le)
+         VALUES (?1, 'PRINCIPAL', 'Ma boutique', ?2, ?3, 0, ?4, ?4)
+         ON CONFLICT (id) DO NOTHING",
+        &parametres![
+            defaut,
+            format!("{annee}-01-01"),
+            format!("{annee}-12-31"),
+            now
+        ],
+    );
+
+    let expression_defaut = if pg { "gescom_dossier()".to_string() } else { format!("'{defaut}'") };
+    for table in crate::dossiers::TABLES_CLOISONNEES {
+        let _ = base.executer(
+            &format!(
+                "ALTER TABLE {table} ADD COLUMN dossier_id TEXT NOT NULL \
+                 DEFAULT {expression_defaut}"
+            ),
+            &[],
+        );
+        // Sans index, chaque lecture cloisonnee devient un parcours
+        // complet — et le filtre qu'on vient d'imposer couterait plus
+        // cher que la separation qu'il apporte.
+        let _ = base.executer(
+            &format!("CREATE INDEX IF NOT EXISTS idx_{table}_dossier ON {table}(dossier_id)"),
+            &[],
+        );
+    }
+
+    cles_de_compteur(base);
+}
+
+/// Rattache au dossier d'origine les compteurs deja en place.
+///
+/// **Sans cette migration, la numerotation repartirait a 1.** Les cles
+/// existantes s'appellent `FAC-2026` ; le code cherche desormais
+/// `<dossier>:FAC-2026`, ne le trouve pas, et refabrique FAC-2026-00001
+/// — un numero deja emis. La contrainte UNIQUE bloquerait alors la
+/// premiere vente du matin de la mise a jour, au comptoir, devant le
+/// client.
+///
+/// Le `NOT LIKE '%:%'` rend la migration rejouable : une cle deja
+/// prefixee ne l'est pas deux fois.
+fn cles_de_compteur(base: &mut Base) {
+    let _ = base.executer(
+        "UPDATE compteur_piece SET cle = ?1 || cle WHERE cle NOT LIKE '%:%'",
+        &parametres![format!("{}:", crate::dossiers::DOSSIER_DEFAUT)],
+    );
+}
+
 /// Amorce une base neuve. Ne fait rien si elle ne l'est pas.
 ///
 /// Rend `true` si l'amorcage a eu lieu.
@@ -233,6 +361,8 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
     creer_schema(base)?;
     tables_v2(base);
     colonnes_roles(base);
+    etiquette_magasin(base);
+    cloisonnement(base);
 
     if !base_est_vide(base)? {
         return Ok(false);
@@ -300,7 +430,7 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
     // s'attacher.
     base.executer(
         "INSERT INTO depot (id, nom, est_defaut, actif, cree_le, modifie_le, origine)
-         VALUES (?1, 'Dépôt principal', 1, 1, ?2, ?2, 'amorcage')",
+         VALUES (?1, 'Magasin principal', 1, 1, ?2, ?2, 'amorcage')",
         &parametres![uuid::Uuid::new_v4().to_string(), now.clone()],
     )?;
 
@@ -387,7 +517,7 @@ pub fn donnees_demo(base: &mut Base) -> Resultat<(usize, usize)> {
             &[],
             |r| r.get::<String>(0),
         )?
-        .ok_or_else(|| crate::base::Erreur("Aucun dépôt par défaut".into()))?;
+        .ok_or_else(|| crate::base::Erreur("Aucun magasin par défaut".into()))?;
 
     // ---- Articles, unites, stock ----
     // (nom, categorie, unite de base, [(libelle, facteur, prix)], stock)

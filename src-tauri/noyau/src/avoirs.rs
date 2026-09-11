@@ -216,7 +216,7 @@ pub fn chercher_article_par_code_barre(
     ).or_else(|_| conn.query_row(
         "SELECT id FROM depot WHERE actif = 1 ORDER BY nom LIMIT 1",
         [], |r| r.get(0),
-    )).map_err(|_| "Aucun dépôt actif".to_string())?;
+    )).map_err(|_| "Aucun magasin actif".to_string())?;
 
     // L'article d'abord, ses unites ensuite. Un `JOIN unite_vente` avec
     // `LIMIT 1` ne renvoyait QU'UNE unite — la plus petite : le carton

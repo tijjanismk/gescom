@@ -139,7 +139,7 @@ export function RetourSansFacture({ onTermine }: { onTermine: () => void }) {
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-[180px]">
-          <Label className="mb-1 block text-xs">Dépôt</Label>
+          <Label className="mb-1 block text-xs">Magasin</Label>
           <Select value={depotId} onValueChange={v => { if (v) setDepotId(v); }}>
             <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -187,7 +187,7 @@ export function RetourSansFacture({ onTermine }: { onTermine: () => void }) {
         <div className="max-h-52 overflow-y-auto rounded border border-border">
           {filtres.length === 0 ? (
             <p className="p-3 text-sm text-muted-foreground">
-              Aucun article en stock dans ce dépôt.
+              Aucun article en stock dans ce magasin.
             </p>
           ) : filtres.map(a => (
             <button key={a.id} onClick={() => setArticleId(a.id)}

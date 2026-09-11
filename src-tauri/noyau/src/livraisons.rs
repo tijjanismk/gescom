@@ -119,7 +119,7 @@ fn mouvementer_ecart(
     // l'expliquer.
     let Some(depot) = depot else {
         return Err(
-            "Aucun dépôt actif : impossible de constater ce mouvement.".to_string(),
+            "Aucun magasin actif : impossible de constater ce mouvement.".to_string(),
         );
     };
 

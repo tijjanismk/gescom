@@ -50,21 +50,21 @@ pub fn verifier_integrite(conn: &Connection) -> Result<Option<String>> {
 ///
 /// Retourne un compte par anomalie. Zero partout = base saine.
 pub fn anomalies_metier(conn: &Connection) -> Vec<(String, i64)> {
-    let controles: [(&str, &str); 7] = [
+    let controles: [(&str, String); 7] = [
         ("Ventes sans aucune ligne",
          "SELECT COUNT(*) FROM vente v WHERE v.statut <> 'annulee'
-            AND NOT EXISTS (SELECT 1 FROM ligne_vente WHERE vente_id = v.id)"),
+            AND NOT EXISTS (SELECT 1 FROM ligne_vente WHERE vente_id = v.id)".to_string()),
         ("Paiements rattaches a une vente inexistante",
          "SELECT COUNT(*) FROM paiement p
-            WHERE NOT EXISTS (SELECT 1 FROM vente WHERE id = p.vente_id)"),
+            WHERE NOT EXISTS (SELECT 1 FROM vente WHERE id = p.vente_id)".to_string()),
         ("Lignes de piece sans piece",
          "SELECT COUNT(*) FROM ligne_piece lp
-            WHERE NOT EXISTS (SELECT 1 FROM piece_commerciale WHERE id = lp.piece_id)"),
+            WHERE NOT EXISTS (SELECT 1 FROM piece_commerciale WHERE id = lp.piece_id)".to_string()),
         ("Mouvements de caisse hors session",
          "SELECT COUNT(*) FROM mouvement_caisse mc
-            WHERE NOT EXISTS (SELECT 1 FROM session_caisse WHERE id = mc.session_id)"),
+            WHERE NOT EXISTS (SELECT 1 FROM session_caisse WHERE id = mc.session_id)".to_string()),
         ("Stock negatif",
-         "SELECT COUNT(*) FROM stock_depot WHERE quantite < 0"),
+         "SELECT COUNT(*) FROM stock_depot WHERE quantite < 0".to_string()),
         // Le compteur de stock est un CACHE : la verite est la somme
         // des mouvements, et le declencheur les tient egaux. Un ecart
         // signale donc soit une ecriture directe qui a echappe au
@@ -77,25 +77,26 @@ pub fn anomalies_metier(conn: &Connection) -> Vec<(String, i64)> {
           WHERE sd.quantite <> COALESCE((
                 SELECT SUM(ms.quantite_delta) FROM mouvement_stock ms
                 WHERE ms.article_id = sd.article_id
-                  AND ms.depot_id = sd.depot_id), 0)"),
+                  AND ms.depot_id = sd.depot_id), 0)".to_string()),
         // Un compteur en retard sur les numeros deja emis refabriquera
         // un numero pris, et la contrainte UNIQUE bloquera la vente au
         // moment ou le client attend. On veut l'apprendre au demarrage,
         // pas au comptoir. Le cas arrive si une base est restauree en
         // partie, ou modifiee a la main.
         ("Compteurs de numerotation en retard sur les pieces emises",
-         "SELECT COUNT(*) FROM (
+         format!("SELECT COUNT(*) FROM (
             SELECT substr(numero, 1, length(numero) - 6) AS cle,
                    MAX(CAST(substr(numero, -5) AS INTEGER)) AS plus_haut
             FROM piece_commerciale
             WHERE numero IS NOT NULL AND length(numero) > 6
             GROUP BY cle) p
           WHERE p.plus_haut > COALESCE(
-                (SELECT dernier FROM compteur_piece WHERE cle = p.cle), 0)"),
+                (SELECT dernier FROM compteur_piece WHERE cle = '{prefixe}' || p.cle), 0)",
+            prefixe = format!("{}:", crate::dossiers::DOSSIER_DEFAUT))),
     ];
 
     controles.iter().filter_map(|(libelle, sql)| {
-        let n: i64 = conn.query_row(sql, [], |r| r.get(0)).unwrap_or(0);
+        let n: i64 = conn.query_row(sql.as_str(), [], |r| r.get(0)).unwrap_or(0);
         if n > 0 { Some((libelle.to_string(), n)) } else { None }
     }).collect()
 }

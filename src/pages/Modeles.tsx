@@ -141,6 +141,9 @@ export function Modeles() {
   const [blocActif, setBlocActif] = useState<string | null>(null);
   const [images, setImages] = useState<ImagesDocument>({});
   const [chargement, setChargement] = useState(true);
+  // Le semis des modèles d'usine peut échouer sans que la page soit
+  // inutilisable : on le dit, on n'efface pas l'écran.
+  const [avertissement, setAvertissement] = useState<string | null>(null);
   const [enregistrement, setEnregistrement] = useState(false);
   const survolRef = useRef<number | null>(null);
   const [survol, setSurvol] = useState<number | null>(null);
@@ -167,14 +170,30 @@ export function Modeles() {
     let vivant = true;
     (async () => {
       setChargement(true);
+      setAvertissement(null);
       try {
-        await assurerModelesParDefaut();
+        // Le semis ÉCRIT : il installe les modèles d'usine manquants,
+        // ce qui demande le droit de gérer les modèles. Il n'a aucune
+        // raison d'empêcher la CONSULTATION. Le mettre dans le même
+        // `try` que la lecture faisait perdre l'écran entier — et avec
+        // lui le bouton qui aurait permis de réparer.
+        try {
+          await assurerModelesParDefaut();
+        } catch (e) {
+          if (!vivant) return;
+          setAvertissement(
+            `Les modèles d'usine n'ont pas pu être installés : ${String(e)}`,
+          );
+        }
         const imgs = await chargerImages();
         if (!vivant) return;
         setImages(imgs);
         await recharger();
       } catch (e) {
-        await message(String(e), { title: "Chargement des modèles", kind: "error" });
+        await message(
+          `Impossible de lire les modèles enregistrés.\n\n${String(e)}`,
+          { title: "Chargement des modèles", kind: "error" },
+        );
       } finally {
         if (vivant) setChargement(false);
       }
@@ -451,6 +470,12 @@ export function Modeles() {
 
   return (
     <div className="flex h-full flex-col gap-3 p-4">
+      {avertissement && (
+        <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {avertissement}
+        </div>
+      )}
+
       {/* ---- Barre du haut ---- */}
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-[190px]">

@@ -293,7 +293,10 @@ fn un_compteur_en_retard_est_signale() {
     // Une fois le compteur remis a niveau, plus rien a signaler.
     conn.execute(
         "INSERT OR REPLACE INTO compteur_piece (cle, dernier) VALUES (?1, 42)",
-        rusqlite::params![format!("FAC-{an}")],
+        rusqlite::params![gescom_noyau::dossiers::cle_compteur(
+            gescom_noyau::dossiers::DOSSIER_DEFAUT,
+            &format!("FAC-{an}")
+        )],
     )
     .unwrap();
     let anomalies = persistance::anomalies_metier(&conn);
@@ -301,4 +304,75 @@ fn un_compteur_en_retard_est_signale() {
         !anomalies.iter().any(|(l, _)| l.contains("Compteurs")),
         "{anomalies:?}"
     );
+}
+
+/// Le scenario de la mise a jour, celui qui refabriquerait un numero.
+///
+/// Une base d'avant le cloisonnement porte la cle `FAC-2026`. Le code
+/// cherche desormais `<dossier>:FAC-2026`. Sans migration, il ne
+/// trouverait rien, repartirait de 1, et la premiere facture du matin
+/// se heurterait a la contrainte UNIQUE — au comptoir, devant le
+/// client.
+#[test]
+fn une_base_d_avant_le_cloisonnement_ne_recommence_pas_a_un() {
+    let conn = base();
+    let an = annee();
+
+    // Etat d'avant : une cle SANS dossier, comme l'ecrivait l'ancien code.
+    conn.execute(
+        "INSERT INTO compteur_piece (cle, dernier) VALUES (?1, 42)",
+        rusqlite::params![format!("FAC-{an}")],
+    )
+    .unwrap();
+
+    persistance::v2::migrer(&conn).unwrap();
+
+    assert_eq!(
+        argent::reserver_numero(&conn, "facture").unwrap(),
+        format!("FAC-{an}-00043"),
+        "le compteur est reparti de zéro : un numéro déjà émis va ressortir"
+    );
+}
+
+#[test]
+fn migrer_deux_fois_ne_prefixe_pas_deux_fois_la_cle() {
+    let conn = base();
+    let an = annee();
+    conn.execute(
+        "INSERT INTO compteur_piece (cle, dernier) VALUES (?1, 7)",
+        rusqlite::params![format!("FAC-{an}")],
+    )
+    .unwrap();
+
+    persistance::v2::migrer(&conn).unwrap();
+    persistance::v2::migrer(&conn).unwrap();
+
+    assert_eq!(
+        argent::reserver_numero(&conn, "facture").unwrap(),
+        format!("FAC-{an}-00008")
+    );
+}
+
+/// Les quatre appelants du compteur passent tous par le meme prefixe.
+///
+/// Pieces, transferts et code-barre tirent leurs rangs de `suivant`.
+/// Si l'un d'eux n'etait pas cloisonne, sa suite se melangerait a celle
+/// d'un autre dossier — et ce sont des suites ou un doublon se voit.
+#[test]
+fn toutes_les_suites_sont_cloisonnees() {
+    let conn = base();
+    let prefixe = format!("{}:", gescom_noyau::dossiers::DOSSIER_DEFAUT);
+
+    argent::reserver_numero(&conn, "facture").unwrap();
+    transferts::reserver_bon(&conn).unwrap();
+    codebarre::reserver_sequence(&conn).unwrap();
+
+    let nues: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM compteur_piece WHERE cle NOT LIKE ?1 || '%'",
+            rusqlite::params![prefixe],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(nues, 0, "une suite échappe au cloisonnement");
 }

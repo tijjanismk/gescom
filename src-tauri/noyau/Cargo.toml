@@ -18,6 +18,9 @@ bcrypt = "0.15"
 # Les images de la boutique voyagent en base64 vers les caisses.
 base64 = "0.22"
 postgres = "0.19.14"
+# Deja presente comme dependance transitive de `postgres` : la
+# declarer n'ajoute rien a telecharger, juste le droit de la nommer.
+bytes = "1"
 
 [target.'cfg(windows)'.dependencies]
 # Lecture de la trace laissee par l'installateur. Rien d'autre.

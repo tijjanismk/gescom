@@ -57,7 +57,7 @@ pub fn creer_depot(
     est_defaut: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     if nom.trim().is_empty() {
-        return Err("Le nom du dépôt est obligatoire".to_string());
+        return Err("Le nom du magasin est obligatoire".to_string());
     }
     let now = maintenant_iso();
     let id = uuid::Uuid::new_v4().to_string();
@@ -94,7 +94,7 @@ pub fn renommer_depot(
     nom: String,
 ) -> Result<(), String> {
     if nom.trim().is_empty() {
-        return Err("Le nom du dépôt est obligatoire".to_string());
+        return Err("Le nom du magasin est obligatoire".to_string());
     }
     conn.execute(
         "UPDATE depot SET nom = ?1, modifie_le = ?2 WHERE id = ?3",
@@ -151,12 +151,12 @@ pub fn desactiver_depot_sur(
     let est_defaut: i64 = conn.query_row(
         "SELECT est_defaut FROM depot WHERE id = ?1",
         rusqlite::params![depot_id], |r| r.get(0),
-    ).map_err(|_| "Dépôt introuvable".to_string())?;
+    ).map_err(|_| "Magasin introuvable".to_string())?;
 
     if est_defaut != 0 {
         return Err(
-            "Impossible de désactiver le dépôt par défaut. \
-             Désigner un autre dépôt par défaut d'abord.".to_string()
+            "Impossible de désactiver le magasin par défaut. \
+             Désigner un autre magasin par défaut d'abord.".to_string()
         );
     }
 
@@ -174,7 +174,7 @@ pub fn desactiver_depot_sur(
 
     if !forcer && reste > 0.0 {
         return Err(format!(
-            "Ce dépôt contient encore {} unité(s) en stock. \
+            "Ce magasin contient encore {} unité(s) en stock. \
              Transférer la marchandise avant de le désactiver.",
             reste
         ));
@@ -182,7 +182,7 @@ pub fn desactiver_depot_sur(
 
     if !forcer && manque > 0.0 {
         return Err(format!(
-            "Ce dépôt est à découvert de {} unité(s). Régulariser par \
+            "Ce magasin est à découvert de {} unité(s). Régulariser par \
              une entrée ou un ajustement avant de le désactiver.",
             manque
         ));
@@ -247,7 +247,7 @@ pub fn reactiver_depot_sur(
     ).map_err(|e| e.to_string())?;
 
     if modifiees == 0 {
-        return Err("Dépôt introuvable ou déjà actif".to_string());
+        return Err("Magasin introuvable ou déjà actif".to_string());
     }
 
     let auteur = crate::argent::id_utilisateur_courant_pub(&conn);

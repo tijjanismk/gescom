@@ -455,5 +455,92 @@ pub fn migrer(conn: &Connection) -> Result<()> {
     )
     .ok();
 
+    // -----------------------------------------------------------------
+    //  L'etiquette du magasin d'usine
+    // -----------------------------------------------------------------
+    // A l'ecran, « depot » s'appelle desormais « magasin ». Les bases
+    // creees avant portent encore `Depot principal`. Le nom EXACT en
+    // condition : un commercant qui a renomme son magasin garde son
+    // nom — on ne corrige que l'etiquette qu'on avait posee soi-meme.
+    conn.execute(
+        "UPDATE depot SET nom = 'Magasin principal'
+         WHERE nom = 'Dépôt principal' AND est_defaut = 1",
+        [],
+    )
+    .ok();
+
+    // -----------------------------------------------------------------
+    //  Le cloisonnement par dossier
+    // -----------------------------------------------------------------
+    // Le meme que pose `amorcage::cloisonnement`, sur le chemin
+    // rusqlite qu'emprunte l'application. Les deux doivent rester
+    // identiques : une base preparee par la fenetre et une base
+    // preparee par le serveur doivent avoir la meme forme, sinon un
+    // dossier ouvert par l'un serait illisible par l'autre.
+    //
+    // La liste des tables est partagee, justement pour qu'elles ne
+    // puissent pas diverger.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS dossier (
+            id                TEXT PRIMARY KEY,
+            code              TEXT NOT NULL UNIQUE,
+            societe           TEXT NOT NULL,
+            exercice_debut    TEXT NOT NULL,
+            exercice_fin      TEXT NOT NULL,
+            prolonge_jusqu_au TEXT,
+            clos              INTEGER NOT NULL DEFAULT 0,
+            cree_le           TEXT NOT NULL,
+            modifie_le        TEXT NOT NULL
+         )",
+        [],
+    )
+    .ok();
+
+    let defaut = crate::dossiers::DOSSIER_DEFAUT;
+    let maintenant = crate::utils::maintenant_iso();
+    let annee: String = maintenant.chars().take(4).collect();
+    conn.execute(
+        "INSERT OR IGNORE INTO dossier
+           (id, code, societe, exercice_debut, exercice_fin, clos, cree_le, modifie_le)
+         VALUES (?1, 'PRINCIPAL', 'Ma boutique', ?2, ?3, 0, ?4, ?4)",
+        rusqlite::params![
+            defaut,
+            format!("{annee}-01-01"),
+            format!("{annee}-12-31"),
+            maintenant
+        ],
+    )
+    .ok();
+
+    for table in crate::dossiers::TABLES_CLOISONNEES {
+        // L'echec est le cas normal au deuxieme demarrage : la colonne
+        // est deja la.
+        conn.execute(
+            &format!(
+                "ALTER TABLE {table} ADD COLUMN dossier_id TEXT NOT NULL DEFAULT '{defaut}'"
+            ),
+            [],
+        )
+        .ok();
+        conn.execute(
+            &format!("CREATE INDEX IF NOT EXISTS idx_{table}_dossier ON {table}(dossier_id)"),
+            [],
+        )
+        .ok();
+    }
+
+    // Les compteurs deja en place portent une cle sans dossier. Sans
+    // cette migration, la numerotation repartirait a 1 et refabriquerait
+    // un numero deja emis — la contrainte UNIQUE bloquerait alors la
+    // premiere vente du matin de la mise a jour.
+    //
+    // Elle vient APRES la reprise des compteurs, qui ecrit des cles
+    // sans prefixe. L'ordre n'est pas indifferent.
+    conn.execute(
+        "UPDATE compteur_piece SET cle = ?1 || cle WHERE cle NOT LIKE '%:%'",
+        rusqlite::params![format!("{}:", crate::dossiers::DOSSIER_DEFAUT)],
+    )
+    .ok();
+
     Ok(())
 }

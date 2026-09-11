@@ -335,7 +335,7 @@ pub fn enregistrer_entree_stock(
         _ => conn.query_row(
             "SELECT id FROM depot WHERE est_defaut = 1 LIMIT 1",
             [], |r| r.get(0)
-        ).map_err(|_| "Aucun dépôt par défaut configuré".to_string())?,
+        ).map_err(|_| "Aucun magasin par défaut configuré".to_string())?,
     };
 
     let op_id = uuid::Uuid::new_v4().to_string();
@@ -445,7 +445,7 @@ pub fn enregistrer_retour_sans_facture_sur(
                 [],
                 |r| r.get(0),
             )
-            .map_err(|_| "Aucun dépôt par défaut configuré".to_string())?,
+            .map_err(|_| "Aucun magasin par défaut configuré".to_string())?,
     };
 
     // Même refus que le retour sur facture : la marchandise doit

@@ -77,7 +77,7 @@ function fmt(n: number): string {
 // c'est la meme liste blanche que le noyau, vue de l'ecran.
 const ONGLETS = [
   { key: "societe",       label: "Société",       icone: Building2,       droit: "parametres:modifier" },
-  { key: "depots",        label: "Dépôts",        icone: Warehouse,       droit: "depots:gerer" },
+  { key: "depots",        label: "Magasins",        icone: Warehouse,       droit: "depots:gerer" },
   { key: "articles",      label: "Articles",      icone: Package,         droit: "articles:creer" },
   { key: "codesbarres",   label: "Codes-barres",  icone: Barcode,         droit: "articles:creer" },
   { key: "importexport",  label: "Import/Export", icone: FileSpreadsheet, droit: "parametres:modifier" },
@@ -1020,15 +1020,30 @@ export function Parametres() {
   const onglets = ONGLETS.filter(o => peut(o.droit));
   const [onglet, setOnglet] = useState(onglets[0]?.key ?? "");
 
-  // Aucun onglet : le dire, plutot que d'afficher un cadre vide dont
-  // personne ne comprend ce qu'il attend.
+  // Aucun onglet : dire POURQUOI, pas seulement « non ».
+  //
+  // « Votre role ne donne acces a aucun reglage » est vrai et inutile :
+  // il envoie demander a quelqu'un alors que le probleme peut etre une
+  // session perimee, et il ne donne rien a verifier. Un patron qui a
+  // tous les droits en base lisait ce message sans aucun moyen de
+  // comprendre. On affiche donc ce que l'ecran a REELLEMENT recu.
   if (onglets.length === 0) {
+    const u = UTILISATEUR_ACTIF;
     return (
       <div className="flex-1 overflow-auto p-6">
         <h1 className="text-2xl font-semibold mb-6">Paramètres</h1>
         <p className="text-sm text-muted-foreground">
-          Votre rôle ne donne accès à aucun réglage. Demandez au
-          responsable de la boutique.
+          Aucun réglage n'est accessible avec les droits reçus.
+        </p>
+        <div className="mt-4 rounded border bg-muted/40 p-3 text-xs font-mono">
+          <div>utilisateur : {u?.nom ?? "—"}</div>
+          <div>rôle : {u?.role ?? "—"}</div>
+          <div>permissions reçues : {u?.permissions?.length ?? 0}</div>
+        </div>
+        <p className="mt-4 text-sm text-muted-foreground">
+          {(u?.permissions?.length ?? 0) === 0
+            ? "Aucune permission n'a été reçue à la connexion. Se déconnecter puis se reconnecter : une session ouverte par une version plus ancienne n'en portait pas."
+            : "Demandez au responsable de la boutique d'ouvrir les réglages nécessaires."}
         </p>
       </div>
     );

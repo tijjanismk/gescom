@@ -139,7 +139,7 @@ export function Transferts() {
   async function valider() {
     if (!source || !dest || lignes.length === 0) return;
     if (source === dest) {
-      await message("Les dépôts source et destination sont identiques.",
+      await message("Les magasins source et destination sont identiques.",
         { title: "Transfert impossible", kind: "warning" });
       return;
     }
@@ -205,9 +205,9 @@ export function Transferts() {
         <div className="flex items-center gap-3 p-4 bg-muted rounded-lg mb-6">
           <ArrowLeftRight className="h-5 w-5 text-muted-foreground shrink-0" />
           <div>
-            <p className="text-sm font-medium">Un seul dépôt configuré</p>
+            <p className="text-sm font-medium">Un seul magasin configuré</p>
             <p className="text-xs text-muted-foreground">
-              Créer un second dépôt dans Paramètres pour pouvoir
+              Créer un second magasin dans Paramètres pour pouvoir
               transférer de la marchandise.
             </p>
           </div>
@@ -220,7 +220,7 @@ export function Transferts() {
 
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-[200px]">
-              <Label className="text-xs mb-1 block">Dépôt source</Label>
+              <Label className="text-xs mb-1 block">Magasin source</Label>
               <select value={source} onChange={e => setSource(e.target.value)}
                 className="w-full h-9 px-2 text-sm border border-border
                            rounded-md bg-background">
@@ -231,7 +231,7 @@ export function Transferts() {
             </div>
             <ArrowLeftRight className="h-4 w-4 mb-2.5 text-muted-foreground" />
             <div className="min-w-[200px]">
-              <Label className="text-xs mb-1 block">Dépôt destination</Label>
+              <Label className="text-xs mb-1 block">Magasin destination</Label>
               <select value={dest} onChange={e => setDest(e.target.value)}
                 className="w-full h-9 px-2 text-sm border border-border
                            rounded-md bg-background">
@@ -314,7 +314,7 @@ export function Transferts() {
           {depassement && (
             <p className="text-xs text-orange-600">
               Une quantité dépasse le stock connu. Le transfert sera refusé
-              si le dépôt source ne l'a pas réellement.
+              si le magasin source ne l'a pas réellement.
             </p>
           )}
 

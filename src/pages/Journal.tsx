@@ -447,7 +447,7 @@ export function Journal() {
             <tr>
               <th className={TH}>Type</th>
               <th className={TH}>Article</th>
-              <th className={TH}>Dépôt</th>
+              <th className={TH}>Magasin</th>
               <th className={TH}>Motif</th>
               <th className={`${TH} text-right`}>Qté</th>
             </tr>
@@ -769,7 +769,7 @@ function genererJournalHTML(d: Journal): string {
       <td class="d">${x.quantite} ${x.unite_base}</td></tr>`))}
 
   ${section("Mouvements de stock",
-    ["Type", "Article", "Dépôt", "Motif", "Qté"],
+    ["Type", "Article", "Magasin", "Motif", "Qté"],
     (d.mouvements ?? []).map(m => `<tr>
       <td>${m.libelle}</td><td>${m.description}</td>
       <td>${m.depot}</td><td>${m.motif || "—"}</td>

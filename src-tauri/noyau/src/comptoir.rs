@@ -95,7 +95,7 @@ pub fn creer_article_rapide(
     ).or_else(|_| conn.query_row(
         "SELECT id FROM depot WHERE actif = 1 ORDER BY nom LIMIT 1",
         [], |r| r.get(0)
-    )).map_err(|_| "Aucun dépôt actif".to_string())?;
+    )).map_err(|_| "Aucun magasin actif".to_string())?;
 
     conn.execute(
         "INSERT OR IGNORE INTO stock_depot (id, article_id, depot_id, quantite)
@@ -304,13 +304,16 @@ pub fn creer_client_rapide_sur(
     let now = maintenant_iso();
     let id = uuid::Uuid::new_v4().to_string();
     let auteur = auteur_courant(base);
+    let dossier = base.dossier().to_string();
 
-    // Le code suit le NOMBRE de clients reels : le client generique ne
-    // compte pas, sinon la numerotation commencerait a 2.
+    // Le code suit le NOMBRE de clients reels DU DOSSIER : le client
+    // generique ne compte pas, sinon la numerotation commencerait a 2 —
+    // et les clients d'une autre societe non plus, sinon deux dossiers
+    // auraient des codes qui se suivent sans se ressembler.
     let nb = base
         .lire_une(
-            "SELECT COUNT(*) FROM client WHERE est_generique = 0",
-            &[],
+            "SELECT COUNT(*) FROM client WHERE est_generique = 0 AND dossier_id = ?1",
+            &parametres![dossier.clone()],
             |r| r.get::<i64>(0),
         )
         .map_err(|e| e.0)?
@@ -320,15 +323,16 @@ pub fn creer_client_rapide_sur(
     base.executer(
         "INSERT INTO client
            (id, code, nom, telephone, est_generique, actif,
-            cree_le, modifie_le, cree_par, modifie_par, origine)
-         VALUES (?1,?2,?3,?4,0,1,?5,?5,?6,?6,'app')",
+            cree_le, modifie_le, cree_par, modifie_par, origine, dossier_id)
+         VALUES (?1,?2,?3,?4,0,1,?5,?5,?6,?6,'app',?7)",
         &parametres![
             id.clone(),
             code.clone(),
             nom.clone(),
             telephone.clone(),
             now,
-            auteur
+            auteur,
+            dossier
         ],
     )
     .map_err(|e| e.0)?;
@@ -351,7 +355,11 @@ pub fn creer_article_rapide_sur(
     }
 
     // Un doublon de nom casse l'import CSV, qui rapproche les articles
-    // par `lower(nom)` et en mettrait deux a jour a la fois.
+    // par `lower(nom)` et en mettrait deux a jour a la fois. La
+    // recherche porte sur TOUS les dossiers : l'article est commun,
+    // « CIMAF » ne se saisit pas deux fois sous pretexte qu'un autre
+    // dossier l'a deja fait.
+    let dossier = base.dossier().to_string();
     if let Some(existant) = base
         .lire_une(
             "SELECT nom FROM article WHERE lower(nom) = lower(?1) AND actif = 1",
@@ -370,22 +378,26 @@ pub fn creer_article_rapide_sur(
 
     let depot_id = base
         .lire_une(
-            "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1 LIMIT 1",
-            &[],
+            "SELECT id FROM depot
+             WHERE est_defaut = 1 AND actif = 1 AND dossier_id = ?1 LIMIT 1",
+            &parametres![dossier.clone()],
             |r| r.get::<String>(0),
         )
         .map_err(|e| e.0)?
-        .ok_or_else(|| "Aucun dépôt actif".to_string())?;
+        .ok_or_else(|| "Aucun magasin actif".to_string())?;
 
     // Une TRANSACTION : l'article, son unite et sa ligne de stock
     // forment un tout. Un article sans unite de vente ne se vend pas,
     // et il faudrait le reparer a la main dans la base.
     let mut tx = base.transaction().map_err(|e| e.0)?;
 
+    // Ni `article` ni `unite_vente` ne portent `dossier_id` : ils sont
+    // communs a tous les dossiers.
     tx.executer(
         "INSERT INTO article
            (id, nom, unite_base, gere_en_stock, attributs, actif,
-            dernier_prix_achat, cree_le, modifie_le, cree_par, modifie_par, origine)
+            dernier_prix_achat, cree_le, modifie_le, cree_par, modifie_par,
+            origine)
          VALUES (?1,?2,?3,1,'{}',1,?4,?5,?5,?6,?6,'app')",
         &parametres![
             art_id.clone(),
@@ -393,7 +405,7 @@ pub fn creer_article_rapide_sur(
             unite_base.clone(),
             prix_achat,
             now.clone(),
-            auteur.clone()
+            auteur.clone(),
         ],
     )
     .map_err(|e| e.0)?;
@@ -409,16 +421,21 @@ pub fn creer_article_rapide_sur(
             unite_base.clone(),
             prix_reference,
             now,
-            auteur
+            auteur,
         ],
     )
     .map_err(|e| e.0)?;
 
     tx.executer(
-        "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-         VALUES (?1,?2,?3,0)
+        "INSERT INTO stock_depot (id, article_id, depot_id, quantite, dossier_id)
+         VALUES (?1,?2,?3,0,?4)
          ON CONFLICT (article_id, depot_id) DO NOTHING",
-        &parametres![uuid::Uuid::new_v4().to_string(), art_id.clone(), depot_id],
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            art_id.clone(),
+            depot_id,
+            dossier
+        ],
     )
     .map_err(|e| e.0)?;
 
@@ -444,10 +461,11 @@ pub fn modifier_client_sur(
         return Err("Le nom est obligatoire".to_string());
     }
 
+    let dossier = base.dossier().to_string();
     let est_generique = base
         .lire_une(
-            "SELECT est_generique FROM client WHERE id = ?1",
-            &parametres![client_id.clone()],
+            "SELECT est_generique FROM client WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![client_id.clone(), dossier.clone()],
             |r| r.get::<i64>(0),
         )
         .map_err(|e| e.0)?
@@ -469,7 +487,7 @@ pub fn modifier_client_sur(
         "UPDATE client
          SET nom = ?1, telephone = ?2, adresse = ?3, email = ?4, nif = ?5,
              modifie_le = ?6, modifie_par = ?7
-         WHERE id = ?8",
+         WHERE id = ?8 AND dossier_id = ?9",
         &parametres![
             nom.trim(),
             vide(telephone),
@@ -478,7 +496,8 @@ pub fn modifier_client_sur(
             vide(nif),
             now.clone(),
             auteur.clone(),
-            client_id.clone()
+            client_id.clone(),
+            dossier.clone()
         ],
     )
     .map_err(|e| e.0)?;
@@ -486,14 +505,15 @@ pub fn modifier_client_sur(
     let _ = base.executer(
         "INSERT INTO journal
            (id, type_evenement, entite_type, entite_id, auteur_id,
-            nouveau_valeur, origine, date_evenement)
-         VALUES (?1,'client_modifie','client',?2,?3,?4,'app',?5)",
+            nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1,'client_modifie','client',?2,?3,?4,'app',?5,?6)",
         &parametres![
             uuid::Uuid::new_v4().to_string(),
             client_id,
             auteur,
             format!("{{\"nom\":\"{}\"}}", nom.trim().replace('"', "'")),
-            now
+            now,
+            dossier
         ],
     );
 
@@ -503,6 +523,7 @@ pub fn modifier_client_sur(
 pub fn lire_clients_avec_creances_sur(
     base: &mut Base,
 ) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
     base.lire_plusieurs(
         "SELECT c.id, c.code, c.nom, c.telephone,
                 CAST(COALESCE(SUM(
@@ -516,10 +537,10 @@ pub fn lire_clients_avec_creances_sur(
                 COUNT(DISTINCT v.id) as nb_ventes
          FROM client c
          LEFT JOIN vente v ON v.client_id = c.id
-         WHERE c.actif = 1 AND c.est_generique = 0
+         WHERE c.actif = 1 AND c.est_generique = 0 AND c.dossier_id = ?1
          GROUP BY c.id, c.code, c.nom, c.telephone
          ORDER BY total_creances DESC, c.nom ASC",
-        &[],
+        &parametres![dossier],
         |r| {
             Ok(serde_json::json!({
                 "id": r.get::<String>(0)?,
