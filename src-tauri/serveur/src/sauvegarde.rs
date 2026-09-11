@@ -27,7 +27,7 @@ const HEURES_ENTRE_SAUVEGARDES: u64 = 24;
 const COPIES_CONSERVEES: usize = 14;
 
 pub fn dossier(srv: &Arc<Serveur>) -> PathBuf {
-    let configure: Option<String> = srv.conn.lock().ok().and_then(|c| {
+    let configure: Option<String> = srv.conn.as_ref().and_then(|m| m.lock().ok()).and_then(|c| {
         c.query_row(
             "SELECT valeur FROM config_app WHERE cle = 'dossier_sauvegarde'",
             [],
@@ -50,6 +50,17 @@ pub fn dossier(srv: &Arc<Serveur>) -> PathBuf {
 
 /// Une sauvegarde, tout de suite.
 pub fn maintenant(srv: &Arc<Serveur>) -> Result<String, String> {
+    // `VACUUM INTO` est du SQLite — D4 (AI_CONTEXT/DECISIONS.md) prevoit
+    // `pg_dump`, pas encore ecrit. Refuser clairement vaut mieux qu'un
+    // fichier `.db` qui ne contiendrait qu'un schema vide.
+    let Some(conn_mutex) = &srv.conn else {
+        return Err(
+            "La sauvegarde automatique n'est pas encore disponible sur PostgreSQL \
+             (VACUUM INTO n'existe pas sur ce moteur — voir D4)."
+                .to_string(),
+        );
+    };
+
     let dest_dir = dossier(srv);
     std::fs::create_dir_all(&dest_dir)
         .map_err(|e| format!("Impossible de créer le dossier de sauvegarde : {e}"))?;
@@ -59,8 +70,7 @@ pub fn maintenant(srv: &Arc<Serveur>) -> Result<String, String> {
     let dest_texte = dest.to_string_lossy().to_string();
 
     {
-        let conn = srv
-            .conn
+        let conn = conn_mutex
             .lock()
             .map_err(|_| "Base indisponible.".to_string())?;
         // `VACUUM INTO` et non une copie de fichier : le contenu du WAL

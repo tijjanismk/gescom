@@ -4,18 +4,38 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use rusqlite::Connection;
+use gescom_noyau::base::Base;
 use gescom_noyau::registre::Registre;
 
 use crate::canal::Canal;
 
 pub struct Serveur {
-    /// La base, derriere un verrou.
+    /// La connexion SQLite brute, pour les 186 commandes pas encore
+    /// portees sur `Base` (voir D11 dans AI_CONTEXT/DECISIONS.md).
     ///
-    /// SQLite serialise de toute facon les ecritures ; un pool de
-    /// connexions ne ferait qu'avancer le point de contention sans le
-    /// supprimer. Le jour ou la base passe a PostgreSQL, c'est ce
-    /// champ — et lui seul — qui devient un pool.
-    pub conn: Mutex<Connection>,
+    /// `None` quand la cible est PostgreSQL : il n'y a alors AUCUNE
+    /// connexion SQLite a donner a ces commandes, et il ne faut surtout
+    /// pas en ouvrir une quand meme sous un nom bizarre — c'est
+    /// exactement le piege que D11 nomme : « il créerait un fichier
+    /// SQLite portant ce nom, l'amorcerait, et tout marcherait — sur
+    /// une base vide ». Chaque appelant de ce champ doit donc refuser
+    /// clairement au lieu de suivre ce chemin.
+    pub conn: Option<Mutex<Connection>>,
+    /// La base, sur l'un ou l'autre moteur. C'est elle que les
+    /// commandes PORTEES appellent — `catalogue::*_sur`,
+    /// `comptoir::*_sur`, `argent::*_sur_base`, `dossiers::*_sur`.
+    ///
+    /// Sur une cible fichier, c'est une SECONDE connexion vers le meme
+    /// fichier que `conn` (SQLite en WAL le permet) : la transition
+    /// prevue par D11, une `Base` pour ce qui est porte, une
+    /// `Connection` pour le reste, jusqu'a ce que tout le soit.
+    ///
+    /// Encore lu par personne : aucune commande portee n'est branchee
+    /// au registre. C'est la suite de D11, pas cette etape — qui pose
+    /// seulement le fait que le serveur SAIT tenir une `Base`, sur les
+    /// deux moteurs, sans rien changer pour les 186 qui ne le sont pas.
+    #[allow(dead_code)]
+    pub base: Mutex<Base>,
     pub chemin_base: String,
     pub canal: Canal,
     pub registre: Registre,

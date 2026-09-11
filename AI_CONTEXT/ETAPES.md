@@ -215,6 +215,22 @@ Ensuite : `pieces`, `achats`, `retours`, puis le reste. La façade permet
 de porter module par module sans rien casser — ce qui n'est pas porté
 continue de tourner sur SQLite.
 
+### D11 (le serveur tient une `Base`) — **points 1 et 2 faits le 11/09/2026**
+
+`gescom-serveur --base postgresql://…` s'ouvre, amorce le schéma, et
+répond à `/sante`. Zéro changement sur une cible fichier — les 186
+commandes non portées continuent de tourner exactement comme avant ;
+sur PostgreSQL, elles refusent clairement au lieu de retomber sur un
+fichier SQLite vide. Détail dans DECISIONS.md §D11.
+
+⚠️ **Découvert en le faisant : se connecter ne marche pas encore sur
+PostgreSQL**, même avec le bon mot de passe. `sessions`, `postes` et
+`portes::permissions_de` ne sont pas portés — sans eux, `/rpc` ne peut
+authentifier personne. C'est le prochain morceau, et il précède en
+pratique le branchement de `creer_vente_sur_base` /
+`valider_facture_sur_base` : porter la vente ne sert à rien tant
+qu'aucune caisse ne peut se connecter pour la déclencher.
+
 Deux chantiers à part :
 - la **sauvegarde** — `VACUUM INTO` n'existe pas côté PostgreSQL ;
 - les **~60 constructions** — `julianday`, `strftime`, `INSERT OR

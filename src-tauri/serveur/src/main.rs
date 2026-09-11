@@ -35,7 +35,8 @@ use std::time::Duration;
 
 use gescom_noyau::protocole::PORT_DEFAUT;
 use gescom_noyau::utils::maintenant_iso;
-use gescom_noyau::{persistance, postes, sessions};
+use gescom_noyau::{amorcage, persistance, postes, sessions};
+use rusqlite::Connection;
 
 use canal::Canal;
 use etat::Serveur;
@@ -51,69 +52,111 @@ const DELAI_LECTURE: Duration = Duration::from_secs(60);
 fn main() {
     let options = Options::depuis_arguments();
 
-    let chemin_base = options.base.unwrap_or_else(chemin_base_par_defaut);
-    if let Some(parent) = std::path::Path::new(&chemin_base).parent() {
-        std::fs::create_dir_all(parent).ok();
-    }
+    let cible = options.base.unwrap_or_else(chemin_base_par_defaut);
+    // Meme detection que `Base::ouvrir` : une adresse PostgreSQL n'est
+    // pas un chemin de fichier, et n'a pas de dossier parent a creer.
+    let est_postgres = cible.starts_with("postgres://") || cible.starts_with("postgresql://");
 
-    let conn = match persistance::ouvrir_base(&chemin_base) {
-        Ok(c) => c,
+    let mut amorcage_fait = false;
+
+    // ---- La connexion SQLite brute, pour les commandes pas encore
+    // portees (D11). `None` sur une cible PostgreSQL : voir etat.rs. ----
+    let conn: Option<Connection> = if est_postgres {
+        None
+    } else {
+        if let Some(parent) = std::path::Path::new(&cible).parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        let conn = match persistance::ouvrir_base(&cible) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Impossible d'ouvrir la base « {cible} » : {e}");
+                std::process::exit(1);
+            }
+        };
+        if let Err(e) = persistance::initialiser_tables(&conn) {
+            eprintln!("Impossible d'initialiser la base : {e}");
+            std::process::exit(1);
+        }
+
+        // Une base neuve n'a ni role ni compte. Sans cet amorcage, le
+        // serveur demarrait, ecoutait, et refusait toutes les connexions
+        // avec « Identifiant ou mot de passe incorrect » — sans qu'aucun
+        // ecran ne permette de creer le premier compte. Le seul remede
+        // etait de lancer la fenetre une fois sur le meme fichier.
+        match gescom_noyau::seed::amorcer_si_vide(&conn) {
+            Ok(true) => amorcage_fait = true,
+            Ok(false) => {}
+            Err(e) => {
+                eprintln!("Impossible d'amorcer la base : {e}");
+                std::process::exit(1);
+            }
+        }
+
+        // Une base abimee doit etre RESTAUREE, pas servie a cinq caisses
+        // qui saisiront la journee par-dessus — ce qui rendrait ensuite
+        // la restauration inutile.
+        match persistance::verifier_integrite(&conn) {
+            Ok(Some(probleme)) => {
+                eprintln!("BASE ABIMEE : {probleme}");
+                eprintln!("Restaurer une sauvegarde avant de redémarrer le serveur.");
+                std::process::exit(2);
+            }
+            Err(e) => eprintln!("[avertissement] contrôle d'intégrité impossible : {e}"),
+            Ok(None) => {}
+        }
+
+        // Les jetons d'avant le redemarrage ne sont plus verifiables :
+        // la correspondance jeton -> session vit en memoire. Les
+        // laisser « actives » en base ferait mentir la liste des postes
+        // connectes.
+        sessions::revoquer_toutes(&conn, "redemarrage_serveur").ok();
+
+        // Le serveur est lui-meme un poste : ses propres operations
+        // (une sauvegarde, une revocation) ont ainsi une origine
+        // identifiable dans le journal, au lieu d'un champ vide.
+        let empreinte = format!("serveur:{cible}");
+        if let Err(e) = postes::inscrire_ou_retrouver(&conn, "Serveur", &empreinte, "serveur", None)
+        {
+            eprintln!("[avertissement] inscription du poste serveur : {e}");
+        }
+
+        Some(conn)
+    };
+
+    // ---- La Base, sur l'un ou l'autre moteur (D11) ----
+    //
+    // Sur une cible fichier, c'est une SECONDE connexion vers le MEME
+    // fichier que `conn` — SQLite en WAL le permet, et c'est exactement
+    // la transition que D11 decrit : une `Base` pour ce qui est porte,
+    // une `Connection` pour le reste. Le schema est deja pret (la
+    // premiere connexion vient de le poser) : pas la peine de rejouer
+    // `amorcage::amorcer` par-dessus.
+    //
+    // Sur une adresse PostgreSQL, c'est le SEUL chemin : `amorcer` doit
+    // tourner ici, et lui seul prepare la base.
+    let mut base = match gescom_noyau::base::Base::ouvrir(&cible) {
+        Ok(b) => b,
         Err(e) => {
-            eprintln!("Impossible d'ouvrir la base « {chemin_base} » : {e}");
+            eprintln!("Impossible d'ouvrir la base « {cible} » : {e}");
             std::process::exit(1);
         }
     };
-    let mut amorcage_fait = false;
-    if let Err(e) = persistance::initialiser_tables(&conn) {
-        eprintln!("Impossible d'initialiser la base : {e}");
-        std::process::exit(1);
-    }
-
-    // Une base neuve n'a ni role ni compte. Sans cet amorcage, le
-    // serveur demarrait, ecoutait, et refusait toutes les connexions
-    // avec « Identifiant ou mot de passe incorrect » — sans qu'aucun
-    // ecran ne permette de creer le premier compte. Le seul remede
-    // etait de lancer la fenetre une fois sur le meme fichier.
-    match gescom_noyau::seed::amorcer_si_vide(&conn) {
-        Ok(true) => {
-            amorcage_fait = true;
+    if est_postgres {
+        match amorcage::amorcer(&mut base) {
+            Ok(true) => amorcage_fait = true,
+            Ok(false) => {}
+            Err(e) => {
+                eprintln!("Impossible d'amorcer la base : {e}");
+                std::process::exit(1);
+            }
         }
-        Ok(false) => {}
-        Err(e) => {
-            eprintln!("Impossible d'amorcer la base : {e}");
-            std::process::exit(1);
-        }
-    }
-
-    // Une base abimee doit etre RESTAUREE, pas servie a cinq caisses
-    // qui saisiront la journee par-dessus — ce qui rendrait ensuite la
-    // restauration inutile.
-    match persistance::verifier_integrite(&conn) {
-        Ok(Some(probleme)) => {
-            eprintln!("BASE ABIMEE : {probleme}");
-            eprintln!("Restaurer une sauvegarde avant de redémarrer le serveur.");
-            std::process::exit(2);
-        }
-        Err(e) => eprintln!("[avertissement] contrôle d'intégrité impossible : {e}"),
-        Ok(None) => {}
-    }
-
-    // Les jetons d'avant le redemarrage ne sont plus verifiables : la
-    // correspondance jeton -> session vit en memoire. Les laisser
-    // « actives » en base ferait mentir la liste des postes connectes.
-    sessions::revoquer_toutes(&conn, "redemarrage_serveur").ok();
-
-    // Le serveur est lui-meme un poste : ses propres operations (une
-    // sauvegarde, une revocation) ont ainsi une origine identifiable
-    // dans le journal, au lieu d'un champ vide.
-    let empreinte = format!("serveur:{chemin_base}");
-    if let Err(e) = postes::inscrire_ou_retrouver(&conn, "Serveur", &empreinte, "serveur", None) {
-        eprintln!("[avertissement] inscription du poste serveur : {e}");
     }
 
     let srv = Arc::new(Serveur {
-        conn: Mutex::new(conn),
-        chemin_base: chemin_base.clone(),
+        conn: conn.map(Mutex::new),
+        base: Mutex::new(base),
+        chemin_base: cible.clone(),
         canal: Canal::nouveau(),
         registre: socle::registre(),
         jetons: Mutex::new(HashMap::new()),
@@ -123,7 +166,7 @@ fn main() {
     });
 
     if let Some(d) = options.sauvegardes {
-        if let Ok(conn) = srv.conn.lock() {
+        if let Some(conn) = srv.conn.as_ref().and_then(|m| m.lock().ok()) {
             conn.execute(
                 "INSERT INTO config_app (cle, valeur) VALUES ('dossier_sauvegarde', ?1)
                  ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
@@ -132,7 +175,12 @@ fn main() {
             .ok();
         }
     }
-    sauvegarde::planifier(Arc::clone(&srv));
+    // Pas de sauvegarde automatique sans `conn` : `VACUUM INTO` n'existe
+    // pas sur PostgreSQL (D4), et planifier un echec toutes les 24 h
+    // n'apporterait rien.
+    if srv.conn.is_some() {
+        sauvegarde::planifier(Arc::clone(&srv));
+    }
 
     let adresse = format!("{}:{}", options.hote, options.port);
     let ecouteur = match TcpListener::bind(&adresse) {
@@ -145,9 +193,13 @@ fn main() {
     };
 
     println!("Gescom serveur — protocole v{}", gescom_noyau::VERSION_PROTOCOLE);
-    println!("  base        : {chemin_base}");
+    println!("  base        : {cible} ({})", if est_postgres { "PostgreSQL" } else { "SQLite" });
     println!("  écoute      : http://{adresse}");
-    println!("  sauvegardes : {}", sauvegarde::dossier(&srv).display());
+    if srv.conn.is_some() {
+        println!("  sauvegardes : {}", sauvegarde::dossier(&srv).display());
+    } else {
+        println!("  sauvegardes : aucune — pg_dump n'est pas encore écrit (D4)");
+    }
     println!("  commandes   : {}", srv.registre.len());
 
     // L'adresse a saisir sur les caisses, et l'etat du pare-feu.
@@ -165,6 +217,17 @@ fn main() {
         println!("    employe / employe123   (employé)");
         println!("    Les deux exigent un changement de mot de passe à la");
         println!("    première connexion.");
+    }
+    // D11 : le serveur tient une Base sur les deux moteurs, mais
+    // l'authentification (sessions, postes, permissions) n'est pas
+    // encore portee. Le dire ici vaut mieux qu'un « Identifiant ou mot
+    // de passe incorrect » qui laisse croire a un mot de passe faux.
+    if est_postgres {
+        println!();
+        println!("  ⚠ PostgreSQL : le schéma est prêt, mais aucune commande ne");
+        println!("    répond encore — sessions, postes et permissions ne sont");
+        println!("    pas portés (D11). Se connecter depuis une caisse échouera");
+        println!("    pour l'instant, même avec le bon mot de passe.");
     }
     println!("  Console : http://localhost:{}", options.port);
     println!("            a ouvrir dans un navigateur sur ce poste.");

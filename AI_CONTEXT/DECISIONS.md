@@ -288,12 +288,45 @@ clairement**, et non retomber en silence sur une base vide.
 
 ### L'ordre qui en découle
 
-1. Le serveur accepte une adresse PostgreSQL et tient une `Base`.
-2. Les commandes non portées refusent franchement sur PostgreSQL.
+1. ~~Le serveur accepte une adresse PostgreSQL et tient une `Base`.~~
+   **Fait le 11/09/2026.**
+2. ~~Les commandes non portées refusent franchement sur PostgreSQL.~~
+   **Fait le 11/09/2026**, dans le même geste.
 3. La vente et la facture — le plus gros morceau, et le plus délicat.
+   **Portées dans le noyau** (`creer_vente_sur_base`,
+   `valider_facture_sur_base`, testées), **mais pas encore branchées** :
+   voir le point ⚠️ ci-dessous.
 4. Le reste des commandes, module par module.
 
----
+#### Les points 1 et 2, en détail
+
+`gescom-serveur` accepte désormais `--base postgresql://…` aussi bien
+qu'un chemin de fichier. Ce qu'il fait de chaque cas :
+
+| | fichier (aujourd'hui) | PostgreSQL |
+|---|---|---|
+| `Connection` SQLite (186 commandes) | ouverte, comme avant — **rien ne change** | `None` : aucune n'existe |
+| `Base` | une **seconde** connexion vers le même fichier (WAL le permet) | l'unique connexion |
+| une commande non portée appelée | fonctionne, comme avant | refuse avec « n'est pas encore disponible sur PostgreSQL », **avant** de toucher au registre |
+| `/sante` | comme avant | répond quand même — c'est la route qu'un poste interroge *avant* tout jeton |
+| sauvegarde automatique | comme avant (`VACUUM INTO`) | désactivée, refuse clairement (D4 : `pg_dump` pas encore écrit) |
+
+Zéro changement de comportement sur une cible fichier — c'était la
+condition. `Serveur.conn` est passé de `Mutex<Connection>` à
+`Option<Mutex<Connection>>`, et chaque appelant (six endroits dans
+`api.rs`, plus `sauvegarde.rs`) refuse au lieu de paniquer ou de
+retomber sur une base vide.
+
+⚠️ **Un fait qui n'était pas visible avant d'essayer : se connecter
+à un serveur PostgreSQL ne marche pas encore, même avec le bon mot de
+passe.** `connexion` (authentification), `sessions`, `postes` et
+`portes::permissions_de` — tout ce dont `/rpc` a besoin AVANT même de
+choisir une commande — ne sont pas portés sur `Base`. Un serveur
+PostgreSQL démarre, répond à `/sante`, et refuse tout le reste avec un
+message qui le dit (imprimé aussi au démarrage). **C'est le vrai
+prochain morceau**, avant que porter `creer_vente`/`valider_facture`
+serve à quelque chose de vécu : sans lui, ces deux fonctions restent
+testées mais inatteignables depuis une caisse.
 
 ## Ce qui n'est pas une décision, mais un travail à faire
 

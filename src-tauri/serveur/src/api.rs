@@ -63,14 +63,21 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
 /// « identifiant incorrect » quand c'est le reseau qui manque. Elle ne
 /// divulgue aucune donnee de commerce.
 fn sante(srv: &Arc<Serveur>, flux: &mut TcpStream) -> std::io::Result<()> {
-    let (base_saine, connectes) = match srv.conn.lock() {
-        Ok(conn) => (
-            persistance::verifier_integrite(&conn)
-                .map(|o| o.is_none())
-                .unwrap_or(false),
-            sessions::lister_actives(&conn).map(|v| v.len()).unwrap_or(0),
-        ),
-        Err(_) => (false, 0),
+    let (base_saine, connectes) = match &srv.conn {
+        Some(m) => match m.lock() {
+            Ok(conn) => (
+                persistance::verifier_integrite(&conn)
+                    .map(|o| o.is_none())
+                    .unwrap_or(false),
+                sessions::lister_actives(&conn).map(|v| v.len()).unwrap_or(0),
+            ),
+            Err(_) => (false, 0),
+        },
+        // PostgreSQL : ni controle d'integrite ni sessions portes
+        // encore (D11). `/sante` doit quand meme repondre — c'est la
+        // route qu'un poste interroge AVANT tout jeton, pour savoir
+        // s'il vaut la peine d'essayer de se connecter.
+        None => (true, 0),
     };
 
     let s = Sante {
@@ -113,7 +120,20 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         );
     }
 
-    let conn = match srv.conn.lock() {
+    // D11 : sessions, postes et permissions ne sont pas encore portes
+    // sur `Base`. Une caisse qui tente de se connecter a un serveur
+    // PostgreSQL doit l'entendre clairement, pas lire « identifiant ou
+    // mot de passe incorrect » pour un mot de passe qui est le bon.
+    let Some(conn_mutex) = srv.conn.as_ref() else {
+        return erreur(
+            flux,
+            409,
+            CodeErreur::Technique,
+            "La connexion n'est pas encore disponible sur PostgreSQL : sessions, \
+             postes et permissions ne sont pas portés (D11).",
+        );
+    };
+    let conn = match conn_mutex.lock() {
         Ok(c) => c,
         Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
     };
@@ -228,7 +248,7 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
 fn deconnexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Result<()> {
     if let Some(jeton) = req.jeton() {
         if let Some(session_id) = srv.session_du_jeton(jeton) {
-            if let Ok(conn) = srv.conn.lock() {
+            if let Some(conn) = srv.conn.as_ref().and_then(|m| m.lock().ok()) {
                 sessions::revoquer(&conn, &session_id, "deconnexion").ok();
             }
         }
@@ -266,7 +286,20 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         );
     };
 
-    let mut conn = match srv.conn.lock() {
+    // D11 : cette commande vient du registre des 186 pas encore
+    // portees sur `Base` — c'est TOUJOURS le cas aujourd'hui, aucune
+    // ported ne s'y trouve encore. Sur PostgreSQL, il n'y a pas de
+    // `Connection` a lui donner ; retomber en silence sur un fichier
+    // SQLite vide est exactement ce que D11 interdit.
+    let Some(conn_mutex) = srv.conn.as_ref() else {
+        return erreur(
+            flux,
+            409,
+            CodeErreur::Technique,
+            "Cette opération n'est pas encore disponible sur PostgreSQL.",
+        );
+    };
+    let mut conn = match conn_mutex.lock() {
         Ok(c) => c,
         Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
     };
@@ -322,8 +355,14 @@ fn authentifier(srv: &Arc<Serveur>, req: &Requete) -> Result<Appelant, (CodeErre
         "Session inconnue du serveur — se reconnecter.".to_string(),
     ))?;
 
-    let conn = srv
-        .conn
+    // D11 : personne n'a pu obtenir de jeton sur PostgreSQL —
+    // `connexion` refuse avant — mais un jeton d'avant un changement de
+    // cible resterait en memoire. Le meme refus clair s'applique.
+    let conn_mutex = srv.conn.as_ref().ok_or((
+        CodeErreur::Technique,
+        "Cette opération n'est pas encore disponible sur PostgreSQL.".to_string(),
+    ))?;
+    let conn = conn_mutex
         .lock()
         .map_err(|_| (CodeErreur::Technique, "Base indisponible.".to_string()))?;
 
@@ -405,7 +444,18 @@ fn sauvegarde_manuelle(
     // reprendra pour son propre compte, et le garder ici bloquerait les
     // caisses pendant toute la copie.
     {
-        let conn = match srv.conn.lock() {
+        let Some(conn_mutex) = srv.conn.as_ref() else {
+            // `sauvegarde::maintenant` refuse aussi, avec le meme
+            // message ; le dire ici evite de verifier une permission
+            // pour une operation qui va de toute facon echouer.
+            return erreur(
+                flux,
+                409,
+                CodeErreur::Technique,
+                "La sauvegarde n'est pas encore disponible sur PostgreSQL (D4).",
+            );
+        };
+        let conn = match conn_mutex.lock() {
             Ok(c) => c,
             Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
         };
