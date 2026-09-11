@@ -48,7 +48,8 @@ pub fn lire_resume_caisse(
             let total_entrees: i64 = conn.query_row(
                 "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
                  FROM mouvement_caisse
-                 WHERE session_id = ?1 AND sens = 'entree'",
+                 WHERE session_id = ?1 AND sens = 'entree'
+                   AND motif <> 'ouverture'",
                 rusqlite::params![session_id],
                 |r| r.get(0),
             ).unwrap_or(0);
@@ -65,7 +66,8 @@ pub fn lire_resume_caisse(
             let entrees_especes: i64 = conn.query_row(
                 "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
                  FROM mouvement_caisse
-                 WHERE session_id = ?1 AND sens = 'entree' AND moyen = 'especes'",
+                 WHERE session_id = ?1 AND sens = 'entree' AND moyen = 'especes'
+                   AND motif <> 'ouverture'",
                 rusqlite::params![session_id],
                 |r| r.get(0),
             ).unwrap_or(0);
@@ -213,7 +215,14 @@ pub fn fermer_session_caisse(
     let entrees: i64 = conn.query_row(
         "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
          FROM mouvement_caisse
-         WHERE session_id = ?1 AND sens = 'entree' AND moyen = 'especes'",
+         WHERE session_id = ?1 AND sens = 'entree' AND moyen = 'especes'
+           -- Le fond d'ouverture est DEJA dans `fond`, et il existe
+           -- aussi comme mouvement pour la trace. Sans cette
+           -- exclusion, `solde_theorique` l'ajoute deux fois : le
+           -- commercant compte 13 000 dans son tiroir, l'application
+           -- en annonce 23 000, et le comptage du soir affiche un
+           -- manque de 10 000 qui n'existe pas. Tous les jours.
+           AND motif <> 'ouverture'",
         rusqlite::params![session_id], |r| r.get(0),
     ).unwrap_or(0);
 

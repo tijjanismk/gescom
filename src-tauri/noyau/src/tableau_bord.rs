@@ -183,8 +183,13 @@ pub fn lire_resume_dashboard(
     let (caisse_solde, caisse_ouverte): (i64, bool) = conn.query_row(
         "SELECT
             COALESCE(fond_ouverture, 0) +
+            -- `motif <> 'ouverture'` : le fond est deja dans
+            -- `fond_ouverture` juste au-dessus, et il existe aussi
+            -- comme mouvement pour la trace. L'oublier le comptait
+            -- deux fois.
             COALESCE((SELECT SUM(CASE WHEN sens='entree' THEN montant ELSE -montant END)
-                      FROM mouvement_caisse WHERE session_id = sc.id), 0),
+                      FROM mouvement_caisse
+                      WHERE session_id = sc.id AND motif <> 'ouverture'), 0),
             sc.statut = 'ouverte'
          FROM session_caisse sc
          WHERE sc.statut = 'ouverte'
