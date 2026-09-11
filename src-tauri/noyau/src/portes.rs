@@ -152,6 +152,53 @@ pub struct ContexteUtilisateur {
 /// Un role a `acces_total` rend tout le catalogue, et les retraits
 /// personnels ne s'y appliquent pas — sinon on pourrait enfermer dehors
 /// le seul compte capable de reparer.
+/// La REGLE, isolee de toute lecture.
+///
+/// Les permissions se lisent sur deux moteurs pendant le portage. La
+/// regle, elle, ne doit exister qu'UNE fois : deux copies d'un calcul
+/// de droits finissent toujours par diverger, et personne ne s'en
+/// apercoit avant qu'un caissier fasse ce qu'il ne devait pas.
+///
+/// Ici, seule la regle. Les deux fonctions ci-dessous ne font que lui
+/// apporter ce qu'elles ont lu.
+pub fn calculer_permissions(
+    role: &str,
+    liste_json: &str,
+    acces_total: bool,
+    reglages: &[(String, bool)],
+) -> HashSet<String> {
+    if role == SUPERADMIN || acces_total {
+        return CATALOGUE.iter().map(|p| p.code.to_string()).collect();
+    }
+
+    let mut acquises: HashSet<String> = serde_json::from_str::<Vec<String>>(liste_json)
+        .unwrap_or_default()
+        .into_iter()
+        // Filtre par le catalogue : une permission ecrite en base mais
+        // inconnue du code ne donne aucun droit.
+        .filter(|c| existe(c))
+        .collect();
+
+    // Le retrait l'emporte sur l'ajout : entre deux lectures possibles
+    // d'un reglage contradictoire, on choisit la plus fermee.
+    for (code, accorde) in reglages {
+        if !existe(code) {
+            continue;
+        }
+        if *accorde {
+            acquises.insert(code.clone());
+        }
+    }
+    for (code, accorde) in reglages {
+        if !*accorde {
+            acquises.remove(code);
+        }
+    }
+
+    acquises
+}
+
+/// Tout ce que cette personne a le droit de faire — lecture SQLite.
 pub fn permissions_de(
     conn: &rusqlite::Connection,
     utilisateur_id: &str,
@@ -170,48 +217,52 @@ pub fn permissions_de(
         )
         .unwrap_or_else(|_| ("[]".to_string(), 0));
 
-    if acces_total != 0 {
-        return CATALOGUE.iter().map(|p| p.code.to_string()).collect();
-    }
-
-    let mut acquises: HashSet<String> = serde_json::from_str::<Vec<String>>(&liste_json)
-        .unwrap_or_default()
-        .into_iter()
-        // Filtre par le catalogue : une permission ecrite en base mais
-        // inconnue du code ne donne aucun droit.
-        .filter(|c| existe(c))
-        .collect();
-
-    // Les reglages personnels, par-dessus.
-    let mut ajouts: Vec<String> = Vec::new();
-    let mut retraits: Vec<String> = Vec::new();
+    let mut reglages: Vec<(String, bool)> = Vec::new();
     if let Ok(mut st) = conn.prepare(
         "SELECT permission, accorde FROM utilisateur_permission
          WHERE utilisateur_id = ?1",
     ) {
         if let Ok(lignes) = st.query_map(rusqlite::params![utilisateur_id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? != 0))
         }) {
-            for (code, accorde) in lignes.flatten() {
-                if !existe(&code) {
-                    continue;
-                }
-                if accorde != 0 {
-                    ajouts.push(code);
-                } else {
-                    retraits.push(code);
-                }
-            }
+            reglages.extend(lignes.flatten());
         }
     }
-    for c in ajouts {
-        acquises.insert(c);
-    }
-    for c in &retraits {
-        acquises.remove(c);
+
+    calculer_permissions(role, &liste_json, acces_total != 0, &reglages)
+}
+
+/// La meme chose, sur l'un ou l'autre moteur.
+pub fn permissions_de_sur(
+    base: &mut crate::base::Base,
+    utilisateur_id: &str,
+    role: &str,
+) -> HashSet<String> {
+    if role == SUPERADMIN {
+        return CATALOGUE.iter().map(|p| p.code.to_string()).collect();
     }
 
-    acquises
+    let ligne = base
+        .lire_une(
+            "SELECT COALESCE(permissions, '[]'), COALESCE(acces_total, 0)
+             FROM role WHERE nom = ?1",
+            &crate::parametres![role],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?)),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| ("[]".to_string(), 0));
+
+    let reglages = base
+        .lire_plusieurs(
+            "SELECT permission, accorde FROM utilisateur_permission
+             WHERE utilisateur_id = ?1",
+            &crate::parametres![utilisateur_id],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)? != 0)),
+        )
+        .unwrap_or_default();
+
+    calculer_permissions(role, &ligne.0, ligne.1 != 0, &reglages)
 }
 
 /// Cette personne peut-elle faire cela ?
@@ -219,6 +270,29 @@ pub fn permissions_de(
 /// `conn` parce que les permissions vivent en base : les garder dans le
 /// code obligeait a recompiler pour ajouter un role, et rendait
 /// impossible d'accorder une permission a une seule personne.
+/// Cette personne peut-elle faire cela ? — sur l'un ou l'autre moteur.
+pub fn verifier_permission_sur(
+    base: &mut crate::base::Base,
+    contexte: &ContexteUtilisateur,
+    permission: &str,
+) -> Result<(), ErreurPermission> {
+    let refus = || ErreurPermission::Refuse {
+        role: contexte.role.clone(),
+        permission: permission.to_string(),
+    };
+    if !existe(permission) {
+        return Err(refus());
+    }
+    if contexte.role == SUPERADMIN {
+        return Ok(());
+    }
+    if permissions_de_sur(base, &contexte.id, &contexte.role).contains(permission) {
+        Ok(())
+    } else {
+        Err(refus())
+    }
+}
+
 pub fn verifier_permission(
     conn: &rusqlite::Connection,
     contexte: &ContexteUtilisateur,

@@ -1,5 +1,8 @@
 # Gescom — architecture
 
+> **Où en est-on ?** → [ETAPES.md](ETAPES.md) : ce qui est fait, ce
+> qui reste, et dans quel ordre. À relire au début de chaque séance.
+
 Application de gestion commerciale **local-first** pour commerçants de
 Bamako. Les données restent dans la boutique : aucun cloud.
 

@@ -208,3 +208,127 @@ pub fn hasher_mot_de_passe_pub(mdp: &str) -> Result<String, String> {
     bcrypt::hash(mdp, bcrypt::DEFAULT_COST)
         .map_err(|e| format!("Erreur hashage : {}", e))
 }
+
+// =====================================================================
+//  LA CONNEXION, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+
+use crate::base::Base;
+use crate::parametres;
+
+/// Le meme message pour « identifiant inconnu » et « mot de passe
+/// faux ».
+///
+/// Les distinguer revient a confirmer qu'un compte existe a qui essaie
+/// des noms au hasard.
+const REFUS: &str = "Identifiant ou mot de passe incorrect";
+
+pub fn connexion_sur(
+    base: &mut Base,
+    identifiant: String,
+    mot_de_passe: String,
+) -> Result<serde_json::Value, String> {
+    let ligne = base
+        .lire_une(
+            "SELECT ua.utilisateur_id, ua.mot_de_passe, ua.doit_changer_mdp,
+                    u.nom, r.nom
+             FROM utilisateur_auth ua
+             JOIN utilisateur u ON u.id = ua.utilisateur_id
+             JOIN role r        ON r.id = u.role_id
+             WHERE (ua.pseudo = ?1 OR ua.email = ?1) AND u.actif = 1",
+            &parametres![identifiant],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<String>(1)?,
+                    r.get::<i64>(2)?,
+                    r.get::<String>(3)?,
+                    r.get::<String>(4)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+
+    let Some((utilisateur_id, hash_stocke, doit_changer, nom, role)) = ligne else {
+        return Err(REFUS.to_string());
+    };
+
+    if !bcrypt::verify(&mot_de_passe, &hash_stocke).unwrap_or(false) {
+        return Err(REFUS.to_string());
+    }
+
+    let _ = base.executer(
+        "UPDATE utilisateur_auth SET derniere_connexion = ?1 WHERE utilisateur_id = ?2",
+        &parametres![maintenant_iso(), utilisateur_id.clone()],
+    );
+
+    let mut permissions: Vec<String> =
+        crate::portes::permissions_de_sur(base, &utilisateur_id, &role)
+            .into_iter()
+            .collect();
+    permissions.sort();
+
+    Ok(serde_json::json!({
+        "id":               utilisateur_id,
+        "nom":              nom,
+        "role":             role,
+        "permissions":      permissions,
+        "doit_changer_mdp": doit_changer != 0,
+    }))
+}
+
+pub fn changer_mot_de_passe_sur(
+    base: &mut Base,
+    utilisateur_id: String,
+    ancien_mdp: String,
+    nouveau_mdp: String,
+) -> Result<(), String> {
+    let hash_stocke = base
+        .lire_une(
+            "SELECT mot_de_passe FROM utilisateur_auth WHERE utilisateur_id = ?1",
+            &parametres![utilisateur_id.clone()],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Utilisateur introuvable".to_string())?;
+
+    if !bcrypt::verify(&ancien_mdp, &hash_stocke).unwrap_or(false) {
+        return Err("Ancien mot de passe incorrect".to_string());
+    }
+    if nouveau_mdp.len() < 6 {
+        return Err("Le mot de passe doit contenir au moins 6 caractères".to_string());
+    }
+
+    let nouveau_hash = hasher_mot_de_passe_pub(&nouveau_mdp)?;
+    base.executer(
+        "UPDATE utilisateur_auth SET mot_de_passe = ?1, doit_changer_mdp = 0
+         WHERE utilisateur_id = ?2",
+        &parametres![nouveau_hash, utilisateur_id],
+    )
+    .map_err(|e| e.0)?;
+    Ok(())
+}
+
+pub fn lire_utilisateurs_sur(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    base.lire_plusieurs(
+        "SELECT u.id, u.nom, r.nom, ua.pseudo, ua.email,
+                ua.derniere_connexion, u.actif
+         FROM utilisateur u
+         JOIN role r ON r.id = u.role_id
+         LEFT JOIN utilisateur_auth ua ON ua.utilisateur_id = u.id
+         ORDER BY r.nom ASC, u.nom ASC",
+        &[],
+        |r| {
+            Ok(serde_json::json!({
+                "id":                 r.get::<String>(0)?,
+                "nom":                r.get::<String>(1)?,
+                "role":               r.get::<String>(2)?,
+                "pseudo":             r.get::<Option<String>>(3)?,
+                "email":              r.get::<Option<String>>(4)?,
+                "derniere_connexion": r.get::<Option<String>>(5)?,
+                "actif":              r.get::<i64>(6)? != 0,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}

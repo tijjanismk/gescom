@@ -126,6 +126,68 @@ fn roles() -> Vec<(&'static str, &'static str, bool, bool, &'static str)> {
     ]
 }
 
+/// Les tables et colonnes ajoutees par la v2.
+///
+/// Elles vivent dans `persistance/v2.rs`, qui parle encore rusqlite.
+/// Tant qu'il n'est pas porte, l'amorcage les pose lui-meme — sinon une
+/// base PostgreSQL neuve n'a NI poste NI session, et la premiere
+/// connexion reseau echoue sur « la relation poste n'existe pas ».
+fn tables_v2(base: &mut Base) {
+    let pg = base.est_postgres();
+    let adapter = |sql: &str| if pg { types_postgres(sql) } else { sql.to_string() };
+
+    for sql in [
+        "CREATE TABLE IF NOT EXISTS poste (
+            id              TEXT PRIMARY KEY,
+            nom             TEXT NOT NULL,
+            empreinte       TEXT NOT NULL UNIQUE,
+            genre           TEXT NOT NULL DEFAULT 'caisse',
+            actif           INTEGER NOT NULL DEFAULT 1,
+            dernier_contact TEXT,
+            derniere_ip     TEXT,
+            cree_le         TEXT NOT NULL,
+            modifie_le      TEXT NOT NULL
+         )",
+        "CREATE TABLE IF NOT EXISTS session_reseau (
+            id              TEXT PRIMARY KEY,
+            jeton_hash      TEXT NOT NULL UNIQUE,
+            poste_id        TEXT NOT NULL REFERENCES poste(id),
+            utilisateur_id  TEXT NOT NULL REFERENCES utilisateur(id),
+            ouvert_le       TEXT NOT NULL,
+            expire_le       TEXT NOT NULL,
+            revoque_le      TEXT,
+            revoque_par     TEXT,
+            derniere_vue    TEXT
+         )",
+        "CREATE TABLE IF NOT EXISTS modele_document (
+            id           TEXT PRIMARY KEY,
+            genre        TEXT NOT NULL,
+            nom          TEXT NOT NULL,
+            format       TEXT NOT NULL,
+            contenu      TEXT NOT NULL,
+            est_defaut   INTEGER NOT NULL DEFAULT 0,
+            actif        INTEGER NOT NULL DEFAULT 0,
+            cree_le      TEXT NOT NULL,
+            modifie_le   TEXT NOT NULL,
+            modifie_par  TEXT
+         )",
+        "ALTER TABLE session_caisse ADD COLUMN poste_id TEXT",
+        "ALTER TABLE session_caisse ADD COLUMN utilisateur_id TEXT",
+        "ALTER TABLE ligne_piece ADD COLUMN quantite_livree REAL NOT NULL DEFAULT 0",
+    ] {
+        let _ = base.executer(&adapter(sql), &[]);
+    }
+
+    // Le tiroir reste unique par defaut : c'est le comportement de la
+    // boutique type, et l'imposer nominatif obligerait chaque
+    // commercant a ouvrir deux caisses pour un seul comptoir.
+    let _ = base.executer(
+        "INSERT INTO config_app (cle, valeur) VALUES ('caisse_par_utilisateur', '0')
+         ON CONFLICT (cle) DO NOTHING",
+        &[],
+    );
+}
+
 /// Les colonnes de roles ajoutees par la v2.
 ///
 /// `schema.sql` decrit la table d'origine ; ces colonnes sont venues
@@ -169,6 +231,7 @@ fn colonnes_roles(base: &mut Base) {
 /// Rend `true` si l'amorcage a eu lieu.
 pub fn amorcer(base: &mut Base) -> Resultat<bool> {
     creer_schema(base)?;
+    tables_v2(base);
     colonnes_roles(base);
 
     if !base_est_vide(base)? {

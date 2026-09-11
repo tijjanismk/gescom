@@ -54,6 +54,24 @@ impl From<rusqlite::Error> for Erreur {
 
 impl From<postgres::Error> for Erreur {
     fn from(e: postgres::Error) -> Self {
+        // `e.to_string()` rend « db error » — trois mots qui ne disent
+        // rien et qui font perdre un quart d'heure a chaque fois. Le
+        // detail du serveur porte la vraie cause : la contrainte
+        // violee, la colonne absente, le type refuse.
+        if let Some(db) = e.as_db_error() {
+            let mut m = db.message().to_string();
+            if let Some(d) = db.detail() {
+                m.push_str(" — ");
+                m.push_str(d);
+            }
+            if let Some(c) = db.column() {
+                m.push_str(&format!(" (colonne « {c} »)"));
+            }
+            if let Some(t) = db.table() {
+                m.push_str(&format!(" [table {t}]"));
+            }
+            return Erreur(m);
+        }
         Erreur(e.to_string())
     }
 }
@@ -393,6 +411,20 @@ impl Base {
                 }
                 Ok(sortie)
             }
+        }
+    }
+
+    /// La connexion SQLite en ecriture, pour batir un `Contexte`.
+    ///
+    /// C'est le point de passage de la migration : le serveur detient
+    /// une `Base`, et les 187 poignees qui parlent encore rusqlite
+    /// recoivent la connexion d'ici. Sur PostgreSQL il n'y en a pas, et
+    /// l'appelant doit le dire clairement plutot que d'echouer sur un
+    /// message incomprehensible.
+    pub fn sqlite_mut(&mut self) -> Option<&mut rusqlite::Connection> {
+        match self {
+            Base::Sqlite(c) => Some(c),
+            Base::Pg(_) => None,
         }
     }
 

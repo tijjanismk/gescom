@@ -188,3 +188,155 @@ pub fn lister_actives(conn: &Connection) -> ResSql<Vec<SessionReseau>> {
         .collect::<ResSql<Vec<_>>>()?;
     Ok(v)
 }
+
+// =====================================================================
+//  LES MEMES, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// Le portage se fait module par module. Ces fonctions-la sont les
+// premieres : sans elles, personne ne peut se connecter a une base
+// PostgreSQL, et tout le reste du portage serait invérifiable.
+//
+// Les versions rusqlite au-dessus restent tant que des appelants non
+// portes s'en servent. Le SQL est le meme mot pour mot — quand il
+// differera, c'est qu'une des deux aura ete modifiee seule, et c'est
+// exactement ce qu'il faut eviter.
+
+use crate::base::{Base, Resultat};
+use crate::parametres;
+
+pub fn ouvrir_sur(
+    base: &mut Base,
+    poste_id: &str,
+    utilisateur_id: &str,
+) -> Result<(String, String, String), String> {
+    let jeton = engendrer_jeton();
+    let hash = bcrypt::hash(&jeton, bcrypt::DEFAULT_COST).map_err(|e| e.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let ouvert = chrono::Local::now();
+    let expire = ouvert + chrono::Duration::hours(DUREE_JETON_HEURES);
+    let f = |d: chrono::DateTime<chrono::Local>| d.format("%Y-%m-%dT%H:%M:%S%.3f").to_string();
+
+    base.executer(
+        "INSERT INTO session_reseau
+           (id, jeton_hash, poste_id, utilisateur_id,
+            ouvert_le, expire_le, derniere_vue)
+         VALUES (?1,?2,?3,?4,?5,?6,?5)",
+        &parametres![
+            id.clone(),
+            hash,
+            poste_id,
+            utilisateur_id,
+            f(ouvert),
+            f(expire)
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    Ok((id, jeton, f(expire)))
+}
+
+pub fn etat_sur(base: &mut Base, session_id: &str) -> Etat {
+    let ligne = base
+        .lire_une(
+            "SELECT s.utilisateur_id, s.expire_le, s.revoque_le,
+                    s.poste_id, p.actif
+             FROM session_reseau s
+             JOIN poste p ON p.id = s.poste_id
+             WHERE s.id = ?1",
+            &parametres![session_id],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<String>(1)?,
+                    r.get::<Option<String>>(2)?,
+                    r.get::<String>(3)?,
+                    r.get::<i64>(4)?,
+                ))
+            },
+        )
+        .ok()
+        .flatten();
+
+    let Some((utilisateur_id, expire_le, revoque_le, poste_id, poste_actif)) = ligne else {
+        return Etat::Inconnue;
+    };
+    if revoque_le.is_some() {
+        return Etat::Revoquee;
+    }
+    if poste_actif == 0 {
+        return Etat::PosteFerme;
+    }
+    if expire_le.as_str() < maintenant_iso().as_str() {
+        return Etat::Expiree;
+    }
+
+    let role = base
+        .lire_une(
+            "SELECT r.nom FROM utilisateur u
+             JOIN role r ON r.id = u.role_id
+             WHERE u.id = ?1 AND u.actif = 1",
+            &parametres![utilisateur_id.clone()],
+            |r| r.get::<String>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    if role.is_empty() {
+        // L'utilisateur a ete desactive pendant sa session.
+        return Etat::Revoquee;
+    }
+
+    Etat::Valide { utilisateur_id, role, poste_id }
+}
+
+pub fn toucher_sur(base: &mut Base, session_id: &str) {
+    let _ = base.executer(
+        "UPDATE session_reseau SET derniere_vue = ?1 WHERE id = ?2",
+        &parametres![maintenant_iso(), session_id],
+    );
+}
+
+pub fn revoquer_sur(base: &mut Base, session_id: &str, par: &str) -> Resultat<u64> {
+    base.executer(
+        "UPDATE session_reseau SET revoque_le = ?1, revoque_par = ?2
+         WHERE id = ?3 AND revoque_le IS NULL",
+        &parametres![maintenant_iso(), par, session_id],
+    )
+}
+
+pub fn revoquer_toutes_sur(base: &mut Base, motif: &str) -> Resultat<u64> {
+    base.executer(
+        "UPDATE session_reseau SET revoque_le = ?1, revoque_par = ?2
+         WHERE revoque_le IS NULL",
+        &parametres![maintenant_iso(), motif],
+    )
+}
+
+pub fn lister_actives_sur(base: &mut Base) -> Resultat<Vec<SessionReseau>> {
+    base.lire_plusieurs(
+        "SELECT s.id, s.poste_id, p.nom, s.utilisateur_id, u.nom, r.nom,
+                s.ouvert_le, s.expire_le, s.derniere_vue
+         FROM session_reseau s
+         JOIN poste p       ON p.id = s.poste_id
+         JOIN utilisateur u ON u.id = s.utilisateur_id
+         JOIN role r        ON r.id = u.role_id
+         WHERE s.revoque_le IS NULL AND s.expire_le > ?1
+         ORDER BY s.ouvert_le DESC",
+        &parametres![maintenant_iso()],
+        |r| {
+            Ok(SessionReseau {
+                id: r.get(0)?,
+                poste_id: r.get(1)?,
+                poste_nom: r.get(2)?,
+                utilisateur_id: r.get(3)?,
+                utilisateur_nom: r.get(4)?,
+                role: r.get(5)?,
+                ouvert_le: r.get(6)?,
+                expire_le: r.get(7)?,
+                derniere_vue: r.get(8)?,
+            })
+        },
+    )
+}
