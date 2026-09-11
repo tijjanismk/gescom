@@ -41,3 +41,7 @@ nettoyer_imports.py
 catalogue_test.csv
 __pycache__/
 *.pyc
+
+# Le binaire serveur prepare pour l'empaquetage : il se regenere par
+# `outils/preparer_serveur.ps1`, il ne se versionne pas.
+src-tauri/binaires/
