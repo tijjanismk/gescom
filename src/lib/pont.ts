@@ -28,6 +28,42 @@ export const VERSION_PROTOCOLE = 1;
 
 const CLE_RESEAU = "gescom_reseau";
 
+/**
+ * Sommes-nous dans la coque Tauri, ou dans un navigateur nu ?
+ *
+ * Dans un navigateur — `npm run dev` ouvert dans Chrome — il n'y a NI
+ * base locale NI commandes Rust : seul le serveur peut répondre. Le
+ * mode monoposte n'y a donc aucun sens, et laisser `appeler` tomber sur
+ * `invokeTauri` produirait sur chaque écran une erreur qui ne dit pas
+ * ce qui manque.
+ *
+ * Cela sert au développement, et à une chose de plus : **vérifier le
+ * chemin réseau sans seconde machine**. Le navigateur joue la caisse,
+ * le serveur tourne à côté, et les outils de développement montrent
+ * chaque requête.
+ */
+function estDansTauri(): boolean {
+  return typeof window !== "undefined" &&
+    ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
+}
+
+/**
+ * L'adresse du serveur quand on est dans un navigateur.
+ *
+ * Par ordre : `?serveur=…` dans l'URL, puis ce que le navigateur avait
+ * retenu, puis le poste local. Le paramètre d'URL passe devant parce
+ * que c'est lui qu'on change pendant un essai.
+ */
+function serveurDeMiseAuPoint(defaut: string): string {
+  try {
+    const p = new URLSearchParams(window.location.search).get("serveur");
+    if (p && p.trim()) return p.trim();
+  } catch {
+    // Pas de `location` : contexte de test.
+  }
+  return defaut && defaut.trim() ? defaut : "127.0.0.1:7300";
+}
+
 export type ModeReseau = "monoposte" | "poste";
 
 export interface EtatReseau {
@@ -94,6 +130,28 @@ export function etatReseau(): EtatReseau {
  * démarrage, avant le premier appel de commande.
  */
 export async function synchroniserConfig(): Promise<EtatReseau> {
+  // Navigateur nu : il n'y a pas de `poste.json` a lire, et pas de base
+  // locale a ouvrir. On force le mode reseau, sinon chaque ecran
+  // echouerait sur un `invoke` qui n'existe pas.
+  if (!estDansTauri()) {
+    const serveur = serveurDeMiseAuPoint(etat.serveur);
+    const change = etat.mode !== "poste" || serveur !== etat.serveur;
+    etat = {
+      ...etat,
+      mode: "poste",
+      serveur,
+      posteNom: etat.posteNom || "Navigateur (mise au point)",
+      posteEmpreinte: etat.posteEmpreinte || "navigateur-dev",
+      ...(change ? { jeton: null, posteId: null, utilisateurId: null } : {}),
+    };
+    enregistrer();
+    console.info(
+      `[pont] Hors Tauri : mode poste sur ${serveur}. ` +
+      "Changer avec ?serveur=adresse:port",
+    );
+    return { ...etat };
+  }
+
   try {
     const c = await invokeTauri<{
       mode: string;
@@ -197,6 +255,13 @@ export async function appeler<T = unknown>(
   params?: Record<string, unknown>,
 ): Promise<T> {
   if (!enReseau() || LOCALES.has(commande)) {
+    // Dans un navigateur, ces commandes-la n'existent pas : elles
+    // ouvrent une fenetre, lisent un fichier, parlent au systeme. Le
+    // dire franchement vaut mieux qu'une erreur de pont illisible.
+    if (LOCALES.has(commande) && !estDansTauri()) {
+      throw `« ${commande} » n'est disponible que dans l'application ` +
+        "installée, pas dans un navigateur.";
+    }
     return invokeTauri<T>(commande, params);
   }
 

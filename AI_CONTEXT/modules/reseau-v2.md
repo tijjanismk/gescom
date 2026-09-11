@@ -252,6 +252,51 @@ C'est exactement ce qui arrivait à `modifier_client` et
 `lire_clients_avec_creances`, restées dans le crate applicatif par
 oubli. Elles sont portées.
 
+## Essayer le réseau dans un navigateur
+
+C'est la façon la plus rapide de voir le chemin réseau en entier — et
+la seule qui ne demande **pas de seconde machine**.
+
+```bash
+# 1. le serveur
+./src-tauri/target/debug/gescom-serveur.exe --base <chemin>/gescom.db
+
+# 2. le front
+npm run dev
+```
+
+Puis ouvrir `http://localhost:1420` dans un navigateur.
+
+Hors de la coque Tauri, [pont.ts](../../src/lib/pont.ts) **force le mode
+poste** : dans un navigateur il n'y a ni `poste.json` à lire ni base
+locale à ouvrir, seul le serveur peut répondre. Le mode monoposte n'y a
+aucun sens, et laisser `appeler` tomber sur `invoke` produirait sur
+chaque écran une erreur qui ne dit pas ce qui manque.
+
+L'adresse par défaut est `127.0.0.1:7300`. Pour viser ailleurs :
+`http://localhost:1420/?serveur=192.168.1.10:7300`.
+
+Les commandes de la liste `LOCALES` — imprimer, ouvrir un fichier,
+régler le réseau — lèvent alors un message explicite plutôt qu'une
+erreur de pont : elles ouvrent une fenêtre ou parlent au système, un
+navigateur n'a ni l'une ni l'autre.
+
+### Ce que ça permet de vérifier, et ce que ça ne prouve pas
+
+Les outils de développement montrent chaque requête : le contrôle
+préalable CORS, la connexion, chaque commande, la longue attente du
+canal. C'est là qu'on voit un paramètre mal nommé ou une commande
+absente du serveur.
+
+⚠️ Cela ne prouve **rien sur le pare-feu** : tout passe par la boucle
+locale, que Windows ne filtre pas. Pour cela il faut un autre appareil
+sur le réseau — un téléphone sur le même Wi-Fi suffit, en ouvrant
+`http://<adresse>:7300/sante`.
+
+Mesuré sur une instance réelle, avec l'en-tête `Origin` d'un
+navigateur : `OPTIONS /connexion` → 204, connexion → jeton,
+`POST /rpc` → données, `GET /canal` → 200.
+
 ## Routes
 
 | Méthode | Route | Jeton | Effet |
