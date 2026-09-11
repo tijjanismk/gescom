@@ -162,6 +162,12 @@ fn poser_le_cloisonnement_deux_fois_ne_casse_rien() {
         .unwrap()
         .unwrap();
     assert_eq!(dossiers, 1, "le dossier d'origine n'est pas recréé");
+
+    let exercices = base
+        .lire_une("SELECT COUNT(*) FROM exercice", &[], |r| r.get::<i64>(0))
+        .unwrap()
+        .unwrap();
+    assert_eq!(exercices, 1, "le premier exercice n'est pas recréé");
 }
 
 #[test]
@@ -256,6 +262,24 @@ fn tout_ce_qui_est_porte_passe_le_detecteur() {
 
     comptoir::lire_clients_avec_creances_sur(&mut base).expect("créances");
     comptoir::lire_config_scanner_sur(&mut base).expect("scanner");
+
+    use gescom_noyau::dossiers;
+    dossiers::lire_exercices_sur(&mut base).expect("exercices");
+    dossiers::verifier_date_sur(&mut base, "2026-09-11").expect("date dans l'exercice");
+    let exercice = dossiers::ouvrir_exercice_sur(
+        &mut base,
+        "2027-01-01".into(),
+        "2027-12-31".into(),
+    )
+    .expect("ouvrir un exercice");
+    dossiers::prolonger_exercice_sur(
+        &mut base,
+        exercice["id"].as_str().unwrap().to_string(),
+        "2028-01-31".into(),
+    )
+    .expect("prolonger");
+    dossiers::clore_exercice_sur(&mut base, exercice["id"].as_str().unwrap().to_string())
+        .expect("clore");
 }
 
 #[test]
@@ -305,5 +329,121 @@ fn un_dossier_neuf_reclame_son_magasin_avant_de_vendre() {
     assert!(
         erreur.contains("magasin"),
         "le refus doit dire ce qui manque : {erreur}"
+    );
+}
+
+// =====================================================================
+//  LES EXERCICES
+// =====================================================================
+
+#[test]
+fn l_amorcage_cree_l_exercice_d_origine() {
+    let mut base = base_amorcee();
+    let annee = gescom_noyau::utils::maintenant_iso().chars().take(4).collect::<String>();
+
+    let exercices = gescom_noyau::dossiers::lire_exercices_sur(&mut base).expect("exercices");
+    assert_eq!(exercices.len(), 1, "un seul exercice au depart");
+    assert_eq!(exercices[0]["date_debut"], format!("{annee}-01-01"));
+    assert_eq!(exercices[0]["date_fin"], format!("{annee}-12-31"));
+    assert_eq!(exercices[0]["clos"], false);
+}
+
+#[test]
+fn deux_dossiers_ont_chacun_leurs_exercices() {
+    use gescom_noyau::dossiers;
+
+    let mut base = base_amorcee();
+    base.auditer(true);
+
+    base.choisir_dossier("dossier-b").unwrap();
+    dossiers::ouvrir_exercice_sur(&mut base, "2026-01-01".into(), "2026-12-31".into())
+        .expect("ouvrir l'exercice du second dossier");
+
+    let chez_b = dossiers::lire_exercices_sur(&mut base).expect("exercices de dossier-b");
+    assert_eq!(chez_b.len(), 1, "dossier-b ne doit voir que le sien");
+
+    base.choisir_dossier(DOSSIER_DEFAUT).unwrap();
+    let chez_defaut = dossiers::lire_exercices_sur(&mut base).expect("exercices du defaut");
+    assert_eq!(
+        chez_defaut.len(),
+        1,
+        "le dossier par defaut ne doit pas voir l'exercice de dossier-b"
+    );
+}
+
+#[test]
+fn ouvrir_un_exercice_qui_chevauche_est_refuse() {
+    use gescom_noyau::dossiers;
+    let mut base = base_amorcee();
+
+    // L'amorcage a deja pose l'exercice de l'annee en cours : n'importe
+    // quelle plage qui le touche doit etre refusee.
+    let annee = gescom_noyau::utils::maintenant_iso().chars().take(4).collect::<String>();
+    let erreur = dossiers::ouvrir_exercice_sur(
+        &mut base,
+        format!("{annee}-06-01"),
+        format!("{annee}-08-31"),
+    )
+    .expect_err("un exercice qui chevauche doit être refusé");
+    assert!(erreur.contains("Chevauche"), "{erreur}");
+}
+
+#[test]
+fn verifier_date_sur_suit_l_exercice_ouvert() {
+    use gescom_noyau::dossiers;
+    let mut base = base_amorcee();
+    let annee = gescom_noyau::utils::maintenant_iso().chars().take(4).collect::<String>();
+
+    dossiers::verifier_date_sur(&mut base, &format!("{annee}-06-15"))
+        .expect("une date dans l'exercice de l'amorçage passe");
+
+    let hors = dossiers::verifier_date_sur(&mut base, "2019-01-01")
+        .expect_err("une date hors de tout exercice doit être refusée");
+    assert!(hors.contains("aucun exercice"), "{hors}");
+}
+
+#[test]
+fn prolonger_puis_clore_un_exercice() {
+    use gescom_noyau::dossiers;
+    let mut base = base_amorcee();
+
+    let exercices = dossiers::lire_exercices_sur(&mut base).unwrap();
+    let id = exercices[0]["id"].as_str().unwrap().to_string();
+    let annee: i32 = gescom_noyau::utils::maintenant_iso()[..4].parse().unwrap();
+
+    // Sans prolongation, une date de janvier suivant est hors exercice.
+    let debut_annee_suivante = format!("{}-01-15", annee + 1);
+    dossiers::verifier_date_sur(&mut base, &debut_annee_suivante)
+        .expect_err("hors exercice avant prolongation");
+
+    dossiers::prolonger_exercice_sur(&mut base, id.clone(), format!("{}-01-31", annee + 1))
+        .expect("prolonger");
+    dossiers::verifier_date_sur(&mut base, &debut_annee_suivante)
+        .expect("accepté après prolongation");
+
+    dossiers::clore_exercice_sur(&mut base, id).expect("clore");
+    let refus = dossiers::verifier_date_sur(&mut base, &debut_annee_suivante)
+        .expect_err("un exercice clos refuse toute écriture");
+    assert!(refus.contains("clos"), "{refus}");
+}
+
+#[test]
+fn prolonger_ou_clore_l_exercice_d_un_autre_dossier_echoue() {
+    use gescom_noyau::dossiers;
+    let mut base = base_amorcee();
+
+    let id = dossiers::lire_exercices_sur(&mut base).unwrap()[0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    base.choisir_dossier("dossier-b").unwrap();
+    assert!(
+        dossiers::prolonger_exercice_sur(&mut base, id.clone(), "2099-01-01".into()).is_err(),
+        "un autre dossier ne doit pas pouvoir prolonger cet exercice"
+    );
+    assert!(
+        dossiers::clore_exercice_sur(&mut base, id).is_err(),
+        "un autre dossier ne doit pas pouvoir clore cet exercice"
     );
 }

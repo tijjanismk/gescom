@@ -576,6 +576,39 @@ fn tout_ce_qui_est_porte_passe_le_detecteur_sur_postgresql() {
     comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None)
         .expect("créer un article");
     comptoir::lire_clients_avec_creances_sur(&mut base).expect("créances");
+
+    use gescom_noyau::dossiers;
+    dossiers::lire_exercices_sur(&mut base).expect("exercices");
+    dossiers::verifier_date_sur(&mut base, "2026-09-11").expect("date dans l'exercice");
+    let exercice =
+        dossiers::ouvrir_exercice_sur(&mut base, "2027-01-01".into(), "2027-12-31".into())
+            .expect("ouvrir un exercice");
+    let id = exercice["id"].as_str().unwrap().to_string();
+    dossiers::prolonger_exercice_sur(&mut base, id.clone(), "2028-01-31".into())
+        .expect("prolonger");
+    dossiers::clore_exercice_sur(&mut base, id).expect("clore");
+}
+
+/// Un dossier neuf ne partage pas les exercices d'un autre — le meme
+/// controle que sur SQLite, sur le moteur de production.
+#[test]
+fn deux_dossiers_ont_chacun_leurs_exercices_sur_postgresql() {
+    use gescom_noyau::dossiers;
+
+    let Some(mut base) = pg() else { return };
+    base.executer_lot("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").unwrap();
+    amorcage::amorcer(&mut base).unwrap();
+    base.auditer(true);
+
+    base.choisir_dossier("dossier-b").unwrap();
+    dossiers::ouvrir_exercice_sur(&mut base, "2026-01-01".into(), "2026-12-31".into())
+        .expect("ouvrir l'exercice du second dossier");
+    let chez_b = dossiers::lire_exercices_sur(&mut base).expect("exercices");
+    assert_eq!(chez_b.len(), 1, "dossier-b ne doit voir que le sien");
+
+    base.choisir_dossier(gescom_noyau::dossiers::DOSSIER_DEFAUT).unwrap();
+    let chez_defaut = dossiers::lire_exercices_sur(&mut base).expect("exercices");
+    assert_eq!(chez_defaut.len(), 1, "le défaut ne doit pas voir l'exercice de dossier-b");
 }
 
 /// Les clients sont cloisonnes, les articles ne le sont pas (D3 du plan

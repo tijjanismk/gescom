@@ -288,8 +288,27 @@ fn cloisonnement(base: &mut Base) {
             id                TEXT PRIMARY KEY,
             code              TEXT NOT NULL UNIQUE,
             societe           TEXT NOT NULL,
-            exercice_debut    TEXT NOT NULL,
-            exercice_fin      TEXT NOT NULL,
+            clos              INTEGER NOT NULL DEFAULT 0,
+            cree_le           TEXT NOT NULL,
+            modifie_le        TEXT NOT NULL
+         )",
+        &[],
+    );
+
+    // L'exercice a sa propre table (chapitre 4 du plan multi-societe) :
+    // un dossier a UN stock continu mais PLUSIEURS exercices qui se
+    // suivent. Une colonne sur `dossier` n'aurait pu en porter qu'un
+    // seul a la fois.
+    // Pas de `REFERENCES dossier(id)` : aucune autre table cloisonnee
+    // n'en porte — un dossier-b utilise avant d'avoir sa ligne `dossier`
+    // (un test, une migration en cours) ne doit pas etre bloque ici
+    // alors qu'il ne l'est nulle part ailleurs.
+    let _ = base.executer(
+        "CREATE TABLE IF NOT EXISTS exercice (
+            id                TEXT PRIMARY KEY,
+            dossier_id        TEXT NOT NULL,
+            date_debut        TEXT NOT NULL,
+            date_fin          TEXT NOT NULL,
             prolonge_jusqu_au TEXT,
             clos              INTEGER NOT NULL DEFAULT 0,
             cree_le           TEXT NOT NULL,
@@ -303,11 +322,22 @@ fn cloisonnement(base: &mut Base) {
     let annee = maintenant_iso().chars().take(4).collect::<String>();
     let now = maintenant_iso();
     let _ = base.executer(
-        "INSERT INTO dossier
-           (id, code, societe, exercice_debut, exercice_fin, clos, cree_le, modifie_le)
-         VALUES (?1, 'PRINCIPAL', 'Ma boutique', ?2, ?3, 0, ?4, ?4)
+        "INSERT INTO dossier (id, code, societe, clos, cree_le, modifie_le)
+         VALUES (?1, 'PRINCIPAL', 'Ma boutique', 0, ?2, ?2)
          ON CONFLICT (id) DO NOTHING",
+        &parametres![defaut, now.clone()],
+    );
+
+    // Son premier exercice, l'annee en cours. `NOT EXISTS` et non
+    // `ON CONFLICT` : un dossier peut deja avoir un exercice ouvert par
+    // l'ecran (pas encore le cas ici, mais le deuxieme amorcage ne doit
+    // pas en recreer un identique).
+    let _ = base.executer(
+        "INSERT INTO exercice (id, dossier_id, date_debut, date_fin, clos, cree_le, modifie_le)
+         SELECT ?1, ?2, ?3, ?4, 0, ?5, ?5
+         WHERE NOT EXISTS (SELECT 1 FROM exercice WHERE dossier_id = ?2)",
         &parametres![
+            uuid::Uuid::new_v4().to_string(),
             defaut,
             format!("{annee}-01-01"),
             format!("{annee}-12-31"),
