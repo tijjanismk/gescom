@@ -1,17 +1,21 @@
 # Module : portage PostgreSQL
 
-Rôle : rendre le serveur capable de tenir la base dans PostgreSQL,
-**sans jamais l'imposer au monoposte**.
+Rôle : rendre le serveur capable de tenir la base dans PostgreSQL.
 
-## La contrainte qui décide de tout
+## Qui porte le moteur
 
-`ARCHITECTURE.md` le pose : *« Le monoposte reste le défaut et ne
-demande aucun service. »* Un commerçant avec une seule caisse ne doit
-pas installer PostgreSQL pour vendre un sac de ciment.
+Le moteur est une affaire du **serveur**, et de lui seul. Le client ne
+voit jamais la base : il parle au serveur, qui décide ce qu'il y a
+derrière. Changer de moteur ne demande donc rien au poste caisse — c'est
+tout l'intérêt d'avoir un seul chemin.
 
-PostgreSQL est donc une **option du serveur**, pas un remplacement de
-SQLite. Les deux moteurs doivent coexister dans le même binaire, et
-SQLite reste le chemin par défaut.
+SQLite reste le défaut : une boutique à une caisse installe le serveur
+sur son unique ordinateur et n'a aucun service de base de données à
+poser. PostgreSQL devient utile quand la boutique grandit — plusieurs
+caisses actives, des sauvegardes à chaud, une vue consolidée.
+
+Les deux moteurs coexistent dans le même binaire, choisis par l'adresse
+passée au serveur.
 
 ## Ce que le portage coûte réellement
 
@@ -173,6 +177,7 @@ le port 5432 et la base d'essai s'appelle `gescom_essai`.
 
 - [CONFIRMÉ] `schema.sql` est accepté tel quel par SQLite **et** par
   PostgreSQL 18.4 — 28 tables, 52 index, aucune erreur.
-- [DÉDUIT] PostgreSQL ne concernera que le serveur ; le monoposte
-  restera sur SQLite sans service à installer. Déduit de la contrainte
-  posée dans `ARCHITECTURE.md`, pas encore inscrit dans le code.
+- [CONFIRMÉ] Le moteur est une affaire du serveur : le client ne voit
+  jamais la base. Changer de moteur ne demande rien au poste caisse.
+- [CONFIRMÉ] `amorcage.rs` crée une boutique utilisable sur PostgreSQL —
+  vérifié sur une base réelle.

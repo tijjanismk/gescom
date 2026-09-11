@@ -154,8 +154,11 @@ tous distincts, et la suite est continue de 00001 à 00100.
 
 ## Ce que ça ne règle pas
 
-Le serveur ne détient toujours qu'une connexion derrière un `Mutex` :
-en pratique, aujourd'hui, les ventes font la queue de toute façon. Ce
-travail sert le jour où il y aura un pool de connexions ou PostgreSQL —
-et il sert **déjà** le poste client Tauri, qui ouvre la base en direct
-en mode monoposte.
+Le serveur ne détient qu'une connexion derrière un `Mutex` : en
+pratique, aujourd'hui, les ventes font la queue. Ce travail sert le jour
+où il y aura un pool de connexions ou PostgreSQL.
+
+Il sert **déjà** contre un autre cas, moins théorique : le poste qui
+porte le serveur peut aussi porter une caisse, et rien n'empêche
+quelqu'un d'ouvrir la base avec un autre outil pendant que la boutique
+vend.

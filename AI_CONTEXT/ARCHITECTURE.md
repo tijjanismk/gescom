@@ -3,19 +3,28 @@
 Application de gestion commerciale **local-first** pour commerçants de
 Bamako. Les données restent dans la boutique : aucun cloud.
 
-**v1** — un poste, une base SQLite, pas de serveur. **C'est le produit
-monoposte**, et il le reste : la v2 ne cherche pas à le remplacer.
+**v1** — un poste, une base SQLite, pas de serveur. Produit livré, il
+reste tel quel : la v2 ne cherche pas à le remplacer.
 
-**v2 (en cours)** — deux exécutables : la fenêtre et
-`gescom-serveur.exe`, qui détient la base. **Le client v2 ne sait parler
-qu'au serveur**, même seul sur sa machine.
+**v2 (en cours)** — deux exécutables : `gescom-serveur.exe`, qui détient
+la base, et la fenêtre, qui est **toujours un client du serveur**.
 
-Ce n'est pas une complication gratuite. Deux chemins qui se
-contredisent, c'est un poste caisse dont le cache est vidé, qui se croit
-monoposte, ouvre une base locale vide, et fait conclure au commerçant
-que ses données ont disparu. Un seul chemin supprime cette classe
-entière de pannes — au prix d'un serveur qui doit tourner, ce que
-l'installeur règle avec un raccourci au démarrage.
+### « Une seule machine » ne veut pas dire « sans serveur »
+
+La boutique à une caisse installe **les deux sur le même ordinateur** :
+le serveur tourne en fond, la fenêtre s'y connecte sur `127.0.0.1`. Ce
+poste est à la fois le serveur et une caisse. Ajouter une deuxième
+caisse plus tard ne change rien à l'installation du premier poste — on
+branche la nouvelle, c'est tout.
+
+⚠️ **Correction d'une lecture fautive.** Ce document a d'abord décrit la
+v2 comme gardant un mode « monoposte » où la fenêtre ouvrait une base
+SQLite locale, sans serveur. Ce n'était pas la demande, et cela a produit
+deux chemins qui se contredisent — dont une panne réelle : un poste
+caisse dont le cache est vidé se croyait monoposte, ouvrait une base
+locale vide, et faisait conclure que les données avaient disparu.
+
+Il n'y a **qu'un seul chemin** : le client parle au serveur.
 
 Voir [modules/reseau-v2.md](modules/reseau-v2.md).
 
@@ -67,7 +76,7 @@ src-tauri/
   serveur/src/    gescom-serveur.exe — http.rs, api.rs, canal.rs, socle.rs
   src/            l'application Tauri
     commandes/      27 fichiers, une façade Tauri par domaine
-    reseau.rs       mode monoposte / poste caisse
+    reseau.rs       adresse du serveur, poste.json
     seed.rs         jeu de données initial
     tests_multi_depot.rs   scénarios sur base en mémoire
 

@@ -18,7 +18,7 @@
 //! qu'on ecrit. Le principe vaut pour tout le portage : quand une
 //! forme marche des deux cotes, on l'ecrit une fois.
 
-use crate::base::{Base, Resultat, Valeur};
+use crate::base::{Base, Resultat};
 use crate::utils::maintenant_iso;
 use crate::parametres;
 
@@ -263,3 +263,155 @@ pub const COMPTES_USINE: &[(&str, &str, &str)] = &[
     ("admin", "admin123", "patron"),
     ("employe", "employe123", "employé"),
 ];
+
+// =====================================================================
+//  LES DONNEES DE DEMONSTRATION
+// =====================================================================
+
+/// Un catalogue de quoi essayer : articles, unites, stock, clients.
+///
+/// Créées UNIQUEMENT si `GESCOM_DEMO=1`, meme regle que cote SQLite.
+/// Chez un commercant, ces articles seraient a supprimer un par un —
+/// on ne les cree donc jamais sans le demander.
+///
+/// Elles servent aussi a autre chose : elles font passer la facade sur
+/// bien plus de tables que l'amorcage minimal, et c'est ainsi qu'on
+/// trouve les ecarts de dialecte avant un commercant.
+pub fn donnees_demo(base: &mut Base) -> Resultat<(usize, usize)> {
+    let now = maintenant_iso();
+
+    // ---- Clients ----
+    let clients = [
+        ("CLIENT00001", "Amadou Diarra", Some("76000001")),
+        ("CLIENT00002", "Fatoumata Koné", Some("65000002")),
+        ("CLIENT00003", "Ibrahim Traoré", Some("70000003")),
+        ("CLIENT00004", "Mariam Coulibaly", None),
+    ];
+    for (code, nom, tel) in clients {
+        base.executer(
+            "INSERT INTO client
+               (id, code, nom, telephone, est_generique, actif,
+                cree_le, modifie_le, origine)
+             VALUES (?1, ?2, ?3, ?4, 0, 1, ?5, ?5, 'demo')
+             ON CONFLICT (code) DO NOTHING",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                code,
+                nom,
+                tel.map(|t| t.to_string()),
+                now.clone()
+            ],
+        )?;
+    }
+
+    // ---- Categories ----
+    let mut categories = Vec::new();
+    for nom in ["Alimentation", "Hygiène", "Boissons"] {
+        let id = uuid::Uuid::new_v4().to_string();
+        base.executer(
+            "INSERT INTO categorie
+               (id, nom, schema_attributs, actif, cree_le, modifie_le, origine)
+             VALUES (?1, ?2, '[]', 1, ?3, ?3, 'demo')",
+            &parametres![id.clone(), nom, now.clone()],
+        )?;
+        categories.push(id);
+    }
+
+    // ---- Le depot ou poser le stock ----
+    let depot: String = base
+        .lire_une(
+            "SELECT id FROM depot WHERE est_defaut = 1 LIMIT 1",
+            &[],
+            |r| r.get::<String>(0),
+        )?
+        .ok_or_else(|| crate::base::Erreur("Aucun dépôt par défaut".into()))?;
+
+    // ---- Articles, unites, stock ----
+    // (nom, categorie, unite de base, [(libelle, facteur, prix)], stock)
+    let articles: Vec<(&str, usize, &str, Vec<(&str, f64, i64)>, f64)> = vec![
+        ("Sucre", 0, "kg", vec![("kg", 1.0, 800), ("sac 50kg", 50.0, 35000)], 200.0),
+        ("Riz local", 0, "kg", vec![("kg", 1.0, 600), ("sac 25kg", 25.0, 13500)], 150.0),
+        ("Huile végétale", 0, "litre", vec![("litre", 1.0, 1200), ("bidon 20L", 20.0, 22000)], 80.0),
+        ("Lait en poudre", 0, "boîte", vec![("boîte", 1.0, 2500)], 40.0),
+        ("Savon de Marseille", 1, "pièce", vec![("pièce", 1.0, 350), ("carton 48", 48.0, 15000)], 300.0),
+        ("Eau de javel", 1, "litre", vec![("litre", 1.0, 500)], 60.0),
+        ("Coca-Cola 33cl", 2, "unité", vec![("bouteille", 1.0, 600), ("casier 24", 24.0, 12000)], 48.0),
+        ("Eau minérale 1,5L", 2, "unité", vec![("bouteille", 1.0, 400), ("pack 6", 6.0, 2200)], 120.0),
+    ];
+
+    let mut nb_articles = 0;
+    for (nom, cat, unite_base, unites, stock) in &articles {
+        let article_id = uuid::Uuid::new_v4().to_string();
+        base.executer(
+            "INSERT INTO article
+               (id, nom, categorie_id, unite_base, gere_en_stock, attributs,
+                actif, cree_le, modifie_le, origine)
+             VALUES (?1, ?2, ?3, ?4, 1, '{}', 1, ?5, ?5, 'demo')",
+            &parametres![
+                article_id.clone(),
+                *nom,
+                categories[*cat].clone(),
+                *unite_base,
+                now.clone()
+            ],
+        )?;
+        nb_articles += 1;
+
+        for (libelle, facteur, prix) in unites {
+            base.executer(
+                "INSERT INTO unite_vente
+                   (id, article_id, libelle, facteur, prix_reference, actif,
+                    cree_le, modifie_le, origine)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?6, 'demo')",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(),
+                    article_id.clone(),
+                    *libelle,
+                    *facteur,
+                    *prix,
+                    now.clone()
+                ],
+            )?;
+        }
+
+        // Le stock passe par un MOUVEMENT, jamais par le compteur : il
+        // est un cache tenu par un declencheur, et l'ecrire en direct
+        // ferait diverger le stock de son historique (voir
+        // livraison-stock.md).
+        base.executer(
+            "INSERT INTO mouvement_stock
+               (id, article_id, depot_id, type_mouvement, quantite_delta,
+                motif, auteur_id, date_mouvement, cree_le, cree_par, origine)
+             VALUES (?1, ?2, ?3, 'entree', ?4, 'Stock initial (démo)',
+                     'demo', ?5, ?5, 'demo', 'demo')",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                article_id.clone(),
+                depot.clone(),
+                *stock,
+                now.clone()
+            ],
+        )?;
+
+        // Le declencheur `stock_suit_les_mouvements` n'existe que cote
+        // SQLite : il vient des migrations v2, pas du schema. Sur
+        // PostgreSQL on pose donc le compteur ici, a partir du meme
+        // mouvement — la somme et le compteur restent egaux.
+        if base.est_postgres() {
+            base.executer(
+                "INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT (article_id, depot_id)
+                 DO UPDATE SET quantite = stock_depot.quantite + ?4",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(),
+                    article_id,
+                    depot.clone(),
+                    *stock
+                ],
+            )?;
+        }
+    }
+
+    Ok((nb_articles, clients.len()))
+}

@@ -30,7 +30,7 @@ fait, et c'est leur emploi qui rend la chose défendable :
 Le bloc généré vit entre deux marqueurs dans `socle.rs`. Les 31
 poignées écrites à la main, au-dessus, ne sont pas touchées : ce sont
 celles qui demandent un traitement particulier. Les autres vivent encore dans `commandes/`, en
-`#[tauri::command]`, et ne fonctionnent qu'en monoposte. Un poste
+`#[tauri::command]`, et ne fonctionnent que sur le poste lui-même. Un poste
 caisse qui les appelle reçoit `commande_inconnue`.
 
 Le comptoir porté : `lire_clients`, `lire_client_generique`,
@@ -92,7 +92,7 @@ Paramètres → Réseau (patron seulement).
   vit dans `poste.json`, à côté des données. `synchroniserConfig()` est
   appelé au démarrage, avant tout appel de commande : un cache vidé ou
   un profil WebView2 recréé ferait sinon croire à un poste caisse qu'il
-  est monoposte — il ouvrirait sa base locale vide, et le commerçant
+  n'est pas configuré — il n'aurait plus d'adresse de serveur, et le commerçant
   conclurait que ses données ont disparu
   ([pont.ts](../../src/lib/pont.ts), [App.tsx](../../src/App.tsx)).
 - [CONFIRMÉ] En mode poste, c'est le **serveur** qui authentifie
@@ -131,7 +131,7 @@ commandes d'impression et les six d'images restent sur la machine qui a
 l'écran. Un poste caisse peut donc tout faire sauf sortir le papier —
 à traiter avant de livrer le multiposte.
 
-**Les droits changent en réseau.** En monoposte, aucune permission
+**Les droits changent en réseau.** Dans la v1, aucune permission
 n'était vérifiée : l'écran seul décidait. Un poste caisse envoie du
 JSON, donc chaque écriture porte désormais une permission et
 `portes::verifier_permission` tranche. L'employé peut vendre,
@@ -269,7 +269,7 @@ Puis ouvrir `http://localhost:1420` dans un navigateur.
 
 Hors de la coque Tauri, [pont.ts](../../src/lib/pont.ts) **force le mode
 poste** : dans un navigateur il n'y a ni `poste.json` à lire ni base
-locale à ouvrir, seul le serveur peut répondre. Le mode monoposte n'y a
+locale à ouvrir, seul le serveur peut répondre. Une base locale n'y a
 aucun sens, et laisser `appeler` tomber sur `invoke` produirait sur
 chaque écran une erreur qui ne dit pas ce qui manque.
 
@@ -296,6 +296,28 @@ sur le réseau — un téléphone sur le même Wi-Fi suffit, en ouvrant
 Mesuré sur une instance réelle, avec l'en-tête `Origin` d'un
 navigateur : `OPTIONS /connexion` → 204, connexion → jeton,
 `POST /rpc` → données, `GET /canal` → 200.
+
+## Un seul chemin : le client parle au serveur
+
+La machine qui porte le serveur **porte aussi une caisse**. Une boutique
+à un poste installe les deux sur le même ordinateur : le serveur tourne
+en fond, la fenêtre s'y connecte sur `127.0.0.1:7300`.
+
+C'est la demande d'origine, et elle n'a jamais mentionné SQLite ni base
+locale. Ce module a d'abord décrit un mode « monoposte » où la fenêtre
+ouvrait sa propre base sans serveur — une invention, qui a coûté :
+
+- un tableau de bord en échec parce que le poste était resté en mode
+  caisse avec un serveur arrêté ;
+- « Jeton absent » sur un écran ouvert, sans retour possible à la
+  connexion, parce que deux mémoires de « connecté » se contredisaient.
+
+Les deux pannes avaient la même racine : **deux chemins**. Il n'y en a
+plus qu'un.
+
+Ce qui reste local sur le poste, et seulement cela : imprimer, ouvrir un
+fichier, et le réglage réseau du poste lui-même (voir la liste `LOCALES`
+dans [pont.ts](../../src/lib/pont.ts)).
 
 ## Routes
 
