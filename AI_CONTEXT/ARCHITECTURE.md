@@ -3,10 +3,20 @@
 Application de gestion commerciale **local-first** pour commerçants de
 Bamako. Les données restent dans la boutique : aucun cloud.
 
-**v1** — un poste, une base SQLite, pas de serveur.
+**v1** — un poste, une base SQLite, pas de serveur. **C'est le produit
+monoposte**, et il le reste : la v2 ne cherche pas à le remplacer.
+
 **v2 (en cours)** — deux exécutables : la fenêtre et
-`gescom-serveur.exe`, qui détient la base pour plusieurs caisses. Le
-monoposte reste le défaut et ne demande aucun service.
+`gescom-serveur.exe`, qui détient la base. **Le client v2 ne sait parler
+qu'au serveur**, même seul sur sa machine.
+
+Ce n'est pas une complication gratuite. Deux chemins qui se
+contredisent, c'est un poste caisse dont le cache est vidé, qui se croit
+monoposte, ouvre une base locale vide, et fait conclure au commerçant
+que ses données ont disparu. Un seul chemin supprime cette classe
+entière de pannes — au prix d'un serveur qui doit tourner, ce que
+l'installeur règle avec un raccourci au démarrage.
+
 Voir [modules/reseau-v2.md](modules/reseau-v2.md).
 
 ## Stack

@@ -3,6 +3,7 @@ import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import { Layout } from "@/components/Layout";
 import { PageLogin, UtilisateurConnecte } from "@/pages/PageLogin";
+import { PageServeur } from "@/pages/PageServeur";
 import { ModalChangerMdp } from "@/components/ModalChangerMdp";
 import { Dashboard } from "@/pages/Dashboard";
 import { Ventes } from "@/pages/Ventes";
@@ -19,7 +20,7 @@ import { Modeles } from "@/pages/Modeles";
 import { assurerModelesParDefaut } from "@/lib/modeles/service";
 import {
   synchroniserConfig, ecouterCanal, enReseau,
-  surSessionPerdue, sessionUtilisable,
+  surSessionPerdue, sessionUtilisable, serveurConfigure,
 } from "@/lib/pont";
 import { Retours } from "@/pages/Retours";
 import { Relances } from "@/pages/Relances";
@@ -166,6 +167,10 @@ function App() {
   // a ete vide se croirait sinon monoposte, ouvrirait sa base locale
   // vide, et le commercant conclurait que ses donnees ont disparu.
   const [pontPret, setPontPret] = useState(false);
+  // `serveurConfigure()` lit l'etat d'un module, que React ne surveille
+  // pas. Ce compteur force le rendu quand l'adresse vient d'etre
+  // enregistree — sinon l'ecran de branchement resterait affiche.
+  const [, setRevisionReseau] = useState(0);
   useEffect(() => {
     synchroniserConfig().finally(() => setPontPret(true));
   }, []);
@@ -341,6 +346,16 @@ function App() {
         Démarrage…
       </div>
     );
+  }
+
+  // Avant meme la connexion : sait-on OU joindre le serveur ?
+  //
+  // Le client v2 ne sait parler qu'au serveur — le monoposte reste la
+  // v1. Sans adresse, il n'y a personne a qui demander un mot de passe,
+  // et les Parametres sont derriere la connexion : sans cet ecran, le
+  // poste serait definitivement coince.
+  if (!serveurConfigure()) {
+    return <PageServeur onConfigure={() => setRevisionReseau((n) => n + 1)} />;
   }
 
   if (!utilisateur) {

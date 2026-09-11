@@ -182,8 +182,24 @@ export async function synchroniserConfig(): Promise<EtatReseau> {
   return { ...etat };
 }
 
+/**
+ * Le serveur est-il configure sur ce poste ?
+ *
+ * Ce n'est PLUS une question de mode. Le client v2 ne sait parler qu'au
+ * serveur : le monoposte reste la v1, et c'est ce qui supprime la
+ * classe de pannes ou deux chemins se contredisent — une base locale
+ * vide qu'on croit pleine, un ecran qui marche a moitie selon le
+ * reglage.
+ *
+ * La seule question qui reste est donc : sait-on OU joindre le serveur ?
+ */
+export function serveurConfigure(): boolean {
+  return etat.mode === "poste" && Boolean(etat.serveur.trim());
+}
+
+/** @deprecated Le client v2 est toujours en reseau. */
 export function enReseau(): boolean {
-  return etat.mode === "poste";
+  return serveurConfigure();
 }
 
 export function definirServeur(mode: ModeReseau, serveur: string) {
@@ -254,15 +270,23 @@ export async function appeler<T = unknown>(
   commande: string,
   params?: Record<string, unknown>,
 ): Promise<T> {
-  if (!enReseau() || LOCALES.has(commande)) {
+  if (LOCALES.has(commande)) {
     // Dans un navigateur, ces commandes-la n'existent pas : elles
     // ouvrent une fenetre, lisent un fichier, parlent au systeme. Le
     // dire franchement vaut mieux qu'une erreur de pont illisible.
-    if (LOCALES.has(commande) && !estDansTauri()) {
+    if (!estDansTauri()) {
       throw `« ${commande} » n'est disponible que dans l'application ` +
         "installée, pas dans un navigateur.";
     }
     return invokeTauri<T>(commande, params);
+  }
+
+  // Plus de repli sur la base locale. Elle existait pour le monoposte,
+  // et un repli silencieux est exactement ce qui faisait ecrire une
+  // vente dans une base vide pendant que le commercant croyait vendre.
+  if (!serveurConfigure()) {
+    throw "Aucun serveur n'est configuré sur ce poste. " +
+      "Paramètres → Réseau, puis saisir l'adresse du poste principal.";
   }
 
   let reponse: Response;

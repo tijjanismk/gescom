@@ -16,14 +16,13 @@
 
 import { useEffect, useState } from "react";
 import {
-  AlertTriangle, CheckCircle2, Loader2, Monitor, Network, Server, Wifi,
+  AlertTriangle, CheckCircle2, Loader2, Network, Server, Wifi,
 } from "lucide-react";
 import { message } from "@tauri-apps/plugin-dialog";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
 import { appeler as invoke, definirServeur, synchroniserConfig } from "@/lib/pont";
 import type { ModeReseau } from "@/lib/pont";
 
@@ -45,7 +44,8 @@ interface Sante {
 
 export function OngletReseau() {
   const [config, setConfig] = useState<ConfigReseau | null>(null);
-  const [mode, setMode] = useState<ModeReseau>("monoposte");
+  // Fixe : le client v2 est toujours un poste caisse.
+  const mode: ModeReseau = "poste";
   const [serveur, setServeur] = useState("");
   const [posteNom, setPosteNom] = useState("");
   const [test, setTest] = useState<Sante | null>(null);
@@ -57,7 +57,6 @@ export function OngletReseau() {
     invoke<ConfigReseau>("lire_config_reseau")
       .then(c => {
         setConfig(c);
-        setMode(c.mode === "poste" ? "poste" : "monoposte");
         setServeur(c.serveur);
         setPosteNom(c.poste_nom);
       })
@@ -138,49 +137,24 @@ export function OngletReseau() {
   return (
     <div className="max-w-2xl space-y-6">
 
-      {/* ---- Mode ---- */}
-      <div>
-        <h2 className="text-sm font-semibold">Mode de ce poste</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Où se trouve la base de données de la boutique.
-        </p>
-
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <button onClick={() => setMode("monoposte")}
-            className={cn(
-              "flex items-start gap-3 rounded-lg border-2 p-3 text-left transition-colors",
-              mode === "monoposte"
-                ? "border-primary bg-primary/5"
-                : "border-border hover:border-muted-foreground",
-            )}>
-            <Monitor className={cn("mt-0.5 h-4 w-4 shrink-0",
-              mode === "monoposte" ? "text-primary" : "text-muted-foreground")} />
-            <div>
-              <p className={cn("text-sm font-medium",
-                mode === "monoposte" && "text-primary")}>Poste seul</p>
-              <p className="text-xs text-muted-foreground">
-                La base est sur cet ordinateur. Aucun réseau nécessaire.
-              </p>
-            </div>
-          </button>
-
-          <button onClick={() => setMode("poste")}
-            className={cn(
-              "flex items-start gap-3 rounded-lg border-2 p-3 text-left transition-colors",
-              mode === "poste"
-                ? "border-primary bg-primary/5"
-                : "border-border hover:border-muted-foreground",
-            )}>
-            <Network className={cn("mt-0.5 h-4 w-4 shrink-0",
-              mode === "poste" ? "text-primary" : "text-muted-foreground")} />
-            <div>
-              <p className={cn("text-sm font-medium",
-                mode === "poste" && "text-primary")}>Poste caisse</p>
-              <p className="text-xs text-muted-foreground">
-                La base est sur le poste principal. Tout passe par lui.
-              </p>
-            </div>
-          </button>
+      {/* ---- Ce poste ---- */}
+      {/*
+        Le choix « Poste seul » a disparu. Le client v2 ne sait parler
+        qu'au serveur : le monoposte reste la v1. Garder le bouton
+        reviendrait a offrir un geste qui renvoie le poste a l'ecran de
+        branchement — un bouton qui casse l'ecran est pire que pas de
+        bouton.
+      */}
+      <div className="rounded-lg border border-border p-4">
+        <div className="flex items-start gap-3">
+          <Network className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div>
+            <p className="text-sm font-medium">Poste caisse</p>
+            <p className="text-xs text-muted-foreground">
+              La base de la boutique est sur le poste principal. Tout
+              passe par lui : ce poste ne garde aucune donnée.
+            </p>
+          </div>
         </div>
       </div>
 
