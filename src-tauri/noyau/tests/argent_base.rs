@@ -317,6 +317,96 @@ fn un_avoir_plus_grand_que_la_vente_solde_et_laisse_un_reliquat() {
 }
 
 #[test]
+fn la_facture_pos_suit_la_vente_et_se_solde_au_comptant() {
+    let mut base = base_avec_demo();
+    ouvrir_caisse(&mut base);
+    let depot = depot_defaut(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let client = client_reel(&mut base);
+
+    let vente = argent::creer_vente_sur_base(
+        &mut base,
+        client.clone(),
+        depot.clone(),
+        "comptant".into(),
+        vec![ligne(&sucre, &depot, 4.0)],
+        None,
+        Some(3_200),
+        Some("especes".into()),
+        None,
+    )
+    .expect("la vente doit s'enregistrer");
+    let vente_id = vente["vente_id"].as_str().unwrap().to_string();
+
+    let facture = argent::creer_facture_depuis_vente_sur_base(
+        &mut base,
+        vente_id.clone(),
+        client,
+        "comptant".into(),
+        None,
+    )
+    .expect("la facture POS doit s'enregistrer");
+
+    assert_eq!(facture["statut"], "paye", "payée à la vente, soldée d'emblée");
+    assert!(facture["numero"].as_str().unwrap().starts_with("FAC-"));
+
+    let piece_id = facture["piece_id"].as_str().unwrap().to_string();
+
+    let nb_lignes: i64 = base
+        .lire_une(
+            "SELECT COUNT(*) FROM ligne_piece WHERE piece_id = ?1",
+            &parametres![piece_id.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(nb_lignes, 1, "une ligne de vente, une ligne de pièce");
+
+    let lien: Option<String> = base
+        .lire_une(
+            "SELECT piece_id FROM vente WHERE id = ?1",
+            &parametres![vente_id],
+            |r| r.get::<Option<String>>(0),
+        )
+        .unwrap()
+        .flatten();
+    assert_eq!(lien, Some(piece_id), "la vente doit pointer vers sa facture");
+}
+
+#[test]
+fn la_facture_pos_reste_emise_avec_un_solde_du() {
+    let mut base = base_avec_demo();
+    let depot = depot_defaut(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let client = client_reel(&mut base);
+
+    let vente = argent::creer_vente_sur_base(
+        &mut base,
+        client.clone(),
+        depot.clone(),
+        "credit".into(),
+        vec![ligne(&sucre, &depot, 2.0)],
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("vente à crédit");
+    let vente_id = vente["vente_id"].as_str().unwrap().to_string();
+
+    let facture = argent::creer_facture_depuis_vente_sur_base(
+        &mut base,
+        vente_id,
+        client,
+        "credit".into(),
+        None,
+    )
+    .expect("la facture doit s'enregistrer même sans encaissement");
+
+    assert_eq!(facture["statut"], "emis", "rien n'a été encaissé");
+}
+
+#[test]
 fn deux_dossiers_ne_melangent_pas_leurs_ventes() {
     let mut base = base_avec_demo();
     ouvrir_caisse(&mut base);

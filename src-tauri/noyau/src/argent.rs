@@ -2015,3 +2015,154 @@ pub fn valider_facture_sur_base(
                           else { "creance_ouverte" },
     }))
 }
+
+/// La facture automatique du POS, sur l'un ou l'autre moteur.
+///
+/// Suit `creer_facture_depuis_vente_sur` pas a pas — meme absence de
+/// transaction que la version SQLite : c'est un geste NON BLOQUANT
+/// (Ventes.tsx l'appelle apres `creer_vente`, dans un `try/catch` qui
+/// avertit sans annuler la vente), donc son cout d'echec partiel est
+/// deja assume par l'appelant.
+pub fn creer_facture_depuis_vente_sur_base(
+    base: &mut Base,
+    vente_id: String,
+    client_id: String,
+    mode_reglement: String,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let role = utilisateur_role.as_deref().unwrap_or("employe");
+    let auteur_id = id_utilisateur_par_role_sur(base, role);
+    let now = maintenant_iso();
+
+    // Numerotation — meme fonction que les pieces saisies manuellement.
+    let numero = reserver_numero_sur(base, "facture")?;
+    let piece_id = uuid::Uuid::new_v4().to_string();
+
+    // Statut selon ce qui est REELLEMENT encaisse, pas selon le mode
+    // annonce.
+    let total_vente: i64 = base
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(prix_pratique * quantite), 0) AS BIGINT)
+             FROM ligne_vente WHERE vente_id = ?1 AND dossier_id = ?2",
+            &parametres![vente_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+    let total_paye: i64 = base
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
+             FROM paiement WHERE vente_id = ?1 AND dossier_id = ?2",
+            &parametres![vente_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+    let statut = if total_vente > 0
+        && crate::coeur::calcul::reste_exigible(total_vente, total_paye) == 0
+    {
+        "paye"
+    } else {
+        "emis"
+    };
+    let _ = &mode_reglement;
+
+    base.executer(
+        "INSERT INTO piece_commerciale
+         (id, type_piece, numero, statut, tiers_type, tiers_id,
+          auteur_id, date_piece, remise_globale, note, cree_le, modifie_le, origine, dossier_id)
+         VALUES (?1,'facture',?2,?3,'client',?4,?5,?6,0.0,?7,?8,?9,'pos',?10)",
+        &parametres![
+            piece_id.clone(),
+            numero.clone(),
+            statut,
+            client_id.clone(),
+            auteur_id,
+            now.clone(),
+            if total_paye > 0 && total_paye < total_vente {
+                format!("Vente POS — acompte reçu {total_paye} F")
+            } else {
+                "Vente POS".to_string()
+            },
+            now.clone(),
+            now.clone(),
+            dossier.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    // Copier les lignes de vente -> lignes de piece.
+    let lignes: Vec<(String, String, f64, i64, i64, f64)> = base
+        .lire_plusieurs(
+            "SELECT lv.article_id, lv.unite_vente_id, lv.quantite,
+                    lv.prix_pratique,
+                    CAST(COALESCE(lv.montant_tva, 0) AS BIGINT),
+                    COALESCE(lv.taux_tva, 0.0)
+             FROM ligne_vente lv WHERE lv.vente_id = ?1 AND lv.dossier_id = ?2",
+            &parametres![vente_id.clone(), dossier.clone()],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<String>(1)?,
+                    r.get::<f64>(2)?,
+                    r.get::<i64>(3)?,
+                    r.get::<i64>(4)?,
+                    r.get::<f64>(5)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+
+    for (art_id, uv_id, qte, prix, tva, taux_tva) in &lignes {
+        // prix_pratique est du TTC (D8). Une ligne_piece stocke du HT,
+        // comme les pieces saisies manuellement -> on convertit.
+        let montant_ttc = (*prix as f64 * qte).round() as i64;
+        let montant_ht = montant_ttc - *tva;
+        let prix_ht = if *qte > 0.0 {
+            (montant_ht as f64 / qte).round() as i64
+        } else {
+            *prix
+        };
+        base.executer(
+            "INSERT INTO ligne_piece
+             (id, piece_id, article_id, unite_vente_id, quantite,
+              prix_unitaire, remise_pct, remise_montant,
+              taux_tva, montant_tva, montant_ht, cree_le, dossier_id)
+             VALUES (?1,?2,?3,?4,?5,?6,0.0,0,?7,?8,?9,?10,?11)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                piece_id.clone(),
+                art_id.clone(),
+                uv_id.clone(),
+                *qte,
+                prix_ht,
+                *taux_tva,
+                *tva,
+                montant_ht,
+                now.clone(),
+                dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+    }
+
+    // Lier la vente a la piece via colonne optionnelle — non bloquant :
+    // la piece est creee, seul le lien manquerait.
+    if let Err(e) = base.executer(
+        "UPDATE vente SET piece_id = ?1 WHERE id = ?2 AND dossier_id = ?3",
+        &parametres![piece_id.clone(), vente_id, dossier],
+    ) {
+        eprintln!("[gescom] lien vente->piece non etabli : {}", e.0);
+    }
+
+    Ok(serde_json::json!({
+        "piece_id": piece_id,
+        "numero":   numero,
+        "statut":   statut,
+    }))
+}

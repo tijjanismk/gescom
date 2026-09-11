@@ -188,6 +188,15 @@ pub fn registre() -> Registre {
             Some(c.appelant.role.clone()),
         )
     });
+    r.aussi_sur_base("creer_facture_depuis_vente", |c, p| {
+        argent::creer_facture_depuis_vente_sur_base(
+            c.base,
+            texte(&p, "venteId").or_else(|_| texte(&p, "vente_id"))?,
+            texte(&p, "clientId").or_else(|_| texte(&p, "client_id"))?,
+            texte(&p, "modeReglement").or_else(|_| texte(&p, "mode_reglement"))?,
+            Some(c.appelant.role.clone()),
+        )
+    });
 
     r.ecriture("valider_facture", "pieces:creer", |c, p| {
         argent::valider_facture_sur(

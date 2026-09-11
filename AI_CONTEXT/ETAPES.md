@@ -12,7 +12,7 @@ dans [DECISIONS.md](DECISIONS.md) pour tout le reste. Ce fichier-ci ne
 dit que l'avancement — qui fait quoi, dans quel ordre.
 
 Dernière mise à jour : **11 septembre 2026**.
-État : **274 tests SQLite + 21 tests PostgreSQL**, tous au vert.
+État : **276 tests SQLite + 21 tests PostgreSQL**, tous au vert.
 
 ---
 
@@ -318,6 +318,22 @@ réparer une base déjà cassée — pas besoin de la réamorcer. Testé
 (`un_patron_sans_acces_total_est_repare_au_prochain_amorcage`), qui
 casse délibérément la ligne puis vérifie que le second amorçage la
 répare.
+
+### La facture POS automatique — **portée le 11/09/2026**
+
+`creer_facture_depuis_vente_sur_base` : troisième pièce du trio
+argent (avec `creer_vente_sur_base` et `valider_facture_sur_base`),
+appelée juste après une vente pour produire la facture GESCOM/FAC- que
+le client repart avec. Même absence de transaction que la version
+SQLite — c'est un geste non bloquant côté écran (`try/catch`, la
+vente reste acquise même si la facture échoue), donc le coût d'un
+échec partiel est déjà assumé par l'appelant. Branchée au registre.
+
+2 scénarios de plus dans `argent_base.rs` : facture soldée d'emblée au
+comptant (lien `vente.piece_id` vérifié), facture qui reste "emis"
+sans encaissement.
+
+**Ce qui manque encore côté écran POS** : plus que le tableau de bord.
 
 Deux chantiers à part :
 - la **sauvegarde** — `VACUUM INTO` n'existe pas côté PostgreSQL ;
