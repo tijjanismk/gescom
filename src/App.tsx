@@ -61,6 +61,16 @@ function lireSession(): SessionStockee | null {
       localStorage.removeItem(CLE_SESSION);
       return null;
     }
+    // Une session d'AVANT les permissions n'en porte aucune. Restauree
+    // telle quelle, `peut()` repond non a tout : le patron se retrouve
+    // devant une application vide — sans menu, sans onglet — alors que
+    // ses droits sont intacts en base. Elle a ete ecrite par une
+    // version qui ne connaissait pas encore ce champ : on la jette et
+    // on redemande le mot de passe, ce qui prend cinq secondes.
+    if (!Array.isArray(s.utilisateur?.permissions)) {
+      localStorage.removeItem(CLE_SESSION);
+      return null;
+    }
     return s;
   } catch { return null; }
 }
