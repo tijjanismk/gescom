@@ -70,6 +70,61 @@ les 139 tests SQLite passent sans changement.
 Aucune copie `schema_pg.sql` n'est maintenue — deux fichiers auraient
 divergé au premier ajout de colonne.
 
+## Étape 2 — faite : la façade, et une base PostgreSQL amorçable
+
+[`noyau/src/base.rs`](../../src-tauri/noyau/src/base.rs) —
+`Base::ouvrir(cible)` : une URL `postgresql://` ouvre PostgreSQL, tout
+le reste ouvre SQLite. Un seul réglage, qui tient dans la ligne de
+commande du serveur.
+
+Elle règle les **deux écarts qui bloquent** :
+
+- **les placeholders** — `?1` devient `$1`, traduit au passage. Réécrire
+  1448 placeholders à la main, c'est 1448 occasions de se tromper. La
+  traduction ne touche pas à ce qui est entre apostrophes : un message
+  affiché au commerçant peut contenir un point d'interrogation ;
+- **les lignes** — `rusqlite::Row` et `postgres::Row` n'ont pas la même
+  API. `Ligne` leur donne la même, pour que les 435 fermetures
+  `|r| r.get(0)?` survivent au portage **sans être touchées**.
+
+Ce qu'elle ne fait **pas** : traduire le SQL au-delà des placeholders.
+`julianday`, `strftime`, `INSERT OR IGNORE`, `substr(x, -5)` se
+réécrivent à la main, une fois, en SQL que les deux moteurs acceptent.
+Une traduction automatique de SQL marche sur les cas qu'on a essayés et
+ment sur les autres.
+
+### Deux écarts de TYPE, découverts en essayant
+
+`schema.sql` est accepté par les deux moteurs — mais les **largeurs**
+diffèrent, et PostgreSQL est strict là où SQLite est indifférent :
+
+| SQLite | PostgreSQL | ce que le noyau envoie |
+|---|---|---|
+| `INTEGER` (64 bits) | `integer` = **4 octets** | `i64` |
+| `REAL` (64 bits) | `real` = **4 octets** | `f64` |
+
+PostgreSQL refuse net, avec `error serializing parameter 3` — un
+message qui ne nomme pas la colonne fautive. `creer_schema` élargit donc
+en `BIGINT` et `DOUBLE PRECISION` pour PostgreSQL seulement. SQLite
+ignore ces largeurs : **un seul fichier de schéma**.
+
+Le piège se répète pour tout DDL écrit en Rust et non dans
+`schema.sql` — les `ALTER TABLE` des migrations. Ils passent par la même
+traduction.
+
+### Ce qui marche aujourd'hui sur PostgreSQL
+
+[`noyau/src/amorcage.rs`](../../src-tauri/noyau/src/amorcage.rs) crée le
+schéma, pose les six rôles avec leurs permissions, crée les comptes
+`admin` et `employe`, le dépôt par défaut et le client « Comptant ».
+
+Mesuré sur une base réelle (`postgresql://…/gescom`) : **30 tables, 6
+rôles, 2 comptes, 1 dépôt**, et l'amorçage ne se rejoue pas.
+
+⚠️ **Les 739 points d'appel métier parlent encore rusqlite.** Vendre,
+facturer, encaisser passent par SQLite. PostgreSQL sait aujourd'hui
+recevoir une boutique neuve — il ne sait pas encore la faire tourner.
+
 ## Ce qui coûte vraiment, et qui reste à faire
 
 Les 1448 placeholders **ne se réécrivent pas à la main** : ils se
@@ -82,16 +137,28 @@ lit ses colonnes par une fermeture `|r| r.get::<_, String>(0)`, et
 `rusqlite::Row` n'est pas `postgres::Row`. Il faut un type de ligne
 commun, donc toucher les 578 fermetures.
 
-Suite prévue, dans l'ordre :
+Mesure refaite sur le noyau, précisément :
 
-1. Une façade `Base` qui enveloppe l'un ou l'autre moteur et expose
-   `execute` / `query_row` / `query_map` / `transaction`, avec la
-   traduction `?N` → `$N` faite au passage.
+| | |
+|---|---|
+| paramètres `conn:` à changer | 242 |
+| `params!` à convertir | 480 |
+| fermetures de lecture | 435 |
+| points d'appel (`execute`, `query_row`, `query_map`, `prepare`) | **739** |
+
+Suite, dans l'ordre :
+
+1. Porter **module par module**. La façade permet de le faire sans tout
+   casser : ce qui n'est pas porté continue de tourner sur SQLite.
+   Commencer par `auth` et `sessions` — de quoi se connecter — puis
+   `catalogue`, puis `argent`.
 2. Les ~60 occurrences non mécaniques, réécrites en SQL portable quand
    c'est possible plutôt qu'en deux variantes.
 3. La sauvegarde : `VACUUM INTO` n'existe pas côté PostgreSQL, il
    faudra `pg_dump` ou une copie logique.
-4. Le choix du moteur dans `poste.json`, avec SQLite par défaut.
+4. Le multi-dossier, **avant** d'avoir tout porté : le découpage décide
+   de la forme de la base, et l'ajouter après obligerait à reprendre les
+   739 points d'appel une seconde fois.
 
 ## Le raccordement
 

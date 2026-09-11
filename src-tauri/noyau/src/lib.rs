@@ -42,6 +42,8 @@ pub mod livraisons;
 pub mod sessions;
 pub mod societe;
 pub mod tableau_bord;
+pub mod amorcage;
+pub mod base;
 pub mod caisses;
 pub mod argent;
 pub mod catalogue;
