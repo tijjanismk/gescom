@@ -12,7 +12,7 @@ dans [DECISIONS.md](DECISIONS.md) pour tout le reste. Ce fichier-ci ne
 dit que l'avancement — qui fait quoi, dans quel ordre.
 
 Dernière mise à jour : **11 septembre 2026**.
-État : **273 tests SQLite + 21 tests PostgreSQL**, tous au vert.
+État : **274 tests SQLite + 21 tests PostgreSQL**, tous au vert.
 
 ---
 
@@ -297,6 +297,27 @@ POS automatique après une vente (`creer_facture_depuis_vente` n'a
 qu'un chemin SQLite — la vente s'enregistre quand même, un
 avertissement non bloquant apparaît), l'impression, et tout le reste
 des commandes non listées ci-dessus.
+
+### Défaut trouvé pendant le premier essai manuel — **corrigé le 11/09/2026**
+
+Le patron connecté (`admin`) n'avait **aucune** permission, alors que
+`patron` a `acces_total = 1` dans le code de l'amorçage. Cause :
+`INSERT ... ON CONFLICT (nom) DO NOTHING` ne pose cette valeur
+**qu'une fois** — la toute première fois que la base a été amorcée.
+La base de test avait été amorcée tôt dans la séance, avant une
+version du code où cette valeur était encore fausse ; chaque
+redémarrage du serveur depuis ne l'a jamais corrigée, puisque la base
+n'était plus « vide » et que le bloc d'insertion des rôles ne se
+rejouait plus.
+
+Corrigé sur les deux chemins (`amorcage::acces_total_toujours_reaffirme`
+et son pendant dans `persistance/v2.rs`) : `patron` et `superadmin`
+sont réaffirmés à `acces_total = 1` à **chaque** démarrage, pas
+seulement au premier. Un simple redémarrage du serveur suffit à
+réparer une base déjà cassée — pas besoin de la réamorcer. Testé
+(`un_patron_sans_acces_total_est_repare_au_prochain_amorcage`), qui
+casse délibérément la ligne puis vérifie que le second amorçage la
+répare.
 
 Deux chantiers à part :
 - la **sauvegarde** — `VACUUM INTO` n'existe pas côté PostgreSQL ;

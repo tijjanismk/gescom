@@ -240,6 +240,28 @@ fn colonnes_roles(base: &mut Base) {
 /// L'entite du code, elle, s'appelle toujours `depot`. Le renommage
 /// jusque dans la base touche ~200 requetes et demande une migration :
 /// il est prevu, il n'est pas fait ici.
+/// Reaffirme l'acces total de `patron` et `superadmin`, a CHAQUE
+/// amorcage — meme sur une base deja peuplee.
+///
+/// `INSERT ... ON CONFLICT (nom) DO NOTHING` (plus bas) ne pose ces
+/// deux roles qu'une fois : la premiere ecriture gagne pour toujours,
+/// y compris si elle datait d'une version du code qui posait encore
+/// `acces_total = 0`. Sans cette correction, le patron d'une base
+/// amorcee tot dans le developpement de ce module resterait sans
+/// permissions pour toujours — un compte qui semble exister mais ne
+/// peut plus rien faire, et rien dans l'ecran ne dit pourquoi.
+///
+/// Pas de "reprise, une seule fois" ici (contrairement a
+/// `cles_de_compteur`) : il n'y a rien a cumuler, seulement une
+/// valeur a garantir. La rejouer a chaque demarrage ne coute rien et
+/// ferme la porte pour de bon.
+fn acces_total_toujours_reaffirme(base: &mut Base) {
+    let _ = base.executer(
+        "UPDATE role SET acces_total = 1 WHERE nom IN ('patron', 'superadmin')",
+        &[],
+    );
+}
+
 fn etiquette_magasin(base: &mut Base) {
     let _ = base.executer(
         "UPDATE depot SET nom = 'Magasin principal'
@@ -443,6 +465,7 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
     creer_schema(base)?;
     tables_v2(base);
     colonnes_roles(base);
+    acces_total_toujours_reaffirme(base);
     etiquette_magasin(base);
     cloisonnement(base);
     trigger_stock(base);

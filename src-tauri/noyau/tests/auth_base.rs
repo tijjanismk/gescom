@@ -161,6 +161,37 @@ fn revoquer_toutes_les_sessions_ferme_tout() {
 //  portes::permissions_de_sur / verifier_permission_sur
 // =====================================================================
 
+/// Un patron dont `acces_total` a ete pose a 0 — par une version
+/// anterieure du code, ou une base amorcee tot dans le developpement —
+/// doit etre reparé au PROCHAIN amorçage, pas seulement le premier.
+///
+/// `INSERT ... ON CONFLICT (nom) DO NOTHING` ne pose la ligne qu'une
+/// fois : sans `acces_total_toujours_reaffirme`, un compte cassé le
+/// resterait pour toujours, sans qu'aucun message n'explique pourquoi
+/// le patron ne peut soudain plus rien faire.
+#[test]
+fn un_patron_sans_acces_total_est_repare_au_prochain_amorcage() {
+    let mut base = base_amorcee();
+    base.executer("UPDATE role SET acces_total = 0 WHERE nom = 'patron'", &[])
+        .unwrap();
+
+    // Verifie que la casse est bien reproduite avant le second amorçage.
+    let permissions = portes::permissions_de_sur(&mut base, "quelconque", "patron");
+    assert!(
+        !permissions.contains("parametres:modifier"),
+        "le patron cassé ne doit avoir aucune permission avant réparation"
+    );
+
+    amorcage::amorcer(&mut base).expect("second amorçage");
+
+    let permissions = portes::permissions_de_sur(&mut base, "quelconque", "patron");
+    assert!(
+        permissions.contains("parametres:modifier"),
+        "le second amorçage doit réparer acces_total"
+    );
+    assert!(permissions.contains("ventes:creer"));
+}
+
 #[test]
 fn le_patron_n_a_que_les_permissions_de_son_role() {
     let mut base = base_amorcee();

@@ -442,6 +442,20 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         .ok();
     }
 
+    // Reaffirme, a CHAQUE demarrage — pas seulement a la reprise
+    // ci-dessus. `roles_repris` ne s'ecrit qu'une fois : une base
+    // amorcee avec une version du code qui posait encore
+    // `acces_total = 0` pour `patron` restait cassee pour toujours,
+    // meme apres une mise a jour qui corrigeait la ligne du dessus.
+    // Rejouer ceci ne coute rien et ferme la porte pour de bon —
+    // meme correction que `amorcage::acces_total_toujours_reaffirme`
+    // (Base), les deux chemins doivent rester d'accord.
+    conn.execute(
+        "UPDATE role SET acces_total = 1 WHERE nom IN ('patron', 'superadmin')",
+        [],
+    )
+    .ok();
+
     // -----------------------------------------------------------------
     //  Reglages
     // -----------------------------------------------------------------
