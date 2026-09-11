@@ -10,7 +10,7 @@ use gescom_noyau::protocole::{
     CodeErreur, DemandeConnexion, Identite, LotEvenements, Reponse, Sante,
 };
 use gescom_noyau::VERSION_PROTOCOLE;
-use gescom_noyau::registre::{Appelant, Contexte};
+use gescom_noyau::registre::{Appelant, Contexte, ContexteBase};
 use gescom_noyau::{caisses, persistance, postes, sessions};
 
 use crate::etat::Serveur;
@@ -299,12 +299,36 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         }
     }
 
-    // D11 : cette commande vient du registre des 186 pas encore
-    // portees sur `Base` — c'est TOUJOURS le cas aujourd'hui, aucune
-    // ported ne s'y trouve encore. Sur PostgreSQL, il n'y a pas de
-    // `Connection` a lui donner ; retomber en silence sur un fichier
-    // SQLite vide est exactement ce que D11 interdit.
-    let Some(conn_mutex) = srv.conn.as_ref() else {
+    // D11 : sur une cible fichier, `conn` existe toujours — le chemin
+    // ne change pas d'un octet. Sur PostgreSQL, `conn` est absent ; la
+    // commande passe par `poignee_base` quand elle est portee, sinon
+    // elle refuse clairement plutot que de retomber en silence sur un
+    // fichier SQLite vide.
+    let resultat = if let Some(conn_mutex) = srv.conn.as_ref() {
+        let mut conn = match conn_mutex.lock() {
+            Ok(c) => c,
+            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+        };
+        (entree.poignee)(
+            &mut Contexte {
+                conn: &mut conn,
+                appelant: &appelant,
+            },
+            params,
+        )
+    } else if let Some(poignee_base) = entree.poignee_base {
+        let mut base = match srv.base.lock() {
+            Ok(b) => b,
+            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+        };
+        poignee_base(
+            &mut ContexteBase {
+                base: &mut base,
+                appelant: &appelant,
+            },
+            params,
+        )
+    } else {
         return erreur(
             flux,
             409,
@@ -312,19 +336,6 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
             "Cette opération n'est pas encore disponible sur PostgreSQL.",
         );
     };
-    let mut conn = match conn_mutex.lock() {
-        Ok(c) => c,
-        Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
-    };
-
-    let resultat = (entree.poignee)(
-        &mut Contexte {
-            conn: &mut conn,
-            appelant: &appelant,
-        },
-        params,
-    );
-    drop(conn);
 
     // L'evenement n'est publie que si la commande a REUSSI. Prevenir
     // les autres postes d'une vente refusee les ferait recharger pour

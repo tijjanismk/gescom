@@ -335,9 +335,25 @@ exactement dans l'ordre où `api.rs::connexion` le fait.
 
 **Ce qui reste vrai** : les 186 commandes de vente, stock, pièces sont
 encore sur `Connection` et refusent sur PostgreSQL avec le message
-prévu plus haut. Une caisse peut désormais s'authentifier sur un
-serveur PostgreSQL ; elle ne peut encore rien y faire une fois
-connectée. C'est le morceau suivant — module par module, comme prévu.
+prévu plus haut. C'était le morceau suivant — module par module,
+comme prévu — et douze d'entre elles sont faites, le même jour :
+
+### Douze commandes branchées — **fait le 11/09/2026**
+
+`Registre::aussi_sur_base(nom, poignee_base)` complète une entrée déjà
+enregistrée avec sa version `Base` — appelée seulement quand `conn` est
+absent (PostgreSQL). Zéro risque sur une cible fichier : `poignee`
+(`Connection`) reste l'unique chemin tant qu'il existe.
+
+Branchées : le comptoir entier (`lire_clients`, `lire_client_generique`,
+`lire_depots`, `lire_depot_defaut`, `lire_articles_avec_unites`,
+`creer_client_rapide`, `creer_article_rapide`, `modifier_client`,
+`lire_clients_avec_creances`, `lire_config_scanner`), et les deux qui
+comptent le plus : `creer_vente`, `valider_facture`.
+
+**Une caisse connectée à un serveur PostgreSQL peut désormais vendre.**
+Le reste des 186 — caisse, pièces au sens large, stock, rapports —
+suit le même chemin, module par module.
 
 ## Ce qui n'est pas une décision, mais un travail à faire
 

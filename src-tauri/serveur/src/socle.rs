@@ -27,6 +27,9 @@ pub fn registre() -> Registre {
     r.lecture("lire_config_scanner", |c, _| {
         Ok(Value::Bool(comptoir::lire_config_scanner(c.conn)?))
     });
+    r.aussi_sur_base("lire_config_scanner", |c, _| {
+        Ok(Value::Bool(comptoir::lire_config_scanner_sur(c.base)?))
+    });
 
     r.ecriture("creer_client_rapide", "clients:creer", |c, p| {
         comptoir::creer_client_rapide(
@@ -35,10 +38,24 @@ pub fn registre() -> Registre {
             option_texte(&p, "telephone"),
         )
     });
+    r.aussi_sur_base("creer_client_rapide", |c, p| {
+        comptoir::creer_client_rapide_sur(c.base, texte(&p, "nom")?, option_texte(&p, "telephone"))
+    });
 
     r.ecriture("creer_article_rapide", "articles:creer", |c, p| {
         comptoir::creer_article_rapide(
             c.conn,
+            texte(&p, "nom")?,
+            texte(&p, "uniteBase").or_else(|_| texte(&p, "unite_base"))?,
+            entier(&p, "prixReference")
+                .or_else(|| entier(&p, "prix_reference"))
+                .unwrap_or(0),
+            entier(&p, "prixAchat").or_else(|| entier(&p, "prix_achat")),
+        )
+    });
+    r.aussi_sur_base("creer_article_rapide", |c, p| {
+        comptoir::creer_article_rapide_sur(
+            c.base,
             texte(&p, "nom")?,
             texte(&p, "uniteBase").or_else(|_| texte(&p, "unite_base"))?,
             entier(&p, "prixReference")
@@ -137,6 +154,28 @@ pub fn registre() -> Registre {
             entier(&p, "avoirMontant").or_else(|| entier(&p, "avoir_montant")),
         )
     });
+    // Meme commande, sur PostgreSQL (D11) : `creer_vente_sur_base`
+    // porte a part, testee dans argent_base.rs. Meme lecture des
+    // parametres, pour que les deux chemins n'aient qu'une facon de
+    // se tromper de nom de champ.
+    r.aussi_sur_base("creer_vente", |c, p| {
+        let lignes: Vec<argent::ParamsLigneInput> = serde_json::from_value(
+            p.get("lignes").cloned().unwrap_or(Value::Array(vec![])),
+        )
+        .map_err(|e| format!("Lignes de vente illisibles : {e}"))?;
+
+        argent::creer_vente_sur_base(
+            c.base,
+            texte(&p, "clientId").or_else(|_| texte(&p, "client_id"))?,
+            texte(&p, "depotId").or_else(|_| texte(&p, "depot_id"))?,
+            texte(&p, "modeReglement").or_else(|_| texte(&p, "mode_reglement"))?,
+            lignes,
+            Some(c.appelant.role.clone()),
+            entier(&p, "montantPaye").or_else(|| entier(&p, "montant_paye")),
+            option_texte(&p, "modePaiement").or_else(|| option_texte(&p, "mode_paiement")),
+            entier(&p, "avoirMontant").or_else(|| entier(&p, "avoir_montant")),
+        )
+    });
 
     // La facture automatique du point de vente. Son echec ne bloque pas
     // le caissier devant son client — mais sans elle, rien a imprimer.
@@ -160,6 +199,16 @@ pub fn registre() -> Registre {
             Some(c.appelant.role.clone()),
         )
     });
+    r.aussi_sur_base("valider_facture", |c, p| {
+        argent::valider_facture_sur_base(
+            c.base,
+            texte(&p, "pieceId").or_else(|_| texte(&p, "piece_id"))?,
+            texte(&p, "modeReglement").or_else(|_| texte(&p, "mode_reglement"))?,
+            option_texte(&p, "modePaiement").or_else(|| option_texte(&p, "mode_paiement")),
+            entier(&p, "acompte"),
+            Some(c.appelant.role.clone()),
+        )
+    });
 
     // ---- Le comptoir ----
     //
@@ -171,18 +220,30 @@ pub fn registre() -> Registre {
         serde_json::to_value(catalogue::lire_clients(c.conn)?)
             .map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_clients", |c, _| {
+        serde_json::to_value(catalogue::lire_clients_sur(c.base)?).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_client_generique", |c, _| {
         catalogue::lire_client_generique(c.conn)
+    });
+    r.aussi_sur_base("lire_client_generique", |c, _| {
+        catalogue::lire_client_generique_sur(c.base)
     });
 
     r.lecture("lire_depots", |c, _| {
         serde_json::to_value(catalogue::lire_depots(c.conn)?)
             .map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_depots", |c, _| {
+        serde_json::to_value(catalogue::lire_depots_sur(c.base)?).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_depot_defaut", |c, _| {
         catalogue::lire_depot_defaut(c.conn)
+    });
+    r.aussi_sur_base("lire_depot_defaut", |c, _| {
+        catalogue::lire_depot_defaut_sur(c.base)
     });
 
     r.lecture("lire_articles_avec_unites", |c, p| {
@@ -196,6 +257,16 @@ pub fn registre() -> Registre {
             .map(str::to_string);
         let v = catalogue::lire_articles_avec_unites(
             c.conn, Some(c.appelant.role.clone()), depot,
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_articles_avec_unites", |c, p| {
+        let depot = p.get("depotId")
+            .or_else(|| p.get("depot_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let v = catalogue::lire_articles_avec_unites_sur(
+            c.base, Some(c.appelant.role.clone()), depot,
         )?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
@@ -367,9 +438,25 @@ pub fn registre() -> Registre {
         )?;
         Ok(serde_json::Value::Null)
     });
+    r.aussi_sur_base("modifier_client", |c, p| {
+        let client_id: String = arg(&p, "clientId", "client_id")?;
+        let nom: String = arg(&p, "nom", "nom")?;
+        let telephone: Option<String> = arg(&p, "telephone", "telephone")?;
+        let adresse: Option<String> = arg(&p, "adresse", "adresse")?;
+        let email: Option<String> = arg(&p, "email", "email")?;
+        let nif: Option<String> = arg(&p, "nif", "nif")?;
+        gescom_noyau::comptoir::modifier_client_sur(
+            c.base, client_id, nom, telephone, adresse, email, nif,
+        )?;
+        Ok(serde_json::Value::Null)
+    });
 
     r.lecture("lire_clients_avec_creances", |c, _| {
         let v = gescom_noyau::comptoir::lire_clients_avec_creances(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_clients_avec_creances", |c, _| {
+        let v = gescom_noyau::comptoir::lire_clients_avec_creances_sur(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 

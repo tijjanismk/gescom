@@ -12,7 +12,7 @@ dans [DECISIONS.md](DECISIONS.md) pour tout le reste. Ce fichier-ci ne
 dit que l'avancement — qui fait quoi, dans quel ordre.
 
 Dernière mise à jour : **11 septembre 2026**.
-État : **262 tests SQLite + 21 tests PostgreSQL**, tous au vert.
+État : **266 tests SQLite + 21 tests PostgreSQL**, tous au vert.
 
 ---
 
@@ -238,7 +238,34 @@ le login complet rejoué de bout en bout comme le fait le serveur.
 
 **Ce qui reste vrai** : les 186 commandes de vente, stock, pièces
 restent sur `Connection` et refusent sur PostgreSQL (D11). Une caisse
-peut maintenant s'y connecter ; elle ne peut encore rien y faire.
+peut maintenant s'y connecter ; elle ne peut encore rien y faire —
+sauf pour **12 commandes**, branchées le même jour.
+
+### Douze commandes branchées à `Base`, dans le registre — **fait le 11/09/2026**
+
+`Registre::aussi_sur_base` complète une commande déjà enregistrée avec
+sa version `Base`, sans toucher à son chemin `Connection` — zéro
+changement sur une cible fichier, c'était la condition pour y toucher
+sans relire les 174 autres. `rpc()` : `conn` présent → chemin inchangé ;
+absent → la version `Base` si elle existe, sinon le refus D11.
+
+Branchées : `lire_clients`, `lire_client_generique`, `lire_depots`,
+`lire_depot_defaut`, `lire_articles_avec_unites` (le comptoir — une
+caisse PostgreSQL voit enfin un écran), `creer_client_rapide`,
+`creer_article_rapide`, `modifier_client`, `lire_clients_avec_creances`,
+`lire_config_scanner`, et les deux qui comptent le plus :
+`creer_vente`, `valider_facture`.
+
+**Une boutique peut désormais vendre sur PostgreSQL** — catalogue,
+client, vente, facture. Ce qui manque encore pour que ce soit une vraie
+boutique : la caisse (`ouvrir_session_caisse`, encaisser), les pièces
+au sens large, le stock, les rapports — le reste des 186, module par
+module, comme prévu.
+
+4 scénarios dans
+[registre_base.rs](../src-tauri/noyau/tests/registre_base.rs),
+dont un qui appelle RÉELLEMENT les deux chemins d'une même commande
+sur deux bases amorcées séparément et vérifie qu'ils s'accordent.
 
 Deux chantiers à part :
 - la **sauvegarde** — `VACUUM INTO` n'existe pas côté PostgreSQL ;
