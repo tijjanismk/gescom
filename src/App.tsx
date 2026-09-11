@@ -17,7 +17,10 @@ import { Caisse } from "@/pages/Caisse";
 import { Parametres } from "@/pages/Parametres";
 import { Modeles } from "@/pages/Modeles";
 import { assurerModelesParDefaut } from "@/lib/modeles/service";
-import { synchroniserConfig, ecouterCanal, enReseau } from "@/lib/pont";
+import {
+  synchroniserConfig, ecouterCanal, enReseau,
+  surSessionPerdue, sessionUtilisable,
+} from "@/lib/pont";
 import { Retours } from "@/pages/Retours";
 import { Relances } from "@/pages/Relances";
 import { Rapports } from "@/pages/Rapports";
@@ -157,12 +160,38 @@ function App() {
     synchroniserConfig().finally(() => setPontPret(true));
   }, []);
 
+  // Les modeles d'usine s'installent APRES la connexion.
+  //
+  // C'etait des le demarrage : en mode caisse, avant que quiconque se
+  // soit identifie, l'appel partait au serveur sans jeton et revenait
+  // « Jeton absent ». L'ecran Modeles affichait alors cette erreur a la
+  // place de ses modeles.
   useEffect(() => {
-    if (!pontPret) return;
+    if (!pontPret || !utilisateur || !sessionUtilisable()) return;
     assurerModelesParDefaut().catch((e) =>
       console.error("Modeles par defaut :", e),
     );
-  }, [pontPret]);
+  }, [pontPret, utilisateur?.id]);
+
+  // Le jeton du serveur est la SOURCE.
+  //
+  // L'application gardait sa propre memoire de « connecte »
+  // (localStorage, 8 h), independante du jeton. Les deux pouvaient se
+  // contredire : les jetons vivent dans la memoire du serveur, un
+  // redemarrage les efface. L'ecran restait alors ouvert, complet, et
+  // chaque action repondait « Jeton absent » sans qu'aucun chemin ne
+  // ramene a la page de connexion.
+  useEffect(() => {
+    if (!pontPret) return;
+
+    // Au demarrage : un utilisateur restaure sans jeton n'est pas
+    // connecte, quoi qu'en dise le cache du navigateur.
+    if (utilisateur && !sessionUtilisable()) {
+      handleDeconnecter();
+      return;
+    }
+    return surSessionPerdue(() => handleDeconnecter());
+  }, [pontPret, utilisateur?.id]);
 
   // Le canal : ce que les autres caisses viennent de faire.
   //

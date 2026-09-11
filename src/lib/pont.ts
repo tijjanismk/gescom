@@ -363,9 +363,43 @@ export async function deconnecterServeur() {
   oublierSession();
 }
 
+/**
+ * Prévenus quand la session du serveur tombe.
+ *
+ * Il y avait DEUX mémoires de « connecté » : celle de l'application
+ * (`gescom_session`, 8 h) et le jeton du pont. Elles pouvaient se
+ * contredire — un redémarrage du serveur suffit, les jetons vivent dans
+ * sa mémoire. L'écran restait alors ouvert, complet, et chaque action
+ * répondait « Jeton absent » sans qu'aucun chemin ne ramène à la page
+ * de connexion.
+ *
+ * Le pont est la source : quand il perd son jeton, il le dit, et
+ * l'application revient à l'écran de connexion.
+ */
+type EcouteurSession = () => void;
+const ecouteursSession = new Set<EcouteurSession>();
+
+export function surSessionPerdue(cb: EcouteurSession): () => void {
+  ecouteursSession.add(cb);
+  return () => ecouteursSession.delete(cb);
+}
+
+/** Y a-t-il de quoi parler au serveur ? */
+export function sessionUtilisable(): boolean {
+  return !enReseau() || Boolean(etat.jeton);
+}
+
 function oublierSession() {
+  const avait = Boolean(etat.jeton);
   etat = { ...etat, jeton: null, posteId: null, utilisateurId: null };
   enregistrer();
+  // Seulement si on avait vraiment une session : sans ce garde, une
+  // deconnexion volontaire previendrait aussi, et l'application
+  // afficherait « session expiree » a quelqu'un qui vient de cliquer
+  // sur « Se deconnecter ».
+  if (avait) {
+    for (const cb of ecouteursSession) cb();
+  }
 }
 
 export async function sante(adresse?: string): Promise<unknown> {
