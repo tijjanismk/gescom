@@ -317,16 +317,27 @@ condition. `Serveur.conn` est passé de `Mutex<Connection>` à
 `api.rs`, plus `sauvegarde.rs`) refuse au lieu de paniquer ou de
 retomber sur une base vide.
 
-⚠️ **Un fait qui n'était pas visible avant d'essayer : se connecter
-à un serveur PostgreSQL ne marche pas encore, même avec le bon mot de
-passe.** `connexion` (authentification), `sessions`, `postes` et
-`portes::permissions_de` — tout ce dont `/rpc` a besoin AVANT même de
-choisir une commande — ne sont pas portés sur `Base`. Un serveur
-PostgreSQL démarre, répond à `/sante`, et refuse tout le reste avec un
-message qui le dit (imprimé aussi au démarrage). **C'est le vrai
-prochain morceau**, avant que porter `creer_vente`/`valider_facture`
-serve à quelque chose de vécu : sans lui, ces deux fonctions restent
-testées mais inatteignables depuis une caisse.
+✅ **Corrigé le 11/09/2026, le même jour : l'authentification est
+portée.** `sessions` et `portes::permissions_de` l'étaient déjà —
+trouvés en lisant le code, pas refaits. Il manquait
+`postes::inscrire_ou_retrouver` ; écrit (`inscrire_ou_retrouver_sur`,
+`lire_sur`). `api.rs` bascule `connexion`, `déconnexion`,
+`authentifier` et le contrôle de permission de `/rpc` sur `srv.base`
+**sans condition de moteur** — SQLite et PostgreSQL empruntent
+désormais le même chemin pour se connecter. `/sante` compte aussi les
+sessions actives sur les deux moteurs (`sessions::lister_actives_sur`).
+
+12 scénarios dans
+[auth_base.rs](../src-tauri/noyau/tests/auth_base.rs), dont le login
+complet rejoué de bout en bout — identifier le compte, vérifier le mot
+de passe, inscrire le poste, ouvrir la session, lire les permissions —
+exactement dans l'ordre où `api.rs::connexion` le fait.
+
+**Ce qui reste vrai** : les 186 commandes de vente, stock, pièces sont
+encore sur `Connection` et refusent sur PostgreSQL avec le message
+prévu plus haut. Une caisse peut désormais s'authentifier sur un
+serveur PostgreSQL ; elle ne peut encore rien y faire une fois
+connectée. C'est le morceau suivant — module par module, comme prévu.
 
 ## Ce qui n'est pas une décision, mais un travail à faire
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use gescom_noyau::portes::{verifier_permission, ContexteUtilisateur};
+use gescom_noyau::portes::{verifier_permission_sur, ContexteUtilisateur};
 use gescom_noyau::protocole::{
     CodeErreur, DemandeConnexion, Identite, LotEvenements, Reponse, Sante,
 };
@@ -63,22 +63,24 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
 /// « identifiant incorrect » quand c'est le reseau qui manque. Elle ne
 /// divulgue aucune donnee de commerce.
 fn sante(srv: &Arc<Serveur>, flux: &mut TcpStream) -> std::io::Result<()> {
-    let (base_saine, connectes) = match &srv.conn {
-        Some(m) => match m.lock() {
-            Ok(conn) => (
-                persistance::verifier_integrite(&conn)
-                    .map(|o| o.is_none())
-                    .unwrap_or(false),
-                sessions::lister_actives(&conn).map(|v| v.len()).unwrap_or(0),
-            ),
-            Err(_) => (false, 0),
-        },
-        // PostgreSQL : ni controle d'integrite ni sessions portes
-        // encore (D11). `/sante` doit quand meme repondre — c'est la
-        // route qu'un poste interroge AVANT tout jeton, pour savoir
-        // s'il vaut la peine d'essayer de se connecter.
-        None => (true, 0),
+    // Le controle d'integrite est une PRAGMA SQLite : pas de pendant
+    // PostgreSQL pour l'instant, donc pas de controle sur ce moteur.
+    let base_saine = match &srv.conn {
+        Some(m) => m
+            .lock()
+            .ok()
+            .map(|conn| persistance::verifier_integrite(&conn).map(|o| o.is_none()).unwrap_or(false))
+            .unwrap_or(false),
+        None => true,
     };
+    // Les sessions, elles, sont portees (D11) : le compte est exact sur
+    // les deux moteurs.
+    let connectes = srv
+        .base
+        .lock()
+        .ok()
+        .map(|mut b| sessions::lister_actives_sur(&mut b).map(|v| v.len()).unwrap_or(0))
+        .unwrap_or(0);
 
     let s = Sante {
         version_protocole: VERSION_PROTOCOLE,
@@ -120,39 +122,29 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         );
     }
 
-    // D11 : sessions, postes et permissions ne sont pas encore portes
-    // sur `Base`. Une caisse qui tente de se connecter a un serveur
-    // PostgreSQL doit l'entendre clairement, pas lire « identifiant ou
-    // mot de passe incorrect » pour un mot de passe qui est le bon.
-    let Some(conn_mutex) = srv.conn.as_ref() else {
-        return erreur(
-            flux,
-            409,
-            CodeErreur::Technique,
-            "La connexion n'est pas encore disponible sur PostgreSQL : sessions, \
-             postes et permissions ne sont pas portés (D11).",
-        );
-    };
-    let conn = match conn_mutex.lock() {
-        Ok(c) => c,
+    // D11 : l'authentification passe par `Base`, sur les deux moteurs —
+    // sessions, postes et permissions sont portes. Seules les 186
+    // commandes du registre restent sur `Connection` pour l'instant.
+    let mut base = match srv.base.lock() {
+        Ok(b) => b,
         Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
     };
 
-    let ligne = conn.query_row(
+    let ligne = base.lire_une(
         "SELECT ua.utilisateur_id, ua.mot_de_passe, ua.doit_changer_mdp,
                 u.nom, r.nom
          FROM utilisateur_auth ua
          JOIN utilisateur u ON u.id = ua.utilisateur_id
          JOIN role r        ON r.id = u.role_id
          WHERE (ua.pseudo = ?1 OR ua.email = ?1) AND u.actif = 1",
-        rusqlite::params![demande.identifiant],
+        &gescom_noyau::parametres![demande.identifiant.clone()],
         |r| {
             Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, i64>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(4)?,
+                r.get::<String>(0)?,
+                r.get::<String>(1)?,
+                r.get::<i64>(2)?,
+                r.get::<String>(3)?,
+                r.get::<String>(4)?,
             ))
         },
     );
@@ -160,7 +152,7 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
     // Meme message pour « identifiant inconnu » et « mot de passe
     // faux » : distinguer les deux revient a confirmer qu'un compte
     // existe a qui essaie des noms au hasard.
-    let Ok((utilisateur_id, hash, doit_changer, nom, role)) = ligne else {
+    let Ok(Some((utilisateur_id, hash, doit_changer, nom, role))) = ligne else {
         return erreur(
             flux,
             401,
@@ -185,15 +177,15 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
     } else {
         "caisse"
     };
-    let poste = match postes::inscrire_ou_retrouver(
-        &conn,
+    let poste = match postes::inscrire_ou_retrouver_sur(
+        &mut base,
         &demande.poste_nom,
         &demande.poste_empreinte,
         genre,
         Some(&req.ip),
     ) {
         Ok(p) => p,
-        Err(e) => return erreur(flux, 500, CodeErreur::Technique, &e.to_string()),
+        Err(e) => return erreur(flux, 500, CodeErreur::Technique, &e),
     };
     if !poste.actif {
         return erreur(
@@ -204,19 +196,19 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         );
     }
 
-    let (session_id, jeton, expire_le) = match sessions::ouvrir(&conn, &poste.id, &utilisateur_id) {
-        Ok(t) => t,
-        Err(e) => return erreur(flux, 500, CodeErreur::Technique, &e),
-    };
+    let (session_id, jeton, expire_le) =
+        match sessions::ouvrir_sur(&mut base, &poste.id, &utilisateur_id) {
+            Ok(t) => t,
+            Err(e) => return erreur(flux, 500, CodeErreur::Technique, &e),
+        };
 
-    conn.execute(
+    let _ = base.executer(
         "UPDATE utilisateur_auth SET derniere_connexion = ?1 WHERE utilisateur_id = ?2",
-        rusqlite::params![gescom_noyau::utils::maintenant_iso(), utilisateur_id],
-    )
-    .ok();
+        &gescom_noyau::parametres![gescom_noyau::utils::maintenant_iso(), utilisateur_id.clone()],
+    );
 
     let mut permissions: Vec<String> =
-        gescom_noyau::portes::permissions_de(&conn, &utilisateur_id, &role)
+        gescom_noyau::portes::permissions_de_sur(&mut base, &utilisateur_id, &role)
             .into_iter()
             .collect();
     permissions.sort();
@@ -230,9 +222,9 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         doit_changer_mdp: doit_changer != 0,
         poste_id: poste.id.clone(),
         expire_le,
-        caisse_par_utilisateur: caisses::par_utilisateur(&conn),
+        caisse_par_utilisateur: caisses::par_utilisateur_sur(&mut base),
     };
-    drop(conn);
+    drop(base);
 
     srv.enregistrer_jeton(jeton, session_id);
     srv.canal
@@ -248,8 +240,8 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
 fn deconnexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Result<()> {
     if let Some(jeton) = req.jeton() {
         if let Some(session_id) = srv.session_du_jeton(jeton) {
-            if let Some(conn) = srv.conn.as_ref().and_then(|m| m.lock().ok()) {
-                sessions::revoquer(&conn, &session_id, "deconnexion").ok();
+            if let Ok(mut base) = srv.base.lock() {
+                sessions::revoquer_sur(&mut base, &session_id, "deconnexion").ok();
             }
         }
         srv.oublier_jeton(jeton);
@@ -286,6 +278,27 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         );
     };
 
+    // Les permissions se lisent en base a CHAQUE appel — via `Base`,
+    // portee (D11) — et sur les DEUX moteurs : c'est ce qui rend un
+    // retrait de droit immediat, comme la revocation d'une session. Les
+    // garder en memoire ferait attendre le redemarrage du serveur.
+    // Fait AVANT de savoir si la commande elle-meme peut s'executer :
+    // une caisse sans le droit doit lire un refus de permission, pas
+    // un refus generique « pas encore sur PostgreSQL ».
+    if let Some(permission) = entree.permission {
+        let ctx = ContexteUtilisateur {
+            id: appelant.utilisateur_id.clone(),
+            role: appelant.role.clone(),
+        };
+        let mut base = match srv.base.lock() {
+            Ok(b) => b,
+            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+        };
+        if let Err(e) = verifier_permission_sur(&mut base, &ctx, permission) {
+            return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
+        }
+    }
+
     // D11 : cette commande vient du registre des 186 pas encore
     // portees sur `Base` — c'est TOUJOURS le cas aujourd'hui, aucune
     // ported ne s'y trouve encore. Sur PostgreSQL, il n'y a pas de
@@ -304,19 +317,6 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
     };
 
-    // Le controle vient APRES le verrou : les permissions se lisent
-    // desormais en base, et les relire a chaque appel est ce qui rend
-    // un retrait de droit immediat — comme la revocation d'une session.
-    // Les garder en memoire ferait attendre le redemarrage du serveur.
-    if let Some(permission) = entree.permission {
-        let ctx = ContexteUtilisateur {
-            id: appelant.utilisateur_id.clone(),
-            role: appelant.role.clone(),
-        };
-        if let Err(e) = verifier_permission(&conn, &ctx, permission) {
-            return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
-        }
-    }
     let resultat = (entree.poignee)(
         &mut Contexte {
             conn: &mut conn,
@@ -355,24 +355,18 @@ fn authentifier(srv: &Arc<Serveur>, req: &Requete) -> Result<Appelant, (CodeErre
         "Session inconnue du serveur — se reconnecter.".to_string(),
     ))?;
 
-    // D11 : personne n'a pu obtenir de jeton sur PostgreSQL —
-    // `connexion` refuse avant — mais un jeton d'avant un changement de
-    // cible resterait en memoire. Le meme refus clair s'applique.
-    let conn_mutex = srv.conn.as_ref().ok_or((
-        CodeErreur::Technique,
-        "Cette opération n'est pas encore disponible sur PostgreSQL.".to_string(),
-    ))?;
-    let conn = conn_mutex
+    let mut base = srv
+        .base
         .lock()
         .map_err(|_| (CodeErreur::Technique, "Base indisponible.".to_string()))?;
 
-    match sessions::etat(&conn, &session_id) {
+    match sessions::etat_sur(&mut base, &session_id) {
         sessions::Etat::Valide {
             utilisateur_id,
             role,
             poste_id,
         } => {
-            sessions::toucher(&conn, &session_id);
+            sessions::toucher_sur(&mut base, &session_id);
             Ok(Appelant {
                 utilisateur_id,
                 role,
@@ -442,24 +436,16 @@ fn sauvegarde_manuelle(
     };
     // Le verrou se prend et se relache tout de suite : `sauvegarde` le
     // reprendra pour son propre compte, et le garder ici bloquerait les
-    // caisses pendant toute la copie.
+    // caisses pendant toute la copie. Le controle passe par `Base`
+    // (portee), sur les deux moteurs — un refus de permission doit
+    // rester un refus de permission, meme la ou la sauvegarde
+    // elle-meme n'est pas encore possible (D4).
     {
-        let Some(conn_mutex) = srv.conn.as_ref() else {
-            // `sauvegarde::maintenant` refuse aussi, avec le meme
-            // message ; le dire ici evite de verifier une permission
-            // pour une operation qui va de toute facon echouer.
-            return erreur(
-                flux,
-                409,
-                CodeErreur::Technique,
-                "La sauvegarde n'est pas encore disponible sur PostgreSQL (D4).",
-            );
-        };
-        let conn = match conn_mutex.lock() {
-            Ok(c) => c,
+        let mut base = match srv.base.lock() {
+            Ok(b) => b,
             Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
         };
-        if let Err(e) = verifier_permission(&conn, &ctx, "sauvegarde:lancer") {
+        if let Err(e) = verifier_permission_sur(&mut base, &ctx, "sauvegarde:lancer") {
             return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
         }
     }

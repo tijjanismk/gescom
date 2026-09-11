@@ -23,18 +23,18 @@ pub struct Serveur {
     pub conn: Option<Mutex<Connection>>,
     /// La base, sur l'un ou l'autre moteur. C'est elle que les
     /// commandes PORTEES appellent — `catalogue::*_sur`,
-    /// `comptoir::*_sur`, `argent::*_sur_base`, `dossiers::*_sur`.
+    /// `comptoir::*_sur`, `argent::*_sur_base`, `dossiers::*_sur`, et
+    /// depuis le portage de l'authentification, TOUT `/connexion`,
+    /// `/deconnexion` et le controle de permission de `/rpc`.
     ///
     /// Sur une cible fichier, c'est une SECONDE connexion vers le meme
     /// fichier que `conn` (SQLite en WAL le permet) : la transition
     /// prevue par D11, une `Base` pour ce qui est porte, une
     /// `Connection` pour le reste, jusqu'a ce que tout le soit.
     ///
-    /// Encore lu par personne : aucune commande portee n'est branchee
-    /// au registre. C'est la suite de D11, pas cette etape — qui pose
-    /// seulement le fait que le serveur SAIT tenir une `Base`, sur les
-    /// deux moteurs, sans rien changer pour les 186 qui ne le sont pas.
-    #[allow(dead_code)]
+    /// Ce que les commandes de `registre` (les 186 restantes) appellent
+    /// encore, c'est `conn` — leur brancher `base` a leur tour est la
+    /// suite de D11, pas cette etape-ci.
     pub base: Mutex<Base>,
     pub chemin_base: String,
     pub canal: Canal,

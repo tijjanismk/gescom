@@ -12,7 +12,7 @@ dans [DECISIONS.md](DECISIONS.md) pour tout le reste. Ce fichier-ci ne
 dit que l'avancement — qui fait quoi, dans quel ordre.
 
 Dernière mise à jour : **11 septembre 2026**.
-État : **250 tests SQLite + 21 tests PostgreSQL**, tous au vert.
+État : **262 tests SQLite + 21 tests PostgreSQL**, tous au vert.
 
 ---
 
@@ -223,13 +223,22 @@ commandes non portées continuent de tourner exactement comme avant ;
 sur PostgreSQL, elles refusent clairement au lieu de retomber sur un
 fichier SQLite vide. Détail dans DECISIONS.md §D11.
 
-⚠️ **Découvert en le faisant : se connecter ne marche pas encore sur
-PostgreSQL**, même avec le bon mot de passe. `sessions`, `postes` et
-`portes::permissions_de` ne sont pas portés — sans eux, `/rpc` ne peut
-authentifier personne. C'est le prochain morceau, et il précède en
-pratique le branchement de `creer_vente_sur_base` /
-`valider_facture_sur_base` : porter la vente ne sert à rien tant
-qu'aucune caisse ne peut se connecter pour la déclencher.
+⚠️ **Découvert en le faisant, puis corrigé le même jour : se connecter
+ne marchait pas sur PostgreSQL**, même avec le bon mot de passe.
+`sessions` et `portes::permissions_de` étaient déjà portés (trouvés en
+regardant, pas refaits) ; il manquait `postes::inscrire_ou_retrouver`.
+Écrit, et `api.rs` (`connexion`, `déconnexion`, `authentifier`, le
+contrôle de permission de `/rpc`) bascule maintenant sur `Base`
+**sur les deux moteurs** — plus de différence de chemin entre SQLite et
+PostgreSQL pour l'authentification. 12 scénarios dédiés
+([auth_base.rs](../src-tauri/noyau/tests/auth_base.rs)) : inscription
+et retrouvaille d'un poste, session ouverte/révoquée/expirée, poste
+désactivé qui ferme la session, permissions de rôle et personnelles, et
+le login complet rejoué de bout en bout comme le fait le serveur.
+
+**Ce qui reste vrai** : les 186 commandes de vente, stock, pièces
+restent sur `Connection` et refusent sur PostgreSQL (D11). Une caisse
+peut maintenant s'y connecter ; elle ne peut encore rien y faire.
 
 Deux chantiers à part :
 - la **sauvegarde** — `VACUUM INTO` n'existe pas côté PostgreSQL ;

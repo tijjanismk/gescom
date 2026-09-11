@@ -141,3 +141,81 @@ fn ligne_poste(r: &rusqlite::Row) -> Result<Poste> {
         derniere_ip: r.get(6)?,
     })
 }
+
+// =====================================================================
+//  LA MEME CHOSE, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// Pour authentifier une caisse sur PostgreSQL (D11) : `connexion`
+// inscrit le poste avant d'ouvrir la session, sur les deux moteurs
+// desormais. `poste` n'est pas cloisonne — une machine reste la meme
+// machine, quel que soit le dossier ouvert depuis elle.
+
+use crate::base::Base;
+use crate::parametres;
+
+pub fn inscrire_ou_retrouver_sur(
+    base: &mut Base,
+    nom: &str,
+    empreinte: &str,
+    genre: &str,
+    ip: Option<&str>,
+) -> std::result::Result<Poste, String> {
+    let maintenant = maintenant_iso();
+
+    let existant = base
+        .lire_une(
+            "SELECT id FROM poste WHERE empreinte = ?1",
+            &parametres![empreinte],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?;
+
+    let id = match existant {
+        Some(id) => {
+            base.executer(
+                "UPDATE poste SET nom = ?1, dernier_contact = ?2,
+                        derniere_ip = ?3, genre = ?4, modifie_le = ?2
+                 WHERE id = ?5",
+                &parametres![nom, maintenant.clone(), ip, genre, id.clone()],
+            )
+            .map_err(|e| e.0)?;
+            id
+        }
+        None => {
+            let id = uuid::Uuid::new_v4().to_string();
+            base.executer(
+                "INSERT INTO poste
+                   (id, nom, empreinte, genre, actif,
+                    dernier_contact, derniere_ip, cree_le, modifie_le)
+                 VALUES (?1,?2,?3,?4,1,?5,?6,?5,?5)",
+                &parametres![id.clone(), nom, empreinte, genre, maintenant, ip],
+            )
+            .map_err(|e| e.0)?;
+            id
+        }
+    };
+
+    lire_sur(base, &id)
+}
+
+pub fn lire_sur(base: &mut Base, id: &str) -> std::result::Result<Poste, String> {
+    base.lire_une(
+        "SELECT id, nom, empreinte, genre, actif, dernier_contact, derniere_ip
+         FROM poste WHERE id = ?1",
+        &parametres![id],
+        |r| {
+            Ok(Poste {
+                id: r.get::<String>(0)?,
+                nom: r.get::<String>(1)?,
+                empreinte: r.get::<String>(2)?,
+                genre: r.get::<String>(3)?,
+                actif: r.get::<i64>(4)? != 0,
+                dernier_contact: r.get::<Option<String>>(5)?,
+                derniere_ip: r.get::<Option<String>>(6)?,
+            })
+        },
+    )
+    .map_err(|e| e.0)?
+    .ok_or_else(|| "Poste introuvable".to_string())
+}

@@ -151,6 +151,16 @@ fn main() {
                 std::process::exit(1);
             }
         }
+
+        // L'authentification est portee (D11) : les memes precautions
+        // qu'au demarrage du chemin fichier s'appliquent ici.
+        gescom_noyau::sessions::revoquer_toutes_sur(&mut base, "redemarrage_serveur").ok();
+        let empreinte = format!("serveur:{cible}");
+        if let Err(e) =
+            postes::inscrire_ou_retrouver_sur(&mut base, "Serveur", &empreinte, "serveur", None)
+        {
+            eprintln!("[avertissement] inscription du poste serveur : {e}");
+        }
     }
 
     let srv = Arc::new(Serveur {
@@ -218,16 +228,18 @@ fn main() {
         println!("    Les deux exigent un changement de mot de passe à la");
         println!("    première connexion.");
     }
-    // D11 : le serveur tient une Base sur les deux moteurs, mais
-    // l'authentification (sessions, postes, permissions) n'est pas
-    // encore portee. Le dire ici vaut mieux qu'un « Identifiant ou mot
-    // de passe incorrect » qui laisse croire a un mot de passe faux.
+    // D11 : le serveur tient une Base sur les deux moteurs, et
+    // l'authentification (sessions, postes, permissions) est portee —
+    // une caisse PEUT se connecter. Mais les 186 commandes du registre
+    // restent sur `Connection` : dire ici ce qui marche et ce qui ne
+    // marche pas encore vaut mieux qu'un silence qu'on decouvre commande
+    // par commande.
     if est_postgres {
         println!();
-        println!("  ⚠ PostgreSQL : le schéma est prêt, mais aucune commande ne");
-        println!("    répond encore — sessions, postes et permissions ne sont");
-        println!("    pas portés (D11). Se connecter depuis une caisse échouera");
-        println!("    pour l'instant, même avec le bon mot de passe.");
+        println!("  ⚠ PostgreSQL : une caisse peut se connecter (identifiants,");
+        println!("    permissions, sessions — portés). Aucune des 186 commandes");
+        println!("    de vente, stock, pièces ne répond encore : chacune refusera");
+        println!("    avec « pas encore disponible sur PostgreSQL » (D11).");
     }
     println!("  Console : http://localhost:{}", options.port);
     println!("            a ouvrir dans un navigateur sur ce poste.");
