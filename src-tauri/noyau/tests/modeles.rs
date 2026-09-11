@@ -217,3 +217,39 @@ fn un_modele_casse_ne_fait_pas_echouer_le_lot() {
     assert_eq!(bilan.ignores.len(), 1);
     assert!(modeles::lire(&conn, "bon").is_ok());
 }
+
+/// Un modele sans `modifie_le` doit passer.
+///
+/// L'ecran envoie les modeles d'usine tels qu'il les construit, et il
+/// n'y met pas de date de modification — ce n'est pas au client de
+/// l'inventer, c'est l'enregistrement qui date. Serde exigeait pourtant
+/// le champ : tout le lot etait refuse avec « missing field
+/// `modifie_le` », et l'ecran des modeles s'ouvrait sur une erreur au
+/// lieu de proposer ses modeles.
+#[test]
+fn un_modele_sans_date_de_modification_est_accepte() {
+    let conn = base();
+    let brut = serde_json::json!({
+        "id": "facture-usine",
+        "genre": "facture",
+        "nom": "Facture A4",
+        "format": "a4",
+        "contenu": { "blocs": [] },
+        "est_defaut": true,
+        "actif": false
+    });
+
+    let m: gescom_noyau::modeles::Modele = serde_json::from_value(brut)
+        .expect("un modèle d'usine doit être lisible sans `modifie_le`");
+    gescom_noyau::modeles::enregistrer(&conn, &m, "u1").expect("enregistré");
+
+    // Et l'enregistrement lui a bien donne une date.
+    let date: String = conn
+        .query_row(
+            "SELECT modifie_le FROM modele_document WHERE id = 'facture-usine'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!date.is_empty(), "l'enregistrement doit dater le modèle");
+}

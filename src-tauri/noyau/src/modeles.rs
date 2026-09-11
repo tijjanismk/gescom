@@ -50,6 +50,14 @@ pub struct Modele {
     pub est_defaut: bool,
     /// Le modèle effectivement utilisé pour son genre.
     pub actif: bool,
+    /// Quand ce modele a ete touche pour la derniere fois.
+    ///
+    /// `default` parce que ce n'est PAS au client de l'inventer : c'est
+    /// l'enregistrement qui le date. L'ecran envoyait un modele d'usine
+    /// qui ne le portait pas, serde refusait tout le lot avec
+    /// « missing field `modifie_le` », et l'ecran des modeles s'ouvrait
+    /// sur une erreur au lieu de proposer ses modeles.
+    #[serde(default)]
     pub modifie_le: String,
 }
 

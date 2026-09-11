@@ -45,3 +45,10 @@ __pycache__/
 # Le binaire serveur prepare pour l'empaquetage : il se regenere par
 # `outils/preparer_serveur.ps1`, il ne se versionne pas.
 src-tauri/binaires/
+
+# Bases SQLite et leurs journaux. Une sauvegarde de 348 Ko s'etait
+# retrouvee committee : une base dans un depot de code grossit a chaque
+# version et ne sert a personne.
+*.db
+*.db-wal
+*.db-shm
