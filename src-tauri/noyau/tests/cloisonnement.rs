@@ -263,6 +263,14 @@ fn tout_ce_qui_est_porte_passe_le_detecteur() {
     comptoir::lire_clients_avec_creances_sur(&mut base).expect("créances");
     comptoir::lire_config_scanner_sur(&mut base).expect("scanner");
 
+    use gescom_noyau::tableau_bord;
+    tableau_bord::lire_resume_dashboard_sur(&mut base, None).expect("résumé");
+    tableau_bord::lire_ventes_periode_sur(&mut base, Some("mois".into()), None)
+        .expect("courbe des ventes");
+    tableau_bord::lire_top_clients_sur(&mut base).expect("meilleurs clients");
+    tableau_bord::lire_top_articles_sur(&mut base).expect("meilleurs articles");
+    tableau_bord::lire_ventes_a_decouvert_sur(&mut base, None, None).expect("découvert");
+
     use gescom_noyau::dossiers;
     dossiers::lire_exercices_sur(&mut base).expect("exercices");
     dossiers::verifier_date_sur(&mut base, "2026-09-11").expect("date dans l'exercice");

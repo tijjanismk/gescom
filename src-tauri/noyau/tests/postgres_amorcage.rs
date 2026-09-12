@@ -577,6 +577,21 @@ fn tout_ce_qui_est_porte_passe_le_detecteur_sur_postgresql() {
         .expect("créer un article");
     comptoir::lire_clients_avec_creances_sur(&mut base).expect("créances");
 
+    // Le tableau de bord : c'est ici que `SUM(bigint)` rend NUMERIC et
+    // que `julianday`/`strftime` n'existent pas — le moteur de
+    // production est le seul a pouvoir le dire.
+    use gescom_noyau::tableau_bord;
+    let resume = tableau_bord::lire_resume_dashboard_sur(&mut base, None).expect("résumé");
+    assert_eq!(resume["caisse_session_ouverte"], false);
+    for periode in ["jour", "semaine", "mois", "annee"] {
+        tableau_bord::lire_ventes_periode_sur(&mut base, Some(periode.into()), None)
+            .unwrap_or_else(|e| panic!("courbe {periode} : {e}"));
+    }
+    tableau_bord::lire_top_clients_sur(&mut base).expect("meilleurs clients");
+    tableau_bord::lire_top_articles_sur(&mut base).expect("meilleurs articles");
+    tableau_bord::lire_ventes_a_decouvert_sur(&mut base, Some("2026-01-01".into()), None)
+        .expect("découvert");
+
     use gescom_noyau::dossiers;
     dossiers::lire_exercices_sur(&mut base).expect("exercices");
     dossiers::verifier_date_sur(&mut base, "2026-09-11").expect("date dans l'exercice");

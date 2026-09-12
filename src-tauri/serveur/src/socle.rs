@@ -101,6 +101,35 @@ pub fn registre() -> Registre {
         )
     });
 
+    // Les memes cinq, sur `Base` — le dernier morceau qui manquait a
+    // l'ecran POS sur PostgreSQL : sans elles, les widgets restaient
+    // vides.
+    r.aussi_sur_base("lire_resume_dashboard", |c, p| {
+        tableau_bord::lire_resume_dashboard_sur(c.base, option_texte(&p, "depotId"))
+    });
+    r.aussi_sur_base("lire_ventes_periode", |c, p| {
+        tableau_bord::lire_ventes_periode_sur(
+            c.base,
+            option_texte(&p, "periode"),
+            option_texte(&p, "depotId"),
+        )
+    });
+    r.aussi_sur_base("lire_top_clients", |c, _| {
+        let v = tableau_bord::lire_top_clients_sur(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_top_articles", |c, _| {
+        let v = tableau_bord::lire_top_articles_sur(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_ventes_a_decouvert", |c, p| {
+        tableau_bord::lire_ventes_a_decouvert_sur(
+            c.base,
+            option_texte(&p, "dateDebut").or_else(|| option_texte(&p, "date_debut")),
+            option_texte(&p, "dateFin").or_else(|| option_texte(&p, "date_fin")),
+        )
+    });
+
     // ---- Les deux reglements ----
     //
     // Encaisser une creance et payer un fournisseur : sans eux, une

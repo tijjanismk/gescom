@@ -197,11 +197,49 @@ impl DeLigne for String {
     }
 }
 
+/// Le type PostgreSQL d'une colonne, pour lire selon ce qu'elle EST.
+///
+/// `postgres` refuse de lire un `INT4` dans un `i64` (« error
+/// deserializing column ») la ou SQLite s'en moque. Or les tables v2
+/// creees par du DDL en ligne dans `amorcage.rs` — `exercice.clos`,
+/// `dossier.clos`, `role.acces_total` — ne passent pas par
+/// `types_postgres` et sont donc en `INT4` ; `COUNT(*)` rend `INT8`,
+/// une moyenne rend `NUMERIC`. Exiger que chaque DDL et chaque
+/// requete y pensent, c'est garantir qu'un jour l'un ne le fera pas.
+/// La facade lit ce que la colonne contient, et rend ce que
+/// l'appelant demande.
+fn type_pg(r: &postgres::Row, i: usize) -> Option<&postgres::types::Type> {
+    r.columns().get(i).map(|c| c.type_())
+}
+
+fn pg_entier(r: &postgres::Row, i: usize) -> Resultat<i64> {
+    use postgres::types::Type;
+    match type_pg(r, i) {
+        Some(&Type::INT2) => Ok(r.try_get::<_, i16>(i)? as i64),
+        Some(&Type::INT4) => Ok(r.try_get::<_, i32>(i)? as i64),
+        Some(&Type::BOOL) => Ok(r.try_get::<_, bool>(i)? as i64),
+        Some(&Type::FLOAT4) => Ok(r.try_get::<_, f32>(i)? as i64),
+        Some(&Type::FLOAT8) => Ok(r.try_get::<_, f64>(i)? as i64),
+        _ => Ok(r.try_get::<_, i64>(i)?),
+    }
+}
+
+fn pg_reel(r: &postgres::Row, i: usize) -> Resultat<f64> {
+    use postgres::types::Type;
+    match type_pg(r, i) {
+        Some(&Type::FLOAT4) => Ok(r.try_get::<_, f32>(i)? as f64),
+        Some(&Type::INT2) => Ok(r.try_get::<_, i16>(i)? as f64),
+        Some(&Type::INT4) => Ok(r.try_get::<_, i32>(i)? as f64),
+        Some(&Type::INT8) => Ok(r.try_get::<_, i64>(i)? as f64),
+        _ => Ok(r.try_get::<_, f64>(i)?),
+    }
+}
+
 impl DeLigne for i64 {
     fn extraire(l: &Ligne<'_>, i: usize) -> Resultat<Self> {
         match l {
             Ligne::Sqlite(r) => Ok(r.get::<_, i64>(i)?),
-            Ligne::Pg(r) => Ok(r.try_get::<_, i64>(i)?),
+            Ligne::Pg(r) => pg_entier(r, i),
         }
     }
 }
@@ -210,7 +248,7 @@ impl DeLigne for f64 {
     fn extraire(l: &Ligne<'_>, i: usize) -> Resultat<Self> {
         match l {
             Ligne::Sqlite(r) => Ok(r.get::<_, f64>(i)?),
-            Ligne::Pg(r) => Ok(r.try_get::<_, f64>(i)?),
+            Ligne::Pg(r) => pg_reel(r, i),
         }
     }
 }
@@ -221,7 +259,11 @@ impl DeLigne for bool {
             // SQLite n'a pas de booleen : 0 ou 1, comme partout ailleurs
             // dans cette base.
             Ligne::Sqlite(r) => Ok(r.get::<_, i64>(i)? != 0),
-            Ligne::Pg(r) => Ok(r.try_get::<_, bool>(i)?),
+            // Un vrai booleen, ou un entier 0/1 : les deux se lisent.
+            Ligne::Pg(r) => match type_pg(r, i) {
+                Some(&postgres::types::Type::BOOL) => Ok(r.try_get::<_, bool>(i)?),
+                _ => Ok(pg_entier(r, i)? != 0),
+            },
         }
     }
 }
@@ -285,6 +327,21 @@ pub fn traduire_parametres(sql: &str) -> String {
     let mut caracteres = sql.chars().peekable();
 
     while let Some(c) = caracteres.next() {
+        // Un commentaire `-- ...` court jusqu'a la fin de la ligne. Il
+        // faut le sauter : une apostrophe dedans (« L'oublier ») ferait
+        // croire a un texte ouvert, et plus rien ne serait traduit
+        // apres — le placeholder arriverait tel quel a PostgreSQL, qui
+        // repondrait « l'operateur n'existe pas : ? integer ».
+        if c == '-' && !dans_texte && caracteres.peek() == Some(&'-') {
+            sortie.push(c);
+            for d in caracteres.by_ref() {
+                sortie.push(d);
+                if d == '\n' {
+                    break;
+                }
+            }
+            continue;
+        }
         if c == '\'' {
             dans_texte = !dans_texte;
             sortie.push(c);
@@ -742,6 +799,23 @@ mod tests {
     fn un_sql_sans_parametre_ne_bouge_pas() {
         let sql = "SELECT COUNT(*) FROM article";
         assert_eq!(traduire_parametres(sql), sql);
+    }
+
+    #[test]
+    fn une_apostrophe_dans_un_commentaire_ne_bloque_pas_la_traduction() {
+        // Le cas reel : un commentaire explicatif dans une requete du
+        // tableau de bord, avec « L'oublier » dedans.
+        let sql = "SELECT a\n  -- L'oublier compte deux fois\n  FROM t WHERE id = ?1";
+        assert_eq!(
+            traduire_parametres(sql),
+            "SELECT a\n  -- L'oublier compte deux fois\n  FROM t WHERE id = $1"
+        );
+    }
+
+    #[test]
+    fn un_double_tiret_dans_un_texte_reste_du_texte() {
+        let sql = "SELECT '--' FROM t WHERE id = ?1";
+        assert_eq!(traduire_parametres(sql), "SELECT '--' FROM t WHERE id = $1");
     }
 
     #[test]

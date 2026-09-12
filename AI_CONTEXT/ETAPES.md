@@ -11,8 +11,10 @@ Les décisions d'architecture ne vivent PAS ici : elles sont dans
 dans [DECISIONS.md](DECISIONS.md) pour tout le reste. Ce fichier-ci ne
 dit que l'avancement — qui fait quoi, dans quel ordre.
 
-Dernière mise à jour : **11 septembre 2026**.
-État : **276 tests SQLite + 21 tests PostgreSQL**, tous au vert.
+Dernière mise à jour : **12 septembre 2026**.
+État : **295 tests SQLite + 21 tests PostgreSQL**, tous au vert — les 21
+rejoués sur une vraie instance (`gescom_test`), plus les 12 scénarios du
+tableau de bord qui tournent sur les deux moteurs.
 
 ---
 
@@ -333,7 +335,50 @@ vente reste acquise même si la facture échoue), donc le coût d'un
 comptant (lien `vente.piece_id` vérifié), facture qui reste "emis"
 sans encaissement.
 
-**Ce qui manque encore côté écran POS** : plus que le tableau de bord.
+### Le tableau de bord — **porté le 12/09/2026**
+
+Les cinq lectures de l'écran d'accueil (`lire_resume_dashboard`,
+`lire_ventes_periode`, `lire_top_clients`, `lire_top_articles`,
+`lire_ventes_a_decouvert`), en `_sur`, cloisonnées, branchées au
+registre. **L'écran POS n'a plus rien qui manque sur PostgreSQL.**
+
+Ce qui a changé par rapport à la version SQLite, et pourquoi :
+- `julianday`, `strftime`, `date('now')` remplacés par `SUBSTR` sur les
+  dates ISO et un rangement en cases **en Rust** (`case_de`, pure,
+  5 tests) — le même calcul sur les deux moteurs, au lieu de deux SQL.
+- Chaque somme est enveloppée dans `CAST(... AS BIGINT)` : PostgreSQL
+  rend `NUMERIC` pour `SUM(bigint)`, que `i64` ne sait pas lire.
+- Un paramètre optionnel s'écrit `CAST(?N AS TEXT) IS NULL OR col = ?N`.
+  Le simple `?N IS NULL` échoue sur PostgreSQL (« n'a pas pu déterminer
+  le type de données du paramètre ») dès que la valeur est NULL.
+- **Le résumé fait remonter ses erreurs** au lieu de retomber à 0 comme
+  la version SQLite. Sur deux moteurs, un 0 silencieux cache exactement
+  ce qu'on cherche : un CA à zéro ressemble à « pas de vente », pas à
+  « requête refusée ».
+
+12 scénarios dans
+[tableau_bord_base.rs](../src-tauri/noyau/tests/tableau_bord_base.rs),
+qui vérifient les chiffres après de vraies ventes passées par
+`creer_vente_sur_base` — et qui **tournent sur PostgreSQL quand
+`GESCOM_PG` est défini** (`--test-threads=1`).
+
+⚠️ **Rejouer les scénarios PostgreSQL a fait remonter deux défauts de
+la façade, invisibles depuis SQLite :**
+- **`INT4` illisible.** Les tables v2 créées par du DDL en ligne dans
+  `amorcage.rs` (`exercice.clos`, `dossier.clos`, `role.acces_total`…)
+  ne passent pas par `types_postgres` : elles sont en `INT4`, et
+  `postgres` refuse de le lire dans un `i64` (« error deserializing
+  column 5 »). `lire_exercices_sur` échouait sur PostgreSQL — le
+  scénario existait, il n'avait jamais été rejoué. Corrigé dans
+  `Ligne` : elle lit selon le type **réel** de la colonne (`INT2/4/8`,
+  `FLOAT4/8`, `BOOL`) et rend ce que l'appelant demande. Un DDL qui
+  oublie `BIGINT` ne casse plus une lecture.
+- **Une apostrophe dans un commentaire SQL.** `traduire_parametres`
+  prenait le `L'` de « L'oublier » (un commentaire `--` dans une
+  requête) pour l'ouverture d'un texte : plus aucun `?N` n'était
+  traduit ensuite, et PostgreSQL répondait « l'opérateur n'existe pas :
+  ? integer ». Le traducteur saute maintenant les commentaires
+  `-- … fin de ligne`. Deux tests.
 
 Deux chantiers à part :
 - la **sauvegarde** — `VACUUM INTO` n'existe pas côté PostgreSQL ;
