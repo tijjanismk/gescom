@@ -169,12 +169,19 @@ par colonne et nomme ce qui manque.
 
 ## Ce qui reste
 
-- **La sauvegarde.** `VACUUM INTO` copie un fichier SQLite ; une base
-  PostgreSQL se sauvegarde avec `pg_dump` sur le serveur (D4).
-  `sauvegarder_base_sur_base` **refuse clairement** sur PostgreSQL et
-  `lire_config_sauvegarde` rend le moteur pour que l'écran le dise.
-  Brancher `pg_dump` — chemin de l'exécutable, mot de passe hors dépôt
-  (D10), rotation — est un chantier à part.
+- ~~La sauvegarde~~ — **faite le 12/09/2026.** `sauvegarde::pg_dump`
+  (noyau) lance `pg_dump --format=custom` avec l'URL que `Base` tient
+  déjà (`Base::cible`) : le mot de passe passe par `PGPASSWORD`, jamais
+  sur la ligne de commande — la liste des processus est lisible par
+  tous — et jamais dans le dépôt (D10). L'exécutable se trouve par le
+  réglage `config_app.pg_dump_chemin`, puis le `PATH`, puis
+  `C:\Program Files\PostgreSQL\*in`. Le serveur planifie sur les
+  deux moteurs, toutes les 24 h, 14 copies gardées. Vérifié :
+  [sauvegarde_pg.rs](../../src-tauri/noyau/tests/sauvegarde_pg.rs)
+  produit un dump de la démo et `pg_restore --list` le lit.
+  **Restaurer** : `pg_restore --clean --if-exists --dbname gescom
+  gescom_backup_….dump` — à essayer une fois sur une base jetable avant
+  d'en avoir besoin (D4 le demande).
 - **Le déclencheur de stock et le dossier.** `stock_suit_les_mouvements`
   pose la ligne `stock_depot` sans `dossier_id` explicite : le défaut de
   la colonne (SQLite : `defaut` ; PostgreSQL : le dossier de session)
@@ -206,5 +213,5 @@ le port 5432 et la base d'essai s'appelle `gescom_essai`.
 - [CONFIRMÉ] Les 83 scénarios `*_base.rs` passent sur PostgreSQL
   (`GESCOM_PG=… cargo test --test <fichier> -- --test-threads=1`, sur
   une base jetable, jamais celle du serveur).
-- [CONFIRMÉ] Sur PostgreSQL, une commande refuse plutôt que de faire
-  semblant : la sauvegarde renvoie « pg_dump sur le serveur ».
+- [CONFIRMÉ] La sauvegarde PostgreSQL passe par `pg_dump`, mot de passe
+  en variable d'environnement, jamais en argument.

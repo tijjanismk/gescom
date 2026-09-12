@@ -385,6 +385,9 @@ impl Acces for Transaction<'_> {
 /// pouvait manquer. Attache a la connexion, il est toujours la.
 pub struct Base {
     moteur: Moteur,
+    /// Ce qui a ete passe a `ouvrir` : un chemin ou une URL. La
+    /// sauvegarde PostgreSQL en a besoin pour appeler `pg_dump`.
+    cible: String,
     dossier: String,
     /// Refuser les requetes qui oublient `dossier_id`.
     ///
@@ -656,6 +659,7 @@ impl Base {
         };
         let mut base = Base {
             moteur,
+            cible: cible.to_string(),
             dossier: crate::dossiers::DOSSIER_DEFAUT.to_string(),
             audit: false,
         };
@@ -666,6 +670,12 @@ impl Base {
     /// Le dossier sur lequel cette connexion travaille.
     pub fn dossier(&self) -> &str {
         &self.dossier
+    }
+
+    /// Le chemin ou l'URL d'ouverture. Sur PostgreSQL, l'URL porte le
+    /// mot de passe : ne jamais l'ecrire dans un journal ni un message.
+    pub fn cible(&self) -> &str {
+        &self.cible
     }
 
     /// Change de dossier.

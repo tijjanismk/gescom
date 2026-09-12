@@ -368,8 +368,9 @@ chaque aide partagée aurait existé en deux copies ; et **le filet**
 serveur — sept colonnes ou tables n'existaient que d'un côté.
 
 Ce qui s'est décidé en route, sans nouvelle case :
-- une commande **refuse** sur PostgreSQL ce qu'elle ne sait pas y faire
-  (la copie de sauvegarde), plutôt que de faire semblant ;
+- une commande **refuse** sur PostgreSQL ce qu'elle ne sait pas y faire,
+  plutôt que de faire semblant — la copie de sauvegarde l'a été un
+  après-midi, le temps d'écrire `pg_dump` (D4, fait) ;
 - les écarts de moteur se règlent **une fois en SQL commun ou en Rust**,
   jamais en deux variantes (D3 tenue : `jours_depuis`, `SUBSTR`,
   `ON CONFLICT DO NOTHING`, sous-requête au lieu d'un alias dans
@@ -398,7 +399,7 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D1 | `depot` reste `depot` dans le code ; « magasin » à l'écran |
 | D2 | les calculs de dates passent en Rust, le SQL ne fait que comparer |
 | D3 | 54 constructions traduites module par module, jamais deux variantes |
-| D4 | `pg_dump` tous les soirs, deux endroits, restauration à essayer |
+| D4 | `pg_dump` tous les soirs, deux endroits, restauration à essayer — **branché le 12/09/2026**, restauration encore à essayer |
 | D5 | pas de signature tant que tu installes toi-même |
 | D6 | aucun compte de secours ; une commande sur le serveur |
 | D7 | l'écran des permissions par personne se fait |

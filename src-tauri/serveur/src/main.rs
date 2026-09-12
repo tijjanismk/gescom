@@ -185,12 +185,9 @@ fn main() {
             .ok();
         }
     }
-    // Pas de sauvegarde automatique sans `conn` : `VACUUM INTO` n'existe
-    // pas sur PostgreSQL (D4), et planifier un echec toutes les 24 h
-    // n'apporterait rien.
-    if srv.conn.is_some() {
-        sauvegarde::planifier(Arc::clone(&srv));
-    }
+    // Sur les deux moteurs : VACUUM INTO pour SQLite, pg_dump pour
+    // PostgreSQL (D4).
+    sauvegarde::planifier(Arc::clone(&srv));
 
     let adresse = format!("{}:{}", options.hote, options.port);
     let ecouteur = match TcpListener::bind(&adresse) {
@@ -205,11 +202,11 @@ fn main() {
     println!("Gescom serveur — protocole v{}", gescom_noyau::VERSION_PROTOCOLE);
     println!("  base        : {cible} ({})", if est_postgres { "PostgreSQL" } else { "SQLite" });
     println!("  écoute      : http://{adresse}");
-    if srv.conn.is_some() {
-        println!("  sauvegardes : {}", sauvegarde::dossier(&srv).display());
-    } else {
-        println!("  sauvegardes : aucune — pg_dump n'est pas encore écrit (D4)");
-    }
+    println!(
+        "  sauvegardes : {} ({})",
+        sauvegarde::dossier(&srv).display(),
+        if est_postgres { "pg_dump" } else { "VACUUM INTO" }
+    );
     println!("  commandes   : {}", srv.registre.len());
 
     // L'adresse a saisir sur les caisses, et l'etat du pare-feu.

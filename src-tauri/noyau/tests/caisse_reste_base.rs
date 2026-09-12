@@ -158,13 +158,19 @@ fn images_et_sauvegarde_repondent_selon_le_moteur() {
     assert_eq!(cfg["sauvegarde_auto"], true);
     assert_eq!(cfg["dossier_sauvegarde"], "C:/sauvegardes");
 
-    // En mémoire sur SQLite, pas un fichier sur PostgreSQL : dans les
-    // deux cas, un refus qui le dit, jamais une fausse sauvegarde.
-    let r = sauvegarde::sauvegarder_base_sur_base(&mut base, "C:/sauvegardes".into()).unwrap_err();
-    assert!(r.contains("mémoire") || r.contains("pg_dump"), "{r}");
-    let auto = sauvegarde::sauvegarde_auto_si_necessaire_sur_base(&mut base).unwrap();
-    assert_eq!(auto["effectuee"], false);
-    assert!(auto["raison"] == "postgresql" || auto["raison"] == "echec", "{auto}");
+    // SQLite en mémoire : un refus qui le dit, jamais une fausse
+    // sauvegarde. PostgreSQL : un vrai pg_dump (voir sauvegarde_pg.rs).
+    let dossier = std::env::temp_dir().join(format!("gescom-sauvegarde-{}", uuid::Uuid::new_v4()));
+    let r = sauvegarde::sauvegarder_base_sur_base(&mut base, dossier.to_string_lossy().to_string());
+    if base.est_postgres() {
+        assert!(r.unwrap().ends_with(".dump"));
+    } else {
+        assert!(r.unwrap_err().contains("mémoire"));
+        let auto = sauvegarde::sauvegarde_auto_si_necessaire_sur_base(&mut base).unwrap();
+        assert_eq!(auto["effectuee"], false);
+        assert_eq!(auto["raison"], "echec");
+    }
+    let _ = std::fs::remove_dir_all(&dossier);
 }
 
 #[test]

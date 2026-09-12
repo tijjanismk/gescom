@@ -238,19 +238,201 @@ pub fn sauvegarder_config_sauvegarde(
 // Le reglage et l'historique se lisent partout. La COPIE, elle, est
 // l'affaire du moteur : `VACUUM INTO` copie un fichier SQLite ; une
 // base PostgreSQL n'est pas un fichier, elle se sauvegarde avec
-// `pg_dump` sur le serveur — un chantier a part (ETAPES.md). Ici on
-// refuse clairement plutot que de faire semblant.
+// `pg_dump` (D4), lance d'ici avec l'URL que le serveur tient deja.
 
 use crate::base::Base;
 use crate::parametres;
 
-const REFUS_POSTGRES: &str = "Cette base est sur PostgreSQL : la sauvegarde se fait sur le \
-     serveur avec pg_dump, pas depuis l'application.";
-
+/// Une sauvegarde, sur l'un ou l'autre moteur.
+///
+/// SQLite : `VACUUM INTO`, un fichier `.db` complet, WAL compris.
+/// PostgreSQL : `pg_dump --format=custom`, un fichier `.dump` que
+/// `pg_restore` sait rejouer. Dans les deux cas, une ligne au journal.
 pub fn sauvegarder_base_sur_base(base: &mut Base, dossier_destination: String) -> Result<String, String> {
-    match base.sqlite() {
-        Some(conn) => effectuer_sauvegarde(conn, &dossier_destination),
-        None => Err(REFUS_POSTGRES.to_string()),
+    if let Some(conn) = base.sqlite() {
+        return effectuer_sauvegarde(conn, &dossier_destination);
+    }
+    let executable = config(base, "pg_dump_chemin").filter(|c| !c.trim().is_empty());
+    let dest = pg_dump(base.cible(), std::path::Path::new(&dossier_destination), executable.as_deref())?;
+    let chemin = dest.to_string_lossy().to_string();
+    let dossier = base.dossier().to_string();
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let _ = base.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'sauvegarde', 'base', 'db', ?2, ?3, 'app', ?4, ?5)",
+        &parametres![uuid::Uuid::new_v4().to_string(), auteur, chemin.clone(), maintenant_iso(), dossier],
+    );
+    Ok(chemin)
+}
+
+// ---------------------------------------------------------------------
+//  pg_dump
+// ---------------------------------------------------------------------
+//
+// Le mot de passe ne va NI dans le depot (D10) NI sur la ligne de
+// commande : la liste des processus est lisible par tout le monde sur
+// le poste. Il passe par `PGPASSWORD`, que pg_dump lit et que personne
+// d'autre ne voit. L'URL d'ou il vient est celle que le serveur tient
+// deja — la meme information, au meme endroit.
+
+/// Les morceaux d'une URL `postgresql://user:pass@hote:port/base?...`.
+struct Connexion {
+    utilisateur: Option<String>,
+    mot_de_passe: Option<String>,
+    hote: String,
+    port: String,
+    base: String,
+}
+
+/// Decoupe l'URL a la main : c'est une forme fixe, et une dependance
+/// pour six champs serait un poids de plus dans l'installeur.
+fn decouper_url(url: &str) -> Result<Connexion, String> {
+    let reste = url
+        .strip_prefix("postgresql://")
+        .or_else(|| url.strip_prefix("postgres://"))
+        .ok_or_else(|| "Ce n'est pas une URL PostgreSQL.".to_string())?;
+    let reste = reste.split('?').next().unwrap_or(reste);
+    let (acces, suite) = match reste.rsplit_once('@') {
+        Some((a, s)) => (Some(a), s),
+        None => (None, reste),
+    };
+    let (hote_port, base) = suite.split_once('/').unwrap_or((suite, ""));
+    let (hote, port) = match hote_port.rsplit_once(':') {
+        Some((h, p)) if !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => (h, p),
+        _ => (hote_port, "5432"),
+    };
+    let (utilisateur, mot_de_passe) = match acces {
+        Some(a) => match a.split_once(':') {
+            Some((u, p)) => (Some(decoder(u)), Some(decoder(p))),
+            None => (Some(decoder(a)), None),
+        },
+        None => (None, None),
+    };
+    if base.is_empty() {
+        return Err("L'URL ne nomme pas de base.".to_string());
+    }
+    Ok(Connexion {
+        utilisateur,
+        mot_de_passe,
+        hote: if hote.is_empty() { "localhost".into() } else { hote.to_string() },
+        port: port.to_string(),
+        base: decoder(base),
+    })
+}
+
+/// `%40` -> `@`, pour un mot de passe qui en contient un.
+fn decoder(v: &str) -> String {
+    let octets = v.as_bytes();
+    let mut out = Vec::with_capacity(octets.len());
+    let mut i = 0;
+    while i < octets.len() {
+        if octets[i] == b'%' && i + 2 < octets.len() {
+            if let Ok(n) = u8::from_str_radix(&v[i + 1..i + 3], 16) {
+                out.push(n);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(octets[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
+/// Ou est `pg_dump` ? Le reglage d'abord, puis le PATH, puis le dossier
+/// d'installation habituel sous Windows — la version la plus haute.
+fn trouver_pg_dump(explicite: Option<&str>) -> Result<std::path::PathBuf, String> {
+    if let Some(c) = explicite {
+        let p = std::path::PathBuf::from(c);
+        if p.exists() {
+            return Ok(p);
+        }
+        return Err(format!("pg_dump introuvable au chemin réglé : {c}"));
+    }
+    let nom = if cfg!(windows) { "pg_dump.exe" } else { "pg_dump" };
+    if let Some(chemins) = std::env::var_os("PATH") {
+        for d in std::env::split_paths(&chemins) {
+            let p = d.join(nom);
+            if p.exists() {
+                return Ok(p);
+            }
+        }
+    }
+    let mut candidats: Vec<std::path::PathBuf> = ["C:\\Program Files\\PostgreSQL", "C:\\Program Files (x86)\\PostgreSQL"]
+        .iter()
+        .filter_map(|racine| std::fs::read_dir(racine).ok())
+        .flatten()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path().join("bin").join(nom))
+        .filter(|p| p.exists())
+        .collect();
+    candidats.sort();
+    candidats.pop().ok_or_else(|| {
+        "pg_dump introuvable. Installer les outils client PostgreSQL, ou régler \
+         « pg_dump_chemin » dans les paramètres."
+            .to_string()
+    })
+}
+
+/// Lance `pg_dump` et rend le fichier ecrit.
+pub fn pg_dump(url: &str, dossier_destination: &std::path::Path, executable: Option<&str>) -> Result<std::path::PathBuf, String> {
+    let c = decouper_url(url)?;
+    let exe = trouver_pg_dump(executable)?;
+    std::fs::create_dir_all(dossier_destination)
+        .map_err(|e| format!("Impossible de créer le dossier : {e}"))?;
+    let horodatage = chrono::Local::now().format("%Y-%m-%d_%H-%M").to_string();
+    let dest = dossier_destination.join(format!("gescom_backup_{horodatage}.dump"));
+
+    let mut cmd = std::process::Command::new(&exe);
+    cmd.arg("--format=custom")
+        .arg("--no-password")
+        .arg("--host").arg(&c.hote)
+        .arg("--port").arg(&c.port)
+        .arg("--dbname").arg(&c.base)
+        .arg("--file").arg(&dest);
+    if let Some(u) = &c.utilisateur {
+        cmd.arg("--username").arg(u);
+    }
+    if let Some(p) = &c.mot_de_passe {
+        cmd.env("PGPASSWORD", p);
+    }
+    let sortie = cmd.output().map_err(|e| format!("Impossible de lancer {} : {e}", exe.display()))?;
+    if !sortie.status.success() {
+        let _ = std::fs::remove_file(&dest);
+        let detail = String::from_utf8_lossy(&sortie.stderr).trim().to_string();
+        return Err(format!("pg_dump a échoué : {detail}"));
+    }
+    Ok(dest)
+}
+
+#[cfg(test)]
+mod tests_url {
+    use super::decouper_url;
+
+    #[test]
+    fn une_url_complete() {
+        let c = decouper_url("postgresql://postgres:s%40cret@10.0.0.5:5433/gescom?sslmode=disable").unwrap();
+        assert_eq!(c.utilisateur.as_deref(), Some("postgres"));
+        assert_eq!(c.mot_de_passe.as_deref(), Some("s@cret"));
+        assert_eq!(c.hote, "10.0.0.5");
+        assert_eq!(c.port, "5433");
+        assert_eq!(c.base, "gescom");
+    }
+
+    #[test]
+    fn une_url_minimale() {
+        let c = decouper_url("postgres://localhost/gescom").unwrap();
+        assert!(c.utilisateur.is_none());
+        assert_eq!(c.port, "5432");
+        assert_eq!(c.base, "gescom");
+    }
+
+    #[test]
+    fn sans_base_ou_hors_postgres() {
+        assert!(decouper_url("postgresql://localhost").is_err());
+        assert!(decouper_url("C:/gescom.db").is_err());
     }
 }
 
@@ -291,9 +473,6 @@ pub fn lire_config_sauvegarde_sur_base(base: &mut Base) -> Result<serde_json::Va
 pub fn sauvegarde_auto_si_necessaire_sur_base(base: &mut Base) -> Result<serde_json::Value, String> {
     if config(base, "sauvegarde_auto").as_deref() != Some("1") {
         return Ok(serde_json::json!({ "effectuee": false, "raison": "desactivee" }));
-    }
-    if base.est_postgres() {
-        return Ok(serde_json::json!({ "effectuee": false, "raison": "postgresql", "erreur": REFUS_POSTGRES }));
     }
     let Some(dossier) = config(base, "dossier_sauvegarde").filter(|d| !d.is_empty()) else {
         return Ok(serde_json::json!({

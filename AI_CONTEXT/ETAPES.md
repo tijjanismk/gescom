@@ -466,12 +466,12 @@ commun ou en Rust :
   exige que chaque colonne lue soit groupée, et ils ne servaient à
   rien.
 
-**La sauvegarde** est tranchée plutôt que portée : `VACUUM INTO`
-copie un fichier SQLite ; une base PostgreSQL se sauvegarde avec
-`pg_dump` sur le serveur. `sauvegarder_base_sur_base` **refuse
-clairement** sur PostgreSQL au lieu de faire semblant, et
-`lire_config_sauvegarde` rend le moteur pour que l'écran le dise.
-Brancher `pg_dump` est un chantier à part.
+**La sauvegarde** est portée, pas contournée : `pg_dump` lancé par le
+noyau avec l'URL que `Base` tient déjà, mot de passe en `PGPASSWORD`
+(jamais en argument, jamais dans le dépôt — D10), exécutable trouvé par
+réglage, `PATH` ou dossier d'installation. Le serveur planifie sur les
+deux moteurs. Vérifié par un vrai dump de la démo que `pg_restore`
+sait lire.
 
 **Trouvé en route, et corrigé** : `unite_vente.code_barre`,
 `paiement.annule_paiement_id`, `paiement_fournisseur.annule_paiement_id`,
@@ -486,8 +486,7 @@ trouvé le septième trou (`mouvement_caisse.poste_id`) à son premier
 passage.
 
 **Ce que ça change pour le commerçant** : sur PostgreSQL, tout ce que
-l'application sait faire — sauf la copie de sauvegarde, qui se fait
-autrement.
+l'application sait faire, sauvegarde comprise.
 
 ---
 

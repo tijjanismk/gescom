@@ -27,61 +27,70 @@ const HEURES_ENTRE_SAUVEGARDES: u64 = 24;
 const COPIES_CONSERVEES: usize = 14;
 
 pub fn dossier(srv: &Arc<Serveur>) -> PathBuf {
-    let configure: Option<String> = srv.conn.as_ref().and_then(|m| m.lock().ok()).and_then(|c| {
-        c.query_row(
+    // Le reglage se lit par `Base` : il vaut sur les deux moteurs.
+    let configure: Option<String> = srv.base.lock().ok().and_then(|mut b| {
+        b.lire_une(
             "SELECT valeur FROM config_app WHERE cle = 'dossier_sauvegarde'",
-            [],
-            |r| r.get::<_, String>(0),
+            &[],
+            |r| r.get::<String>(0),
         )
         .ok()
+        .flatten()
         .filter(|v| !v.trim().is_empty())
     });
 
     match configure {
         Some(d) => PathBuf::from(d),
-        None => {
+        // A cote du fichier SQLite ; a cote de l'executable quand la
+        // cible est une URL, qui n'a pas de « a cote ».
+        None if srv.conn.is_some() => {
             let base = PathBuf::from(&srv.chemin_base);
             base.parent()
                 .unwrap_or_else(|| std::path::Path::new("."))
                 .join("sauvegardes")
         }
+        None => std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|d| d.to_path_buf()))
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("sauvegardes"),
     }
 }
 
 /// Une sauvegarde, tout de suite.
+///
+/// SQLite : `VACUUM INTO`, ici, sur la connexion brute — le contenu du
+/// WAL est inclus, une copie de fichier donnerait une base amputee des
+/// ventes du jour. PostgreSQL : `pg_dump`, par le noyau, avec l'URL
+/// que le serveur tient deja (D4, D10).
 pub fn maintenant(srv: &Arc<Serveur>) -> Result<String, String> {
-    // `VACUUM INTO` est du SQLite — D4 (AI_CONTEXT/DECISIONS.md) prevoit
-    // `pg_dump`, pas encore ecrit. Refuser clairement vaut mieux qu'un
-    // fichier `.db` qui ne contiendrait qu'un schema vide.
-    let Some(conn_mutex) = &srv.conn else {
-        return Err(
-            "La sauvegarde automatique n'est pas encore disponible sur PostgreSQL \
-             (VACUUM INTO n'existe pas sur ce moteur — voir D4)."
-                .to_string(),
-        );
-    };
-
     let dest_dir = dossier(srv);
     std::fs::create_dir_all(&dest_dir)
         .map_err(|e| format!("Impossible de créer le dossier de sauvegarde : {e}"))?;
 
-    let horodatage = chrono::Local::now().format("%Y-%m-%d_%H-%M").to_string();
-    let dest = dest_dir.join(format!("gescom_backup_{horodatage}.db"));
-    let dest_texte = dest.to_string_lossy().to_string();
-
-    {
-        let conn = conn_mutex
-            .lock()
-            .map_err(|_| "Base indisponible.".to_string())?;
-        // `VACUUM INTO` et non une copie de fichier : le contenu du WAL
-        // est inclus. Une copie a la main donnerait une base amputee
-        // des ecritures recentes — exactement les ventes du jour.
-        //
-        // Chemin en parametre lie, jamais interpole : une apostrophe
-        // dans un nom d'utilisateur Windows casserait la requete.
-        conn.execute("VACUUM INTO ?1", rusqlite::params![dest_texte])
-            .map_err(|e| format!("Sauvegarde impossible : {e}"))?;
-    }
+    let dest_texte = match &srv.conn {
+        Some(conn_mutex) => {
+            let horodatage = chrono::Local::now().format("%Y-%m-%d_%H-%M").to_string();
+            let dest = dest_dir.join(format!("gescom_backup_{horodatage}.db"));
+            let dest_texte = dest.to_string_lossy().to_string();
+            let conn = conn_mutex.lock().map_err(|_| "Base indisponible.".to_string())?;
+            // Chemin en parametre lie, jamais interpole : une apostrophe
+            // dans un nom d'utilisateur Windows casserait la requete.
+            conn.execute("VACUUM INTO ?1", rusqlite::params![dest_texte.clone()])
+                .map_err(|e| format!("Sauvegarde impossible : {e}"))?;
+            dest_texte
+        }
+        None => {
+            // Le verrou tient le temps de pg_dump : quelques secondes
+            // sur une boutique, pendant lesquelles les caisses
+            // attendent. Acceptable une fois par jour, la nuit.
+            let mut base = srv.base.lock().map_err(|_| "Base indisponible.".to_string())?;
+            gescom_noyau::sauvegarde::sauvegarder_base_sur_base(
+                &mut base,
+                dest_dir.to_string_lossy().to_string(),
+            )?
+        }
+    };
 
     if let Ok(mut d) = srv.derniere_sauvegarde.lock() {
         *d = Some(gescom_noyau::utils::maintenant_iso());
