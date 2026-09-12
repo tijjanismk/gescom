@@ -781,3 +781,276 @@ pub fn fermer_session_caisse_sur(
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------
+//  Mouvements, depenses, historique — sur l'un ou l'autre moteur
+// ---------------------------------------------------------------------
+//
+// `DATE('now', 'localtime')` devient la date du jour calculee ici et
+// comparee aux dix premiers caracteres de la date ISO.
+
+fn aujourd_hui() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
+}
+
+pub fn lire_mouvements_caisse_du_jour_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT mc.id, mc.sens, mc.moyen, mc.montant, mc.motif, mc.date_mouvement, mc.libelle
+         FROM mouvement_caisse mc
+         JOIN session_caisse sc ON sc.id = mc.session_id
+         WHERE SUBSTR(mc.date_mouvement, 1, 10) = ?1 AND mc.dossier_id = ?2
+         ORDER BY mc.date_mouvement ASC",
+        &parametres![aujourd_hui(), dossier],
+        |r| {
+            Ok(serde_json::json!({
+                "id":             r.get::<String>(0)?,
+                "sens":           r.get::<String>(1)?,
+                "moyen":          r.get::<String>(2)?,
+                "montant":        r.get::<i64>(3)?,
+                "motif":          r.get::<String>(4)?,
+                "date_mouvement": r.get::<String>(5)?,
+                "libelle":        r.get::<Option<String>>(6)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn enregistrer_depense_sur_base(
+    base: &mut Base,
+    montant: i64,
+    libelle: String,
+    categorie: Option<String>,
+    moyen: Option<String>,
+    utilisateur_role: Option<String>,
+) -> Result<String, String> {
+    if montant <= 0 {
+        return Err("Le montant doit être positif".to_string());
+    }
+    if libelle.trim().is_empty() {
+        return Err("Le libellé est obligatoire".to_string());
+    }
+    let dossier = base.dossier().to_string();
+    let maintenant = maintenant_iso();
+    let role = utilisateur_role.as_deref().unwrap_or("employe");
+    let auteur = crate::argent::id_utilisateur_par_role_sur(base, role);
+    let session_id = crate::caisses::exiger_sur(base, None)
+        .map_err(|_| "Aucune session de caisse ouverte — ouvrir la caisse d'abord.".to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO mouvement_caisse
+         (id, session_id, sens, moyen, montant, motif, libelle, categorie,
+          date_mouvement, cree_le, cree_par, origine, dossier_id)
+         VALUES (?1,?2,'sortie',?3,?4,'depense',?5,?6,?7,?7,?8,'app',?9)",
+        &parametres![
+            id.clone(), session_id, moyen.as_deref().unwrap_or("especes"), montant,
+            libelle.trim(), categorie.as_deref().unwrap_or("autre"), maintenant.clone(),
+            auteur.clone(), dossier.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+    let _ = tx.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1,'depense','mouvement_caisse',?2,?3,?4,'app',?5,?6)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(), id.clone(), auteur,
+            format!(r#"{{"montant":{},"libelle":"{}"}}"#, montant, libelle.trim().replace('"', "'")),
+            maintenant, dossier
+        ],
+    );
+    tx.valider().map_err(|e| e.0)?;
+    Ok(id)
+}
+
+pub fn lire_depenses_du_jour_sur_base(base: &mut Base) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let lignes: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT mc.id, mc.libelle, mc.moyen, mc.montant, mc.date_mouvement,
+                    u.nom, COALESCE(mc.categorie, 'autre')
+             FROM mouvement_caisse mc
+             LEFT JOIN utilisateur u ON u.id = mc.cree_par
+             WHERE mc.motif = 'depense' AND SUBSTR(mc.date_mouvement, 1, 10) = ?1
+               AND mc.dossier_id = ?2
+             ORDER BY mc.date_mouvement DESC",
+            &parametres![aujourd_hui(), dossier],
+            |r| {
+                Ok(serde_json::json!({
+                    "id":             r.get::<String>(0)?,
+                    "libelle":        r.get::<Option<String>>(1)?,
+                    "moyen":          r.get::<String>(2)?,
+                    "montant":        r.get::<i64>(3)?,
+                    "date_mouvement": r.get::<String>(4)?,
+                    "auteur_nom":     r.get::<Option<String>>(5)?,
+                    "categorie":      r.get::<String>(6)?,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+    let total: i64 = lignes.iter().filter_map(|l| l["montant"].as_i64()).sum();
+    let mut par_categorie: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    for l in &lignes {
+        *par_categorie.entry(l["categorie"].as_str().unwrap_or("autre").to_string()).or_insert(0) +=
+            l["montant"].as_i64().unwrap_or(0);
+    }
+    let ventilation: Vec<serde_json::Value> = par_categorie
+        .into_iter()
+        .map(|(c, m)| serde_json::json!({ "categorie": c, "montant": m }))
+        .collect();
+    Ok(serde_json::json!({ "depenses": lignes, "total": total, "par_categorie": ventilation }))
+}
+
+pub fn lire_sessions_caisse_sur_base(base: &mut Base, limite: Option<i64>) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT sc.id, sc.statut, sc.fond_ouverture, sc.cree_le, sc.ferme_le,
+                sc.solde_theorique, sc.especes_comptees, sc.ecart,
+                COALESCE(uo.nom, '—'),
+                CAST(COALESCE((SELECT SUM(mc.montant) FROM mouvement_caisse mc
+                   WHERE mc.session_id = sc.id AND mc.sens = 'entree'
+                     AND mc.moyen = 'especes' AND mc.motif <> 'ouverture'), 0) AS BIGINT),
+                CAST(COALESCE((SELECT SUM(mc.montant) FROM mouvement_caisse mc
+                   WHERE mc.session_id = sc.id AND mc.sens = 'sortie'
+                     AND mc.moyen = 'especes'), 0) AS BIGINT),
+                (SELECT COUNT(*) FROM mouvement_caisse mc WHERE mc.session_id = sc.id)
+         FROM session_caisse sc
+         LEFT JOIN utilisateur uo ON uo.id = sc.ouvert_par
+         WHERE sc.dossier_id = ?2
+         ORDER BY sc.cree_le DESC
+         LIMIT ?1",
+        &parametres![limite.unwrap_or(60), dossier],
+        |r| {
+            Ok(serde_json::json!({
+                "id":               r.get::<String>(0)?,
+                "statut":           r.get::<String>(1)?,
+                "fond_ouverture":   r.get::<i64>(2)?,
+                "ouvert_le":        r.get::<String>(3)?,
+                "ferme_le":         r.get::<Option<String>>(4)?,
+                "solde_theorique":  r.get::<Option<i64>>(5)?,
+                "especes_comptees": r.get::<Option<i64>>(6)?,
+                "ecart":            r.get::<Option<i64>>(7)?,
+                "ouvert_par":       r.get::<String>(8)?,
+                "entrees_especes":  r.get::<i64>(9)?,
+                "sorties_especes":  r.get::<i64>(10)?,
+                "nb_mouvements":    r.get::<i64>(11)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn lire_mouvements_session_sur_base(base: &mut Base, session_id: String) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT mc.id, mc.sens, mc.moyen, mc.montant, mc.motif,
+                COALESCE(mc.libelle, ''), COALESCE(mc.categorie, ''), mc.date_mouvement
+         FROM mouvement_caisse mc
+         WHERE mc.session_id = ?1 AND mc.dossier_id = ?2
+         ORDER BY mc.date_mouvement",
+        &parametres![session_id, dossier],
+        |r| {
+            Ok(serde_json::json!({
+                "id":             r.get::<String>(0)?,
+                "sens":           r.get::<String>(1)?,
+                "moyen":          r.get::<String>(2)?,
+                "montant":        r.get::<i64>(3)?,
+                "motif":          r.get::<String>(4)?,
+                "libelle":        r.get::<String>(5)?,
+                "categorie":      r.get::<String>(6)?,
+                "date_mouvement": r.get::<String>(7)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn lire_rapport_ecarts_sur_base(base: &mut Base, jours: Option<i64>) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let n = jours.unwrap_or(30);
+    let depuis = (chrono::Local::now() - chrono::Duration::days(n)).format("%Y-%m-%d").to_string();
+    let (nb, nuls, manques, excedents, cumul, pire): (i64, i64, i64, i64, i64, i64) = base
+        .lire_une(
+            "SELECT COUNT(*),
+                    CAST(COALESCE(SUM(CASE WHEN ecart = 0 THEN 1 ELSE 0 END), 0) AS BIGINT),
+                    CAST(COALESCE(SUM(CASE WHEN ecart < 0 THEN 1 ELSE 0 END), 0) AS BIGINT),
+                    CAST(COALESCE(SUM(CASE WHEN ecart > 0 THEN 1 ELSE 0 END), 0) AS BIGINT),
+                    CAST(COALESCE(SUM(ecart), 0) AS BIGINT),
+                    CAST(COALESCE(MIN(ecart), 0) AS BIGINT)
+             FROM session_caisse
+             WHERE statut = 'fermee' AND ecart IS NOT NULL
+               AND SUBSTR(ferme_le, 1, 10) >= ?1 AND dossier_id = ?2",
+            &parametres![depuis, dossier],
+            |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?, r.get::<i64>(3)?, r.get::<i64>(4)?, r.get::<i64>(5)?)),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or((0, 0, 0, 0, 0, 0));
+
+    let diagnostic = if nb == 0 {
+        "Aucune clôture sur la période."
+    } else if nuls == nb {
+        "Toutes les caisses tombent juste. Les saisies sont complètes."
+    } else if manques > nb / 2 && cumul < 0 {
+        "Manques réguliers : une sortie d'argent n'est probablement          jamais saisie (transport, monnaie prêtée, petites dépenses)."
+    } else if excedents > nb / 2 {
+        "Excédents réguliers : des ventes échappent au système.          Le stock devient faux et les clients n'ont pas de facture."
+    } else {
+        "Écarts irréguliers : erreurs de monnaie rendue ou saisies          approximatives."
+    };
+    Ok(serde_json::json!({
+        "jours": n, "nb_clotures": nb,
+        "nuls": nuls, "manques": manques, "excedents": excedents,
+        "cumul": cumul, "pire_manque": pire,
+        "moyenne": if nb > 0 { cumul / nb } else { 0 },
+        "diagnostic": diagnostic,
+    }))
+}
+
+pub fn modifier_depense_sur_base(
+    base: &mut Base,
+    mouvement_id: String,
+    montant: Option<i64>,
+    libelle: Option<String>,
+    categorie: Option<String>,
+) -> Result<(), String> {
+    let dossier = base.dossier().to_string();
+    let (motif, statut): (String, String) = base
+        .lire_une(
+            "SELECT mc.motif, sc.statut FROM mouvement_caisse mc
+             JOIN session_caisse sc ON sc.id = mc.session_id
+             WHERE mc.id = ?1 AND mc.dossier_id = ?2",
+            &parametres![mouvement_id.clone(), dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Mouvement introuvable".to_string())?;
+    if motif != "depense" {
+        return Err("Seule une dépense se corrige. Les mouvements liés à une              vente, un achat ou un retour suivent leur document.".to_string());
+    }
+    if statut != "ouverte" {
+        return Err("Cette session est clôturée : l'écart a déjà été constaté.              Saisir une dépense corrective sur la session du jour.".to_string());
+    }
+    if let Some(m) = montant {
+        if m <= 0 {
+            return Err("Le montant doit être positif".to_string());
+        }
+    }
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    if let Some(m) = montant {
+        tx.executer("UPDATE mouvement_caisse SET montant = ?1 WHERE id = ?2 AND dossier_id = ?3", &parametres![m, mouvement_id.clone(), dossier.clone()])
+            .map_err(|e| e.0)?;
+    }
+    if let Some(l) = libelle {
+        tx.executer("UPDATE mouvement_caisse SET libelle = ?1 WHERE id = ?2 AND dossier_id = ?3", &parametres![l.trim(), mouvement_id.clone(), dossier.clone()])
+            .map_err(|e| e.0)?;
+    }
+    if let Some(c) = categorie {
+        tx.executer("UPDATE mouvement_caisse SET categorie = ?1 WHERE id = ?2 AND dossier_id = ?3", &parametres![c, mouvement_id, dossier])
+            .map_err(|e| e.0)?;
+    }
+    tx.valider().map_err(|e| e.0)
+}

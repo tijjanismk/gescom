@@ -92,3 +92,58 @@ pub fn valider_facture_credit(
 
     Ok(())
 }
+
+// =====================================================================
+//  SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+
+use crate::base::Base;
+use crate::parametres;
+
+fn statut_sur(base: &mut Base, piece_id: &str) -> Result<String, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_une(
+        "SELECT statut FROM piece_commerciale WHERE id = ?1 AND dossier_id = ?2",
+        &parametres![piece_id, dossier],
+        |r| r.get::<String>(0),
+    )
+    .map_err(|e| e.0)?
+    .ok_or_else(|| "Facture introuvable".to_string())
+}
+
+/// Exception assumee a l'immuabilite : note et echeance seulement,
+/// sans effet comptable (voir `modifier_facture_pos`).
+pub fn modifier_facture_pos_sur_base(
+    base: &mut Base,
+    piece_id: String,
+    note: Option<String>,
+    date_echeance: Option<String>,
+) -> Result<(), String> {
+    let statut = statut_sur(base, &piece_id)?;
+    if matches!(statut.as_str(), "validee" | "paye" | "annule" | "transfere") {
+        return Err(format!("Facture en statut '{}' — non modifiable. Émettre un avoir.", statut));
+    }
+    let dossier = base.dossier().to_string();
+    base.executer(
+        "UPDATE piece_commerciale
+         SET note = CAST(?1 AS TEXT), date_echeance = CAST(?2 AS TEXT), modifie_le = ?3
+         WHERE id = ?4 AND dossier_id = ?5",
+        &parametres![note, date_echeance, maintenant_iso(), piece_id, dossier],
+    )
+    .map_err(|e| e.0)?;
+    Ok(())
+}
+
+pub fn valider_facture_credit_sur_base(base: &mut Base, piece_id: String) -> Result<(), String> {
+    let statut = statut_sur(base, &piece_id)?;
+    if statut == "validee" {
+        return Err("Facture déjà validée".to_string());
+    }
+    let dossier = base.dossier().to_string();
+    base.executer(
+        "UPDATE piece_commerciale SET statut = 'validee', modifie_le = ?1 WHERE id = ?2 AND dossier_id = ?3",
+        &parametres![maintenant_iso(), piece_id, dossier],
+    )
+    .map_err(|e| e.0)?;
+    Ok(())
+}

@@ -12,10 +12,12 @@ dans [DECISIONS.md](DECISIONS.md) pour tout le reste. Ce fichier-ci ne
 dit que l'avancement — qui fait quoi, dans quel ordre.
 
 Dernière mise à jour : **12 septembre 2026**.
-État : **328 tests SQLite + 21 tests PostgreSQL**, tous au vert — les 21
-rejoués sur une vraie instance (`gescom_test`), plus **45 scénarios**
-(tableau de bord, pièces, achats, retours) qui tournent sur les deux
-moteurs.
+État : **390 tests SQLite + 21 tests PostgreSQL**, tous au vert — les 21
+rejoués sur une vraie instance (`gescom_test`), plus **83 scénarios**
+répartis en douze fichiers `*_base.rs` qui tournent sur les deux
+moteurs. **Le portage est complet : 186 des 187 commandes du serveur
+sont servies sur `Base`** (la 187e, le catalogue des permissions, ne
+touche pas la base).
 
 ---
 
@@ -430,19 +432,59 @@ n'ait eu à être corrigé après coup : les trois pièges déjà connus
 (`SUM` → `NUMERIC`, paramètre NULL non typé, `LIKE`) étaient
 appliqués d'emblée.
 
-**Ce que ça change pour le commerçant sur PostgreSQL** : l'écran
-Pièces complet (devis, commande, bon, facture, avoir, fournisseur),
-les achats et les retours. Il reste, module par module : `creances`,
-`fournisseurs`, `depots`, `transferts`, `journal`, `rapports`,
-`pagination`, `chantiers`, `cheques`, `relances`, `avoirs`,
-`parametres`, `societe`, `roles`, `codebarre`, `livraisons` (le
-reste), `catalogue_csv`, `images`, `modeles`, `sauvegarde`.
+### Le reste — **porté le 12/09/2026, en six lots**
 
-Deux chantiers à part :
-- la **sauvegarde** — `VACUUM INTO` n'existe pas côté PostgreSQL ;
-- les **~60 constructions** — `julianday`, `strftime`, `INSERT OR
-  IGNORE`, `substr(x, -5)`. À réécrire en SQL que les deux moteurs
-  acceptent, pas en deux variantes.
+| lot | modules | commandes | scénarios |
+|---|---|---|---|
+| A | `societe`, `codebarre`, `roles`, `parametres` | 27 | [reglages_base.rs](../src-tauri/noyau/tests/reglages_base.rs) (8) |
+| B | `journal`, `rapports`, `relances`, `cheques`, `transferts` | 17 | [journal_rapports_base.rs](../src-tauri/noyau/tests/journal_rapports_base.rs) (6) |
+| C | `depots`, `avoirs`, `chantiers`, `creances` | 38 | [gestion_base.rs](../src-tauri/noyau/tests/gestion_base.rs) (7) |
+| D | `fournisseurs` + le règlement fournisseur d'`argent` | 13 | [fournisseurs_base.rs](../src-tauri/noyau/tests/fournisseurs_base.rs) (5) |
+| E | `pagination`, `livraisons`, `modeles`, `catalogue_csv` | 16 | [listes_base.rs](../src-tauri/noyau/tests/listes_base.rs) (6) |
+| F | `caisse`, `pieces_pos`, `enregistrer_paiement`, utilisateurs, postes, mode de caisse, `images`, `sauvegarde` | 27 | [caisse_reste_base.rs](../src-tauri/noyau/tests/caisse_reste_base.rs) (6) |
+
+Chaque lot : les fonctions en `_sur_base`, le registre dupliqué en
+`aussi_sur_base` par un outil qui recopie le bloc `Connection` (mêmes
+lignes `arg(...)`, `c.conn` → `c.base`), un fichier de scénarios qui
+finit par un test « tout passe le détecteur », rejoué sur PostgreSQL.
+**Chaque lot est passé sur PostgreSQL avant d'être commité.**
+
+**Les ~60 constructions non portables** sont réglées, une fois, en SQL
+commun ou en Rust :
+- `julianday('now') - julianday(x)` → `utils::jours_depuis`, pure et
+  testée (chèques dormants, retard de créance, tranches d'ancienneté) ;
+- `strftime('%Y-%m', x)` et `DATE(x) = ...` → `SUBSTR(x, 1, 7|10)`
+  sur les dates ISO ; `date('now', '-N months')` → calculé en Rust ;
+- `INSERT OR IGNORE` → `ON CONFLICT (...) DO NOTHING` ; la ligne de
+  stock d'un magasin neuf se pose article par article (le
+  `randomblob` était du SQLite pur) ;
+- `json_group_array` → les unités d'une ligne de stock se lisent en
+  Rust, en une requête pour la page ;
+- un alias du SELECT dans `HAVING` → une sous-requête, PostgreSQL le
+  refuse ;
+- les `GROUP BY` sans agrégat de l'import CSV sont retirés — PostgreSQL
+  exige que chaque colonne lue soit groupée, et ils ne servaient à
+  rien.
+
+**La sauvegarde** est tranchée plutôt que portée : `VACUUM INTO`
+copie un fichier SQLite ; une base PostgreSQL se sauvegarde avec
+`pg_dump` sur le serveur. `sauvegarder_base_sur_base` **refuse
+clairement** sur PostgreSQL au lieu de faire semblant, et
+`lire_config_sauvegarde` rend le moteur pour que l'écran le dise.
+Brancher `pg_dump` est un chantier à part.
+
+**Trouvé en route, et corrigé** : `unite_vente.code_barre`,
+`paiement.annule_paiement_id`, `paiement_fournisseur.annule_paiement_id`,
+`parametres_societe.entete_chemin` / `pied_chemin` et la table
+`cheque_recu` n'existaient que par les migrations de la fenêtre
+(`persistance/mod.rs`) — aucune base amorcée par `Base` ne les avait.
+Ajoutés à `schema.sql`, rejoués par `amorcage.rs`. Même famille que
+`avoir.piece_id` avant eux ; un contrôle qui compare les deux listes
+serait le bon filet.
+
+**Ce que ça change pour le commerçant** : sur PostgreSQL, tout ce que
+l'application sait faire — sauf la copie de sauvegarde, qui se fait
+autrement.
 
 ---
 

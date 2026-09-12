@@ -176,3 +176,27 @@ pub fn exiger_dans_tx(
 ) -> Result<String, String> {
     exiger_sur(tx, utilisateur_id)
 }
+
+/// Bascule le mode de caisse, sur l'un ou l'autre moteur. Refuse tant
+/// qu'une caisse est ouverte — dans ce dossier ou un autre : le
+/// reglage est commun a toute l'installation.
+pub fn definir_par_utilisateur_sur(base: &mut impl Acces, actif: bool) -> Result<(), String> {
+    let ouvertes: i64 = base
+        .lire_une(
+            "SELECT COUNT(*) FROM session_caisse WHERE statut = 'ouverte'",
+            &[],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    if ouvertes > 0 {
+        return Err("Fermer toutes les caisses avant de changer le mode de caisse.".to_string());
+    }
+    base.executer(
+        "INSERT INTO config_app (cle, valeur) VALUES ('caisse_par_utilisateur', ?1)
+         ON CONFLICT (cle) DO UPDATE SET valeur = excluded.valeur",
+        &parametres![if actif { "1" } else { "0" }],
+    )
+    .map_err(|e| e.0)?;
+    Ok(())
+}

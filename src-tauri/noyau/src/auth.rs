@@ -332,3 +332,53 @@ pub fn lire_utilisateurs_sur(base: &mut Base) -> Result<Vec<serde_json::Value>, 
     )
     .map_err(|e| e.0)
 }
+
+/// Cree un utilisateur et son acces, sur l'un ou l'autre moteur.
+/// `utilisateur`, `utilisateur_auth`, `role` ne sont pas cloisonnes.
+pub fn creer_utilisateur_sur_base(
+    base: &mut Base,
+    nom: String,
+    pseudo: String,
+    email: Option<String>,
+    mot_de_passe: String,
+    role_nom: String,
+    auteur_id: String,
+) -> Result<String, String> {
+    if mot_de_passe.len() < 6 {
+        return Err("Le mot de passe doit contenir au moins 6 caractères".to_string());
+    }
+    let maintenant = maintenant_iso();
+    let dossier = base.dossier().to_string();
+    let role_id: String = base
+        .lire_une("SELECT id FROM role WHERE nom = ?1", &parametres![role_nom.clone()], |r| r.get::<String>(0))
+        .map_err(|e| e.0)?
+        .ok_or_else(|| format!("Rôle '{}' introuvable", role_nom))?;
+    let utilisateur_id = uuid::Uuid::new_v4().to_string();
+    let hash = hasher_mot_de_passe_pub(&mot_de_passe)?;
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO utilisateur (id, nom, role_id, actif, cree_le, modifie_le, origine)
+         VALUES (?1, ?2, ?3, 1, ?4, ?4, 'app')",
+        &parametres![utilisateur_id.clone(), nom.clone(), role_id, maintenant.clone()],
+    )
+    .map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO utilisateur_auth (utilisateur_id, pseudo, email, mot_de_passe, doit_changer_mdp)
+         VALUES (?1, ?2, CAST(?3 AS TEXT), ?4, 0)",
+        &parametres![utilisateur_id.clone(), pseudo, email, hash],
+    )
+    .map_err(|e| e.0)?;
+    let _ = tx.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'utilisateur_cree', 'utilisateur', ?2, ?3, ?4, 'app', ?5, ?6)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(), utilisateur_id.clone(), auteur_id,
+            format!(r#"{{"nom":"{}","role":"{}"}}"#, nom, role_nom), maintenant, dossier
+        ],
+    );
+    tx.valider().map_err(|e| e.0)?;
+    Ok(utilisateur_id)
+}

@@ -219,3 +219,60 @@ pub fn lire_sur(base: &mut Base, id: &str) -> std::result::Result<Poste, String>
     .map_err(|e| e.0)?
     .ok_or_else(|| "Poste introuvable".to_string())
 }
+
+pub fn lister_sur_base(base: &mut Base) -> std::result::Result<Vec<Poste>, String> {
+    base.lire_plusieurs(
+        "SELECT id, nom, empreinte, genre, actif, dernier_contact, derniere_ip
+         FROM poste ORDER BY genre DESC, nom ASC",
+        &[],
+        |r| {
+            Ok(Poste {
+                id: r.get::<String>(0)?,
+                nom: r.get::<String>(1)?,
+                empreinte: r.get::<String>(2)?,
+                genre: r.get::<String>(3)?,
+                actif: r.get::<i64>(4)? != 0,
+                dernier_contact: r.get::<Option<String>>(5)?,
+                derniere_ip: r.get::<Option<String>>(6)?,
+            })
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+/// Coupe l'acces d'une caisse et fait tomber ses sessions — les deux
+/// dans une transaction, ou rien.
+pub fn desactiver_sur_base(base: &mut Base, id: &str, par: &str) -> std::result::Result<(), String> {
+    let genre: String = base
+        .lire_une("SELECT genre FROM poste WHERE id = ?1", &parametres![id], |r| r.get::<String>(0))
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Ce poste n'existe plus.".to_string())?;
+    if genre != "caisse" {
+        return Err(format!(
+            "Le poste « {genre} » ne se désactive pas : plus rien ne permettrait de le rallumer."
+        ));
+    }
+    let maintenant = maintenant_iso();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE poste SET actif = 0, modifie_le = ?1 WHERE id = ?2",
+        &parametres![maintenant.clone(), id],
+    )
+    .map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE session_reseau SET revoque_le = ?1, revoque_par = ?2
+         WHERE poste_id = ?3 AND revoque_le IS NULL",
+        &parametres![maintenant, par, id],
+    )
+    .map_err(|e| e.0)?;
+    tx.valider().map_err(|e| e.0)
+}
+
+pub fn reactiver_sur_base(base: &mut Base, id: &str) -> std::result::Result<(), String> {
+    base.executer(
+        "UPDATE poste SET actif = 1, modifie_le = ?1 WHERE id = ?2",
+        &parametres![maintenant_iso(), id],
+    )
+    .map_err(|e| e.0)?;
+    Ok(())
+}

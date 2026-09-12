@@ -110,3 +110,62 @@ pub fn lire_base64(
     let b64 = base64::engine::general_purpose::STANDARD.encode(&buffer);
     Ok(Some(format!("data:{mime};base64,{b64}")))
 }
+
+/// Meme lecture, sur `Base`. Le chemin vient de la base ; le repli
+/// « a cote du fichier » n'existe que pour SQLite, qui a un fichier.
+pub fn lire_base64_sur_base(
+    base: &mut crate::base::Base,
+    genre: &str,
+    dossier_donnees: Option<&std::path::Path>,
+) -> Result<Option<String>, String> {
+    let Some((colonne, base_nom)) = colonne_et_base(genre) else {
+        return Err(format!("Image inconnue : « {genre} »"));
+    };
+    let chemin_bd: Option<String> = base
+        .lire_une(
+            &format!("SELECT {colonne} FROM parametres_societe WHERE id = 1"),
+            &[],
+            |r| r.get::<Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+        .flatten();
+
+    let chemin = match chemin_bd {
+        Some(c) if !c.is_empty() => c,
+        _ => {
+            let Some(dossier) = dossier_donnees else {
+                return Ok(None);
+            };
+            let trouve = ["png", "jpg", "jpeg", "svg", "webp"]
+                .iter()
+                .map(|e| dossier.join(format!("{base_nom}.{e}")))
+                .find(|p| p.exists());
+            match trouve {
+                Some(p) => p.to_string_lossy().to_string(),
+                None => return Ok(None),
+            }
+        }
+    };
+    lire_fichier_base64(std::path::Path::new(&chemin))
+}
+
+/// L'encodage d'un fichier image, commun aux deux chemins.
+fn lire_fichier_base64(path: &std::path::Path) -> Result<Option<String>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png").to_lowercase();
+    let mime = match ext.as_str() {
+        "svg" => "image/svg+xml",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        _ => "image/png",
+    };
+    let mut fichier = std::fs::File::open(path).map_err(|e| format!("Impossible de lire l'image : {e}"))?;
+    let mut buffer = Vec::new();
+    fichier.read_to_end(&mut buffer).map_err(|e| format!("Erreur lecture : {e}"))?;
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&buffer);
+    Ok(Some(format!("data:{mime};base64,{b64}")))
+}

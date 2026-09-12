@@ -2346,3 +2346,74 @@ pub fn regler_dette_fournisseur_sur_base(
     tx.valider().map_err(|e| e.0)?;
     Ok(serde_json::json!({ "montant": montant, "soldees": soldees }))
 }
+
+// =====================================================================
+//  L'ENCAISSEMENT SUR UNE VENTE, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+
+/// Un paiement sur une vente existante, dans une transaction : le
+/// paiement, le statut et la caisse vont ensemble ou pas du tout.
+pub fn enregistrer_paiement_sur_base(
+    base: &mut Base,
+    vente_id: String,
+    montant: i64,
+    mode: String,
+    utilisateur_role: Option<String>,
+) -> Result<(), String> {
+    let dossier = base.dossier().to_string();
+    let role = utilisateur_role.as_deref().unwrap_or("employe");
+    let auteur_id = id_utilisateur_par_role_sur(base, role);
+    let now = maintenant_iso();
+    // Un avoir ne touche pas au tiroir ; tout le reste exige une caisse.
+    let session_id = if mode != "avoir" { Some(crate::caisses::exiger_sur(base, None)?) } else { None };
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO paiement
+         (id, vente_id, montant, mode, date_paiement, auteur_id, cree_le, cree_par, origine, dossier_id)
+         VALUES (?1,?2,?3,?4,?5,?6,?5,?6,'app',?7)",
+        &parametres![uuid::Uuid::new_v4().to_string(), vente_id.clone(), montant, mode.clone(), now.clone(), auteur_id.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+
+    let total: i64 = tx
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(prix_pratique * quantite), 0) AS BIGINT)
+             FROM ligne_vente WHERE vente_id = ?1 AND dossier_id = ?2",
+            &parametres![vente_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    let total_paye: i64 = tx
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
+             FROM paiement WHERE vente_id = ?1 AND dossier_id = ?2",
+            &parametres![vente_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    let statut = match crate::coeur::calcul::statut_vente(total, total_paye) {
+        crate::coeur::calcul::StatutVente::Payee => "payee",
+        crate::coeur::calcul::StatutVente::PartiellementPayee => "partiellement_payee",
+        crate::coeur::calcul::StatutVente::CreanceOuverte => "creance_ouverte",
+    };
+    tx.executer(
+        "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
+        &parametres![statut, now.clone(), vente_id.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+
+    if let Some(sid) = session_id {
+        tx.executer(
+            "INSERT INTO mouvement_caisse
+             (id, session_id, sens, moyen, montant, motif,
+              operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+             VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?6,?7,'app',?8)",
+            &parametres![uuid::Uuid::new_v4().to_string(), sid, mode, montant, vente_id, now, auteur_id, dossier],
+        )
+        .map_err(|e| e.0)?;
+    }
+    tx.valider().map_err(|e| e.0)
+}

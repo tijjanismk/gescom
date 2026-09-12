@@ -230,3 +230,116 @@ pub fn sauvegarder_config_sauvegarde(
 
     Ok(())
 }
+
+// =====================================================================
+//  SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// Le reglage et l'historique se lisent partout. La COPIE, elle, est
+// l'affaire du moteur : `VACUUM INTO` copie un fichier SQLite ; une
+// base PostgreSQL n'est pas un fichier, elle se sauvegarde avec
+// `pg_dump` sur le serveur — un chantier a part (ETAPES.md). Ici on
+// refuse clairement plutot que de faire semblant.
+
+use crate::base::Base;
+use crate::parametres;
+
+const REFUS_POSTGRES: &str = "Cette base est sur PostgreSQL : la sauvegarde se fait sur le \
+     serveur avec pg_dump, pas depuis l'application.";
+
+pub fn sauvegarder_base_sur_base(base: &mut Base, dossier_destination: String) -> Result<String, String> {
+    match base.sqlite() {
+        Some(conn) => effectuer_sauvegarde(conn, &dossier_destination),
+        None => Err(REFUS_POSTGRES.to_string()),
+    }
+}
+
+fn config(base: &mut Base, cle: &str) -> Option<String> {
+    base.lire_une("SELECT valeur FROM config_app WHERE cle = ?1", &parametres![cle], |r| r.get::<String>(0))
+        .ok()
+        .flatten()
+}
+
+fn derniere_sauvegarde(base: &mut Base, colonne: &str) -> Option<String> {
+    let dossier = base.dossier().to_string();
+    base.lire_une(
+        &format!(
+            "SELECT {colonne} FROM journal
+             WHERE type_evenement = 'sauvegarde' AND dossier_id = ?1
+             ORDER BY date_evenement DESC LIMIT 1"
+        ),
+        &parametres![dossier],
+        |r| r.get::<Option<String>>(0),
+    )
+    .ok()
+    .flatten()
+    .flatten()
+}
+
+pub fn lire_config_sauvegarde_sur_base(base: &mut Base) -> Result<serde_json::Value, String> {
+    let dossier = config(base, "dossier_sauvegarde");
+    let auto = config(base, "sauvegarde_auto");
+    let derniere = derniere_sauvegarde(base, "nouveau_valeur");
+    Ok(serde_json::json!({
+        "dossier_sauvegarde":  dossier,
+        "sauvegarde_auto":     auto.as_deref() == Some("1"),
+        "derniere_sauvegarde": derniere,
+        "moteur":              if base.est_postgres() { "postgresql" } else { "sqlite" },
+    }))
+}
+
+pub fn sauvegarde_auto_si_necessaire_sur_base(base: &mut Base) -> Result<serde_json::Value, String> {
+    if config(base, "sauvegarde_auto").as_deref() != Some("1") {
+        return Ok(serde_json::json!({ "effectuee": false, "raison": "desactivee" }));
+    }
+    if base.est_postgres() {
+        return Ok(serde_json::json!({ "effectuee": false, "raison": "postgresql", "erreur": REFUS_POSTGRES }));
+    }
+    let Some(dossier) = config(base, "dossier_sauvegarde").filter(|d| !d.is_empty()) else {
+        return Ok(serde_json::json!({
+            "effectuee": false,
+            "raison":    "sans_dossier",
+            "erreur":    "Sauvegarde automatique activée, mais aucun dossier \
+                          n'est choisi. Aucune sauvegarde n'a été faite.",
+        }));
+    };
+    let jours = match derniere_sauvegarde(base, "date_evenement").as_deref() {
+        None => i64::MAX,
+        Some(d) => match chrono::NaiveDateTime::parse_from_str(d.split('.').next().unwrap_or(d), "%Y-%m-%dT%H:%M:%S") {
+            Ok(dt) => (chrono::Local::now().date_naive() - dt.date()).num_days(),
+            Err(_) => i64::MAX,
+        },
+    };
+    if jours < JOURS_ENTRE_SAUVEGARDES {
+        return Ok(serde_json::json!({ "effectuee": false, "raison": "recente", "jours": jours }));
+    }
+    match sauvegarder_base_sur_base(base, dossier) {
+        Ok(chemin) => Ok(serde_json::json!({ "effectuee": true, "chemin": chemin })),
+        Err(e) => Ok(serde_json::json!({
+            "effectuee": false,
+            "raison":    "echec",
+            "erreur":    format!("La sauvegarde automatique a échoué : {}. Vérifier que le dossier est accessible.", e),
+        })),
+    }
+}
+
+pub fn sauvegarder_config_sauvegarde_sur_base(
+    base: &mut Base,
+    dossier_sauvegarde: Option<String>,
+    sauvegarde_auto: bool,
+) -> Result<(), String> {
+    let mut reglages: Vec<(&str, String)> = Vec::new();
+    if let Some(d) = dossier_sauvegarde {
+        reglages.push(("dossier_sauvegarde", d));
+    }
+    reglages.push(("sauvegarde_auto", if sauvegarde_auto { "1".into() } else { "0".into() }));
+    for (cle, valeur) in reglages {
+        base.executer(
+            "INSERT INTO config_app (cle, valeur) VALUES (?1, ?2)
+             ON CONFLICT (cle) DO UPDATE SET valeur = ?2",
+            &parametres![cle, valeur],
+        )
+        .map_err(|e| e.0)?;
+    }
+    Ok(())
+}
