@@ -175,7 +175,7 @@ par colonne et nomme ce qui manque.
   sur la ligne de commande — la liste des processus est lisible par
   tous — et jamais dans le dépôt (D10). L'exécutable se trouve par le
   réglage `config_app.pg_dump_chemin`, puis le `PATH`, puis
-  `C:\Program Files\PostgreSQL\*in`. Le serveur planifie sur les
+  `C:\Program Files\PostgreSQL\*\bin`. Le serveur planifie sur les
   deux moteurs, toutes les 24 h, 14 copies gardées. Vérifié :
   [sauvegarde_pg.rs](../../src-tauri/noyau/tests/sauvegarde_pg.rs)
   produit un dump de la démo et `pg_restore --list` le lit.
