@@ -200,7 +200,7 @@ fn main() {
     };
 
     println!("Gescom serveur — protocole v{}", gescom_noyau::VERSION_PROTOCOLE);
-    println!("  base        : {cible} ({})", if est_postgres { "PostgreSQL" } else { "SQLite" });
+    println!("  base        : {} ({})", sans_mot_de_passe(&cible), if est_postgres { "PostgreSQL" } else { "SQLite" });
     println!("  écoute      : http://{adresse}");
     println!(
         "  sauvegardes : {} ({})",
@@ -339,6 +339,17 @@ impl Options {
 /// Voulu : sur le poste principal, installer le serveur ne deplace pas
 /// les donnees et ne demande pas de migration. Le monoposte devient
 /// multiposte en lancant un service, rien de plus.
+/// L'URL telle qu'on peut l'ecrire dans un journal : le mot de passe
+/// masque. Le fichier de log du serveur se lit sans droits (D10).
+fn sans_mot_de_passe(cible: &str) -> String {
+    let Some((tete, reste)) = cible.split_once("://") else { return cible.to_string() };
+    let Some((acces, suite)) = reste.rsplit_once('@') else { return cible.to_string() };
+    match acces.split_once(':') {
+        Some((u, _)) => format!("{tete}://{u}:***@{suite}"),
+        None => cible.to_string(),
+    }
+}
+
 fn chemin_base_par_defaut() -> String {
     let base = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
