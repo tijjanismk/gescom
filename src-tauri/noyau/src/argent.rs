@@ -2166,3 +2166,183 @@ pub fn creer_facture_depuis_vente_sur_base(
         "statut":   statut,
     }))
 }
+
+// =====================================================================
+//  LE REGLEMENT FOURNISSEUR, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// La repartition est ECRITE, jamais devinee a la lecture : une ligne
+// de paiement PAR facture couverte (voir `regler_dette_fournisseur`).
+// Tout passe en transaction — la version SQLite n'en ouvrait pas.
+
+/// Les factures ouvertes d'un fournisseur avec leur reste, de la plus
+/// ancienne a la plus recente.
+fn factures_ouvertes_sur(acces: &mut impl Acces, fournisseur_id: &str) -> Result<Vec<(String, i64)>, String> {
+    let dossier = acces.dossier().to_string();
+    acces
+        .lire_plusieurs(
+            "SELECT pc.id,
+                    CAST(COALESCE((SELECT SUM(lp.montant_ht + lp.montant_tva)
+                       FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0)
+                    - COALESCE((SELECT SUM(pf.montant)
+                       FROM paiement_fournisseur pf WHERE pf.piece_id = pc.id), 0)
+                    AS BIGINT)
+             FROM piece_commerciale pc
+             WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
+               AND pc.type_piece = 'facture_fournisseur'
+               AND pc.statut <> 'annule'
+               AND pc.dossier_id = ?2
+             ORDER BY pc.date_piece ASC",
+            &parametres![fournisseur_id, dossier],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?)),
+        )
+        .map_err(|e| e.0)
+}
+
+pub fn reallouer_globaux_sur(acces: &mut impl Acces, fournisseur_id: &str, now: &str) -> Result<i64, String> {
+    let dossier = acces.dossier().to_string();
+    let globales: Vec<(String, i64, String, Option<String>, Option<String>, String)> = acces
+        .lire_plusieurs(
+            "SELECT id, montant, mode, note, auteur_id, date_paiement
+             FROM paiement_fournisseur
+             WHERE fournisseur_id = ?1 AND piece_id IS NULL AND dossier_id = ?2
+             ORDER BY date_paiement ASC",
+            &parametres![fournisseur_id, dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?, r.get::<String>(2)?, r.get::<Option<String>>(3)?, r.get::<Option<String>>(4)?, r.get::<String>(5)?)),
+        )
+        .map_err(|e| e.0)?;
+
+    let mut reparties = 0_i64;
+    for (id, montant, mode, note, auteur, date_p) in globales {
+        // Restes relus A CHAQUE ligne : la precedente vient de les reduire.
+        let ouvertes = factures_ouvertes_sur(acces, fournisseur_id)?;
+        let parts = crate::coeur::calcul::repartir_reglement(montant, &ouvertes);
+        // Rien d'imputable : avance legitime, laissee telle quelle.
+        if parts.iter().all(|(p, _)| p.is_none()) {
+            continue;
+        }
+        acces
+            .executer(
+                "DELETE FROM paiement_fournisseur WHERE id = ?1 AND dossier_id = ?2",
+                &parametres![id, dossier.clone()],
+            )
+            .map_err(|e| e.0)?;
+        for (pid, part) in &parts {
+            acces
+                .executer(
+                    "INSERT INTO paiement_fournisseur
+                     (id, fournisseur_id, montant, mode, note, auteur_id,
+                      date_paiement, cree_le, origine, piece_id, dossier_id)
+                     VALUES (?1,?2,?3,?4,CAST(?5 AS TEXT),CAST(?6 AS TEXT),?7,?8,'reimputation',CAST(?9 AS TEXT),?10)",
+                    &parametres![
+                        uuid::Uuid::new_v4().to_string(), fournisseur_id, *part, mode.clone(),
+                        note.clone(), auteur.clone(), date_p.clone(), now, pid.clone(), dossier.clone()
+                    ],
+                )
+                .map_err(|e| e.0)?;
+        }
+        reparties += 1;
+    }
+    Ok(reparties)
+}
+
+/// Recalcule le statut des factures fournisseur d'apres les paiements
+/// imputes. Rend les numeros des factures desormais soldees.
+pub fn imputer_paiements_fournisseur_sur(acces: &mut impl Acces, fournisseur_id: &str, now: &str) -> Result<Vec<String>, String> {
+    reallouer_globaux_sur(acces, fournisseur_id, now)?;
+    let dossier = acces.dossier().to_string();
+    let factures: Vec<(String, String, String, i64, i64)> = acces
+        .lire_plusieurs(
+            "SELECT pc.id, pc.numero, pc.statut,
+                    CAST(COALESCE((SELECT SUM(lp.montant_ht + lp.montant_tva)
+                       FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(pf.montant)
+                       FROM paiement_fournisseur pf WHERE pf.piece_id = pc.id), 0) AS BIGINT)
+             FROM piece_commerciale pc
+             WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
+               AND pc.type_piece = 'facture_fournisseur'
+               AND pc.statut <> 'annule'
+               AND pc.dossier_id = ?2
+             ORDER BY pc.date_piece ASC",
+            &parametres![fournisseur_id, dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?, r.get::<i64>(3)?, r.get::<i64>(4)?)),
+        )
+        .map_err(|e| e.0)?;
+
+    let mut soldees = Vec::new();
+    for (piece_id, numero, statut_actuel, total, impute) in factures {
+        // Meme seuil que le cote client (D41).
+        let nouveau = if total > 0 && crate::coeur::calcul::reste_exigible(total, impute) == 0 { "paye" } else { "emis" };
+        if nouveau != statut_actuel {
+            acces
+                .executer(
+                    "UPDATE piece_commerciale SET statut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
+                    &parametres![nouveau, now, piece_id, dossier.clone()],
+                )
+                .map_err(|e| e.0)?;
+        }
+        if nouveau == "paye" {
+            soldees.push(numero);
+        }
+    }
+    Ok(soldees)
+}
+
+pub fn regler_dette_fournisseur_sur_base(
+    base: &mut Base,
+    fournisseur_id: String,
+    montant: i64,
+    mode: String,
+    note: Option<String>,
+    piece_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let auteur = id_utilisateur_courant_sur(base);
+    let now = maintenant_iso();
+    // Un reglement sort de l'argent du tiroir : caisse ouverte (D46).
+    let sid = crate::caisses::exiger_sur(base, None)?;
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    let parts: Vec<(Option<String>, i64)> = match piece_id {
+        Some(pid) => vec![(Some(pid), montant)],
+        None => {
+            let ouvertes = factures_ouvertes_sur(&mut tx, &fournisseur_id)?;
+            crate::coeur::calcul::repartir_reglement(montant, &ouvertes)
+        }
+    };
+    for (pid, part) in &parts {
+        tx.executer(
+            "INSERT INTO paiement_fournisseur
+             (id, fournisseur_id, montant, mode, note, auteur_id,
+              date_paiement, cree_le, origine, piece_id, dossier_id)
+             VALUES (?1,?2,?3,?4,CAST(?5 AS TEXT),?6,?7,?7,'app',CAST(?8 AS TEXT),?9)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(), fournisseur_id.clone(), *part, mode.clone(),
+                note.clone(), auteur.clone(), now.clone(), pid.clone(), dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+    }
+    let soldees = imputer_paiements_fournisseur_sur(&mut tx, &fournisseur_id, &now)?;
+
+    tx.executer(
+        "INSERT INTO mouvement_caisse
+         (id, session_id, sens, moyen, montant, motif,
+          operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+         VALUES (?1,?2,'sortie',?3,?4,'reglement_fournisseur',?5,?6,?6,?7,'app',?8)",
+        &parametres![uuid::Uuid::new_v4().to_string(), sid, mode.clone(), montant, fournisseur_id.clone(), now.clone(), auteur.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+    let _ = tx.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1,'paiement_fournisseur','fournisseur',?2,?3,?4,'app',?5,?6)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(), fournisseur_id, auteur,
+            format!(r#"{{"montant":{},"mode":"{}"}}"#, montant, mode), now, dossier
+        ],
+    );
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({ "montant": montant, "soldees": soldees }))
+}

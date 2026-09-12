@@ -159,6 +159,16 @@ pub fn registre() -> Registre {
             option_texte(&p, "pieceId").or_else(|| option_texte(&p, "piece_id")),
         )
     });
+    r.aussi_sur_base("regler_dette_fournisseur", |c, p| {
+        argent::regler_dette_fournisseur_sur_base(
+            c.base,
+            texte(&p, "fournisseurId").or_else(|_| texte(&p, "fournisseur_id"))?,
+            entier(&p, "montant").unwrap_or(0),
+            texte(&p, "mode")?,
+            option_texte(&p, "note"),
+            option_texte(&p, "pieceId").or_else(|| option_texte(&p, "piece_id")),
+        )
+    });
 
     // ---- L'argent ----
     //
@@ -1359,9 +1369,17 @@ pub fn registre() -> Registre {
         let v = fournisseurs::lire_fournisseurs(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_fournisseurs", |c, _p| {
+        let v = fournisseurs::lire_fournisseurs_sur_base(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_fournisseurs_avec_dettes", |c, _p| {
         let v = fournisseurs::lire_fournisseurs_avec_dettes(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_fournisseurs_avec_dettes", |c, _p| {
+        let v = fournisseurs::lire_fournisseurs_avec_dettes_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1373,6 +1391,16 @@ pub fn registre() -> Registre {
         let email: Option<String> = arg(&p, "email", "email")?;
         let est_voisin: Option<bool> = arg(&p, "estVoisin", "est_voisin")?;
         let v = fournisseurs::creer_fournisseur(c.conn, nom, telephone, adresse, nif, email, est_voisin)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("creer_fournisseur", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let telephone: Option<String> = arg(&p, "telephone", "telephone")?;
+        let adresse: Option<String> = arg(&p, "adresse", "adresse")?;
+        let nif: Option<String> = arg(&p, "nif", "nif")?;
+        let email: Option<String> = arg(&p, "email", "email")?;
+        let est_voisin: Option<bool> = arg(&p, "estVoisin", "est_voisin")?;
+        let v = fournisseurs::creer_fournisseur_sur_base(c.base, nom, telephone, adresse, nif, email, est_voisin)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1387,15 +1415,35 @@ pub fn registre() -> Registre {
         let v = fournisseurs::modifier_fournisseur(c.conn, fournisseur_id, nom, telephone, adresse, nif, email, est_voisin)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("modifier_fournisseur", |c, p| {
+        let fournisseur_id: String = arg(&p, "fournisseurId", "fournisseur_id")?;
+        let nom: String = arg(&p, "nom", "nom")?;
+        let telephone: Option<String> = arg(&p, "telephone", "telephone")?;
+        let adresse: Option<String> = arg(&p, "adresse", "adresse")?;
+        let nif: Option<String> = arg(&p, "nif", "nif")?;
+        let email: Option<String> = arg(&p, "email", "email")?;
+        let est_voisin: Option<bool> = arg(&p, "estVoisin", "est_voisin")?;
+        let v = fournisseurs::modifier_fournisseur_sur_base(c.base, fournisseur_id, nom, telephone, adresse, nif, email, est_voisin)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_etat_dette_fournisseur", |c, p| {
         let fournisseur_id: String = arg(&p, "fournisseurId", "fournisseur_id")?;
         let v = fournisseurs::lire_etat_dette_fournisseur(c.conn, fournisseur_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_etat_dette_fournisseur", |c, p| {
+        let fournisseur_id: String = arg(&p, "fournisseurId", "fournisseur_id")?;
+        let v = fournisseurs::lire_etat_dette_fournisseur_sur_base(c.base, fournisseur_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_etat_dettes_global", |c, _p| {
         let v = fournisseurs::lire_etat_dettes_global(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_etat_dettes_global", |c, _p| {
+        let v = fournisseurs::lire_etat_dettes_global_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1408,6 +1456,15 @@ pub fn registre() -> Registre {
         let v = fournisseurs::enregistrer_entree_stock(c.conn, article_id, depot_id, quantite, prix_achat, fournisseur_id, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("enregistrer_entree_stock", |c, p| {
+        let article_id: String = arg(&p, "articleId", "article_id")?;
+        let depot_id: Option<String> = arg(&p, "depotId", "depot_id")?;
+        let quantite: f64 = arg(&p, "quantite", "quantite")?;
+        let prix_achat: Option<i64> = arg(&p, "prixAchat", "prix_achat")?;
+        let fournisseur_id: Option<String> = arg(&p, "fournisseurId", "fournisseur_id")?;
+        let v = fournisseurs::enregistrer_entree_stock_sur_base(c.base, article_id, depot_id, quantite, prix_achat, fournisseur_id, Some(c.appelant.role.clone()))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("enregistrer_retour_sans_facture", "fournisseurs:regler", |c, p| {
         let article_id: String = arg(&p, "articleId", "article_id")?;
@@ -1416,6 +1473,15 @@ pub fn registre() -> Registre {
         let fournisseur_id: Option<String> = arg(&p, "fournisseurId", "fournisseur_id")?;
         let motif: Option<String> = arg(&p, "motif", "motif")?;
         let v = fournisseurs::enregistrer_retour_sans_facture(c.conn, article_id, depot_id, quantite, fournisseur_id, motif, Some(c.appelant.role.clone()))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("enregistrer_retour_sans_facture", |c, p| {
+        let article_id: String = arg(&p, "articleId", "article_id")?;
+        let depot_id: Option<String> = arg(&p, "depotId", "depot_id")?;
+        let quantite: f64 = arg(&p, "quantite", "quantite")?;
+        let fournisseur_id: Option<String> = arg(&p, "fournisseurId", "fournisseur_id")?;
+        let motif: Option<String> = arg(&p, "motif", "motif")?;
+        let v = fournisseurs::enregistrer_retour_sans_facture_sur_base(c.base, article_id, depot_id, quantite, fournisseur_id, motif, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1427,10 +1493,23 @@ pub fn registre() -> Registre {
         let v = fournisseurs::enregistrer_ajustement_inventaire(c.conn, article_id, depot_id, quantite_reelle, motif, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("enregistrer_ajustement_inventaire", |c, p| {
+        let article_id: String = arg(&p, "articleId", "article_id")?;
+        let depot_id: String = arg(&p, "depotId", "depot_id")?;
+        let quantite_reelle: f64 = arg(&p, "quantiteReelle", "quantite_reelle")?;
+        let motif: Option<String> = arg(&p, "motif", "motif")?;
+        let v = fournisseurs::enregistrer_ajustement_inventaire_sur_base(c.base, article_id, depot_id, quantite_reelle, motif, Some(c.appelant.role.clone()))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_fournisseur_detail", |c, p| {
         let fournisseur_id: String = arg(&p, "fournisseurId", "fournisseur_id")?;
         let v = fournisseurs::lire_fournisseur_detail(c.conn, fournisseur_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_fournisseur_detail", |c, p| {
+        let fournisseur_id: String = arg(&p, "fournisseurId", "fournisseur_id")?;
+        let v = fournisseurs::lire_fournisseur_detail_sur_base(c.base, fournisseur_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1439,12 +1518,24 @@ pub fn registre() -> Registre {
         let v = fournisseurs::lire_fiche_fournisseur(c.conn, fournisseur_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_fiche_fournisseur", |c, p| {
+        let fournisseur_id: String = arg(&p, "fournisseurId", "fournisseur_id")?;
+        let v = fournisseurs::lire_fiche_fournisseur_sur_base(c.base, fournisseur_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("annuler_paiement_fournisseur", "fournisseurs:regler", |c, p| {
         let paiement_id: String = arg(&p, "paiementId", "paiement_id")?;
         let motif: String = arg(&p, "motif", "motif")?;
         let remboursement: bool = arg(&p, "remboursement", "remboursement")?;
         let v = fournisseurs::annuler_paiement_fournisseur(c.conn, paiement_id, motif, remboursement, Some(c.appelant.role.clone()))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("annuler_paiement_fournisseur", |c, p| {
+        let paiement_id: String = arg(&p, "paiementId", "paiement_id")?;
+        let motif: String = arg(&p, "motif", "motif")?;
+        let remboursement: bool = arg(&p, "remboursement", "remboursement")?;
+        let v = fournisseurs::annuler_paiement_fournisseur_sur_base(c.base, paiement_id, motif, remboursement, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
