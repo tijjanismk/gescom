@@ -30,6 +30,7 @@ Ordre de lecture conseillé :
 | [reseau-v2](modules/reseau-v2.md) | **v2** — serveur, sessions, canal, caisse par utilisateur |
 | [modeles-documents](modules/modeles-documents.md) | **v2** — moteur de documents, atelier, import/export |
 | [installation](modules/installation.md) | **v2** — Gescom s'installe, il ne se copie pas |
+| [postgresql](modules/postgresql.md) | **v2** — la façade `Base`, le trait `Acces`, les 186 commandes portées, le filet `schema_commun` |
 | [environnement-windows](modules/environnement-windows.md) | Smart App Control, PowerShell — les pièges de la machine |
 
 ## Ce que la carte ne remplace pas

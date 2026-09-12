@@ -116,53 +116,75 @@ Le piège se répète pour tout DDL écrit en Rust et non dans
 `schema.sql` — les `ALTER TABLE` des migrations. Ils passent par la même
 traduction.
 
-### Ce qui marche aujourd'hui sur PostgreSQL
+### Ce qui marche aujourd'hui sur PostgreSQL — **tout, depuis le 12/09/2026**
 
 [`noyau/src/amorcage.rs`](../../src-tauri/noyau/src/amorcage.rs) crée le
-schéma, pose les six rôles avec leurs permissions, crée les comptes
-`admin` et `employe`, le dépôt par défaut et le client « Comptant ».
+schéma, les rôles, les comptes, le dépôt, le client « Comptant », les
+tables du réseau v2, le cloisonnement par dossier et le déclencheur de
+stock — sur les deux moteurs.
 
-Mesuré sur une base réelle (`postgresql://…/gescom`) : **30 tables, 6
-rôles, 2 comptes, 1 dépôt**, et l'amorçage ne se rejoue pas.
+**186 des 187 commandes du serveur ont leur version `Base`**
+(`*_sur_base`, branchée par `Registre::aussi_sur_base`). La 187e,
+`lire_catalogue_permissions`, ne touche pas la base. Vendre, facturer,
+encaisser, acheter, rendre, transférer, clôturer, relancer, imprimer :
+tout passe. Voir [ETAPES.md](../ETAPES.md) pour le détail des lots et
+[DECISIONS.md](../DECISIONS.md) D11.
 
-⚠️ **Les 739 points d'appel métier parlent encore rusqlite.** Vendre,
-facturer, encaisser passent par SQLite. PostgreSQL sait aujourd'hui
-recevoir une boutique neuve — il ne sait pas encore la faire tourner.
+Ce qui distingue une version `Base` de sa jumelle `Connection`, partout
+de la même façon :
 
-## Ce qui coûte vraiment, et qui reste à faire
+- chaque table cloisonnée porte `dossier_id` dans ses `WHERE` et ses
+  `INSERT` ;
+- les filtres passent par des paramètres liés, jamais par `format!` sur
+  une valeur ;
+- `LOWER(x) LIKE LOWER(...)` : LIKE ignore la casse sur SQLite, pas sur
+  PostgreSQL ;
+- `CAST(?n AS TEXT) IS NULL OR col = ?n` pour un filtre optionnel —
+  PostgreSQL ne sait pas typer un paramètre NULL nu ;
+- `CAST(... AS BIGINT)` autour des sommes — `SUM` rend `NUMERIC` sur
+  PostgreSQL, que `i64` refuse ;
+- les dates se comparent par `SUBSTR(x, 1, 10)` ; les durées
+  (`julianday`) se calculent en Rust (`utils::jours_depuis`) ;
+- les écritures composées tournent dans une transaction, même là où la
+  version SQLite n'en ouvrait pas.
 
-Les 1448 placeholders **ne se réécrivent pas à la main** : ils se
-traduisent au moment de l'appel, dans la couche qui parle au moteur.
-`?1` → `$1` est une substitution sûre — c'est une des rares choses dont
-un traducteur textuel peut se charger sans risque.
+### Le trait `Acces`
 
-Le vrai poids est la **lecture des lignes**. Chacune des 578 requêtes
-lit ses colonnes par une fermeture `|r| r.get::<_, String>(0)`, et
-`rusqlite::Row` n'est pas `postgres::Row`. Il faut un type de ligne
-commun, donc toucher les 578 fermetures.
+`Base` et `Transaction` implémentent [`base::Acces`](../../src-tauri/noyau/src/base.rs)
+— `dossier`, `executer`, `lire_une`, `lire_plusieurs`. Une aide écrite
+une fois (`reserver_numero_sur`, `inserer_lignes_sur`, `exiger_sur`,
+`marquer_entierement_livre_sur`…) sert dedans comme dehors. Avant lui,
+chacune existait en deux copies.
 
-Mesure refaite sur le noyau, précisément :
+### Le filet : `tests/schema_commun.rs`
 
-| | |
-|---|---|
-| paramètres `conn:` à changer | 242 |
-| `params!` à convertir | 480 |
-| fermetures de lecture | 435 |
-| points d'appel (`execute`, `query_row`, `query_map`, `prepare`) | **739** |
+Deux chemins créent une base — la fenêtre (`persistance::initialiser_tables`,
+SQLite, migrations accumulées) et le serveur (`amorcage::amorcer`,
+`schema.sql`, les deux moteurs). **Sept fois** une colonne ou une table
+n'existait que sur le premier, et aucune base PostgreSQL ne l'avait :
+`avoir.piece_id`, `unite_vente.code_barre`, les deux
+`annule_paiement_id`, `entete_chemin`/`pied_chemin`, `cheque_recu`,
+`mouvement_caisse.poste_id`. Le test compare les deux structures colonne
+par colonne et nomme ce qui manque.
 
-Suite, dans l'ordre :
+## Ce qui reste
 
-1. Porter **module par module**. La façade permet de le faire sans tout
-   casser : ce qui n'est pas porté continue de tourner sur SQLite.
-   Commencer par `auth` et `sessions` — de quoi se connecter — puis
-   `catalogue`, puis `argent`.
-2. Les ~60 occurrences non mécaniques, réécrites en SQL portable quand
-   c'est possible plutôt qu'en deux variantes.
-3. La sauvegarde : `VACUUM INTO` n'existe pas côté PostgreSQL, il
-   faudra `pg_dump` ou une copie logique.
-4. Le multi-dossier, **avant** d'avoir tout porté : le découpage décide
-   de la forme de la base, et l'ajouter après obligerait à reprendre les
-   739 points d'appel une seconde fois.
+- **La sauvegarde.** `VACUUM INTO` copie un fichier SQLite ; une base
+  PostgreSQL se sauvegarde avec `pg_dump` sur le serveur (D4).
+  `sauvegarder_base_sur_base` **refuse clairement** sur PostgreSQL et
+  `lire_config_sauvegarde` rend le moteur pour que l'écran le dise.
+  Brancher `pg_dump` — chemin de l'exécutable, mot de passe hors dépôt
+  (D10), rotation — est un chantier à part.
+- **Le déclencheur de stock et le dossier.** `stock_suit_les_mouvements`
+  pose la ligne `stock_depot` sans `dossier_id` explicite : le défaut de
+  la colonne (SQLite : `defaut` ; PostgreSQL : le dossier de session)
+  s'applique. Juste sur PostgreSQL ; sur SQLite, un mouvement écrit pour
+  `dossier-b` crée sa ligne de stock dans `defaut`. Sans effet tant
+  qu'une installation SQLite ne connaît qu'un dossier — à régler avec
+  la v3.
+- **Un essai à la main, écran par écran**, sur une caisse branchée à un
+  serveur PostgreSQL. Les 83 scénarios disent ce que le SQL fait à la
+  base ; ils ne disent pas ce que l'écran en montre.
 
 ## Le raccordement
 
@@ -181,3 +203,8 @@ le port 5432 et la base d'essai s'appelle `gescom_essai`.
   jamais la base. Changer de moteur ne demande rien au poste caisse.
 - [CONFIRMÉ] `amorcage.rs` crée une boutique utilisable sur PostgreSQL —
   vérifié sur une base réelle.
+- [CONFIRMÉ] Les 83 scénarios `*_base.rs` passent sur PostgreSQL
+  (`GESCOM_PG=… cargo test --test <fichier> -- --test-threads=1`, sur
+  une base jetable, jamais celle du serveur).
+- [CONFIRMÉ] Sur PostgreSQL, une commande refuse plutôt que de faire
+  semblant : la sauvegarde renvoie « pg_dump sur le serveur ».

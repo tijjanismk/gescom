@@ -173,6 +173,9 @@ fn tables_v2(base: &mut Base) {
          )",
         "ALTER TABLE session_caisse ADD COLUMN poste_id TEXT",
         "ALTER TABLE session_caisse ADD COLUMN utilisateur_id TEXT",
+        // Le poste qui a saisi le mouvement — pose par v2.rs cote
+        // fenetre, oublie ici. Trouve par tests/schema_commun.rs.
+        "ALTER TABLE mouvement_caisse ADD COLUMN poste_id TEXT",
         "ALTER TABLE ligne_piece ADD COLUMN quantite_livree REAL NOT NULL DEFAULT 0",
         // Colonnes que seule une migration de la fenetre (persistance/
         // mod.rs) posait, jamais schema.sql — trouvees en portant

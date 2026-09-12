@@ -352,8 +352,31 @@ Branchées : le comptoir entier (`lire_clients`, `lire_client_generique`,
 comptent le plus : `creer_vente`, `valider_facture`.
 
 **Une caisse connectée à un serveur PostgreSQL peut désormais vendre.**
-Le reste des 186 — caisse, pièces au sens large, stock, rapports —
-suit le même chemin, module par module.
+
+### Les 186 branchées — **fait le 12/09/2026**
+
+Le reste a suivi le même chemin, en huit lots d'une journée (pièces,
+achats, retours ; réglages ; journal et rapports ; dépôts, avoirs,
+créances ; fournisseurs ; listes et livraisons ; caisse et système).
+186 des 187 commandes ont leur version `Base` ; la 187e ne lit pas la
+base. Le tableau des lots est dans [ETAPES.md](ETAPES.md).
+
+Ce que D11 a coûté, et qu'on ne referait pas autrement : **le trait
+`Acces`** (`Base` et `Transaction` sous une même signature), sans lequel
+chaque aide partagée aurait existé en deux copies ; et **le filet**
+`tests/schema_commun.rs`, qui compare la base de la fenêtre à celle du
+serveur — sept colonnes ou tables n'existaient que d'un côté.
+
+Ce qui s'est décidé en route, sans nouvelle case :
+- une commande **refuse** sur PostgreSQL ce qu'elle ne sait pas y faire
+  (la copie de sauvegarde), plutôt que de faire semblant ;
+- les écarts de moteur se règlent **une fois en SQL commun ou en Rust**,
+  jamais en deux variantes (D3 tenue : `jours_depuis`, `SUBSTR`,
+  `ON CONFLICT DO NOTHING`, sous-requête au lieu d'un alias dans
+  `HAVING`) ;
+- les versions `Base` corrigent au passage ce que les versions SQLite
+  toléraient : recherches insensibles à la casse sur les deux moteurs,
+  paramètres liés partout, transactions autour des écritures composées.
 
 ## Ce qui n'est pas une décision, mais un travail à faire
 
@@ -382,6 +405,6 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D8 | les images voyagent par leur contenu, pas par leur chemin |
 | D9 | l'entretien de la base passe côté serveur |
 | D10 | le mot de passe de la base reste hors du dépôt |
-| D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite |
+| D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** |
 
 Aucune case n'attend de réponse.

@@ -12,7 +12,7 @@ dans [DECISIONS.md](DECISIONS.md) pour tout le reste. Ce fichier-ci ne
 dit que l'avancement — qui fait quoi, dans quel ordre.
 
 Dernière mise à jour : **12 septembre 2026**.
-État : **390 tests SQLite + 21 tests PostgreSQL**, tous au vert — les 21
+État : **392 tests SQLite + 21 tests PostgreSQL**, tous au vert — les 21
 rejoués sur une vraie instance (`gescom_test`), plus **83 scénarios**
 répartis en douze fichiers `*_base.rs` qui tournent sur les deux
 moteurs. **Le portage est complet : 186 des 187 commandes du serveur
@@ -479,8 +479,11 @@ Brancher `pg_dump` est un chantier à part.
 `cheque_recu` n'existaient que par les migrations de la fenêtre
 (`persistance/mod.rs`) — aucune base amorcée par `Base` ne les avait.
 Ajoutés à `schema.sql`, rejoués par `amorcage.rs`. Même famille que
-`avoir.piece_id` avant eux ; un contrôle qui compare les deux listes
-serait le bon filet.
+`avoir.piece_id` avant eux. **Le filet existe désormais** :
+[schema_commun.rs](../src-tauri/noyau/tests/schema_commun.rs) compare
+la base de la fenêtre à celle du serveur, colonne par colonne — et a
+trouvé le septième trou (`mouvement_caisse.poste_id`) à son premier
+passage.
 
 **Ce que ça change pour le commerçant** : sur PostgreSQL, tout ce que
 l'application sait faire — sauf la copie de sauvegarde, qui se fait
