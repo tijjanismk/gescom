@@ -222,7 +222,7 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         doit_changer_mdp: doit_changer != 0,
         poste_id: poste.id.clone(),
         expire_le,
-        caisse_par_utilisateur: caisses::par_utilisateur_sur(&mut base),
+        caisse_par_utilisateur: caisses::par_utilisateur_sur(&mut *base),
     };
     drop(base);
 

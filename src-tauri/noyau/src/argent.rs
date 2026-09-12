@@ -1164,10 +1164,10 @@ pub fn reallouer_globaux(
 //   acceptent ;
 // - de quoi savoir QUI ecrit, et lire les lignes d'une piece.
 
-use crate::base::Base;
+use crate::base::{Acces, Base};
 use crate::parametres;
 
-pub fn id_utilisateur_courant_sur(base: &mut Base) -> String {
+pub fn id_utilisateur_courant_sur(base: &mut impl Acces) -> String {
     base.lire_une(
         "SELECT id FROM utilisateur WHERE actif = 1 ORDER BY cree_le LIMIT 1",
         &[],
@@ -1183,7 +1183,7 @@ pub fn id_utilisateur_courant_sur(base: &mut Base) -> String {
 /// Le repli sur l'utilisateur courant est delibere : une ecriture
 /// d'argent ne doit jamais echouer parce qu'on ne sait pas exactement
 /// qui la fait. Elle s'ecrit, et le journal dit ce qu'on savait.
-pub fn id_utilisateur_par_role_sur(base: &mut Base, role: &str) -> String {
+pub fn id_utilisateur_par_role_sur(base: &mut impl Acces, role: &str) -> String {
     base.lire_une(
         "SELECT u.id FROM utilisateur u
          JOIN role r ON r.id = u.role_id
@@ -1202,7 +1202,7 @@ pub fn id_utilisateur_par_role_sur(base: &mut Base, role: &str) -> String {
 /// separes par une autre connexion. Les faire en deux temps rouvrirait
 /// exactement la fenetre qu'on a fermee — et cette fenetre valait
 /// 5 doublons sur 100 numeros, mesures.
-pub fn suivant_sur(base: &mut Base, cle: &str) -> Result<i64, String> {
+pub fn suivant_sur(base: &mut impl Acces, cle: &str) -> Result<i64, String> {
     let cle = crate::dossiers::cle_compteur(base.dossier(), cle);
     let cle = cle.as_str();
     base.lire_une(
@@ -1220,7 +1220,7 @@ pub fn suivant_sur(base: &mut Base, cle: &str) -> Result<i64, String> {
 ///
 /// **Ceci ecrit en base** : chaque appel consomme un numero, ce n'est
 /// pas un apercu.
-pub fn reserver_numero_sur(base: &mut Base, type_piece: &str) -> Result<String, String> {
+pub fn reserver_numero_sur(base: &mut impl Acces, type_piece: &str) -> Result<String, String> {
     let annee = chrono::Local::now().format("%Y").to_string();
     let prefix = prefixe_de(type_piece);
     let cle = format!("{prefix}-{annee}");
@@ -1253,7 +1253,7 @@ pub fn prefixe_de(type_piece: &str) -> &'static str {
 
 /// Les lignes d'une piece : article, unite, quantite, prix, remise, TVA.
 pub fn lire_lignes_raw_sur(
-    base: &mut Base,
+    base: &mut impl Acces,
     piece_id: &str,
 ) -> Result<Vec<(String, String, f64, i64, f64, f64)>, String> {
     let dossier = base.dossier().to_string();

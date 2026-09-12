@@ -449,6 +449,59 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
+    // ---- Les memes six, sur `Base` ----
+    r.aussi_sur_base("enregistrer_achat", |c, p| {
+        let v = achats::enregistrer_achat_sur_base(
+            c.base,
+            arg(&p, "fournisseurId", "fournisseur_id")?,
+            arg(&p, "depotId", "depot_id")?,
+            arg(&p, "lignes", "lignes")?,
+            arg(&p, "modeReglement", "mode_reglement")?,
+            arg(&p, "modePaiement", "mode_paiement")?,
+            arg(&p, "acompte", "acompte")?,
+            arg(&p, "note", "note")?,
+            Some(c.appelant.role.clone()),
+            arg(&p, "pieceOrigineId", "piece_origine_id")?,
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("enregistrer_retour_fournisseur", |c, p| {
+        let v = achats::enregistrer_retour_fournisseur_sur_base(
+            c.base,
+            arg(&p, "fournisseurId", "fournisseur_id")?,
+            arg(&p, "depotId", "depot_id")?,
+            arg(&p, "lignes", "lignes")?,
+            arg(&p, "pieceOrigineId", "piece_origine_id")?,
+            arg(&p, "modeResolution", "mode_resolution")?,
+            arg(&p, "modeEncaissement", "mode_encaissement")?,
+            arg(&p, "motif", "motif")?,
+            Some(c.appelant.role.clone()),
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("valider_facture_fournisseur", |c, p| {
+        let v = achats::valider_facture_fournisseur_sur_base(
+            c.base,
+            arg(&p, "pieceId", "piece_id")?,
+            arg(&p, "modeReglement", "mode_reglement")?,
+            arg(&p, "modePaiement", "mode_paiement")?,
+            arg(&p, "acompte", "acompte")?,
+            Some(c.appelant.role.clone()),
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("annuler_facture_fournisseur_par_avoir", |c, p| {
+        let v = achats::annuler_facture_fournisseur_par_avoir_sur_base(
+            c.base,
+            arg(&p, "pieceId", "piece_id")?,
+            arg(&p, "modeResolution", "mode_resolution")?,
+            arg(&p, "modeEncaissement", "mode_encaissement")?,
+            arg(&p, "motif", "motif")?,
+            Some(c.appelant.role.clone()),
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
     // -----------------------------------------------------------------
     //  Les images de la boutique
     // -----------------------------------------------------------------
@@ -529,6 +582,13 @@ pub fn registre() -> Registre {
     r.lecture("lire_factures_fournisseur_retournables", |c, p| {
         let fournisseur_id: String = arg(&p, "fournisseurId", "fournisseur_id")?;
         let v = achats::lire_factures_fournisseur_retournables(c.conn, fournisseur_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_factures_fournisseur_retournables", |c, p| {
+        let v = achats::lire_factures_fournisseur_retournables_sur_base(
+            c.base,
+            arg(&p, "fournisseurId", "fournisseur_id")?,
+        )?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1408,6 +1468,138 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
+    // ---- Les pieces, sur `Base` : les vingt-et-une, dans l'ordre du
+    // chemin `Connection` ci-dessus. ----
+    r.aussi_sur_base("lire_toutes_pieces_client", |c, p| {
+        let v = pieces::lire_toutes_pieces_client_sur_base(
+            c.base,
+            arg(&p, "typeFiltre", "type_filtre")?,
+            arg(&p, "statut", "statut")?,
+            arg(&p, "recherche", "recherche")?,
+            arg(&p, "dateDebut", "date_debut")?,
+            arg(&p, "dateFin", "date_fin")?,
+            arg(&p, "montantMin", "montant_min")?,
+            arg(&p, "montantMax", "montant_max")?,
+            arg(&p, "impayeSeulement", "impaye_seulement")?,
+            arg(&p, "enRetardSeulement", "en_retard_seulement")?,
+            arg(&p, "clientId", "client_id")?,
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_pieces_client", |c, p| {
+        let v = pieces::lire_pieces_client_sur_base(
+            c.base,
+            arg(&p, "clientId", "client_id")?,
+            arg(&p, "typeFiltre", "type_filtre")?,
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_lignes_piece", |c, p| {
+        let v = pieces::lire_lignes_piece_sur_base(c.base, arg(&p, "pieceId", "piece_id")?)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("creer_piece", |c, p| {
+        pieces::creer_piece_sur_base(
+            c.base,
+            arg(&p, "clientId", "client_id")?,
+            arg(&p, "typePiece", "type_piece")?,
+            arg(&p, "lignes", "lignes")?,
+            arg(&p, "remiseGlobale", "remise_globale")?,
+            arg(&p, "dateEcheance", "date_echeance")?,
+            arg(&p, "note", "note")?,
+            arg(&p, "pieceOrigineId", "piece_origine_id")?,
+            arg(&p, "depotId", "depot_id")?,
+        )
+    });
+    r.aussi_sur_base("convertir_piece", |c, p| {
+        pieces::convertir_piece_sur_base(
+            c.base,
+            arg(&p, "pieceId", "piece_id")?,
+            arg(&p, "nouveauType", "nouveau_type")?,
+        )
+    });
+    r.aussi_sur_base("convertir_commande_en_livraison_et_facture", |c, p| {
+        pieces::convertir_commande_en_livraison_et_facture_sur_base(
+            c.base,
+            arg(&p, "pieceId", "piece_id")?,
+        )
+    });
+    r.aussi_sur_base("changer_statut_piece", |c, p| {
+        pieces::changer_statut_piece_sur_base(
+            c.base,
+            arg(&p, "pieceId", "piece_id")?,
+            arg(&p, "nouveauStatut", "nouveau_statut")?,
+        )?;
+        Ok(Value::Null)
+    });
+    r.aussi_sur_base("lire_donnees_piece", |c, p| {
+        pieces::lire_donnees_piece_sur_base(c.base, arg(&p, "pieceId", "piece_id")?)
+    });
+    r.aussi_sur_base("lire_fiche_client", |c, p| {
+        pieces::lire_fiche_client_sur_base(c.base, arg(&p, "clientId", "client_id")?)
+    });
+    r.aussi_sur_base("lire_toutes_pieces_fournisseur", |c, p| {
+        let v = pieces::lire_toutes_pieces_fournisseur_sur_base(
+            c.base,
+            arg(&p, "typeFiltre", "type_filtre")?,
+            arg(&p, "statut", "statut")?,
+            arg(&p, "recherche", "recherche")?,
+            arg(&p, "fournisseurId", "fournisseur_id")?,
+        )?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("creer_piece_fournisseur", |c, p| {
+        pieces::creer_piece_fournisseur_sur_base(
+            c.base,
+            arg(&p, "fournisseurId", "fournisseur_id")?,
+            arg(&p, "typePiece", "type_piece")?,
+            arg(&p, "lignes", "lignes")?,
+            arg(&p, "remiseGlobale", "remise_globale")?,
+            arg(&p, "dateEcheance", "date_echeance")?,
+            arg(&p, "note", "note")?,
+            arg(&p, "pieceOrigineId", "piece_origine_id")?,
+        )
+    });
+    r.aussi_sur_base("modifier_piece", |c, p| {
+        pieces::modifier_piece_sur_base(
+            c.base,
+            arg(&p, "pieceId", "piece_id")?,
+            arg(&p, "note", "note")?,
+            arg(&p, "dateEcheance", "date_echeance")?,
+            arg(&p, "remiseGlobale", "remise_globale")?,
+            arg(&p, "lignes", "lignes")?,
+        )?;
+        Ok(Value::Null)
+    });
+    r.aussi_sur_base("annuler_piece", |c, p| {
+        pieces::annuler_piece_sur_base(
+            c.base,
+            arg(&p, "pieceId", "piece_id")?,
+            arg(&p, "motif", "motif")?,
+        )?;
+        Ok(Value::Null)
+    });
+    r.aussi_sur_base("dupliquer_piece", |c, p| {
+        pieces::dupliquer_piece_sur_base(c.base, arg(&p, "pieceId", "piece_id")?)
+    });
+    r.aussi_sur_base("lire_piece_de_vente", |c, p| {
+        let v = pieces::lire_piece_de_vente_sur_base(c.base, arg(&p, "venteId", "vente_id")?)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("annuler_facture_par_avoir", |c, p| {
+        pieces::annuler_facture_par_avoir_sur_base(
+            c.base,
+            arg(&p, "pieceId", "piece_id")?,
+            arg(&p, "modeRemboursement", "mode_remboursement")?,
+            arg(&p, "moyen", "moyen")?,
+            arg(&p, "motif", "motif")?,
+        )
+    });
+    r.aussi_sur_base("lire_vente_de_piece", |c, p| {
+        let v = pieces::lire_vente_de_piece_sur_base(c.base, arg(&p, "pieceId", "piece_id")?)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
     r.ecriture("modifier_facture_pos", "ventes:creer", |c, p| {
         let piece_id: String = arg(&p, "pieceId", "piece_id")?;
         let note: Option<String> = arg(&p, "note", "note")?;
@@ -1508,6 +1700,31 @@ pub fn registre() -> Registre {
 
     r.lecture("lire_avoirs_ouverts_tous", |c, _p| {
         let v = retours::lire_avoirs_ouverts_tous(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    // ---- Les retours, sur `Base` ----
+    r.aussi_sur_base("lire_ventes_recentes", |c, _p| {
+        let v = retours::lire_ventes_recentes_sur_base(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("enregistrer_retour", |c, p| {
+        retours::enregistrer_retour_sur_base(
+            c.base,
+            arg(&p, "venteId", "vente_id")?,
+            arg(&p, "ligneVenteId", "ligne_vente_id")?,
+            arg(&p, "quantite", "quantite")?,
+            arg(&p, "modeResolution", "mode_resolution")?,
+            arg(&p, "modeEncaissement", "mode_encaissement")?,
+            arg(&p, "articleRemplacementId", "article_remplacement_id")?,
+            arg(&p, "uniteRemplacementId", "unite_remplacement_id")?,
+            arg(&p, "quantiteRemplacement", "quantite_remplacement")?,
+            arg(&p, "modeReliquatPositif", "mode_reliquat_positif")?,
+            arg(&p, "modeEncaissementReliquat", "mode_encaissement_reliquat")?,
+        )
+    });
+    r.aussi_sur_base("lire_avoirs_ouverts_tous", |c, _p| {
+        let v = retours::lire_avoirs_ouverts_tous_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 

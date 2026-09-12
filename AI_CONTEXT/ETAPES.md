@@ -12,9 +12,10 @@ dans [DECISIONS.md](DECISIONS.md) pour tout le reste. Ce fichier-ci ne
 dit que l'avancement — qui fait quoi, dans quel ordre.
 
 Dernière mise à jour : **12 septembre 2026**.
-État : **295 tests SQLite + 21 tests PostgreSQL**, tous au vert — les 21
-rejoués sur une vraie instance (`gescom_test`), plus les 12 scénarios du
-tableau de bord qui tournent sur les deux moteurs.
+État : **328 tests SQLite + 21 tests PostgreSQL**, tous au vert — les 21
+rejoués sur une vraie instance (`gescom_test`), plus **45 scénarios**
+(tableau de bord, pièces, achats, retours) qui tournent sur les deux
+moteurs.
 
 ---
 
@@ -380,6 +381,63 @@ la façade, invisibles depuis SQLite :**
   ? integer ». Le traducteur saute maintenant les commentaires
   `-- … fin de ligne`. Deux tests.
 
+### `pieces`, `achats`, `retours` — **portés le 12/09/2026**
+
+Les trois modules annoncés « ensuite », d'un bloc : **30 commandes**
+(21 pièces, 6 achats, 3 retours), en `_sur_base`, cloisonnées, branchées
+au registre. Le serveur sert désormais **47 commandes sur `Base`**.
+
+Ce qui a rendu ce lot possible sans dupliquer chaque aide : **le trait
+`Acces`** (`base.rs`), implémenté par `Base` et par `Transaction`.
+Réserver un numéro, insérer les lignes d'une pièce, trouver la caisse
+ouverte, marquer un bon livré — ces gestes servent tantôt hors, tantôt
+dans une transaction. Sans trait commun, chacun existait en deux copies
+(`caisses.rs` en portait la trace : `exiger_sur` / `exiger_dans_tx`,
+désormais une seule règle). `Transaction` connaît maintenant son
+dossier, comme `Base`.
+
+Ce qui change par rapport aux versions SQLite, au-delà du portage :
+- **les listes filtrent par paramètres liés**, plus par
+  `format!("pc.statut = '{}'")` avec un `replace('\'', "''")` — un
+  paramètre lié n'a rien à échapper ;
+- **la recherche ignore la casse sur les deux moteurs** :
+  `LOWER(x) LIKE LOWER('%' || ?n || '%')`. `LIKE` seul est insensible
+  sur SQLite, sensible sur PostgreSQL — un commerçant qui cherche
+  « awa » n'aurait rien trouvé sur le moteur de production ;
+- **`creer_piece`, `modifier_piece`, `dupliquer_piece` écrivent dans
+  une transaction**, ce que la version SQLite ne faisait pas : une
+  pièce sans ses lignes, un avoir sans sa pièce, sont exactement les
+  demi-écritures qu'une transaction interdit ;
+- la table des conversions permises et le statut de naissance d'une
+  pièce vivent chacun dans UNE fonction (`conversion_permise`,
+  `statut_initial`) : la version SQLite en avait deux copies qui
+  pouvaient diverger.
+
+`livraisons::marquer_entierement_livre_sur` a été porté avec, parce
+que la conversion commande → bon de livraison en dépend : c'est elle
+qui sort le stock au bon, et la facture qui suit ne le sort pas une
+seconde fois — vérifié.
+
+**33 scénarios** dans [pieces_base.rs](../src-tauri/noyau/tests/pieces_base.rs)
+(15), [achats_base.rs](../src-tauri/noyau/tests/achats_base.rs) (9),
+[retours_base.rs](../src-tauri/noyau/tests/retours_base.rs) (9), avec
+un module partagé [commun/](../src-tauri/noyau/tests/commun/mod.rs).
+Chacun vérifie stock, caisse et créance APRÈS le geste ; chacun tourne
+sur PostgreSQL quand `GESCOM_PG` est défini ; chaque fichier finit par
+un test qui appelle tout ce qui est porté avec le détecteur allumé.
+**Les 33 passent sur PostgreSQL** — sans qu'un seul écart de moteur
+n'ait eu à être corrigé après coup : les trois pièges déjà connus
+(`SUM` → `NUMERIC`, paramètre NULL non typé, `LIKE`) étaient
+appliqués d'emblée.
+
+**Ce que ça change pour le commerçant sur PostgreSQL** : l'écran
+Pièces complet (devis, commande, bon, facture, avoir, fournisseur),
+les achats et les retours. Il reste, module par module : `creances`,
+`fournisseurs`, `depots`, `transferts`, `journal`, `rapports`,
+`pagination`, `chantiers`, `cheques`, `relances`, `avoirs`,
+`parametres`, `societe`, `roles`, `codebarre`, `livraisons` (le
+reste), `catalogue_csv`, `images`, `modeles`, `sauvegarde`.
+
 Deux chantiers à part :
 - la **sauvegarde** — `VACUUM INTO` n'existe pas côté PostgreSQL ;
 - les **~60 constructions** — `julianday`, `strftime`, `INSERT OR
@@ -546,6 +604,7 @@ GESCOM_PG="postgresql://..." cargo test -p gescom-noyau \
     --test postgres_amorcage -- --test-threads=1     # PostgreSQL
 GESCOM_PG="postgresql://..." cargo test -p gescom-noyau \
     --test tableau_bord_base -- --test-threads=1     # idem, tableau de bord
+# ... et de même pour pieces_base, achats_base, retours_base.
 
 # ⚠️ Les scénarios PostgreSQL font DROP SCHEMA : JAMAIS sur la base du
 # serveur (`gescom`). Une base jetable existe pour ça : `gescom_test`.

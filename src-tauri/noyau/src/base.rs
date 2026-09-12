@@ -290,6 +290,90 @@ impl<T: DeLigne> DeLigne for Option<T> {
 }
 
 // =====================================================================
+//  UN ACCES : LA BASE, OU UNE TRANSACTION
+// =====================================================================
+
+/// Ce qu'une fonction metier attend, sans savoir si elle tourne dans
+/// une transaction ou en dehors.
+///
+/// Sans ce trait, chaque aide — reserver un numero, inserer les lignes
+/// d'une piece, trouver la caisse ouverte — existait en deux copies :
+/// une pour `Base`, une pour `Transaction`. `caisses.rs` en porte
+/// encore la trace (`exiger_sur` / `exiger_dans_tx`). Deux copies d'une
+/// regle finissent toujours par diverger, et la divergence se voit chez
+/// le commercant, pas ici.
+///
+/// Les methodes sont celles de `Base` et de `Transaction`, a
+/// l'identique ; le trait ne fait que les nommer une fois.
+pub trait Acces {
+    /// Le dossier sur lequel cet acces travaille.
+    fn dossier(&self) -> &str;
+    fn executer(&mut self, sql: &str, params: &[Valeur]) -> Resultat<u64>;
+    fn lire_une<T>(
+        &mut self,
+        sql: &str,
+        params: &[Valeur],
+        lire: impl FnOnce(&Ligne<'_>) -> Resultat<T>,
+    ) -> Resultat<Option<T>>;
+    fn lire_plusieurs<T>(
+        &mut self,
+        sql: &str,
+        params: &[Valeur],
+        lire: impl FnMut(&Ligne<'_>) -> Resultat<T>,
+    ) -> Resultat<Vec<T>>;
+}
+
+impl Acces for Base {
+    fn dossier(&self) -> &str {
+        Base::dossier(self)
+    }
+    fn executer(&mut self, sql: &str, params: &[Valeur]) -> Resultat<u64> {
+        Base::executer(self, sql, params)
+    }
+    fn lire_une<T>(
+        &mut self,
+        sql: &str,
+        params: &[Valeur],
+        lire: impl FnOnce(&Ligne<'_>) -> Resultat<T>,
+    ) -> Resultat<Option<T>> {
+        Base::lire_une(self, sql, params, lire)
+    }
+    fn lire_plusieurs<T>(
+        &mut self,
+        sql: &str,
+        params: &[Valeur],
+        lire: impl FnMut(&Ligne<'_>) -> Resultat<T>,
+    ) -> Resultat<Vec<T>> {
+        Base::lire_plusieurs(self, sql, params, lire)
+    }
+}
+
+impl Acces for Transaction<'_> {
+    fn dossier(&self) -> &str {
+        Transaction::dossier(self)
+    }
+    fn executer(&mut self, sql: &str, params: &[Valeur]) -> Resultat<u64> {
+        Transaction::executer(self, sql, params)
+    }
+    fn lire_une<T>(
+        &mut self,
+        sql: &str,
+        params: &[Valeur],
+        lire: impl FnOnce(&Ligne<'_>) -> Resultat<T>,
+    ) -> Resultat<Option<T>> {
+        Transaction::lire_une(self, sql, params, lire)
+    }
+    fn lire_plusieurs<T>(
+        &mut self,
+        sql: &str,
+        params: &[Valeur],
+        lire: impl FnMut(&Ligne<'_>) -> Resultat<T>,
+    ) -> Resultat<Vec<T>> {
+        Transaction::lire_plusieurs(self, sql, params, lire)
+    }
+}
+
+// =====================================================================
 //  LA BASE
 // =====================================================================
 
@@ -483,6 +567,7 @@ fn pg_lire_plusieurs<C: postgres::GenericClient, T>(
 /// demi-vente.
 pub struct Transaction<'a> {
     moteur: MoteurTx<'a>,
+    dossier: String,
     audit: bool,
 }
 
@@ -492,6 +577,11 @@ enum MoteurTx<'a> {
 }
 
 impl Transaction<'_> {
+    /// Le dossier de la connexion qui a ouvert cette transaction.
+    pub fn dossier(&self) -> &str {
+        &self.dossier
+    }
+
     fn controler(&self, sql: &str) -> Resultat<()> {
         if self.audit {
             if let Some(reproche) = crate::dossiers::requete_non_cloisonnee(sql) {
@@ -642,11 +732,12 @@ impl Base {
     /// Ouvre une transaction : tout ou rien.
     pub fn transaction(&mut self) -> Resultat<Transaction<'_>> {
         let audit = self.audit;
+        let dossier = self.dossier.clone();
         let moteur = match &mut self.moteur {
             Moteur::Sqlite(c) => MoteurTx::Sqlite(c.transaction()?),
             Moteur::Pg(c) => MoteurTx::Pg(c.transaction()?),
         };
-        Ok(Transaction { moteur, audit })
+        Ok(Transaction { moteur, dossier, audit })
     }
 
     /// Plusieurs instructions d'un coup (schema, migrations).

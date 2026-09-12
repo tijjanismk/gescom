@@ -663,3 +663,625 @@ pub fn lire_avoirs_ouverts_tous(
     .collect();
     Ok(x)
 }
+
+// =====================================================================
+//  LES RETOURS, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// `enregistrer_retour` est le morceau qui compte : trois modes, deux
+// gardes, et de l'argent qui sort du tiroir. Le texte suit la version
+// SQLite pas a pas ; les aides (sortie de caisse, avoir) prennent un
+// `impl Acces` pour servir dans la transaction.
+
+use crate::argent::{id_utilisateur_courant_sur, reserver_numero_sur};
+use crate::base::{Acces, Base};
+use crate::parametres;
+
+pub fn lire_ventes_recentes_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+
+    let ventes_base: Vec<(String, String, String, String, String, String, Option<String>)> = base
+        .lire_plusieurs(
+            "SELECT v.id, v.date_vente, v.statut, v.client_id,
+                    c.nom, c.code, f.numero
+             FROM vente v
+             JOIN client c ON c.id = v.client_id
+             LEFT JOIN piece_commerciale f ON f.id = v.piece_id
+             WHERE v.dossier_id = ?1
+             ORDER BY v.date_vente DESC
+             LIMIT 50",
+            &parametres![dossier.clone()],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<String>(1)?,
+                    r.get::<String>(2)?,
+                    r.get::<String>(3)?,
+                    r.get::<String>(4)?,
+                    r.get::<String>(5)?,
+                    r.get::<Option<String>>(6)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+
+    let mut ventes = Vec::with_capacity(ventes_base.len());
+    for (id, date_vente, statut, client_id, client_nom, client_code, numero_facture) in ventes_base {
+        let lignes: Vec<serde_json::Value> = base
+            .lire_plusieurs(
+                "SELECT lv.id, lv.article_id, a.nom, lv.unite_vente_id,
+                        u.libelle, lv.depot_source_id,
+                        lv.quantite, lv.prix_pratique,
+                        CAST(lv.prix_pratique * lv.quantite AS BIGINT)
+                 FROM ligne_vente lv
+                 JOIN article a ON a.id = lv.article_id
+                 JOIN unite_vente u ON u.id = lv.unite_vente_id
+                 WHERE lv.vente_id = ?1 AND lv.dossier_id = ?2",
+                &parametres![id.clone(), dossier.clone()],
+                |r| {
+                    Ok(serde_json::json!({
+                        "id":              r.get::<String>(0)?,
+                        "article_id":      r.get::<String>(1)?,
+                        "article_nom":     r.get::<String>(2)?,
+                        "unite_vente_id":  r.get::<String>(3)?,
+                        "unite_libelle":   r.get::<String>(4)?,
+                        "depot_source_id": r.get::<String>(5)?,
+                        "quantite":        r.get::<f64>(6)?,
+                        "prix_pratique":   r.get::<i64>(7)?,
+                        "montant":         r.get::<i64>(8)?,
+                    }))
+                },
+            )
+            .map_err(|e| e.0)?;
+
+        let total: i64 = lignes.iter().filter_map(|l| l["montant"].as_i64()).sum();
+        ventes.push(serde_json::json!({
+            "id":             id,
+            "date_vente":     date_vente,
+            "statut":         statut,
+            "client_id":      client_id,
+            "client_nom":     client_nom,
+            "client_code":    client_code,
+            "numero_facture": numero_facture,
+            "total":          total,
+            "lignes":         lignes,
+        }));
+    }
+    Ok(ventes)
+}
+
+/// Une somme d'argent lue dans la transaction, 0 si rien.
+fn montant(acces: &mut impl Acces, sql: &str, params: &[crate::base::Valeur]) -> Result<i64, String> {
+    Ok(acces.lire_une(sql, params, |r| r.get::<i64>(0)).map_err(|e| e.0)?.unwrap_or(0))
+}
+
+/// Le client est-il le client de passage ? `client` est cloisonnee.
+fn est_client_generique_sur(acces: &mut impl Acces, client_id: &str) -> bool {
+    let dossier = acces.dossier().to_string();
+    acces
+        .lire_une(
+            "SELECT est_generique FROM client WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![client_id, dossier],
+            |r| r.get::<i64>(0),
+        )
+        .ok()
+        .flatten()
+        .map(|v| v != 0)
+        .unwrap_or(false)
+}
+
+/// Sortie de caisse d'un remboursement. Refus plutot qu'ecriture
+/// manquante : rendre de l'argent sans mouvement cree un manque
+/// inexplicable a la cloture.
+pub fn enregistrer_sortie_caisse_sur(
+    acces: &mut impl Acces,
+    montant: i64,
+    mode: &str,
+    operation_id: &str,
+    motif: &str,
+    utilisateur_id: &str,
+    maintenant: &str,
+) -> Result<(), String> {
+    let dossier = acces.dossier().to_string();
+    let sid = crate::caisses::exiger_sur(acces, None)?;
+    acces
+        .executer(
+            "INSERT INTO mouvement_caisse
+             (id, session_id, sens, moyen, montant, motif,
+              operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+             VALUES (?1, ?2, 'sortie', ?3, ?4, ?5, ?6, ?7, ?7, ?8, 'app', ?9)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                sid,
+                mode,
+                montant,
+                motif,
+                operation_id,
+                maintenant,
+                utilisateur_id,
+                dossier
+            ],
+        )
+        .map_err(|e| e.0)
+        .map(|_| ())
+}
+
+/// Cree l'avoir ET sa piece AVC : un engagement envers le client doit
+/// exister sur un document numerote.
+#[allow(clippy::too_many_arguments)]
+pub fn creer_avoir_client_sur(
+    acces: &mut impl Acces,
+    client_id: &str,
+    retour_id: &str,
+    montant: i64,
+    maintenant: &str,
+    article_id: &str,
+    unite_vente_id: &str,
+    quantite: f64,
+    auteur_id: &str,
+) -> Result<String, String> {
+    let dossier = acces.dossier().to_string();
+    let avoir_id = uuid::Uuid::new_v4().to_string();
+    // La piece d'abord, pour que l'avoir porte son `piece_id` (D44).
+    let numero = reserver_numero_sur(acces, "avoir_client")?;
+    let piece_id = uuid::Uuid::new_v4().to_string();
+
+    acces
+        .executer(
+            "INSERT INTO avoir
+             (id, client_id, retour_id, piece_id, montant, statut, cree_le, origine, dossier_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'ouvert', ?6, 'app', ?7)",
+            &parametres![
+                avoir_id,
+                client_id,
+                retour_id,
+                piece_id.clone(),
+                montant,
+                maintenant,
+                dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+
+    acces
+        .executer(
+            "INSERT INTO piece_commerciale
+             (id, type_piece, numero, statut, tiers_type, tiers_id,
+              auteur_id, date_piece, remise_globale, note,
+              cree_le, modifie_le, origine, dossier_id)
+             VALUES (?1,'avoir_client',?2,'emis','client',?3,?4,?5,0.0,?6,?5,?5,'retour',?7)",
+            &parametres![
+                piece_id.clone(),
+                numero.clone(),
+                client_id,
+                auteur_id,
+                maintenant,
+                format!("Avoir sur retour — {} F", montant),
+                dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+
+    let prix_u = if quantite > 0.0 { (montant as f64 / quantite).round() as i64 } else { montant };
+    acces
+        .executer(
+            "INSERT INTO ligne_piece
+             (id, piece_id, article_id, unite_vente_id, quantite,
+              prix_unitaire, remise_pct, remise_montant,
+              taux_tva, montant_tva, montant_ht, cree_le, dossier_id)
+             VALUES (?1,?2,?3,?4,?5,?6,0.0,0,0.0,0,?7,?8,?9)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                piece_id,
+                article_id,
+                unite_vente_id,
+                quantite,
+                prix_u,
+                montant,
+                maintenant,
+                dossier
+            ],
+        )
+        .map_err(|e| e.0)?;
+
+    Ok(numero)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn enregistrer_retour_sur_base(
+    base: &mut Base,
+    vente_id: String,
+    ligne_vente_id: String,
+    quantite: f64,
+    mode_resolution: String,
+    mode_encaissement: Option<String>,
+    article_remplacement_id: Option<String>,
+    unite_remplacement_id: Option<String>,
+    quantite_remplacement: Option<f64>,
+    mode_reliquat_positif: Option<String>,
+    mode_encaissement_reliquat: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+
+    // TOUT le retour dans UNE transaction : un remboursement refuse
+    // faute de caisse ne doit laisser ni stock remonte ni ligne posee.
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    let utilisateur_id = id_utilisateur_courant_sur(&mut tx);
+    let maintenant = maintenant_iso();
+    let retour_id = uuid::Uuid::new_v4().to_string();
+
+    let (article_id, unite_vente_id, depot_source_id, facteur, prix_pratique, client_id, qte_vendue):
+        (String, String, String, f64, i64, String, f64) = tx
+        .lire_une(
+            "SELECT lv.article_id, lv.unite_vente_id, lv.depot_source_id,
+                    u.facteur, lv.prix_pratique, v.client_id, lv.quantite
+             FROM ligne_vente lv
+             JOIN unite_vente u ON u.id = lv.unite_vente_id
+             JOIN vente v ON v.id = lv.vente_id
+             WHERE lv.id = ?1 AND lv.dossier_id = ?2",
+            &parametres![ligne_vente_id.clone(), dossier.clone()],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<String>(1)?,
+                    r.get::<String>(2)?,
+                    r.get::<f64>(3)?,
+                    r.get::<i64>(4)?,
+                    r.get::<String>(5)?,
+                    r.get::<f64>(6)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Ligne de vente introuvable".to_string())?;
+
+    // ---- GARDE 1 : pas plus que vendu, par LIGNE.
+    let deja_retourne: f64 = tx
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(quantite), 0) AS DOUBLE PRECISION) FROM retour
+             WHERE vente_id = ?1 AND dossier_id = ?4
+               AND (ligne_vente_id = ?2
+                    OR (ligne_vente_id IS NULL AND article_id = ?3))",
+            &parametres![vente_id.clone(), ligne_vente_id.clone(), article_id.clone(), dossier.clone()],
+            |r| r.get::<f64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0.0);
+
+    let retournable = qte_vendue - deja_retourne;
+    if quantite <= 0.0 {
+        return Err("La quantité retournée doit être positive".to_string());
+    }
+    if quantite > retournable + 1e-9 {
+        return Err(format!(
+            "Quantité trop élevée : {} vendue(s), {} déjà retournée(s), \
+             il reste {} retournable(s).",
+            qte_vendue,
+            deja_retourne,
+            retournable.max(0.0)
+        ));
+    }
+
+    let montant_credit: i64 = (prix_pratique as f64 * quantite).round() as i64;
+    let quantite_base = quantite * facteur;
+
+    // ---- GARDE 2 : le retour eteint d'abord la dette (D33).
+    let total_vente = montant(
+        &mut tx,
+        "SELECT CAST(COALESCE(SUM(prix_pratique * quantite), 0) AS BIGINT)
+         FROM ligne_vente WHERE vente_id = ?1 AND dossier_id = ?2",
+        &parametres![vente_id.clone(), dossier.clone()],
+    )?;
+    let deja_paye = montant(
+        &mut tx,
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
+         FROM paiement WHERE vente_id = ?1 AND dossier_id = ?2",
+        &parametres![vente_id.clone(), dossier.clone()],
+    )?;
+    let reste_du = (total_vente - deja_paye).max(0);
+    let part_creance = if mode_resolution == "echange" { 0 } else { montant_credit.min(reste_du) };
+
+    // Seconde borne : jamais plus que ce que le client a verse.
+    let rembourse_deja = montant(
+        &mut tx,
+        "SELECT CAST(COALESCE(SUM(mc.montant), 0) AS BIGINT)
+         FROM mouvement_caisse mc
+         WHERE mc.motif IN ('remboursement','remboursement_reliquat')
+           AND mc.dossier_id = ?2
+           AND mc.operation_id IN (SELECT id FROM retour WHERE vente_id = ?1)",
+        &parametres![vente_id.clone(), dossier.clone()],
+    )?;
+    let verse_reel = montant(
+        &mut tx,
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
+         FROM paiement
+         WHERE vente_id = ?1 AND mode NOT IN ('retour', 'avoir') AND dossier_id = ?2",
+        &parametres![vente_id.clone(), dossier.clone()],
+    )?;
+    let plafond_client = (verse_reel - rembourse_deja).max(0);
+    let part_client_brute = montant_credit - part_creance;
+    let part_client = part_client_brute.min(plafond_client);
+    let non_attribue = part_client_brute - part_client;
+    if non_attribue > 0 {
+        eprintln!(
+            "[gescom] retour {} : {} F non attribuables (verse {}, deja rembourse {})",
+            retour_id, non_attribue, verse_reel, rembourse_deja
+        );
+    }
+
+    // ---- 1. Le stock remonte — TOUJOURS.
+    tx.executer(
+        "INSERT INTO mouvement_stock
+         (id, article_id, depot_id, type_mouvement, quantite_delta,
+          operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+         VALUES (?1, ?2, ?3, 'retour', ?4, ?5, ?6, ?7, ?7, ?6, 'app', ?8)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            article_id.clone(),
+            depot_source_id.clone(),
+            quantite_base,
+            retour_id.clone(),
+            utilisateur_id.clone(),
+            maintenant.clone(),
+            dossier.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    // ---- 2. Le retour.
+    tx.executer(
+        "INSERT INTO retour
+         (id, vente_id, ligne_vente_id, article_id, unite_vente_id, quantite,
+          depot_reintegration_id, mode_resolution, montant_credit,
+          reliquat, reliquat_resolution, auteur_id, date_retour,
+          cree_le, cree_par, origine, dossier_id)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,0,?10,?11,?12,?12,?11,'app',?13)",
+        &parametres![
+            retour_id.clone(),
+            vente_id.clone(),
+            ligne_vente_id.clone(),
+            article_id.clone(),
+            unite_vente_id.clone(),
+            quantite,
+            depot_source_id.clone(),
+            mode_resolution.clone(),
+            montant_credit,
+            mode_encaissement.as_deref().unwrap_or("aucun"),
+            utilisateur_id.clone(),
+            maintenant.clone(),
+            dossier.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    // ---- 2 bis. La part qui eteint la dette : un paiement 'retour'.
+    if part_creance > 0 && mode_resolution != "echange" {
+        tx.executer(
+            "INSERT INTO paiement
+             (id, vente_id, montant, mode, date_paiement,
+              auteur_id, cree_le, cree_par, origine, dossier_id)
+             VALUES (?1,?2,?3,'retour',?4,?5,?4,?5,'retour',?6)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                vente_id.clone(),
+                part_creance,
+                maintenant.clone(),
+                utilisateur_id.clone(),
+                dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+
+        let paye_apres = deja_paye + part_creance;
+        let statut = match crate::coeur::calcul::statut_vente(total_vente, paye_apres) {
+            crate::coeur::calcul::StatutVente::Payee => "payee",
+            crate::coeur::calcul::StatutVente::PartiellementPayee => "partiellement_payee",
+            crate::coeur::calcul::StatutVente::CreanceOuverte => "creance_ouverte",
+        };
+        let _ = tx.executer(
+            "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
+            &parametres![statut, maintenant.clone(), vente_id.clone(), dossier.clone()],
+        );
+    }
+
+    // D40 — pas d'avoir au client de passage.
+    let client_generique = est_client_generique_sur(&mut tx, &client_id);
+    if client_generique && mode_resolution == "avoir_conserve" {
+        return Err("Pas d'avoir pour un client comptant. \
+                    Choisir remboursement ou échange."
+            .to_string());
+    }
+
+    // ---- 3. Le solde eventuel — uniquement ce que le client a verse.
+    let mut numero_avoir: Option<String> = None;
+    match mode_resolution.as_str() {
+        "remboursement" => {
+            if part_client > 0 {
+                let mode = mode_encaissement.as_deref().unwrap_or("especes");
+                enregistrer_sortie_caisse_sur(
+                    &mut tx, part_client, mode, &retour_id, "remboursement",
+                    &utilisateur_id, &maintenant,
+                )?;
+            }
+        }
+
+        "avoir_conserve" if part_client > 0 => {
+            numero_avoir = Some(creer_avoir_client_sur(
+                &mut tx, &client_id, &retour_id, part_client, &maintenant,
+                &article_id, &unite_vente_id, quantite, &utilisateur_id,
+            )?);
+        }
+
+        "echange" => {
+            if let (Some(art_remp_id), Some(unite_remp_id), Some(qte_remp)) = (
+                &article_remplacement_id,
+                &unite_remplacement_id,
+                quantite_remplacement,
+            ) {
+                let (facteur_remp, prix_remp): (f64, i64) = tx
+                    .lire_une(
+                        "SELECT u.facteur, u.prix_reference FROM unite_vente u WHERE u.id = ?1",
+                        &parametres![unite_remp_id.clone()],
+                        |r| Ok((r.get::<f64>(0)?, r.get::<i64>(1)?)),
+                    )
+                    .map_err(|e| e.0)?
+                    .ok_or_else(|| "Unité de remplacement introuvable".to_string())?;
+
+                // Le remplacement sort du depot de la vente (D43), sinon
+                // du defaut.
+                let depot_remplacement: String = match tx
+                    .lire_une(
+                        "SELECT id FROM depot WHERE id = ?1 AND actif = 1 AND dossier_id = ?2",
+                        &parametres![depot_source_id.clone(), dossier.clone()],
+                        |r| r.get::<String>(0),
+                    )
+                    .ok()
+                    .flatten()
+                {
+                    Some(d) => d,
+                    None => tx
+                        .lire_une(
+                            "SELECT id FROM depot WHERE est_defaut = 1 AND actif = 1
+                             AND dossier_id = ?1 LIMIT 1",
+                            &parametres![dossier.clone()],
+                            |r| r.get::<String>(0),
+                        )
+                        .ok()
+                        .flatten()
+                        .ok_or_else(|| {
+                            "Aucun magasin actif pour sortir le remplacement. \
+                             Vérifier Paramètres → Magasins."
+                                .to_string()
+                        })?,
+                };
+
+                let qte_base_remp = qte_remp * facteur_remp;
+                let montant_remplacement: i64 = (prix_remp as f64 * qte_remp).round() as i64;
+                let reliquat = montant_credit - montant_remplacement;
+
+                tx.executer(
+                    "INSERT INTO mouvement_stock
+                     (id, article_id, depot_id, type_mouvement, quantite_delta,
+                      operation_id, auteur_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+                     VALUES (?1, ?2, ?3, 'echange', ?4, ?5, ?6, ?7, ?7, ?6, 'app', ?8)",
+                    &parametres![
+                        uuid::Uuid::new_v4().to_string(),
+                        art_remp_id.clone(),
+                        depot_remplacement,
+                        -qte_base_remp,
+                        retour_id.clone(),
+                        utilisateur_id.clone(),
+                        maintenant.clone(),
+                        dossier.clone()
+                    ],
+                )
+                .map_err(|e| e.0)?;
+
+                if reliquat > 0 {
+                    match mode_reliquat_positif.as_deref() {
+                        // Le client de passage D'ABORD : la branche par
+                        // defaut est l'avoir, qu'il ne peut pas recevoir.
+                        Some("remboursement") | None if client_generique => {
+                            let mode = mode_encaissement_reliquat.as_deref().unwrap_or("especes");
+                            enregistrer_sortie_caisse_sur(
+                                &mut tx, reliquat, mode, &retour_id, "remboursement_reliquat",
+                                &utilisateur_id, &maintenant,
+                            )?;
+                        }
+                        _ if client_generique => {
+                            return Err("Pas d'avoir pour un client comptant. \
+                                        Le reliquat doit être remboursé."
+                                .to_string());
+                        }
+                        Some("remboursement") => {
+                            let mode = mode_encaissement_reliquat.as_deref().unwrap_or("especes");
+                            enregistrer_sortie_caisse_sur(
+                                &mut tx, reliquat, mode, &retour_id, "remboursement_reliquat",
+                                &utilisateur_id, &maintenant,
+                            )?;
+                        }
+                        _ => {
+                            numero_avoir = Some(creer_avoir_client_sur(
+                                &mut tx, &client_id, &retour_id, reliquat, &maintenant,
+                                &article_id, &unite_vente_id, quantite, &utilisateur_id,
+                            )?);
+                        }
+                    }
+                } else if reliquat < 0 {
+                    // Le client paie la difference : entree reelle.
+                    let mode = mode_encaissement.as_deref().unwrap_or("especes");
+                    let sid = crate::caisses::exiger_sur(&mut tx, None)?;
+                    tx.executer(
+                        "INSERT INTO mouvement_caisse
+                         (id, session_id, sens, moyen, montant, motif,
+                          operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+                         VALUES (?1, ?2, 'entree', ?3, ?4, 'complement_echange',
+                                 ?5, ?6, ?6, ?7, 'app', ?8)",
+                        &parametres![
+                            uuid::Uuid::new_v4().to_string(),
+                            sid,
+                            mode,
+                            -reliquat,
+                            retour_id.clone(),
+                            maintenant.clone(),
+                            utilisateur_id.clone(),
+                            dossier.clone()
+                        ],
+                    )
+                    .map_err(|e| e.0)?;
+                }
+            }
+        }
+
+        _ => {}
+    }
+
+    // ---- 4. Journal.
+    tx.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'retour_enregistre', 'retour', ?2, ?3, ?4, 'app', ?5, ?6)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            retour_id.clone(),
+            utilisateur_id,
+            format!(r#"{{"mode":"{}","credit":{}}}"#, mode_resolution, montant_credit),
+            maintenant,
+            dossier
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    tx.valider().map_err(|e| e.0)?;
+
+    Ok(serde_json::json!({
+        "retour_id":      retour_id,
+        "montant_credit": montant_credit,
+        "part_creance":   part_creance,
+        "part_client":    part_client,
+        "numero_avoir":   numero_avoir,
+    }))
+}
+
+pub fn lire_avoirs_ouverts_tous_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT av.id, c.nom, c.code, av.montant, av.cree_le
+         FROM avoir av
+         JOIN client c ON c.id = av.client_id
+         WHERE av.statut = 'ouvert' AND av.dossier_id = ?1
+         ORDER BY av.cree_le DESC",
+        &parametres![dossier],
+        |r| {
+            Ok(serde_json::json!({
+                "id":          r.get::<String>(0)?,
+                "client_nom":  r.get::<String>(1)?,
+                "client_code": r.get::<String>(2)?,
+                "montant":     r.get::<i64>(3)?,
+                "cree_le":     r.get::<String>(4)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}

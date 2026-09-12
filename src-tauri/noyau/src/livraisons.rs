@@ -420,3 +420,138 @@ mod tests {
         assert_eq!(etat(12.0, 10.0), "livre");
     }
 }
+
+// =====================================================================
+//  LE MOUVEMENT, SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// Le strict necessaire pour que la conversion commande -> bon de
+// livraison, portee dans `pieces`, sorte le stock par le MEME chemin
+// que sur SQLite. Le reste du module (saisie ligne a ligne, lecture)
+// suit dans son propre lot.
+
+use crate::base::Acces;
+use crate::parametres;
+
+#[allow(clippy::too_many_arguments)]
+fn mouvementer_ecart_sur(
+    acces: &mut impl Acces,
+    type_piece: &str,
+    depot: Option<&str>,
+    article_id: &str,
+    unite_id: &str,
+    ecart: f64,
+    auteur: &str,
+    now: &str,
+    piece_id: &str,
+) -> Result<(), String> {
+    let Some((signe, type_mouvement)) = sens(type_piece) else {
+        return Ok(());
+    };
+    if ecart.abs() <= EPSILON {
+        return Ok(());
+    }
+    let Some(depot) = depot else {
+        return Err(
+            "Aucun magasin actif : impossible de constater ce mouvement.".to_string(),
+        );
+    };
+    let dossier = acces.dossier().to_string();
+
+    // `unite_vente` n'est pas cloisonnee.
+    let facteur: f64 = acces
+        .lire_une(
+            "SELECT facteur FROM unite_vente WHERE id = ?1",
+            &parametres![unite_id],
+            |r| r.get::<f64>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(1.0);
+
+    acces
+        .executer(
+            "INSERT INTO mouvement_stock
+             (id, article_id, depot_id, type_mouvement, quantite_delta,
+              motif, operation_id, auteur_id, date_mouvement,
+              cree_le, cree_par, origine, dossier_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?9,?8,'app',?10)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                article_id,
+                depot,
+                type_mouvement,
+                signe * ecart * facteur,
+                crate::coeur::stock::libelle(type_mouvement),
+                piece_id,
+                auteur,
+                now,
+                dossier
+            ],
+        )
+        .map_err(|e| e.0)?;
+    Ok(())
+}
+
+/// Meme regle que `marquer_entierement_livre`, sur l'un ou l'autre
+/// moteur, dedans ou hors transaction.
+pub fn marquer_entierement_livre_sur(
+    acces: &mut impl Acces,
+    piece_id: &str,
+) -> Result<(), String> {
+    let dossier = acces.dossier().to_string();
+    let (type_piece, depot_piece): (String, Option<String>) = acces
+        .lire_une(
+            "SELECT type_piece, depot_id FROM piece_commerciale
+             WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![piece_id, dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<Option<String>>(1)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Piece introuvable".to_string())?;
+
+    let now = maintenant_iso();
+    let auteur = crate::argent::id_utilisateur_courant_sur(acces);
+    let depot = crate::pieces::depot_de_piece_sur(acces, depot_piece);
+
+    let lignes: Vec<(String, f64, f64, String, String)> = acces
+        .lire_plusieurs(
+            "SELECT id, quantite, COALESCE(quantite_livree, 0),
+                    article_id, unite_vente_id
+             FROM ligne_piece WHERE piece_id = ?1 AND dossier_id = ?2",
+            &parametres![piece_id, dossier.clone()],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<f64>(1)?,
+                    r.get::<f64>(2)?,
+                    r.get::<String>(3)?,
+                    r.get::<String>(4)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+
+    for (ligne_id, quantite, deja, article_id, unite_id) in lignes {
+        acces
+            .executer(
+                "UPDATE ligne_piece SET quantite_livree = quantite
+                 WHERE id = ?1 AND dossier_id = ?2",
+                &parametres![ligne_id, dossier.clone()],
+            )
+            .map_err(|e| e.0)?;
+
+        mouvementer_ecart_sur(
+            acces,
+            &type_piece,
+            depot.as_deref(),
+            &article_id,
+            &unite_id,
+            quantite - deja,
+            &auteur,
+            &now,
+            piece_id,
+        )?;
+    }
+    Ok(())
+}

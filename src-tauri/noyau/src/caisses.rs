@@ -104,13 +104,13 @@ pub fn exiger(
 // verifie DANS une transaction deja ouverte — c'est le cas historique
 // de `valider_facture`, garde tel quel plutot que deplace au passage.
 
-use crate::base::Base;
+use crate::base::Acces;
 use crate::parametres;
 
 /// La caisse est-elle nominative ? `config_app` n'est PAS cloisonnee :
 /// un seul reglage vaut pour tous les dossiers, comme les autres
 /// reglages generaux du poste.
-pub fn par_utilisateur_sur(base: &mut Base) -> bool {
+pub fn par_utilisateur_sur(base: &mut impl Acces) -> bool {
     base.lire_une(
         "SELECT valeur FROM config_app WHERE cle = 'caisse_par_utilisateur'",
         &[],
@@ -124,7 +124,7 @@ pub fn par_utilisateur_sur(base: &mut Base) -> bool {
 
 /// La session de caisse a laquelle rattacher une operation, dans le
 /// dossier courant. `session_caisse` est cloisonnee.
-pub fn exiger_sur(base: &mut Base, utilisateur_id: Option<&str>) -> Result<String, String> {
+pub fn exiger_sur(base: &mut impl Acces, utilisateur_id: Option<&str>) -> Result<String, String> {
     let dossier = base.dossier().to_string();
     if par_utilisateur_sur(base) {
         let Some(uid) = utilisateur_id else {
@@ -164,55 +164,15 @@ pub fn exiger_sur(base: &mut Base, utilisateur_id: Option<&str>) -> Result<Strin
 }
 
 /// Meme regle, depuis l'interieur d'une transaction deja ouverte.
+///
+/// Ne fait plus que rediriger : depuis que `Acces` couvre `Base` et
+/// `Transaction`, une seule fonction porte la regle. Conservee pour
+/// ses appelants ; `dossier` n'est plus lu, la transaction connait le
+/// sien.
 pub fn exiger_dans_tx(
     tx: &mut crate::base::Transaction,
-    dossier: &str,
+    _dossier: &str,
     utilisateur_id: Option<&str>,
 ) -> Result<String, String> {
-    let nominative = tx
-        .lire_une(
-            "SELECT valeur FROM config_app WHERE cle = 'caisse_par_utilisateur'",
-            &[],
-            |r| r.get::<String>(0),
-        )
-        .ok()
-        .flatten()
-        .map(|v| v == "1")
-        .unwrap_or(false);
-
-    if nominative {
-        let Some(uid) = utilisateur_id else {
-            return Err(
-                "CAISSE_SANS_UTILISATEUR — la caisse est nominative : cette \
-                 opération doit indiquer qui l'enregistre."
-                    .to_string(),
-            );
-        };
-        return tx
-            .lire_une(
-                "SELECT id FROM session_caisse
-                 WHERE statut = 'ouverte' AND utilisateur_id = ?1 AND dossier_id = ?2
-                 LIMIT 1",
-                &parametres![uid, dossier],
-                |r| r.get::<String>(0),
-            )
-            .map_err(|e| e.0)?
-            .ok_or_else(|| {
-                "CAISSE_FERMEE — votre caisse n'est pas ouverte. L'ouvrir pour \
-                 enregistrer cette opération."
-                    .to_string()
-            });
-    }
-
-    tx.lire_une(
-        "SELECT id FROM session_caisse WHERE statut = 'ouverte' AND dossier_id = ?1 LIMIT 1",
-        &parametres![dossier],
-        |r| r.get::<String>(0),
-    )
-    .map_err(|e| e.0)?
-    .ok_or_else(|| {
-        "CAISSE_FERMEE — la caisse n'est pas ouverte. L'ouvrir pour \
-         enregistrer cette opération."
-            .to_string()
-    })
+    exiger_sur(tx, utilisateur_id)
 }
