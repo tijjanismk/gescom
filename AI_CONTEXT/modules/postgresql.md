@@ -123,9 +123,10 @@ schéma, les rôles, les comptes, le dépôt, le client « Comptant », les
 tables du réseau v2, le cloisonnement par dossier et le déclencheur de
 stock — sur les deux moteurs.
 
-**186 des 187 commandes du serveur ont leur version `Base`**
-(`*_sur_base`, branchée par `Registre::aussi_sur_base`). La 187e,
-`lire_catalogue_permissions`, ne touche pas la base. Vendre, facturer,
+**Les 187 commandes du serveur ont leur poignée `Base`**
+(`*_sur_base`, branchée par `Registre::aussi_sur_base` — y compris
+`lire_catalogue_permissions`, qui ne lit pas la base mais que le registre
+refusait sans poignée). Vendre, facturer,
 encaisser, acheter, rendre, transférer, clôturer, relancer, imprimer :
 tout passe. Voir [JOURNAL.md](../JOURNAL.md) pour le détail des lots et
 [DECISIONS.md](../DECISIONS.md) D11.

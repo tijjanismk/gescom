@@ -37,7 +37,7 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | Stock = somme des mouvements ; numérotation transactionnelle (0 doublon sur 100 × 4 connexions) ; le stock bouge au document qui le constate | [livraison-stock](modules/livraison-stock.md), [numerotation](modules/numerotation.md) |
 | Installeur empaqueté, non signé (D5) | [installeur](modules/installeur.md) |
 | Modèles de documents, atelier, import/export | [modeles-documents](modules/modeles-documents.md) |
-| **PostgreSQL : 186/187 commandes servies sur `Base`**, sauvegarde `pg_dump`, filet `schema_commun` | [postgresql](modules/postgresql.md) |
+| **PostgreSQL : 187/187 commandes servies sur `Base`**, sauvegarde `pg_dump`, filet `schema_commun` | [postgresql](modules/postgresql.md) |
 
 ## v2 — ce qui reste
 
