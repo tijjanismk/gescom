@@ -741,6 +741,12 @@ pub fn registre() -> Registre {
     r.lecture("lire_catalogue_permissions", |_c, _p| {
         Ok(gescom_noyau::roles::lire_catalogue_permissions())
     });
+    // Aucune base a lire — mais sans poignee `Base`, le registre refuse
+    // sur PostgreSQL, et l'onglet Roles s'ouvre vide. Trouve par
+    // outils/caisse_pg.py.
+    r.aussi_sur_base("lire_catalogue_permissions", |_c, _p| {
+        Ok(gescom_noyau::roles::lire_catalogue_permissions())
+    });
 
     r.lecture("lire_roles", |c, _p| {
         gescom_noyau::roles::lire_roles(c.conn)
