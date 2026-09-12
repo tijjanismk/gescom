@@ -1,125 +1,104 @@
 # Alertes
 
-Généré depuis [carte.json](carte.json), puis vérifié à la main.
+Généré depuis [_genere/carte.json](_genere/carte.json) le 12/09/2026
+(214 fichiers), puis vérifié à la main. **À lire avant de corriger quoi
+que ce soit** : la moitié des pièges ci-dessous sont des copies qui
+semblent vivantes.
 
-> ⚠️ Le script résout les imports statiques uniquement. Le pont
-> `invoke("nom")` entre React et Rust est une **chaîne de caractères** :
-> il n'apparaît dans aucun graphe d'import. Les listes ci-dessous
-> croisent donc les deux sources.
+> Le script ne voit que les imports statiques. Le pont `invoke("nom")`
+> entre React et Rust est une chaîne : les listes croisent donc les deux
+> sources (`grep` sur le nom de la commande dans `src/`).
 
 ---
 
+## Deux fichiers du même nom : lequel ouvrir
+
+`src-tauri/src/commandes/<module>.rs` et `src-tauri/noyau/src/<module>.rs`
+existent en parallèle pour 29 modules. **Ce n'est pas un doublon** :
+
+- `noyau/src/<module>.rs` — **la logique**. C'est là qu'on lit et qu'on
+  modifie. Chaque commande y a deux versions : `fn(conn: &Connection)`
+  (SQLite, chemin de la fenêtre) et `fn_sur_base(base: &mut Base)` (les
+  deux moteurs, chemin du serveur). **Une correction se fait dans les
+  deux**, ou la fenêtre et le serveur divergent.
+- `src-tauri/src/commandes/<module>.rs` — une façade `#[tauri::command]`
+  de 200 lignes qui délègue au noyau. Ne contient aucune règle.
+
+Le script signale 180 « symboles dupliqués » entre les deux arbres :
+c'est ce motif, voulu, et rien d'autre.
+
 ## Fichiers orphelins — vérifiés
 
-Aucun import ne les atteint. Vérifiés un par un par `grep` sur le nom du
-symbole, y compris les imports dynamiques.
-
-| Fichier | l. | Verdict |
-|---|---|---|
-| [src-tauri/noyau/src/portes.rs](../src-tauri/noyau/src/portes.rs) | 23 | **Mort, et ne compile pas.** `ErreurPermission` n'est défini nulle part, et `mod portes;` n'est pas déclaré dans `lib.rs` — le fichier n'est jamais compilé. Esquisse d'un modèle de permissions (patron / employé / lecture) jamais branchée. |
-| [src/components/SelecteurProfil.tsx](../src/components/SelecteurProfil.tsx) | 110 | **Mort.** Remplacé par `PageLogin.tsx` (authentification réelle). |
-| [src/components/ui/table.tsx](../src/components/ui/table.tsx) | 115 | **Mort.** Primitive shadcn jamais adoptée : 13 fichiers écrivent leur `<table>` à la main. |
-| [src/lib/session.ts](../src/lib/session.ts) | 48 | **Mort, et dupliqué.** La logique de session vit en réalité dans [App.tsx:28-60](../src/App.tsx#L28) (`CLE_SESSION`, `sauvegarderSession`). Deux copies de la même règle des 8 h ; celle-ci diverge en silence. |
-| [src/lib/tauri.ts](../src/lib/tauri.ts) | 137 | **Mort.** Ancienne façade typée sur `invoke` (`creerVente`, `enregistrerPaiement`, `UTILISATEUR_ID`…). Les pages appellent `invoke` directement. Redéclare `UniteVente`. |
-| [src/lib/remise.ts](../src/lib/remise.ts) | 79 | **Mort.** `calculerLigne` / `calculerTotaux` — le calcul de remise vit aujourd’hui côté Rust (`commandes/pieces.rs`, 16 occurrences de `remise_pct`). Redéclare `LigneVente` et `fmt`. |
-| `creer_tiers_test.py`, `generer_catalogue.py`, `nettoyer_imports.py`, `preparer_demo_video.py`, `t_regles.py` | ~1 700 | **Vivants mais hors application.** Scripts d'outillage lancés à la main (jeux de test, démo vidéo). Leurs « doublons » de symboles avec le Rust sont des **réimplémentations de vérification** (`t_regles.py` rejoue `reste_exigible`, `statut_vente`, `peut_modifier`), pas du code mort. |
-
-**Rien d'autre n'est orphelin** : 104 des 115 fichiers sont atteints.
-
-## Commandes enregistrées, jamais appelées
-
-Déclarées dans `generate_handler!` mais introuvables dans `src/`. Elles
-compilent, elles sont exposées, et rien ne les invoque — coût zéro à la
-compilation, donc rien ne les signalera jamais.
-
-```
-pieces::annuler_facture_par_avoir        pieces::changer_statut_piece
-pieces::creer_piece_fournisseur          pieces_pos::modifier_facture_pos
-pieces_pos::valider_facture_credit       avoirs::appliquer_avoir_vente
-creances::solder_residus_creances        ventes::lire_clients_avec_creances
-chantiers::lire_factures_fournisseur_ouvertes
-caisse::lire_depenses_du_jour            caisse::modifier_depense
-depots::lire_stock_depot                 depots::lire_stock_article_depots
-parametres::lire_stocks
-pagination::lire_ventes_paginees         pagination::lire_ventes_recentes_paginee
-```
-
-16 sur 174. Deux familles s'y distinguent :
-
-- **`pagination::lire_ventes_paginees` et `lire_ventes_recentes_paginee`**
-  — les quatre autres commandes de `pagination.rs` sont bien utilisées.
-  Les listes de ventes sont donc chargées **sans** pagination, alors que
-  la commande existe.
-- **`creances::solder_residus_creances`** — c'est l'application de D41
-  (seuil de 5 F). Le calcul `reste_exigible` est appliqué à la lecture,
-  mais rien ne déclenche jamais le solde en base.
-
-Ne rien supprimer sans vérifier : plusieurs sont des demi-chantiers
-volontairement laissés branchés côté Rust.
-
-## Symboles définis à deux endroits
-
-Vrais doublons (deux copies qui peuvent diverger) :
-
-| Symbole | Fichiers |
+| Fichier | Verdict |
 |---|---|
-| `LigneVente` | `components/ModalsRetour.tsx`, `lib/remise.ts` *(mort)* |
-| `UniteVente` | `components/ModalsRetour.tsx`, `lib/tauri.ts` *(mort)* |
-| `fmt` | `lib/remise.ts` *(mort)*, `preparer_demo_video.py` |
-| session 8 h | `App.tsx` *(vivant)*, `lib/session.ts` *(mort)* |
+| [src/components/SelecteurProfil.tsx](../src/components/SelecteurProfil.tsx) | **Mort.** Remplacé par `PageLogin.tsx`. |
+| [src/components/ui/table.tsx](../src/components/ui/table.tsx) | **Mort.** Primitive jamais adoptée, 13 fichiers écrivent leur `<table>`. |
+| [src/lib/session.ts](../src/lib/session.ts) | **Mort et dupliqué.** La règle des 8 h vit dans `App.tsx`. |
+| [src/lib/tauri.ts](../src/lib/tauri.ts) | **Mort.** Ancienne façade typée sur `invoke`. |
+| [src/lib/remise.ts](../src/lib/remise.ts) | **Mort.** Le calcul de remise est en Rust. |
+| `outils/generer_socle.py` | **Vivant, hors application.** Régénère le bloc de `serveur/src/socle.rs` entre ses marqueurs. |
+| `creer_tiers_test.py`, `generer_catalogue.py`, `nettoyer_imports.py`, `preparer_demo_video.py`, `t_regles.py` | **Vivants, hors application.** Outillage lancé à la main ; `t_regles.py` rejoue les règles du cœur en Python, ce n'est pas un doublon. |
 
-Faux positifs — même nom, rôles distincts, pas de duplication à corriger :
+`portes.rs` n'est **plus** orphelin : déclaré dans `lib.rs`, il porte le
+catalogue des permissions et `permissions_de_sur` (les deux moteurs).
 
-- `cle_ean13`, `peut_modifier`, `reserver_numero`, `reste_exigible`,
-  `statut_vente`, `valider_facture` : le Rust d'un côté, un script Python
-  de vérification (`t_regles.py`) de l'autre. **La copie Python est là
-  pour attraper une divergence** — la supprimer perdrait le contrôle.
-- `main`, `supprimer`, `telephone`, `base_par_defaut` : noms génériques
-  dans des scripts indépendants.
+## Commandes enregistrées, jamais appelées par l'écran
+
+15 sur 187. Déclarées côté Rust, servies par le serveur, aucun `invoke`
+dans `src/`. Ne rien supprimer : plusieurs sont des demi-chantiers
+volontairement laissés branchés.
+
+```
+pieces::annuler_facture_par_avoir     pieces::changer_statut_piece
+pieces_pos::modifier_facture_pos      pieces_pos::valider_facture_credit
+avoirs::appliquer_avoir_vente         creances::solder_residus_creances
+comptoir::lire_clients_avec_creances  chantiers::lire_factures_fournisseur_ouvertes
+caisse::lire_depenses_du_jour         caisse::modifier_depense
+depots::lire_stock_depot              depots::lire_stock_article_depots
+parametres::lire_stocks
+pagination::lire_ventes_paginees      pagination::lire_ventes_recentes_paginee
+```
+
+Deux qui devraient l'être :
+- **les deux `pagination::lire_ventes_*`** — les listes de ventes se
+  chargent **sans** pagination alors que la commande existe ;
+- **`creances::solder_residus_creances`** — l'application de D41 (seuil
+  de 5 F) : le reste exigible est calculé à la lecture, mais rien ne
+  solde jamais en base.
 
 ## Fichiers les plus sollicités
 
-Les modifier a le plus d'effets de bord.
+Modifier une signature ici casse loin.
 
-| Fichier | importé par |
+| fichier | importé par |
 |---|---|
-| [src-tauri/src/commandes/ventes.rs](../src-tauri/src/commandes/ventes.rs) | 47 |
-| [src/components/ui/button.tsx](../src/components/ui/button.tsx) | 38 |
-| [src/components/ui/input.tsx](../src/components/ui/input.tsx) | 28 |
-| [src/components/ui/label.tsx](../src/components/ui/label.tsx) | 24 |
-| [src/components/ui/dialog.tsx](../src/components/ui/dialog.tsx) | 22 |
-| [src-tauri/noyau/src/coeur/calcul.rs](../src-tauri/noyau/src/coeur/calcul.rs) | 20 |
-| [src/lib/utils.ts](../src/lib/utils.ts) | 18 |
-| [src/App.tsx](../src/App.tsx) | 17 |
-| [src/components/ui/select.tsx](../src/components/ui/select.tsx) | 15 |
-| [src-tauri/noyau/src/coeur/pieces.rs](../src-tauri/noyau/src/coeur/pieces.rs) | 13 |
-
-`commandes/ventes.rs` en tête n'est pas un hasard : il porte `EtatApp`
-(le `Mutex<Connection>`), que **toute** commande doit importer.
-
-## Bruit dans l'arborescence
-
-Deux répertoires **vides** au nom littéral, laissés par un `mkdir` dont
-les accolades n'ont pas été développées (PowerShell ne fait pas
-l'expansion d'accolades de bash) :
-
-```
-src/{pages,components,lib}/
-src-tauri/src/{coeur,persistance,commandes}/
-```
-
-Sans effet, mais ils polluent toute recherche par glob. Supprimables.
+| [noyau/src/coeur/pieces.rs](../src-tauri/noyau/src/coeur/pieces.rs) | 77 |
+| [noyau/src/pieces.rs](../src-tauri/noyau/src/pieces.rs) | 74 |
+| [src/lib/pont.ts](../src/lib/pont.ts) | 48 — **le** pont vers le serveur |
+| [noyau/src/coeur/caisse.rs](../src-tauri/noyau/src/coeur/caisse.rs) | 39 |
+| [noyau/src/fournisseurs.rs](../src-tauri/noyau/src/fournisseurs.rs), [chantiers.rs](../src-tauri/noyau/src/chantiers.rs) | 39 |
 
 ## Fichiers volumineux
 
-Au-delà de ~800 lignes, un fichier ne tient plus en tête ni en contexte.
+| fichier | lignes | pourquoi |
+|---|---|---|
+| [noyau/src/pieces.rs](../src-tauri/noyau/src/pieces.rs) | 3 579 | le cycle documentaire, en deux versions |
+| [serveur/src/socle.rs](../src-tauri/serveur/src/socle.rs) | 2 661 | 187 commandes × 2 poignées ; le bloc généré est entre marqueurs |
+| [noyau/src/argent.rs](../src-tauri/noyau/src/argent.rs) | 2 420 | vente, facture, règlement — **ouvrir avant de toucher à l'argent** |
+| [noyau/src/achats.rs](../src-tauri/noyau/src/achats.rs) | 2 030 | |
+| [src/pages/Pieces.tsx](../src/pages/Pieces.tsx), [Ventes.tsx](../src/pages/Ventes.tsx) | 1 700 | |
 
-| Fichier | l. |
-|---|---|
-| [src-tauri/src/commandes/pieces.rs](../src-tauri/src/commandes/pieces.rs) | 2 143 |
-| [src/pages/Ventes.tsx](../src/pages/Ventes.tsx) | 1 670 |
-| [src/pages/Pieces.tsx](../src/pages/Pieces.tsx) | 1 661 |
-| [src/pages/FicheClient.tsx](../src/pages/FicheClient.tsx) | 1 414 |
-| [src/pages/Parametres.tsx](../src/pages/Parametres.tsx) | 1 040 |
-| [src/lib/genererPDF.ts](../src/lib/genererPDF.ts) | 965 |
-| [src/pages/FicheFournisseur.tsx](../src/pages/FicheFournisseur.tsx) | 912 |
+Les modules du noyau ont doublé de taille avec le portage : la moitié
+« `Connection` » deviendra du code mort le jour où la fenêtre passera
+elle aussi par le serveur (D11). C'est le prochain grand nettoyage, pas
+un bug.
+
+## Régénérer
+
+```bash
+python <chemin>/carte.py . --json AI_CONTEXT/_genere/carte.json
+```
+
+Sous Git Bash, ne pas passer `--alias '@/=src/'` : l'alias par défaut est
+le bon, et le shell mange les guillemets. Puis relire ce fichier :
+c'est lui qu'on charge, pas le JSON.

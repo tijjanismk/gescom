@@ -127,7 +127,7 @@ stock — sur les deux moteurs.
 (`*_sur_base`, branchée par `Registre::aussi_sur_base`). La 187e,
 `lire_catalogue_permissions`, ne touche pas la base. Vendre, facturer,
 encaisser, acheter, rendre, transférer, clôturer, relancer, imprimer :
-tout passe. Voir [ETAPES.md](../ETAPES.md) pour le détail des lots et
+tout passe. Voir [JOURNAL.md](../JOURNAL.md) pour le détail des lots et
 [DECISIONS.md](../DECISIONS.md) D11.
 
 Ce qui distingue une version `Base` de sa jumelle `Connection`, partout

@@ -106,4 +106,4 @@ src/
   [CONTEXT.md](../CONTEXT.md). **Cette carte ne les recopie pas.**
 - Le manuel utilisateur : [MANUEL.md](../MANUEL.md).
 - Le graphe brut (imports, graphe inverse, orphelins) :
-  [carte.json](carte.json) — généré, ne pas éditer.
+  [_genere/carte.json](_genere/carte.json) — généré, ne pas lire : sa matière est dans ALERTES.md.

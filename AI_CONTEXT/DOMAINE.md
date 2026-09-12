@@ -114,8 +114,10 @@ Convention : `[CONFIRMÉ]` = lu dans le code, référence cliquable.
 
 - [CONFIRMÉ] Le client de passage n'a pas d'identité, donc ni crédit ni
   avoir. Le prédicat est dupliqué **volontairement** entre
-  [utils.rs:13](../src-tauri/noyau/src/utils.rs#L13) et `lire_client_generique`
-  (`commandes/ventes.rs`) — si l'un change, vérifier l'autre.
+  [utils.rs:13](../src-tauri/noyau/src/utils.rs#L13) (SQLite),
+  [comptoir.rs:172](../src-tauri/noyau/src/comptoir.rs#L172) et
+  `argent::est_client_generique_sur` (`Base`) — si l'un change, vérifier
+  les autres.
 
 ## Codes-barres
 
