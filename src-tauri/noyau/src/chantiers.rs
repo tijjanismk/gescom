@@ -507,3 +507,347 @@ pub fn lire_avoirs_expires(
 
     Ok(x)
 }
+// =====================================================================
+//  SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// `regler_dette_fournisseur` reste dans `argent`, avec l'imputation :
+// il est porte avec le module `fournisseurs`. L'expiration des avoirs
+// compare `cree_le` a une date calculee ici — `julianday` n'existe pas
+// sur PostgreSQL.
+
+use crate::base::Base;
+use crate::parametres;
+
+pub fn lire_taux_tva_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    base.lire_plusieurs(
+        "SELECT a.id, a.nom, a.unite_base, COALESCE(a.taux_tva_defaut, 0.0)
+         FROM article a WHERE a.actif = 1 ORDER BY a.nom",
+        &[],
+        |r| {
+            Ok(serde_json::json!({
+                "id":         r.get::<String>(0)?,
+                "nom":        r.get::<String>(1)?,
+                "unite_base": r.get::<String>(2)?,
+                "taux_tva":   r.get::<f64>(3)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn sauvegarder_tva_article_sur_base(base: &mut Base, article_id: String, taux_tva: f64) -> Result<(), String> {
+    base.executer(
+        "UPDATE article SET taux_tva_defaut = ?1, modifie_le = ?2 WHERE id = ?3",
+        &parametres![taux_tva, maintenant_iso(), article_id],
+    )
+    .map_err(|e| e.0)?;
+    Ok(())
+}
+
+pub fn lire_resume_tva_sur_base(base: &mut Base, date_debut: String, date_fin: String) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let par_taux: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT lv.taux_tva,
+                    CAST(SUM(lv.montant_tva) AS BIGINT),
+                    CAST(SUM(lv.prix_pratique * lv.quantite) - SUM(lv.montant_tva) AS BIGINT)
+             FROM ligne_vente lv
+             JOIN vente v ON v.id = lv.vente_id
+             WHERE v.date_vente BETWEEN ?1 AND ?2
+               AND v.statut != 'annulee'
+               AND lv.taux_tva > 0
+               AND v.dossier_id = ?3
+             GROUP BY lv.taux_tva
+             ORDER BY lv.taux_tva",
+            &parametres![date_debut.clone(), date_fin.clone(), dossier],
+            |r| {
+                Ok(serde_json::json!({
+                    "taux":      r.get::<f64>(0)?,
+                    "total_tva": r.get::<i64>(1)?,
+                    "total_ht":  r.get::<i64>(2)?,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+    let total_tva: i64 = par_taux.iter().filter_map(|v| v["total_tva"].as_i64()).sum();
+    Ok(serde_json::json!({
+        "par_taux":   par_taux,
+        "total_tva":  total_tva,
+        "date_debut": date_debut,
+        "date_fin":   date_fin,
+    }))
+}
+
+pub fn lire_dettes_fournisseurs_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT f.id, f.nom, f.telephone, f.est_voisin,
+                CAST(COALESCE(
+                  (SELECT COALESCE(SUM(
+                     CASE pc.type_piece
+                       WHEN 'facture_fournisseur' THEN lp.montant_ht + lp.montant_tva
+                       WHEN 'avoir_fournisseur'   THEN
+                            CASE WHEN pc.statut = 'paye' THEN 0
+                                 ELSE -(lp.montant_ht + lp.montant_tva) END
+                       ELSE 0 END), 0)
+                   FROM piece_commerciale pc
+                   JOIN ligne_piece lp ON lp.piece_id = pc.id
+                   WHERE pc.tiers_type = 'fournisseur'
+                     AND pc.tiers_id = f.id
+                     AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
+                     AND pc.statut <> 'annule'), 0
+                ) AS BIGINT),
+                CAST(COALESCE(
+                  (SELECT SUM(pf.montant) FROM paiement_fournisseur pf
+                   WHERE pf.fournisseur_id = f.id), 0
+                ) AS BIGINT)
+         FROM fournisseur f
+         WHERE f.actif = 1 AND f.dossier_id = ?1
+         ORDER BY f.nom",
+        &parametres![dossier],
+        |r| {
+            let total_achats: i64 = r.get::<i64>(4)?;
+            let total_paye: i64 = r.get::<i64>(5)?;
+            Ok(serde_json::json!({
+                "id":           r.get::<String>(0)?,
+                "nom":          r.get::<String>(1)?,
+                "telephone":    r.get::<Option<String>>(2)?,
+                "est_voisin":   r.get::<i64>(3)? != 0,
+                "total_achats": total_achats,
+                "total_paye":   total_paye,
+                "dette":        (total_achats - total_paye).max(0),
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn marquer_irrecouvrable_sur_base(base: &mut Base, vente_id: String, motif: String) -> Result<(), String> {
+    let dossier = base.dossier().to_string();
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let now = maintenant_iso();
+    let statut: String = base
+        .lire_une(
+            "SELECT statut FROM vente WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![vente_id.clone(), dossier.clone()],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Vente introuvable".to_string())?;
+    if statut == "payee" {
+        return Err("Cette vente est déjà entièrement payée".to_string());
+    }
+    if statut == "irrecouvrable" {
+        return Err("Cette créance est déjà marquée irrécouvrable".to_string());
+    }
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE vente SET statut = 'irrecouvrable', modifie_le = ?1 WHERE id = ?2 AND dossier_id = ?3",
+        &parametres![now.clone(), vente_id.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO creance_irrecouvrable
+         (id, vente_id, motif, auteur_id, date_marque, cree_le, origine, dossier_id)
+         VALUES (?1,?2,?3,?4,?5,?5,'app',?6)",
+        &parametres![uuid::Uuid::new_v4().to_string(), vente_id.clone(), motif.clone(), auteur.clone(), now.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+    let _ = tx.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1,'creance_irrecouvrable','vente',?2,?3,?4,'app',?5,?6)",
+        &parametres![uuid::Uuid::new_v4().to_string(), vente_id, auteur, format!(r#"{{"motif":"{}"}}"#, motif), now, dossier],
+    );
+    tx.valider().map_err(|e| e.0)
+}
+
+pub fn lire_irrecouvrable_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT ci.id, ci.vente_id, ci.motif, ci.date_marque, c.nom, p.numero,
+                CAST(COALESCE((SELECT SUM(prix_pratique * quantite)
+                   FROM ligne_vente WHERE vente_id = ci.vente_id), 0) AS BIGINT),
+                CAST(COALESCE((SELECT SUM(montant) FROM paiement WHERE vente_id = ci.vente_id), 0) AS BIGINT)
+         FROM creance_irrecouvrable ci
+         JOIN vente v ON v.id = ci.vente_id
+         JOIN client c ON c.id = v.client_id
+         LEFT JOIN piece_commerciale p ON p.id = v.piece_id
+         WHERE ci.dossier_id = ?1
+         ORDER BY ci.date_marque DESC",
+        &parametres![dossier],
+        |r| {
+            let total: i64 = r.get::<i64>(6)?;
+            let paye: i64 = r.get::<i64>(7)?;
+            Ok(serde_json::json!({
+                "id":            r.get::<String>(0)?,
+                "vente_id":      r.get::<String>(1)?,
+                "motif":         r.get::<String>(2)?,
+                "date_marque":   r.get::<String>(3)?,
+                "client_nom":    r.get::<String>(4)?,
+                "facture_num":   r.get::<Option<String>>(5)?,
+                "montant_perdu": total - paye,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+fn config(base: &mut Base, cle: &str) -> Option<String> {
+    base.lire_une("SELECT valeur FROM config_app WHERE cle = ?1", &parametres![cle], |r| r.get::<String>(0))
+        .ok()
+        .flatten()
+}
+
+pub fn lire_config_avoirs_sur_base(base: &mut Base) -> Result<serde_json::Value, String> {
+    let active = config(base, "avoirs_expiration_active");
+    let duree = config(base, "avoirs_expiration_jours");
+    Ok(serde_json::json!({
+        "active":      active.as_deref() == Some("1"),
+        "duree_jours": duree.and_then(|d| d.parse::<i64>().ok()).unwrap_or(90),
+    }))
+}
+
+pub fn sauvegarder_config_avoirs_sur_base(base: &mut Base, active: bool, duree_jours: i64) -> Result<(), String> {
+    if duree_jours < 30 {
+        return Err("La durée minimale est de 30 jours".to_string());
+    }
+    for (cle, valeur) in [
+        ("avoirs_expiration_active", if active { "1".to_string() } else { "0".to_string() }),
+        ("avoirs_expiration_jours", duree_jours.to_string()),
+    ] {
+        base.executer(
+            "INSERT INTO config_app (cle, valeur) VALUES (?1, ?2)
+             ON CONFLICT (cle) DO UPDATE SET valeur = ?2",
+            &parametres![cle, valeur],
+        )
+        .map_err(|e| e.0)?;
+    }
+    Ok(())
+}
+
+pub fn expirer_avoirs_sur_base(base: &mut Base) -> Result<i64, String> {
+    if config(base, "avoirs_expiration_active").as_deref() != Some("1") {
+        return Ok(0);
+    }
+    let dossier = base.dossier().to_string();
+    let duree: i64 = config(base, "avoirs_expiration_jours")
+        .and_then(|d| d.trim().parse::<i64>().ok())
+        .unwrap_or(90);
+    // Un avoir cree AVANT cette date a plus de `duree` jours.
+    let limite = (chrono::Local::now() - chrono::Duration::days(duree))
+        .format("%Y-%m-%dT%H:%M:%S")
+        .to_string();
+    let nb = base
+        .executer(
+            "UPDATE avoir SET statut = 'expire'
+             WHERE statut = 'ouvert' AND cree_le < ?1 AND dossier_id = ?2",
+            &parametres![limite, dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
+    if nb > 0 {
+        let auteur = crate::argent::id_utilisateur_courant_sur(base);
+        let _ = base.executer(
+            "INSERT INTO journal
+             (id, type_evenement, entite_type, entite_id, auteur_id,
+              nouveau_valeur, origine, date_evenement, dossier_id)
+             VALUES (?1,'expiration_avoirs','avoir','batch',?2,?3,'app',?4,?5)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(), auteur,
+                format!(r#"{{"nb_expires":{},"duree_jours":{}}}"#, nb, duree),
+                maintenant_iso(), dossier
+            ],
+        );
+    }
+    Ok(nb as i64)
+}
+
+pub fn lire_factures_fournisseur_ouvertes_sur_base(base: &mut Base, fournisseur_id: String) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT pc.id, pc.numero, pc.date_piece, pc.statut,
+                CAST(COALESCE((SELECT SUM(lp.montant_ht + lp.montant_tva)
+                   FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0) AS BIGINT),
+                CAST(COALESCE((SELECT SUM(pf.montant)
+                   FROM paiement_fournisseur pf WHERE pf.piece_id = pc.id), 0) AS BIGINT)
+         FROM piece_commerciale pc
+         WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
+           AND pc.type_piece = 'facture_fournisseur'
+           AND pc.statut NOT IN ('annule','paye')
+           AND pc.dossier_id = ?2
+         ORDER BY pc.date_piece ASC",
+        &parametres![fournisseur_id, dossier],
+        |r| {
+            let total: i64 = r.get::<i64>(4)?;
+            let paye: i64 = r.get::<i64>(5)?;
+            Ok(serde_json::json!({
+                "piece_id":   r.get::<String>(0)?,
+                "numero":     r.get::<String>(1)?,
+                "date_piece": r.get::<String>(2)?,
+                "statut":     r.get::<String>(3)?,
+                "total":      total,
+                "paye":       paye,
+                "reste":      crate::coeur::calcul::reste_exigible(total, paye),
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn reactiver_avoir_sur_base(base: &mut Base, avoir_id: String, utilisateur_role: Option<String>) -> Result<(), String> {
+    if utilisateur_role.as_deref() != Some("patron") {
+        return Err("Réservé au patron".to_string());
+    }
+    let dossier = base.dossier().to_string();
+    let statut: String = base
+        .lire_une(
+            "SELECT statut FROM avoir WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![avoir_id.clone(), dossier.clone()],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Avoir introuvable".to_string())?;
+    if statut != "expire" {
+        return Err(format!("Cet avoir est « {} », pas expiré : il ne peut pas être rouvert.", statut));
+    }
+    let maintenant = maintenant_iso();
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    base.executer(
+        "UPDATE avoir SET statut = 'ouvert' WHERE id = ?1 AND dossier_id = ?2",
+        &parametres![avoir_id.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+    let _ = base.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1,'avoir_reactive','avoir',?2,?3,'{}','app',?4,?5)",
+        &parametres![uuid::Uuid::new_v4().to_string(), avoir_id, auteur, maintenant, dossier],
+    );
+    Ok(())
+}
+
+pub fn lire_avoirs_expires_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT a.id, COALESCE(c.nom, '—'), a.montant, a.cree_le, a.piece_id
+         FROM avoir a
+         LEFT JOIN client c ON c.id = a.client_id
+         WHERE a.statut = 'expire' AND a.dossier_id = ?1
+         ORDER BY a.cree_le DESC LIMIT 200",
+        &parametres![dossier],
+        |r| {
+            Ok(serde_json::json!({
+                "id":       r.get::<String>(0)?,
+                "client":   r.get::<String>(1)?,
+                "montant":  r.get::<i64>(2)?,
+                "cree_le":  r.get::<String>(3)?,
+                "piece_id": r.get::<Option<String>>(4)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}

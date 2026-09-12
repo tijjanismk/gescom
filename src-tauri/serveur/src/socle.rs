@@ -23,6 +23,10 @@ pub fn registre() -> Registre {
         serde_json::to_value(comptoir::lire_stock_multi_depots_sur(c.conn)?)
             .map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_stock_multi_depots", |c, _| {
+        serde_json::to_value(depots::lire_stock_multi_depots_sur_base(c.base)?)
+            .map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_config_scanner", |c, _| {
         Ok(Value::Bool(comptoir::lire_config_scanner(c.conn)?))
@@ -717,10 +721,20 @@ pub fn registre() -> Registre {
         let v = avoirs::lire_avoirs_client(c.conn, client_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_avoirs_client", |c, p| {
+        let client_id: String = arg(&p, "clientId", "client_id")?;
+        let v = avoirs::lire_avoirs_client_sur_base(c.base, client_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("total_avoirs_client", |c, p| {
         let client_id: String = arg(&p, "clientId", "client_id")?;
         let v = avoirs::total_avoirs_client(c.conn, client_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("total_avoirs_client", |c, p| {
+        let client_id: String = arg(&p, "clientId", "client_id")?;
+        let v = avoirs::total_avoirs_client_sur_base(c.base, client_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -731,16 +745,33 @@ pub fn registre() -> Registre {
         let v = avoirs::appliquer_avoir_vente(c.conn, vente_id, client_id, montant_demande)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("appliquer_avoir_vente", |c, p| {
+        let vente_id: String = arg(&p, "venteId", "vente_id")?;
+        let client_id: String = arg(&p, "clientId", "client_id")?;
+        let montant_demande: i64 = arg(&p, "montantDemande", "montant_demande")?;
+        let v = avoirs::appliquer_avoir_vente_sur_base(c.base, vente_id, client_id, montant_demande)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("chercher_article_par_code_barre", |c, p| {
         let code_barre: String = arg(&p, "codeBarre", "code_barre")?;
         let v = avoirs::chercher_article_par_code_barre(c.conn, code_barre)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("chercher_article_par_code_barre", |c, p| {
+        let code_barre: String = arg(&p, "codeBarre", "code_barre")?;
+        let v = avoirs::chercher_article_par_code_barre_sur_base(c.base, code_barre)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("sauvegarder_config_scanner", "avoirs:gerer", |c, p| {
         let actif: bool = arg(&p, "actif", "actif")?;
         let v = avoirs::sauvegarder_config_scanner(c.conn, actif)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("sauvegarder_config_scanner", |c, p| {
+        let actif: bool = arg(&p, "actif", "actif")?;
+        let v = avoirs::sauvegarder_config_scanner_sur_base(c.base, actif)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -750,9 +781,19 @@ pub fn registre() -> Registre {
         let v = avoirs::sauvegarder_code_barre_article(c.conn, article_id, code_barre)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("sauvegarder_code_barre_article", |c, p| {
+        let article_id: String = arg(&p, "articleId", "article_id")?;
+        let code_barre: String = arg(&p, "codeBarre", "code_barre")?;
+        let v = avoirs::sauvegarder_code_barre_article_sur_base(c.base, article_id, code_barre)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_articles_avec_codes_barres", |c, _p| {
         let v = avoirs::lire_articles_avec_codes_barres(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_articles_avec_codes_barres", |c, _p| {
+        let v = avoirs::lire_articles_avec_codes_barres_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -761,6 +802,13 @@ pub fn registre() -> Registre {
         let montant: i64 = arg(&p, "montant", "montant")?;
         let mode: String = arg(&p, "mode", "mode")?;
         let v = avoirs::rembourser_avoir(c.conn, piece_id, montant, mode, Some(c.appelant.role.clone()))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("rembourser_avoir", |c, p| {
+        let piece_id: String = arg(&p, "pieceId", "piece_id")?;
+        let montant: i64 = arg(&p, "montant", "montant")?;
+        let mode: String = arg(&p, "mode", "mode")?;
+        let v = avoirs::rembourser_avoir_sur_base(c.base, piece_id, montant, mode, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -866,11 +914,21 @@ pub fn registre() -> Registre {
         let v = chantiers::lire_taux_tva(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_taux_tva", |c, _p| {
+        let v = chantiers::lire_taux_tva_sur_base(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("sauvegarder_tva_article", "chantiers:gerer", |c, p| {
         let article_id: String = arg(&p, "articleId", "article_id")?;
         let taux_tva: f64 = arg(&p, "tauxTva", "taux_tva")?;
         let v = chantiers::sauvegarder_tva_article(c.conn, article_id, taux_tva)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("sauvegarder_tva_article", |c, p| {
+        let article_id: String = arg(&p, "articleId", "article_id")?;
+        let taux_tva: f64 = arg(&p, "tauxTva", "taux_tva")?;
+        let v = chantiers::sauvegarder_tva_article_sur_base(c.base, article_id, taux_tva)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -880,9 +938,19 @@ pub fn registre() -> Registre {
         let v = chantiers::lire_resume_tva(c.conn, date_debut, date_fin)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_resume_tva", |c, p| {
+        let date_debut: String = arg(&p, "dateDebut", "date_debut")?;
+        let date_fin: String = arg(&p, "dateFin", "date_fin")?;
+        let v = chantiers::lire_resume_tva_sur_base(c.base, date_debut, date_fin)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_dettes_fournisseurs", |c, _p| {
         let v = chantiers::lire_dettes_fournisseurs(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_dettes_fournisseurs", |c, _p| {
+        let v = chantiers::lire_dettes_fournisseurs_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -892,14 +960,28 @@ pub fn registre() -> Registre {
         let v = chantiers::marquer_irrecouvrable(c.conn, vente_id, motif)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("marquer_irrecouvrable", |c, p| {
+        let vente_id: String = arg(&p, "venteId", "vente_id")?;
+        let motif: String = arg(&p, "motif", "motif")?;
+        let v = chantiers::marquer_irrecouvrable_sur_base(c.base, vente_id, motif)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_irrecouvrable", |c, _p| {
         let v = chantiers::lire_irrecouvrable(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_irrecouvrable", |c, _p| {
+        let v = chantiers::lire_irrecouvrable_sur_base(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_config_avoirs", |c, _p| {
         let v = chantiers::lire_config_avoirs(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_config_avoirs", |c, _p| {
+        let v = chantiers::lire_config_avoirs_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -909,9 +991,19 @@ pub fn registre() -> Registre {
         let v = chantiers::sauvegarder_config_avoirs(c.conn, active, duree_jours)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("sauvegarder_config_avoirs", |c, p| {
+        let active: bool = arg(&p, "active", "active")?;
+        let duree_jours: i64 = arg(&p, "dureeJours", "duree_jours")?;
+        let v = chantiers::sauvegarder_config_avoirs_sur_base(c.base, active, duree_jours)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("expirer_avoirs", "chantiers:gerer", |c, _p| {
         let v = chantiers::expirer_avoirs(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("expirer_avoirs", |c, _p| {
+        let v = chantiers::expirer_avoirs_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -920,15 +1012,29 @@ pub fn registre() -> Registre {
         let v = chantiers::lire_factures_fournisseur_ouvertes(c.conn, fournisseur_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_factures_fournisseur_ouvertes", |c, p| {
+        let fournisseur_id: String = arg(&p, "fournisseurId", "fournisseur_id")?;
+        let v = chantiers::lire_factures_fournisseur_ouvertes_sur_base(c.base, fournisseur_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("reactiver_avoir", "chantiers:gerer", |c, p| {
         let avoir_id: String = arg(&p, "avoirId", "avoir_id")?;
         let v = chantiers::reactiver_avoir(c.conn, avoir_id, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("reactiver_avoir", |c, p| {
+        let avoir_id: String = arg(&p, "avoirId", "avoir_id")?;
+        let v = chantiers::reactiver_avoir_sur_base(c.base, avoir_id, Some(c.appelant.role.clone()))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_avoirs_expires", |c, _p| {
         let v = chantiers::lire_avoirs_expires(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_avoirs_expires", |c, _p| {
+        let v = chantiers::lire_avoirs_expires_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1032,15 +1138,29 @@ pub fn registre() -> Registre {
         let v = creances::lire_etat_creances_client(c.conn, client_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_etat_creances_client", |c, p| {
+        let client_id: String = arg(&p, "clientId", "client_id")?;
+        let v = creances::lire_etat_creances_client_sur_base(c.base, client_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_etat_creances_global", |c, _p| {
         let v = creances::lire_etat_creances_global(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_etat_creances_global", |c, _p| {
+        let v = creances::lire_etat_creances_global_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
     r.lecture("lire_reglements_client", |c, p| {
         let client_id: String = arg(&p, "clientId", "client_id")?;
         let v = creances::lire_reglements_client(c.conn, client_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_reglements_client", |c, p| {
+        let client_id: String = arg(&p, "clientId", "client_id")?;
+        let v = creances::lire_reglements_client_sur_base(c.base, client_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1051,6 +1171,13 @@ pub fn registre() -> Registre {
         let v = creances::annuler_reglement(c.conn, paiement_id, motif, remboursement, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("annuler_reglement", |c, p| {
+        let paiement_id: String = arg(&p, "paiementId", "paiement_id")?;
+        let motif: String = arg(&p, "motif", "motif")?;
+        let remboursement: bool = arg(&p, "remboursement", "remboursement")?;
+        let v = creances::annuler_reglement_sur_base(c.base, paiement_id, motif, remboursement, Some(c.appelant.role.clone()))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_donnees_recu", |c, p| {
         let paiement_id: String = arg(&p, "paiementId", "paiement_id")?;
@@ -1058,10 +1185,21 @@ pub fn registre() -> Registre {
         let v = creances::lire_donnees_recu(c.conn, paiement_id, cote)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_donnees_recu", |c, p| {
+        let paiement_id: String = arg(&p, "paiementId", "paiement_id")?;
+        let cote: String = arg(&p, "cote", "cote")?;
+        let v = creances::lire_donnees_recu_sur_base(c.base, paiement_id, cote)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_creances_ouvertes", |c, p| {
         let recherche: Option<String> = arg(&p, "recherche", "recherche")?;
         let v = creances::lire_creances_ouvertes(c.conn, recherche)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_creances_ouvertes", |c, p| {
+        let recherche: Option<String> = arg(&p, "recherche", "recherche")?;
+        let v = creances::lire_creances_ouvertes_sur_base(c.base, recherche)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1072,15 +1210,31 @@ pub fn registre() -> Registre {
         let v = creances::regler_creance(c.conn, vente_id, montant, mode, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("regler_creance", |c, p| {
+        let vente_id: String = arg(&p, "venteId", "vente_id")?;
+        let montant: i64 = arg(&p, "montant", "montant")?;
+        let mode: String = arg(&p, "mode", "mode")?;
+        let v = creances::regler_creance_sur_base(c.base, vente_id, montant, mode, Some(c.appelant.role.clone()))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("solder_residus_creances", "creances:gerer", |c, p| {
         let simulation: Option<bool> = arg(&p, "simulation", "simulation")?;
         let v = creances::solder_residus_creances(c.conn, Some(c.appelant.role.clone()), simulation)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("solder_residus_creances", |c, p| {
+        let simulation: Option<bool> = arg(&p, "simulation", "simulation")?;
+        let v = creances::solder_residus_creances_sur_base(c.base, Some(c.appelant.role.clone()), simulation)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_depots_detail", |c, _p| {
         let v = depots::lire_depots_detail(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_depots_detail", |c, _p| {
+        let v = depots::lire_depots_detail_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1090,6 +1244,12 @@ pub fn registre() -> Registre {
         let v = depots::creer_depot(c.conn, nom, est_defaut)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("creer_depot", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let est_defaut: Option<bool> = arg(&p, "estDefaut", "est_defaut")?;
+        let v = depots::creer_depot_sur_base(c.base, nom, est_defaut)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("renommer_depot", "depots:gerer", |c, p| {
         let depot_id: String = arg(&p, "depotId", "depot_id")?;
@@ -1097,10 +1257,21 @@ pub fn registre() -> Registre {
         let v = depots::renommer_depot(c.conn, depot_id, nom)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("renommer_depot", |c, p| {
+        let depot_id: String = arg(&p, "depotId", "depot_id")?;
+        let nom: String = arg(&p, "nom", "nom")?;
+        let v = depots::renommer_depot_sur_base(c.base, depot_id, nom)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("definir_depot_defaut", "depots:gerer", |c, p| {
         let depot_id: String = arg(&p, "depotId", "depot_id")?;
         let v = depots::definir_depot_defaut(c.conn, depot_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("definir_depot_defaut", |c, p| {
+        let depot_id: String = arg(&p, "depotId", "depot_id")?;
+        let v = depots::definir_depot_defaut_sur_base(c.base, depot_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1110,16 +1281,32 @@ pub fn registre() -> Registre {
         let v = depots::desactiver_depot(c.conn, depot_id, force)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("desactiver_depot", |c, p| {
+        let depot_id: String = arg(&p, "depotId", "depot_id")?;
+        let force: Option<bool> = arg(&p, "force", "force")?;
+        let v = depots::desactiver_depot_sur_base(c.base, depot_id, force)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("reactiver_depot", "depots:gerer", |c, p| {
         let depot_id: String = arg(&p, "depotId", "depot_id")?;
         let v = depots::reactiver_depot(c.conn, depot_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("reactiver_depot", |c, p| {
+        let depot_id: String = arg(&p, "depotId", "depot_id")?;
+        let v = depots::reactiver_depot_sur_base(c.base, depot_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_stock_depot", |c, p| {
         let depot_id: String = arg(&p, "depotId", "depot_id")?;
         let v = depots::lire_stock_depot(c.conn, depot_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_stock_depot", |c, p| {
+        let depot_id: String = arg(&p, "depotId", "depot_id")?;
+        let v = depots::lire_stock_depot_sur_base(c.base, depot_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1129,10 +1316,21 @@ pub fn registre() -> Registre {
         let v = depots::lire_resume_par_depot(c.conn, date_debut, date_fin)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_resume_par_depot", |c, p| {
+        let date_debut: Option<String> = arg(&p, "dateDebut", "date_debut")?;
+        let date_fin: Option<String> = arg(&p, "dateFin", "date_fin")?;
+        let v = depots::lire_resume_par_depot_sur_base(c.base, date_debut, date_fin)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_stock_article_depots", |c, p| {
         let article_id: String = arg(&p, "articleId", "article_id")?;
         let v = depots::lire_stock_article_depots(c.conn, article_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_stock_article_depots", |c, p| {
+        let article_id: String = arg(&p, "articleId", "article_id")?;
+        let v = depots::lire_stock_article_depots_sur_base(c.base, article_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1144,6 +1342,16 @@ pub fn registre() -> Registre {
         let date_fin: Option<String> = arg(&p, "dateFin", "date_fin")?;
         let limite: Option<i64> = arg(&p, "limite", "limite")?;
         let v = depots::lire_mouvements_stock(c.conn, article_id, depot_id, type_mouvement, date_debut, date_fin, limite)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_mouvements_stock", |c, p| {
+        let article_id: Option<String> = arg(&p, "articleId", "article_id")?;
+        let depot_id: Option<String> = arg(&p, "depotId", "depot_id")?;
+        let type_mouvement: Option<String> = arg(&p, "typeMouvement", "type_mouvement")?;
+        let date_debut: Option<String> = arg(&p, "dateDebut", "date_debut")?;
+        let date_fin: Option<String> = arg(&p, "dateFin", "date_fin")?;
+        let limite: Option<i64> = arg(&p, "limite", "limite")?;
+        let v = depots::lire_mouvements_stock_sur_base(c.base, article_id, depot_id, type_mouvement, date_debut, date_fin, limite)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 

@@ -496,3 +496,387 @@ pub fn rembourser_avoir(
         "solde":             credit_restant <= 0,
     }))
 }
+
+// =====================================================================
+//  SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// `avoir`, `paiement`, `vente`, `mouvement_caisse`, `journal`, `depot`,
+// `stock_depot` sont cloisonnes ; `article`, `unite_vente`, `config_app`
+// ne le sont pas.
+
+use crate::base::Base;
+use crate::parametres;
+
+pub fn lire_avoirs_client_sur_base(base: &mut Base, client_id: String) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT id, montant, cree_le FROM avoir
+         WHERE client_id = ?1 AND statut = 'ouvert' AND dossier_id = ?2
+         ORDER BY cree_le ASC",
+        &parametres![client_id, dossier],
+        |r| {
+            Ok(serde_json::json!({
+                "id":      r.get::<String>(0)?,
+                "montant": r.get::<i64>(1)?,
+                "cree_le": r.get::<String>(2)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn total_avoirs_client_sur_base(base: &mut Base, client_id: String) -> Result<i64, String> {
+    let dossier = base.dossier().to_string();
+    Ok(base
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
+             FROM avoir WHERE client_id = ?1 AND statut = 'ouvert' AND dossier_id = ?2",
+            &parametres![client_id, dossier],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0))
+}
+
+fn statut_vente_apres(tx: &mut crate::base::Transaction, vente_id: &str, dossier: &str) -> Result<&'static str, String> {
+    let total_vente: i64 = tx
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(prix_pratique * quantite), 0) AS BIGINT)
+             FROM ligne_vente WHERE vente_id = ?1 AND dossier_id = ?2",
+            &parametres![vente_id, dossier],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    let total_paye: i64 = tx
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
+             FROM paiement WHERE vente_id = ?1 AND dossier_id = ?2",
+            &parametres![vente_id, dossier],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    Ok(match crate::coeur::calcul::statut_vente(total_vente, total_paye) {
+        crate::coeur::calcul::StatutVente::Payee => "payee",
+        crate::coeur::calcul::StatutVente::PartiellementPayee => "partiellement_payee",
+        crate::coeur::calcul::StatutVente::CreanceOuverte => "creance_ouverte",
+    })
+}
+
+/// Consomme les avoirs du plus ancien au plus recent (D5). Rend le
+/// montant applique.
+pub fn appliquer_avoir_vente_sur_base(
+    base: &mut Base,
+    vente_id: String,
+    client_id: String,
+    montant_demande: i64,
+) -> Result<i64, String> {
+    let dossier = base.dossier().to_string();
+    let maintenant = maintenant_iso();
+    let auteur_id = crate::argent::id_utilisateur_courant_sur(base);
+
+    // D40 : pas d'avoir au client de passage.
+    let generique: i64 = base
+        .lire_une(
+            "SELECT est_generique FROM client WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![client_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    if generique != 0 {
+        return Err("Pas d'avoir pour un client comptant.".to_string());
+    }
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    let avoirs: Vec<(String, i64, Option<String>)> = tx
+        .lire_plusieurs(
+            "SELECT id, montant, piece_id FROM avoir
+             WHERE client_id = ?1 AND statut = 'ouvert' AND dossier_id = ?2
+             ORDER BY cree_le ASC",
+            &parametres![client_id.clone(), dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?, r.get::<Option<String>>(2)?)),
+        )
+        .map_err(|e| e.0)?;
+
+    let mut reste_a_consommer = montant_demande;
+    let mut total_applique: i64 = 0;
+    for (avoir_id, montant_avoir, piece_avoir) in avoirs {
+        if reste_a_consommer <= 0 {
+            break;
+        }
+        tx.executer(
+            "UPDATE avoir SET statut = 'consomme', vente_utilisation_id = ?1
+             WHERE id = ?2 AND dossier_id = ?3",
+            &parametres![vente_id.clone(), avoir_id, dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
+        if montant_avoir <= reste_a_consommer {
+            total_applique += montant_avoir;
+            reste_a_consommer -= montant_avoir;
+        } else {
+            // Le solde herite du piece_id (D44).
+            tx.executer(
+                "INSERT INTO avoir
+                 (id, client_id, piece_id, montant, statut, cree_le, origine, dossier_id)
+                 VALUES (?1, ?2, CAST(?3 AS TEXT), ?4, 'ouvert', ?5, 'avoir_solde', ?6)",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(), client_id.clone(), piece_avoir,
+                    montant_avoir - reste_a_consommer, maintenant.clone(), dossier.clone()
+                ],
+            )
+            .map_err(|e| e.0)?;
+            total_applique += reste_a_consommer;
+            reste_a_consommer = 0;
+        }
+    }
+
+    if total_applique > 0 {
+        tx.executer(
+            "INSERT INTO paiement
+             (id, vente_id, montant, mode, date_paiement, auteur_id, cree_le, cree_par, origine, dossier_id)
+             VALUES (?1, ?2, ?3, 'avoir', ?4, ?5, ?4, ?5, 'app', ?6)",
+            &parametres![uuid::Uuid::new_v4().to_string(), vente_id.clone(), total_applique, maintenant.clone(), auteur_id.clone(), dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
+        let statut = statut_vente_apres(&mut tx, &vente_id, &dossier)?;
+        tx.executer(
+            "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
+            &parametres![statut, maintenant.clone(), vente_id.clone(), dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
+        let _ = tx.executer(
+            "INSERT INTO journal
+             (id, type_evenement, entite_type, entite_id, auteur_id,
+              nouveau_valeur, origine, date_evenement, dossier_id)
+             VALUES (?1, 'avoir_applique', 'vente', ?2, ?3, ?4, 'app', ?5, ?6)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(), vente_id, auteur_id,
+                format!(r#"{{"montant_avoir":{}}}"#, total_applique), maintenant, dossier
+            ],
+        );
+    }
+    tx.valider().map_err(|e| e.0)?;
+    Ok(total_applique)
+}
+
+pub fn chercher_article_par_code_barre_sur_base(
+    base: &mut Base,
+    code_barre: String,
+) -> Result<Option<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    // Repli sur n'importe quel magasin actif du dossier.
+    let depot_id: String = base
+        .lire_une(
+            "SELECT id FROM depot WHERE actif = 1 AND dossier_id = ?1
+             ORDER BY est_defaut DESC, nom LIMIT 1",
+            &parametres![dossier.clone()],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Aucun magasin actif".to_string())?;
+
+    // Le code peut designer l'ARTICLE ou une UNITE precise (D45).
+    let Some((art_id, art_nom, unite_base, stock, unite_scannee)) = base
+        .lire_une(
+            "SELECT a.id, a.nom, a.unite_base, COALESCE(sd.quantite, 0),
+                    (SELECT uv.id FROM unite_vente uv
+                     WHERE uv.code_barre = ?1 AND uv.actif = 1 LIMIT 1)
+             FROM article a
+             LEFT JOIN stock_depot sd ON sd.article_id = a.id AND sd.depot_id = ?2 AND sd.dossier_id = ?3
+             WHERE (a.code_barre = ?1
+                    OR a.id = (SELECT uv.article_id FROM unite_vente uv
+                               WHERE uv.code_barre = ?1 AND uv.actif = 1 LIMIT 1))
+               AND a.actif = 1
+             LIMIT 1",
+            &parametres![code_barre, depot_id, dossier],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?, r.get::<f64>(3)?, r.get::<Option<String>>(4)?)),
+        )
+        .map_err(|e| e.0)?
+    else {
+        return Ok(None);
+    };
+
+    let unites: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT id, libelle, facteur, prix_reference FROM unite_vente
+             WHERE article_id = ?1 AND actif = 1 ORDER BY facteur ASC",
+            &parametres![art_id.clone()],
+            |r| {
+                Ok(serde_json::json!({
+                    "id":             r.get::<String>(0)?,
+                    "libelle":        r.get::<String>(1)?,
+                    "facteur":        r.get::<f64>(2)?,
+                    "prix_reference": r.get::<i64>(3)?,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+    if unites.is_empty() {
+        return Err(format!("L'article « {} » n'a aucune unité de vente.", art_nom));
+    }
+    Ok(Some(serde_json::json!({
+        "id":         art_id,
+        "nom":        art_nom,
+        "unite_base": unite_base,
+        "stock":      stock,
+        "unites":     unites,
+        "unite_scannee_id": unite_scannee,
+    })))
+}
+
+pub fn sauvegarder_config_scanner_sur_base(base: &mut Base, actif: bool) -> Result<(), String> {
+    base.executer(
+        "INSERT INTO config_app (cle, valeur) VALUES ('scanner_actif', ?1)
+         ON CONFLICT (cle) DO UPDATE SET valeur = ?1",
+        &parametres![if actif { "1" } else { "0" }],
+    )
+    .map_err(|e| e.0)?;
+    Ok(())
+}
+
+pub fn sauvegarder_code_barre_article_sur_base(
+    base: &mut Base,
+    article_id: String,
+    code_barre: String,
+) -> Result<(), String> {
+    base.executer(
+        "UPDATE article SET code_barre = ?1, modifie_le = ?2 WHERE id = ?3",
+        &parametres![code_barre, maintenant_iso(), article_id],
+    )
+    .map_err(|e| e.0)?;
+    Ok(())
+}
+
+pub fn lire_articles_avec_codes_barres_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    base.lire_plusieurs(
+        "SELECT id, nom, unite_base, code_barre FROM article WHERE actif = 1 ORDER BY nom ASC",
+        &[],
+        |r| {
+            Ok(serde_json::json!({
+                "id":         r.get::<String>(0)?,
+                "nom":        r.get::<String>(1)?,
+                "unite_base": r.get::<String>(2)?,
+                "code_barre": r.get::<Option<String>>(3)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+/// Rembourse en especes un avoir client encore ouvert : un
+/// DECAISSEMENT, caisse ouverte exigee (D46), credit recalcule ici.
+pub fn rembourser_avoir_sur_base(
+    base: &mut Base,
+    piece_id: String,
+    montant: i64,
+    mode: String,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if montant <= 0 {
+        return Err("Le montant doit être positif".to_string());
+    }
+    let dossier = base.dossier().to_string();
+    let maintenant = maintenant_iso();
+    let role = utilisateur_role.as_deref().unwrap_or("patron");
+    let auteur_id = crate::argent::id_utilisateur_par_role_sur(base, role);
+    let session_id = crate::caisses::exiger_sur(base, None)?;
+
+    let avoirs: Vec<(String, String, i64)> = base
+        .lire_plusieurs(
+            "SELECT a.id, a.client_id, a.montant FROM avoir a
+             WHERE a.piece_id = ?1 AND a.statut = 'ouvert' AND a.dossier_id = ?2
+             ORDER BY a.cree_le ASC",
+            &parametres![piece_id.clone(), dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?)),
+        )
+        .map_err(|e| e.0)?;
+    let credit: i64 = avoirs.iter().map(|(_, _, m)| m).sum();
+    if credit <= 0 {
+        return Err("Cet avoir est déjà entièrement consommé ou remboursé.".to_string());
+    }
+    let a_rembourser = montant.min(credit);
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    let mut reste = a_rembourser;
+    let mut client_id = String::new();
+    for (avoir_id, cli, montant_avoir) in &avoirs {
+        if reste <= 0 {
+            break;
+        }
+        client_id = cli.clone();
+        if *montant_avoir <= reste {
+            tx.executer(
+                "UPDATE avoir SET statut = 'rembourse' WHERE id = ?1 AND dossier_id = ?2",
+                &parametres![avoir_id.clone(), dossier.clone()],
+            )
+            .map_err(|e| e.0)?;
+            reste -= montant_avoir;
+        } else {
+            tx.executer(
+                "UPDATE avoir SET statut = 'rembourse', montant = ?1 WHERE id = ?2 AND dossier_id = ?3",
+                &parametres![reste, avoir_id.clone(), dossier.clone()],
+            )
+            .map_err(|e| e.0)?;
+            tx.executer(
+                "INSERT INTO avoir
+                 (id, client_id, piece_id, montant, statut, cree_le, origine, dossier_id)
+                 VALUES (?1, ?2, ?3, ?4, 'ouvert', ?5, 'avoir_solde', ?6)",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(), cli.clone(), piece_id.clone(),
+                    montant_avoir - reste, maintenant.clone(), dossier.clone()
+                ],
+            )
+            .map_err(|e| e.0)?;
+            reste = 0;
+        }
+    }
+
+    tx.executer(
+        "INSERT INTO mouvement_caisse
+         (id, session_id, sens, moyen, montant, motif,
+          operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+         VALUES (?1,?2,'sortie',?3,?4,'remboursement',?5,?6,?6,?7,'app',?8)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(), session_id, mode.clone(), a_rembourser,
+            piece_id.clone(), maintenant.clone(), auteur_id.clone(), dossier.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+
+    let credit_restant: i64 = tx
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM avoir
+             WHERE piece_id = ?1 AND statut = 'ouvert' AND dossier_id = ?2",
+            &parametres![piece_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    if credit_restant <= 0 {
+        let _ = tx.executer(
+            "UPDATE piece_commerciale SET statut = 'paye', modifie_le = ?1 WHERE id = ?2 AND dossier_id = ?3",
+            &parametres![maintenant.clone(), piece_id.clone(), dossier.clone()],
+        );
+    }
+    let _ = tx.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1,'avoir_rembourse','piece',?2,?3,?4,'app',?5,?6)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(), piece_id, auteur_id,
+            format!(r#"{{"montant":{},"mode":"{}","client":"{}"}}"#, a_rembourser, mode, client_id),
+            maintenant, dossier
+        ],
+    );
+    tx.valider().map_err(|e| e.0)?;
+
+    Ok(serde_json::json!({
+        "montant_rembourse": a_rembourser,
+        "credit_restant":    credit_restant,
+        "solde":             credit_restant <= 0,
+    }))
+}
