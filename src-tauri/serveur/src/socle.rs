@@ -944,10 +944,27 @@ pub fn registre() -> Registre {
         let v = cheques::enregistrer_cheque(c.conn, paiement_id, vente_id, numero, banque, tireur, montant, date_emission, date_echeance)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("enregistrer_cheque", |c, p| {
+        let paiement_id: Option<String> = arg(&p, "paiementId", "paiement_id")?;
+        let vente_id: Option<String> = arg(&p, "venteId", "vente_id")?;
+        let numero: String = arg(&p, "numero", "numero")?;
+        let banque: String = arg(&p, "banque", "banque")?;
+        let tireur: Option<String> = arg(&p, "tireur", "tireur")?;
+        let montant: i64 = arg(&p, "montant", "montant")?;
+        let date_emission: Option<String> = arg(&p, "dateEmission", "date_emission")?;
+        let date_echeance: Option<String> = arg(&p, "dateEcheance", "date_echeance")?;
+        let v = cheques::enregistrer_cheque_sur_base(c.base, paiement_id, vente_id, numero, banque, tireur, montant, date_emission, date_echeance)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_cheques", |c, p| {
         let statut: Option<String> = arg(&p, "statut", "statut")?;
         let v = cheques::lire_cheques(c.conn, statut)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_cheques", |c, p| {
+        let statut: Option<String> = arg(&p, "statut", "statut")?;
+        let v = cheques::lire_cheques_sur_base(c.base, statut)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -956,6 +973,13 @@ pub fn registre() -> Registre {
         let statut: String = arg(&p, "statut", "statut")?;
         let motif: Option<String> = arg(&p, "motif", "motif")?;
         let v = cheques::changer_statut_cheque(c.conn, cheque_id, statut, motif)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("changer_statut_cheque", |c, p| {
+        let cheque_id: String = arg(&p, "chequeId", "cheque_id")?;
+        let statut: String = arg(&p, "statut", "statut")?;
+        let motif: Option<String> = arg(&p, "motif", "motif")?;
+        let v = cheques::changer_statut_cheque_sur_base(c.base, cheque_id, statut, motif)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1220,6 +1244,12 @@ pub fn registre() -> Registre {
         let date: Option<String> = arg(&p, "date", "date")?;
         let depot_id: Option<String> = arg(&p, "depotId", "depot_id")?;
         let v = journal::lire_journal_du_jour(c.conn, date, depot_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_journal_du_jour", |c, p| {
+        let date: Option<String> = arg(&p, "date", "date")?;
+        let depot_id: Option<String> = arg(&p, "depotId", "depot_id")?;
+        let v = journal::lire_journal_du_jour_sur_base(c.base, date, depot_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1750,12 +1780,24 @@ pub fn registre() -> Registre {
         let v = rapports::lire_rapport_ca_mensuel(c.conn, nb_mois)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_rapport_ca_mensuel", |c, p| {
+        let nb_mois: Option<i64> = arg(&p, "nbMois", "nb_mois")?;
+        let v = rapports::lire_rapport_ca_mensuel_sur_base(c.base, nb_mois)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_rapport_top_clients", |c, p| {
         let date_debut: String = arg(&p, "dateDebut", "date_debut")?;
         let date_fin: String = arg(&p, "dateFin", "date_fin")?;
         let limite: Option<i64> = arg(&p, "limite", "limite")?;
         let v = rapports::lire_rapport_top_clients(c.conn, date_debut, date_fin, limite)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_rapport_top_clients", |c, p| {
+        let date_debut: String = arg(&p, "dateDebut", "date_debut")?;
+        let date_fin: String = arg(&p, "dateFin", "date_fin")?;
+        let limite: Option<i64> = arg(&p, "limite", "limite")?;
+        let v = rapports::lire_rapport_top_clients_sur_base(c.base, date_debut, date_fin, limite)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1766,14 +1808,29 @@ pub fn registre() -> Registre {
         let v = rapports::lire_rapport_top_articles(c.conn, date_debut, date_fin, limite)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_rapport_top_articles", |c, p| {
+        let date_debut: String = arg(&p, "dateDebut", "date_debut")?;
+        let date_fin: String = arg(&p, "dateFin", "date_fin")?;
+        let limite: Option<i64> = arg(&p, "limite", "limite")?;
+        let v = rapports::lire_rapport_top_articles_sur_base(c.base, date_debut, date_fin, limite)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_rapport_creances", |c, _p| {
         let v = rapports::lire_rapport_creances(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_rapport_creances", |c, _p| {
+        let v = rapports::lire_rapport_creances_sur_base(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_rapport_stock", |c, _p| {
         let v = rapports::lire_rapport_stock(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_rapport_stock", |c, _p| {
+        let v = rapports::lire_rapport_stock_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1783,10 +1840,21 @@ pub fn registre() -> Registre {
         let v = rapports::lire_rapport_tva(c.conn, date_debut, date_fin)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_rapport_tva", |c, p| {
+        let date_debut: String = arg(&p, "dateDebut", "date_debut")?;
+        let date_fin: String = arg(&p, "dateFin", "date_fin")?;
+        let v = rapports::lire_rapport_tva_sur_base(c.base, date_debut, date_fin)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_creances_relances", |c, p| {
         let en_retard_seulement: Option<bool> = arg(&p, "enRetardSeulement", "en_retard_seulement")?;
         let v = relances::lire_creances_relances(c.conn, en_retard_seulement)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_creances_relances", |c, p| {
+        let en_retard_seulement: Option<bool> = arg(&p, "enRetardSeulement", "en_retard_seulement")?;
+        let v = relances::lire_creances_relances_sur_base(c.base, en_retard_seulement)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1797,15 +1865,31 @@ pub fn registre() -> Registre {
         let v = relances::enregistrer_relance(c.conn, vente_id, canal, note)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("enregistrer_relance", |c, p| {
+        let vente_id: String = arg(&p, "venteId", "vente_id")?;
+        let canal: String = arg(&p, "canal", "canal")?;
+        let note: Option<String> = arg(&p, "note", "note")?;
+        let v = relances::enregistrer_relance_sur_base(c.base, vente_id, canal, note)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_historique_relances", |c, p| {
         let vente_id: String = arg(&p, "venteId", "vente_id")?;
         let v = relances::lire_historique_relances(c.conn, vente_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_historique_relances", |c, p| {
+        let vente_id: String = arg(&p, "venteId", "vente_id")?;
+        let v = relances::lire_historique_relances_sur_base(c.base, vente_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_stats_relances", |c, _p| {
         let v = relances::lire_stats_relances(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_stats_relances", |c, _p| {
+        let v = relances::lire_stats_relances_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1926,16 +2010,34 @@ pub fn registre() -> Registre {
         let v = transferts::enregistrer_transfert(c.conn, depot_source, depot_dest, lignes, motif, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("enregistrer_transfert", |c, p| {
+        let depot_source: String = arg(&p, "depotSource", "depot_source")?;
+        let depot_dest: String = arg(&p, "depotDest", "depot_dest")?;
+        let lignes: Vec<transferts::LigneTransfert> = arg(&p, "lignes", "lignes")?;
+        let motif: Option<String> = arg(&p, "motif", "motif")?;
+        let v = transferts::enregistrer_transfert_sur_base(c.base, depot_source, depot_dest, lignes, motif, Some(c.appelant.role.clone()))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_transferts", |c, p| {
         let limite: Option<i64> = arg(&p, "limite", "limite")?;
         let v = transferts::lire_transferts(c.conn, limite)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_transferts", |c, p| {
+        let limite: Option<i64> = arg(&p, "limite", "limite")?;
+        let v = transferts::lire_transferts_sur_base(c.base, limite)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_bon_transfert", |c, p| {
         let bon: String = arg(&p, "bon", "bon")?;
         let v = transferts::lire_bon_transfert(c.conn, bon)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_bon_transfert", |c, p| {
+        let bon: String = arg(&p, "bon", "bon")?;
+        let v = transferts::lire_bon_transfert_sur_base(c.base, bon)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
     // <<< POIGNEES GENEREES >>>

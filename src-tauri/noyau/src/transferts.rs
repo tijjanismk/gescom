@@ -297,3 +297,221 @@ pub fn lire_bon_transfert(
         "lignes": lignes, "societe": societe,
     }))
 }
+
+// =====================================================================
+//  SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// `transfert`, `mouvement_stock`, `stock_depot`, `depot`, `journal`
+// sont cloisonnes. Le numero de bon passe par `suivant_sur`, qui pose
+// le prefixe du dossier : deux societes ont chacune leur suite BTR.
+
+use crate::base::{Acces, Base};
+use crate::parametres;
+
+pub fn reserver_bon_sur(acces: &mut impl Acces) -> Result<String, String> {
+    let annee = chrono::Local::now().format("%Y").to_string();
+    let rang = crate::argent::suivant_sur(acces, &format!("BTR-{annee}"))?;
+    Ok(format!("BTR-{annee}-{rang:05}"))
+}
+
+pub fn enregistrer_transfert_sur_base(
+    base: &mut Base,
+    depot_source: String,
+    depot_dest: String,
+    lignes: Vec<LigneTransfert>,
+    motif: Option<String>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if lignes.is_empty() {
+        return Err("Aucune ligne à transférer".to_string());
+    }
+    if depot_source == depot_dest {
+        return Err("Les magasins source et destination sont identiques".to_string());
+    }
+    let dossier = base.dossier().to_string();
+    let now = maintenant_iso();
+    let role = utilisateur_role.as_deref().unwrap_or("employe");
+    let auteur = crate::argent::id_utilisateur_par_role_sur(base, role);
+
+    for l in &lignes {
+        if l.quantite <= 0.0 || l.facteur <= 0.0 {
+            return Err("Chaque ligne doit porter une quantité positive".to_string());
+        }
+    }
+
+    // Le controle porte sur le TOTAL par article (D32).
+    let mut demande: Vec<(String, f64)> = Vec::new();
+    for l in &lignes {
+        let quantite_base = l.quantite * l.facteur;
+        match demande.iter_mut().find(|(a, _)| *a == l.article_id) {
+            Some((_, q)) => *q += quantite_base,
+            None => demande.push((l.article_id.clone(), quantite_base)),
+        }
+    }
+    for (article_id, quantite_base) in &demande {
+        let dispo: f64 = base
+            .lire_une(
+                "SELECT COALESCE(quantite, 0) FROM stock_depot
+                 WHERE article_id = ?1 AND depot_id = ?2 AND dossier_id = ?3",
+                &parametres![article_id.clone(), depot_source.clone(), dossier.clone()],
+                |r| r.get::<f64>(0),
+            )
+            .ok()
+            .flatten()
+            .unwrap_or(0.0);
+        if dispo < *quantite_base - 1e-9 {
+            let nom: String = base
+                .lire_une("SELECT nom FROM article WHERE id = ?1", &parametres![article_id.clone()], |r| r.get::<String>(0))
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "?".to_string());
+            return Err(format!(
+                "Stock insuffisant pour « {} » : {} disponible(s), {} demandé(s).",
+                nom, dispo, quantite_base
+            ));
+        }
+    }
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    let bon = reserver_bon_sur(&mut tx)?;
+    let op_id = uuid::Uuid::new_v4().to_string();
+    let mut nb = 0;
+
+    for l in &lignes {
+        let quantite_base = l.quantite * l.facteur;
+        // Deux mouvements, pour que l'historique de chaque magasin
+        // soit complet ; le declencheur tient les compteurs.
+        for (dep, delta) in [(&depot_source, -quantite_base), (&depot_dest, quantite_base)] {
+            tx.executer(
+                "INSERT INTO mouvement_stock
+                 (id, article_id, depot_id, type_mouvement, quantite_delta,
+                  motif, operation_id, auteur_id, date_mouvement,
+                  cree_le, cree_par, origine, dossier_id)
+                 VALUES (?1,?2,?3,'transfert',?4,?5,?6,?7,?8,?8,?7,'app',?9)",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(), l.article_id.clone(), dep.clone(), delta,
+                    bon.clone(), op_id.clone(), auteur.clone(), now.clone(), dossier.clone()
+                ],
+            )
+            .map_err(|e| e.0)?;
+        }
+        tx.executer(
+            "INSERT INTO transfert
+             (id, bon, article_id, depot_source, depot_dest, quantite,
+              unite_vente_id, motif, auteur_id, date_transfert, cree_le, origine, dossier_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,CAST(?8 AS TEXT),?9,?10,?10,'app',?11)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(), bon.clone(), l.article_id.clone(),
+                depot_source.clone(), depot_dest.clone(), l.quantite,
+                l.unite_vente_id.clone(), motif.clone(), auteur.clone(), now.clone(), dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+        nb += 1;
+    }
+
+    let _ = tx.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1,'transfert','transfert',?2,?3,?4,'app',?5,?6)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(), bon.clone(), auteur,
+            format!(r#"{{"lignes":{},"de":"{}","vers":"{}"}}"#, nb, depot_source, depot_dest),
+            now, dossier
+        ],
+    );
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({ "bon": bon, "nb_lignes": nb }))
+}
+
+pub fn lire_transferts_sur_base(base: &mut Base, limite: Option<i64>) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT t.bon, MIN(t.date_transfert), ds.nom, dd.nom,
+                COUNT(*), COALESCE(MIN(u.nom), '—'), MAX(COALESCE(t.motif,''))
+         FROM transfert t
+         JOIN depot ds ON ds.id = t.depot_source
+         JOIN depot dd ON dd.id = t.depot_dest
+         LEFT JOIN utilisateur u ON u.id = t.auteur_id
+         WHERE t.dossier_id = ?2
+         GROUP BY t.bon, ds.nom, dd.nom
+         ORDER BY MIN(t.date_transfert) DESC
+         LIMIT ?1",
+        &parametres![limite.unwrap_or(100), dossier],
+        |r| {
+            Ok(serde_json::json!({
+                "bon":          r.get::<Option<String>>(0)?,
+                "date":         r.get::<String>(1)?,
+                "depot_source": r.get::<String>(2)?,
+                "depot_dest":   r.get::<String>(3)?,
+                "nb_lignes":    r.get::<i64>(4)?,
+                "auteur":       r.get::<String>(5)?,
+                "motif":        r.get::<String>(6)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn lire_bon_transfert_sur_base(base: &mut Base, bon: String) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let lignes: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT a.nom, COALESCE(uv.libelle, a.unite_base), t.quantite
+             FROM transfert t
+             JOIN article a ON a.id = t.article_id
+             LEFT JOIN unite_vente uv ON uv.id = t.unite_vente_id
+             WHERE t.bon = ?1 AND t.dossier_id = ?2
+             ORDER BY a.nom",
+            &parametres![bon.clone(), dossier.clone()],
+            |r| {
+                Ok(serde_json::json!({
+                    "article":  r.get::<String>(0)?,
+                    "unite":    r.get::<String>(1)?,
+                    "quantite": r.get::<f64>(2)?,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+    if lignes.is_empty() {
+        return Err("Bon de transfert introuvable".to_string());
+    }
+
+    let (src, dst, date, auteur, motif): (String, String, String, String, String) = base
+        .lire_une(
+            "SELECT ds.nom, dd.nom, t.date_transfert, COALESCE(u.nom,'—'), COALESCE(t.motif,'')
+             FROM transfert t
+             JOIN depot ds ON ds.id = t.depot_source
+             JOIN depot dd ON dd.id = t.depot_dest
+             LEFT JOIN utilisateur u ON u.id = t.auteur_id
+             WHERE t.bon = ?1 AND t.dossier_id = ?2 LIMIT 1",
+            &parametres![bon.clone(), dossier],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?, r.get::<String>(3)?, r.get::<String>(4)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Bon de transfert introuvable".to_string())?;
+
+    let societe = base
+        .lire_une(
+            "SELECT nom, adresse, telephone FROM parametres_societe WHERE id = 1",
+            &[],
+            |r| {
+                Ok(serde_json::json!({
+                    "nom":       r.get::<String>(0)?,
+                    "adresse":   r.get::<Option<String>>(1)?,
+                    "telephone": r.get::<Option<String>>(2)?,
+                }))
+            },
+        )
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| serde_json::json!({"nom":"","adresse":null,"telephone":null}));
+
+    Ok(serde_json::json!({
+        "bon": bon, "depot_source": src, "depot_dest": dst,
+        "date": date, "auteur": auteur, "motif": motif,
+        "lignes": lignes, "societe": societe,
+    }))
+}

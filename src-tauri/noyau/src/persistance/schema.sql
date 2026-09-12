@@ -487,3 +487,30 @@ CREATE INDEX IF NOT EXISTS idx_stock_depot_article  ON stock_depot(article_id, d
 CREATE INDEX IF NOT EXISTS idx_vente_client         ON vente(client_id);
 CREATE INDEX IF NOT EXISTS idx_vente_date           ON vente(date_vente DESC);
 CREATE INDEX IF NOT EXISTS idx_vente_statut         ON vente(statut);
+
+-- =====================================================================
+--  CHÈQUES REÇUS — une promesse, pas de l'argent (cf. cheques.rs)
+-- =====================================================================
+-- Créée jusqu'ici par une migration de la fenêtre seulement : aucune
+-- base amorcée par `Base` ne l'avait. Non cloisonnée : le chèque suit
+-- le paiement, qui l'est.
+
+CREATE TABLE IF NOT EXISTS cheque_recu (
+    id            TEXT PRIMARY KEY,
+    paiement_id   TEXT,
+    vente_id      TEXT,
+    numero        TEXT NOT NULL,
+    banque        TEXT NOT NULL,
+    tireur        TEXT,
+    montant       INTEGER NOT NULL,
+    date_emission TEXT,
+    date_echeance TEXT,
+    statut        TEXT NOT NULL DEFAULT 'recu',
+    motif_rejet   TEXT,
+    cree_le       TEXT NOT NULL,
+    modifie_le    TEXT NOT NULL,
+    origine       TEXT NOT NULL DEFAULT 'app'
+);
+
+CREATE INDEX IF NOT EXISTS idx_cheque_statut ON cheque_recu(statut);
+CREATE INDEX IF NOT EXISTS idx_cheque_vente  ON cheque_recu(vente_id);

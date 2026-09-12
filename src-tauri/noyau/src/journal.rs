@@ -415,3 +415,362 @@ pub fn lire_journal_du_jour(
         }
     }))
 }
+
+// =====================================================================
+//  SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// Le cahier du jour, porte sur `Base`. `DATE(x) = ?1` devient
+// `SUBSTR(x, 1, 10) = ?1` — les dates sont en texte ISO, et les deux
+// moteurs savent en prendre les dix premiers caracteres. Chaque table
+// cloisonnee porte son filtre.
+
+use crate::base::Base;
+use crate::parametres;
+
+pub fn lire_journal_du_jour_sur_base(
+    base: &mut Base,
+    date: Option<String>,
+    depot_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let j = jour(&date);
+    let dep: Option<String> = depot_id.filter(|d| !d.is_empty());
+
+    // ---- 1. Ventes du jour, ligne par ligne
+    let ventes: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT v.date_vente, c.nom, a.nom, u.libelle,
+                    lv.prix_pratique, lv.quantite,
+                    CAST(lv.prix_pratique * lv.quantite AS BIGINT),
+                    COALESCE(lv.montant_tva, 0),
+                    v.mode_reglement, p.numero
+             FROM ligne_vente lv
+             JOIN vente v ON v.id = lv.vente_id
+             JOIN client c ON c.id = v.client_id
+             JOIN article a ON a.id = lv.article_id
+             JOIN unite_vente u ON u.id = lv.unite_vente_id
+             LEFT JOIN piece_commerciale p ON p.id = v.piece_id
+             WHERE SUBSTR(v.date_vente, 1, 10) = ?1 AND v.statut != 'annulee'
+               AND (CAST(?2 AS TEXT) IS NULL OR v.depot_id = ?2)
+               AND v.dossier_id = ?3
+             ORDER BY v.date_vente",
+            &parametres![j.clone(), dep.clone(), dossier.clone()],
+            |r| {
+                let ttc: i64 = r.get::<i64>(6)?;
+                let tva: i64 = r.get::<i64>(7)?;
+                Ok(serde_json::json!({
+                    "date":          r.get::<String>(0)?,
+                    "client":        r.get::<String>(1)?,
+                    "description":   r.get::<String>(2)?,
+                    "unite":         r.get::<String>(3)?,
+                    "prix_unitaire": r.get::<i64>(4)?,
+                    "quantite":      r.get::<f64>(5)?,
+                    "montant_ttc":   ttc,
+                    "montant_ht":    ttc - tva,
+                    "mode":          r.get::<String>(8)?,
+                    "numero":        r.get::<Option<String>>(9)?,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+    let ca_jour: i64 = ventes.iter().filter_map(|v| v["montant_ttc"].as_i64()).sum();
+    let ca_jour_ht: i64 = ventes.iter().filter_map(|v| v["montant_ht"].as_i64()).sum();
+
+    // ---- 2. Hors du jour : encaissements sur ventes anterieures
+    let hors_jour: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT c.nom, p.montant, p.mode, p.date_paiement, v.date_vente,
+                    CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
+                       FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(p2.montant)
+                       FROM paiement p2 WHERE p2.vente_id = v.id), 0) AS BIGINT)
+             FROM paiement p
+             JOIN vente v ON v.id = p.vente_id
+             JOIN client c ON c.id = v.client_id
+             WHERE SUBSTR(p.date_paiement, 1, 10) = ?1
+               AND SUBSTR(v.date_vente, 1, 10) <> ?1
+               AND (CAST(?2 AS TEXT) IS NULL OR v.depot_id = ?2)
+               AND p.dossier_id = ?3
+             ORDER BY p.date_paiement",
+            &parametres![j.clone(), dep.clone(), dossier.clone()],
+            |r| {
+                let total: i64 = r.get::<i64>(5)?;
+                let paye: i64 = r.get::<i64>(6)?;
+                Ok(serde_json::json!({
+                    "client":     r.get::<String>(0)?,
+                    "montant":    r.get::<i64>(1)?,
+                    "mode":       r.get::<String>(2)?,
+                    "date":       r.get::<String>(3)?,
+                    "date_vente": r.get::<String>(4)?,
+                    "type":       if paye >= total { "solde" } else { "acompte" },
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+    let total_hors_jour: i64 = hors_jour.iter().filter_map(|h| h["montant"].as_i64()).sum();
+
+    // ---- 3. Situation non payee
+    let impayes: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT c.nom, v.date_vente,
+                    CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
+                       FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(p.montant)
+                       FROM paiement p WHERE p.vente_id = v.id), 0) AS BIGINT)
+             FROM vente v
+             JOIN client c ON c.id = v.client_id
+             WHERE v.statut IN ('creance_ouverte','partiellement_payee')
+               AND c.est_generique = 0
+               AND (CAST(?1 AS TEXT) IS NULL OR v.depot_id = ?1)
+               AND v.dossier_id = ?2
+             ORDER BY v.date_vente",
+            &parametres![dep.clone(), dossier.clone()],
+            |r| {
+                let total: i64 = r.get::<i64>(2)?;
+                let paye: i64 = r.get::<i64>(3)?;
+                Ok(serde_json::json!({
+                    "client":     r.get::<String>(0)?,
+                    "date_vente": r.get::<String>(1)?,
+                    "total":      total,
+                    "paye":       paye,
+                    "reste":      total - paye,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+    let total_impayes: i64 = impayes.iter().filter_map(|i| i["reste"].as_i64()).sum();
+
+    // ---- 4. Entrees / achats marchandises
+    let achats: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT COALESCE(f.nom, 'Sans fournisseur'), a.nom,
+                    ms.quantite_delta,
+                    COALESCE(ms.prix_achat_unitaire, a.dernier_prix_achat, 0),
+                    ms.date_mouvement
+             FROM mouvement_stock ms
+             JOIN article a ON a.id = ms.article_id
+             LEFT JOIN fournisseur f ON f.id = ms.fournisseur_id
+             WHERE ms.type_mouvement = 'achat'
+               AND SUBSTR(ms.date_mouvement, 1, 10) = ?1
+               AND (CAST(?2 AS TEXT) IS NULL OR ms.depot_id = ?2)
+               AND ms.dossier_id = ?3
+             ORDER BY ms.date_mouvement",
+            &parametres![j.clone(), dep.clone(), dossier.clone()],
+            |r| {
+                let qte: f64 = r.get::<f64>(2)?;
+                let pu: i64 = r.get::<i64>(3)?;
+                Ok(serde_json::json!({
+                    "fournisseur":   r.get::<String>(0)?,
+                    "description":   r.get::<String>(1)?,
+                    "quantite":      qte,
+                    "prix_unitaire": pu,
+                    "montant":       (pu as f64 * qte).round() as i64,
+                    "date":          r.get::<String>(4)?,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+    let total_achats: i64 = achats.iter().filter_map(|a| a["montant"].as_i64()).sum();
+
+    // ---- 5. Retours marchandises
+    let retours: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT CASE ms.type_mouvement
+                         WHEN 'retour' THEN 'client'
+                         WHEN 'echange' THEN 'echange'
+                         ELSE 'fournisseur' END,
+                    COALESCE(f.nom, c.nom, '—'), a.nom,
+                    ABS(ms.quantite_delta),
+                    COALESCE(ms.prix_achat_unitaire, a.dernier_prix_achat, 0),
+                    ms.date_mouvement
+             FROM mouvement_stock ms
+             JOIN article a ON a.id = ms.article_id
+             LEFT JOIN fournisseur f ON f.id = ms.fournisseur_id
+             LEFT JOIN retour ret ON ret.id = ms.operation_id
+             LEFT JOIN vente v ON v.id = ret.vente_id
+             LEFT JOIN client c ON c.id = v.client_id
+             WHERE ms.type_mouvement IN ('retour','retour_fournisseur','echange')
+               AND SUBSTR(ms.date_mouvement, 1, 10) = ?1
+               AND (CAST(?2 AS TEXT) IS NULL OR ms.depot_id = ?2)
+               AND ms.dossier_id = ?3
+             ORDER BY ms.date_mouvement",
+            &parametres![j.clone(), dep.clone(), dossier.clone()],
+            |r| {
+                let qte: f64 = r.get::<f64>(3)?;
+                let pu: i64 = r.get::<i64>(4)?;
+                Ok(serde_json::json!({
+                    "sens":          r.get::<String>(0)?,
+                    "tiers":         r.get::<String>(1)?,
+                    "description":   r.get::<String>(2)?,
+                    "quantite":      qte,
+                    "prix_unitaire": pu,
+                    "montant":       (pu as f64 * qte).round() as i64,
+                    "date":          r.get::<String>(5)?,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+
+    // ---- 5 bis. Mouvements sans effet monetaire
+    let mouvements: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT ms.type_mouvement, a.nom, ms.quantite_delta,
+                    COALESCE(ms.motif, ''), d.nom,
+                    COALESCE(u.nom, '—'), ms.date_mouvement
+             FROM mouvement_stock ms
+             JOIN article a ON a.id = ms.article_id
+             JOIN depot d ON d.id = ms.depot_id
+             LEFT JOIN utilisateur u ON u.id = ms.auteur_id
+             WHERE ms.type_mouvement IN
+                   ('entree','ajustement','transfert','livraison','reception')
+               AND SUBSTR(ms.date_mouvement, 1, 10) = ?1
+               AND (CAST(?2 AS TEXT) IS NULL OR ms.depot_id = ?2)
+               AND ms.dossier_id = ?3
+             ORDER BY ms.date_mouvement",
+            &parametres![j.clone(), dep.clone(), dossier.clone()],
+            |r| {
+                let t: String = r.get::<String>(0)?;
+                let delta: f64 = r.get::<f64>(2)?;
+                Ok(serde_json::json!({
+                    "type":        t.clone(),
+                    "libelle":     crate::coeur::stock::libelle(&t),
+                    "description": r.get::<String>(1)?,
+                    "quantite":    delta.abs(),
+                    "entrant":     delta > 0.0,
+                    "motif":       r.get::<String>(3)?,
+                    "depot":       r.get::<String>(4)?,
+                    "auteur":      r.get::<String>(5)?,
+                    "date":        r.get::<String>(6)?,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+
+    // ---- 5 ter. Ventes a decouvert du jour
+    let decouverts: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT a.nom, a.unite_base, lv.quantite, COALESCE(c.nom, '—')
+             FROM ligne_vente lv
+             JOIN vente v ON v.id = lv.vente_id
+             JOIN article a ON a.id = lv.article_id
+             LEFT JOIN client c ON c.id = v.client_id
+             WHERE lv.vente_a_decouvert = 1
+               AND SUBSTR(v.date_vente, 1, 10) = ?1
+               AND v.statut <> 'annulee'
+               AND (CAST(?2 AS TEXT) IS NULL OR lv.depot_source_id = ?2)
+               AND v.dossier_id = ?3
+             ORDER BY v.date_vente",
+            &parametres![j.clone(), dep.clone(), dossier.clone()],
+            |r| {
+                Ok(serde_json::json!({
+                    "article":    r.get::<String>(0)?,
+                    "unite_base": r.get::<String>(1)?,
+                    "quantite":   r.get::<f64>(2)?,
+                    "client":     r.get::<String>(3)?,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+
+    // ---- 6. Depenses du jour
+    let depenses: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT COALESCE(libelle, '—'), COALESCE(categorie, 'autre'),
+                    moyen, montant, date_mouvement
+             FROM mouvement_caisse
+             WHERE motif = 'depense' AND SUBSTR(date_mouvement, 1, 10) = ?1
+               AND dossier_id = ?2
+             ORDER BY date_mouvement",
+            &parametres![j.clone(), dossier.clone()],
+            |r| {
+                Ok(serde_json::json!({
+                    "libelle":   r.get::<String>(0)?,
+                    "categorie": r.get::<String>(1)?,
+                    "moyen":     r.get::<String>(2)?,
+                    "montant":   r.get::<i64>(3)?,
+                    "date":      r.get::<String>(4)?,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+    let total_depenses: i64 = depenses.iter().filter_map(|d| d["montant"].as_i64()).sum();
+    let mut par_cat: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    for d in &depenses {
+        *par_cat.entry(d["categorie"].as_str().unwrap_or("autre").to_string()).or_insert(0) +=
+            d["montant"].as_i64().unwrap_or(0);
+    }
+    let depenses_par_categorie: Vec<serde_json::Value> = par_cat
+        .into_iter()
+        .map(|(c, m)| serde_json::json!({ "categorie": c, "montant": m }))
+        .collect();
+
+    // ---- 7. Reglements fournisseur du jour
+    let reglements_fournisseur: i64 = base
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
+             FROM paiement_fournisseur WHERE SUBSTR(date_paiement, 1, 10) = ?1 AND dossier_id = ?2",
+            &parametres![j.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+
+    // ---- 8. Caisse par moyen
+    let caisse_par_moyen: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT moyen,
+                    CAST(COALESCE(SUM(CASE WHEN sens='entree' THEN montant END),0) AS BIGINT),
+                    CAST(COALESCE(SUM(CASE WHEN sens='sortie' THEN montant END),0) AS BIGINT)
+             FROM mouvement_caisse
+             WHERE SUBSTR(date_mouvement, 1, 10) = ?1 AND dossier_id = ?2
+             GROUP BY moyen ORDER BY moyen",
+            &parametres![j.clone(), dossier.clone()],
+            |r| {
+                Ok(serde_json::json!({
+                    "moyen":   r.get::<String>(0)?,
+                    "entrees": r.get::<i64>(1)?,
+                    "sorties": r.get::<i64>(2)?,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+
+    let encaisse_jour: i64 = base
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
+             FROM paiement WHERE SUBSTR(date_paiement, 1, 10) = ?1 AND mode <> 'avoir'
+               AND dossier_id = ?2",
+            &parametres![j.clone(), dossier],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+
+    Ok(serde_json::json!({
+        "date": j,
+        "depot_id": dep,
+        "ventes":     ventes,
+        "hors_jour":  hors_jour,
+        "impayes":    impayes,
+        "achats":     achats,
+        "retours":    retours,
+        "mouvements": mouvements,
+        "decouverts": decouverts,
+        "depenses":   depenses,
+        "depenses_par_categorie": depenses_par_categorie,
+        "caisse_par_moyen": caisse_par_moyen,
+        "totaux": {
+            "ca_jour":        ca_jour,
+            "ca_jour_ht":     ca_jour_ht,
+            "encaisse_jour":  encaisse_jour,
+            "hors_jour":      total_hors_jour,
+            "impayes":        total_impayes,
+            "achats":         total_achats,
+            "depenses":       total_depenses,
+            "reglement_fournisseur": reglements_fournisseur,
+            "nb_ventes":      ventes.len(),
+            "nb_decouverts":  decouverts.len(),
+        }
+    }))
+}
