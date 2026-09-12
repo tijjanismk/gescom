@@ -630,10 +630,17 @@ pub fn registre() -> Registre {
     r.lecture("lire_roles", |c, _p| {
         gescom_noyau::roles::lire_roles(c.conn)
     });
+    r.aussi_sur_base("lire_roles", |c, _p| {
+        gescom_noyau::roles::lire_roles_sur_base(c.base)
+    });
 
     r.lecture("lire_permissions_utilisateur", |c, p| {
         let utilisateur_id: String = arg(&p, "utilisateurId", "utilisateur_id")?;
         gescom_noyau::roles::lire_permissions_utilisateur(c.conn, utilisateur_id)
+    });
+    r.aussi_sur_base("lire_permissions_utilisateur", |c, p| {
+        let utilisateur_id: String = arg(&p, "utilisateurId", "utilisateur_id")?;
+        gescom_noyau::roles::lire_permissions_utilisateur_sur_base(c.base, utilisateur_id)
     });
 
     r.ecriture("creer_role", "utilisateurs:gerer", |c, p| {
@@ -642,6 +649,12 @@ pub fn registre() -> Registre {
         let permissions: Vec<String> = arg(&p, "permissions", "permissions")?;
         gescom_noyau::roles::creer_role(c.conn, nom, description, permissions)
     });
+    r.aussi_sur_base("creer_role", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let description: Option<String> = arg(&p, "description", "description")?;
+        let permissions: Vec<String> = arg(&p, "permissions", "permissions")?;
+        gescom_noyau::roles::creer_role_sur_base(c.base, nom, description, permissions)
+    });
 
     r.ecriture("modifier_role", "utilisateurs:gerer", |c, p| {
         let role_id: String = arg(&p, "roleId", "role_id")?;
@@ -649,10 +662,20 @@ pub fn registre() -> Registre {
         let permissions: Vec<String> = arg(&p, "permissions", "permissions")?;
         gescom_noyau::roles::modifier_role(c.conn, role_id, description, permissions)
     });
+    r.aussi_sur_base("modifier_role", |c, p| {
+        let role_id: String = arg(&p, "roleId", "role_id")?;
+        let description: Option<String> = arg(&p, "description", "description")?;
+        let permissions: Vec<String> = arg(&p, "permissions", "permissions")?;
+        gescom_noyau::roles::modifier_role_sur_base(c.base, role_id, description, permissions)
+    });
 
     r.ecriture("supprimer_role", "utilisateurs:gerer", |c, p| {
         let role_id: String = arg(&p, "roleId", "role_id")?;
         gescom_noyau::roles::supprimer_role(c.conn, role_id)
+    });
+    r.aussi_sur_base("supprimer_role", |c, p| {
+        let role_id: String = arg(&p, "roleId", "role_id")?;
+        gescom_noyau::roles::supprimer_role_sur_base(c.base, role_id)
     });
 
     r.ecriture("definir_permission_utilisateur", "utilisateurs:gerer", |c, p| {
@@ -662,6 +685,15 @@ pub fn registre() -> Registre {
         let par = Some(c.appelant.utilisateur_id.clone());
         gescom_noyau::roles::definir_permission_utilisateur(
             c.conn, utilisateur_id, permission, accorde, par,
+        )
+    });
+    r.aussi_sur_base("definir_permission_utilisateur", |c, p| {
+        let utilisateur_id: String = arg(&p, "utilisateurId", "utilisateur_id")?;
+        let permission: String = arg(&p, "permission", "permission")?;
+        let accorde: Option<bool> = arg(&p, "accorde", "accorde")?;
+        let par = Some(c.appelant.utilisateur_id.clone());
+        gescom_noyau::roles::definir_permission_utilisateur_sur_base(
+            c.base, utilisateur_id, permission, accorde, par,
         )
     });
 
@@ -932,9 +964,18 @@ pub fn registre() -> Registre {
         let v = codebarre::generer_code_barre(c.conn, article_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("generer_code_barre", |c, p| {
+        let article_id: String = arg(&p, "articleId", "article_id")?;
+        let v = codebarre::generer_code_barre_sur_base(c.base, article_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("generer_codes_barres_manquants", "articles:creer", |c, _p| {
         let v = codebarre::generer_codes_barres_manquants(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("generer_codes_barres_manquants", |c, _p| {
+        let v = codebarre::generer_codes_barres_manquants_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -944,10 +985,21 @@ pub fn registre() -> Registre {
         let v = codebarre::definir_code_barre(c.conn, article_id, code)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("definir_code_barre", |c, p| {
+        let article_id: String = arg(&p, "articleId", "article_id")?;
+        let code: String = arg(&p, "code", "code")?;
+        let v = codebarre::definir_code_barre_sur_base(c.base, article_id, code)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_articles_codes_barres", |c, p| {
         let sans_code_seulement: Option<bool> = arg(&p, "sansCodeSeulement", "sans_code_seulement")?;
         let v = codebarre::lire_articles_codes_barres(c.conn, sans_code_seulement)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_articles_codes_barres", |c, p| {
+        let sans_code_seulement: Option<bool> = arg(&p, "sansCodeSeulement", "sans_code_seulement")?;
+        let v = codebarre::lire_articles_codes_barres_sur_base(c.base, sans_code_seulement)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1240,15 +1292,28 @@ pub fn registre() -> Registre {
         let v = parametres::lire_categories(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_categories", |c, _p| {
+        let v = parametres::lire_categories_sur_base(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("creer_categorie", "parametres:modifier", |c, p| {
         let nom: String = arg(&p, "nom", "nom")?;
         let v = parametres::creer_categorie(c.conn, nom)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("creer_categorie", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let v = parametres::creer_categorie_sur_base(c.base, nom)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_articles_complets", |c, _p| {
         let v = parametres::lire_articles_complets(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_articles_complets", |c, _p| {
+        let v = parametres::lire_articles_complets_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1258,6 +1323,14 @@ pub fn registre() -> Registre {
         let unite_base: String = arg(&p, "uniteBase", "unite_base")?;
         let prix_reference: i64 = arg(&p, "prixReference", "prix_reference")?;
         let v = parametres::creer_article_complet(c.conn, nom, categorie_id, unite_base, prix_reference)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("creer_article_complet", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let categorie_id: Option<String> = arg(&p, "categorieId", "categorie_id")?;
+        let unite_base: String = arg(&p, "uniteBase", "unite_base")?;
+        let prix_reference: i64 = arg(&p, "prixReference", "prix_reference")?;
+        let v = parametres::creer_article_complet_sur_base(c.base, nom, categorie_id, unite_base, prix_reference)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1270,6 +1343,15 @@ pub fn registre() -> Registre {
         let v = parametres::ajouter_unite_vente(c.conn, article_id, libelle, facteur, prix_reference, code_barre)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("ajouter_unite_vente", |c, p| {
+        let article_id: String = arg(&p, "articleId", "article_id")?;
+        let libelle: String = arg(&p, "libelle", "libelle")?;
+        let facteur: f64 = arg(&p, "facteur", "facteur")?;
+        let prix_reference: i64 = arg(&p, "prixReference", "prix_reference")?;
+        let code_barre: Option<String> = arg(&p, "codeBarre", "code_barre")?;
+        let v = parametres::ajouter_unite_vente_sur_base(c.base, article_id, libelle, facteur, prix_reference, code_barre)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("modifier_unite_vente", "parametres:modifier", |c, p| {
         let unite_id: String = arg(&p, "uniteId", "unite_id")?;
@@ -1280,15 +1362,33 @@ pub fn registre() -> Registre {
         let v = parametres::modifier_unite_vente(c.conn, unite_id, libelle, facteur, prix_reference, code_barre)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("modifier_unite_vente", |c, p| {
+        let unite_id: String = arg(&p, "uniteId", "unite_id")?;
+        let libelle: Option<String> = arg(&p, "libelle", "libelle")?;
+        let facteur: Option<f64> = arg(&p, "facteur", "facteur")?;
+        let prix_reference: Option<i64> = arg(&p, "prixReference", "prix_reference")?;
+        let code_barre: Option<String> = arg(&p, "codeBarre", "code_barre")?;
+        let v = parametres::modifier_unite_vente_sur_base(c.base, unite_id, libelle, facteur, prix_reference, code_barre)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("desactiver_unite_vente", "parametres:modifier", |c, p| {
         let unite_id: String = arg(&p, "uniteId", "unite_id")?;
         let v = parametres::desactiver_unite_vente(c.conn, unite_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("desactiver_unite_vente", |c, p| {
+        let unite_id: String = arg(&p, "uniteId", "unite_id")?;
+        let v = parametres::desactiver_unite_vente_sur_base(c.base, unite_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_config_bon_sortie", |c, _p| {
         let v = parametres::lire_config_bon_sortie(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_config_bon_sortie", |c, _p| {
+        let v = parametres::lire_config_bon_sortie_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1297,9 +1397,18 @@ pub fn registre() -> Registre {
         let v = parametres::sauvegarder_config_bon_sortie(c.conn, actif)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("sauvegarder_config_bon_sortie", |c, p| {
+        let actif: bool = arg(&p, "actif", "actif")?;
+        let v = parametres::sauvegarder_config_bon_sortie_sur_base(c.base, actif)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_config_suivi_livraison", |c, _p| {
         let v = parametres::lire_config_suivi_livraison(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_config_suivi_livraison", |c, _p| {
+        let v = parametres::lire_config_suivi_livraison_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1308,9 +1417,18 @@ pub fn registre() -> Registre {
         let v = parametres::sauvegarder_config_suivi_livraison(c.conn, actif)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("sauvegarder_config_suivi_livraison", |c, p| {
+        let actif: bool = arg(&p, "actif", "actif")?;
+        let v = parametres::sauvegarder_config_suivi_livraison_sur_base(c.base, actif)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_config_signatures", |c, _p| {
         let v = parametres::lire_config_signatures(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_config_signatures", |c, _p| {
+        let v = parametres::lire_config_signatures_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1319,14 +1437,27 @@ pub fn registre() -> Registre {
         let v = parametres::sauvegarder_config_signatures(c.conn, valeurs)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("sauvegarder_config_signatures", |c, p| {
+        let valeurs: std::collections::HashMap<String, String> = arg(&p, "valeurs", "valeurs")?;
+        let v = parametres::sauvegarder_config_signatures_sur_base(c.base, valeurs)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_stocks", |c, _p| {
         let v = parametres::lire_stocks(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_stocks", |c, _p| {
+        let v = parametres::lire_stocks_sur_base(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("diagnostiquer_base", |c, _p| {
         let v = parametres::diagnostiquer_base(c.conn)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("diagnostiquer_base", |c, _p| {
+        let v = parametres::diagnostiquer_base_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1755,6 +1886,10 @@ pub fn registre() -> Registre {
         let v = societe::lire_parametres_societe(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_parametres_societe", |c, _p| {
+        let v = societe::lire_parametres_societe_sur_base(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("sauvegarder_parametres_societe", "parametres:modifier", |c, p| {
         let nom: String = arg(&p, "nom", "nom")?;
@@ -1767,6 +1902,19 @@ pub fn registre() -> Registre {
         let site_web: Option<String> = arg(&p, "siteWeb", "site_web")?;
         let pied_facture: Option<String> = arg(&p, "piedFacture", "pied_facture")?;
         let v = societe::sauvegarder_parametres_societe(c.conn, nom, adresse, telephone, telephone2, email, nif, rccm, site_web, pied_facture)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("sauvegarder_parametres_societe", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let adresse: Option<String> = arg(&p, "adresse", "adresse")?;
+        let telephone: Option<String> = arg(&p, "telephone", "telephone")?;
+        let telephone2: Option<String> = arg(&p, "telephone2", "telephone2")?;
+        let email: Option<String> = arg(&p, "email", "email")?;
+        let nif: Option<String> = arg(&p, "nif", "nif")?;
+        let rccm: Option<String> = arg(&p, "rccm", "rccm")?;
+        let site_web: Option<String> = arg(&p, "siteWeb", "site_web")?;
+        let pied_facture: Option<String> = arg(&p, "piedFacture", "pied_facture")?;
+        let v = societe::sauvegarder_parametres_societe_sur_base(c.base, nom, adresse, telephone, telephone2, email, nif, rccm, site_web, pied_facture)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 

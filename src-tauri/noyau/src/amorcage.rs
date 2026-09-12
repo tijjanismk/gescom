@@ -174,6 +174,17 @@ fn tables_v2(base: &mut Base) {
         "ALTER TABLE session_caisse ADD COLUMN poste_id TEXT",
         "ALTER TABLE session_caisse ADD COLUMN utilisateur_id TEXT",
         "ALTER TABLE ligne_piece ADD COLUMN quantite_livree REAL NOT NULL DEFAULT 0",
+        // Colonnes que seule une migration de la fenetre (persistance/
+        // mod.rs) posait, jamais schema.sql — trouvees en portant
+        // `parametres` : `unite_vente.code_barre` (D45) n'existait sur
+        // aucune base amorcee par `Base`. Meme famille que `avoir.
+        // piece_id` avant elles. Rejouees ici pour les bases deja
+        // amorcees ; ajoutees a schema.sql pour les neuves.
+        "ALTER TABLE unite_vente ADD COLUMN code_barre TEXT",
+        "ALTER TABLE paiement ADD COLUMN annule_paiement_id TEXT",
+        "ALTER TABLE paiement_fournisseur ADD COLUMN annule_paiement_id TEXT",
+        "ALTER TABLE parametres_societe ADD COLUMN entete_chemin TEXT",
+        "ALTER TABLE parametres_societe ADD COLUMN pied_chemin TEXT",
     ] {
         let _ = base.executer(&adapter(sql), &[]);
     }

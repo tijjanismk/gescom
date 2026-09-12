@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS parametres_societe (
     rccm            TEXT,
     site_web        TEXT,
     logo_chemin     TEXT,
+    entete_chemin   TEXT,
+    pied_chemin     TEXT,
     pied_facture    TEXT DEFAULT 'Merci de votre confiance',
     devise          TEXT NOT NULL DEFAULT 'FCFA',
     -- CURRENT_TIMESTAMP et non datetime('now') : meme valeur pour
@@ -122,7 +124,10 @@ CREATE TABLE IF NOT EXISTS unite_vente (
     modifie_le      TEXT NOT NULL,
     cree_par        TEXT NOT NULL DEFAULT 'system',
     modifie_par     TEXT NOT NULL DEFAULT 'system',
-    origine         TEXT NOT NULL DEFAULT 'app'
+    origine         TEXT NOT NULL DEFAULT 'app',
+    -- D45 : le carton a son propre EAN. Unique avec article.code_barre,
+    -- controle par le code (ajouter_unite_vente).
+    code_barre      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS depot (
@@ -245,7 +250,8 @@ CREATE TABLE IF NOT EXISTS paiement (
     auteur_id       TEXT,
     cree_le         TEXT NOT NULL,
     cree_par        TEXT NOT NULL DEFAULT 'system',
-    origine         TEXT NOT NULL DEFAULT 'app'
+    origine         TEXT NOT NULL DEFAULT 'app',
+    annule_paiement_id TEXT
 );
 
 
@@ -458,7 +464,8 @@ CREATE TABLE IF NOT EXISTS journal (
     ancien_valeur   TEXT,
     nouveau_valeur  TEXT,
     origine         TEXT NOT NULL DEFAULT 'app',
-    date_evenement  TEXT NOT NULL
+    date_evenement  TEXT NOT NULL,
+    annule_paiement_id TEXT
 );
 
 

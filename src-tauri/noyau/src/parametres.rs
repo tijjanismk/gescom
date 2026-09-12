@@ -488,3 +488,456 @@ pub fn diagnostiquer_base(
     }))
 }
 
+
+// =====================================================================
+//  SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// `categorie`, `article`, `unite_vente`, `config_app` ne sont pas
+// cloisonnes ; `stock_depot` et `depot` le sont. Le diagnostic de
+// sante n'a de « corruption » que sur SQLite (`quick_check`) : sur
+// PostgreSQL, le moteur se surveille lui-meme, on ne rend que les
+// anomalies metier.
+
+use crate::base::{Acces, Base};
+use crate::parametres;
+
+pub fn lire_categories_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    base.lire_plusieurs(
+        "SELECT id, nom FROM categorie WHERE actif = 1 ORDER BY nom",
+        &[],
+        |r| Ok(serde_json::json!({"id": r.get::<String>(0)?, "nom": r.get::<String>(1)?})),
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn creer_categorie_sur_base(base: &mut Base, nom: String) -> Result<String, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = maintenant_iso();
+    base.executer(
+        "INSERT INTO categorie (id, nom, schema_attributs, actif, cree_le, modifie_le, origine)
+         VALUES (?1,?2,'[]',1,?3,?3,'app')",
+        &parametres![id.clone(), nom, now],
+    )
+    .map_err(|e| e.0)?;
+    Ok(id)
+}
+
+pub fn lire_articles_complets_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    let lignes = base
+        .lire_plusieurs(
+            "SELECT a.id, a.nom, a.unite_base, a.dernier_prix_achat,
+                    u.id, u.libelle, u.facteur, u.prix_reference, u.code_barre
+             FROM article a
+             JOIN unite_vente u ON u.article_id = a.id AND u.actif = 1
+             WHERE a.actif = 1 ORDER BY a.nom, u.facteur",
+            &[],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<String>(1)?,
+                    r.get::<String>(2)?,
+                    r.get::<Option<i64>>(3)?,
+                    r.get::<String>(4)?,
+                    r.get::<String>(5)?,
+                    r.get::<f64>(6)?,
+                    r.get::<i64>(7)?,
+                    r.get::<Option<String>>(8)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+
+    let mut articles: Vec<serde_json::Value> = Vec::new();
+    let mut courant_id = String::new();
+    for (art_id, art_nom, unite_base, prix_achat, u_id, u_libelle, facteur, prix_ref, code_barre) in lignes {
+        let unite = serde_json::json!({
+            "id": u_id, "libelle": u_libelle,
+            "facteur": facteur, "prix_reference": prix_ref,
+            "code_barre": code_barre,
+        });
+        if art_id != courant_id {
+            courant_id = art_id.clone();
+            articles.push(serde_json::json!({
+                "id": art_id, "nom": art_nom,
+                "unite_base": unite_base,
+                "dernier_prix_achat": prix_achat,
+                "unites": [unite],
+            }));
+        } else if let Some(last) = articles.last_mut() {
+            if let Some(unites) = last["unites"].as_array_mut() {
+                unites.push(unite);
+            }
+        }
+    }
+    Ok(articles)
+}
+
+pub fn creer_article_complet_sur_base(
+    base: &mut Base,
+    nom: String,
+    categorie_id: Option<String>,
+    unite_base: String,
+    prix_reference: i64,
+) -> Result<String, String> {
+    let dossier = base.dossier().to_string();
+    let now = maintenant_iso();
+    let art_id = uuid::Uuid::new_v4().to_string();
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO article
+         (id, nom, categorie_id, unite_base, gere_en_stock, attributs,
+          actif, cree_le, modifie_le, cree_par, modifie_par, origine)
+         VALUES (?1,?2,CAST(?3 AS TEXT),?4,1,'{}',1,?5,?5,?6,?6,'app')",
+        &parametres![art_id.clone(), nom, categorie_id, unite_base.clone(), now.clone(), auteur.clone()],
+    )
+    .map_err(|e| e.0)?;
+
+    tx.executer(
+        "INSERT INTO unite_vente
+         (id, article_id, libelle, facteur, prix_reference, actif,
+          cree_le, modifie_le, cree_par, modifie_par, origine)
+         VALUES (?1,?2,?3,1.0,?4,1,?5,?5,?6,?6,'app')",
+        &parametres![uuid::Uuid::new_v4().to_string(), art_id.clone(), unite_base, prix_reference, now, auteur],
+    )
+    .map_err(|e| e.0)?;
+
+    // La ligne de stock a zero dans le magasin par defaut du dossier :
+    // `ON CONFLICT DO NOTHING` remplace `INSERT OR IGNORE`, que
+    // PostgreSQL ne connait pas.
+    let depot: Option<String> = tx
+        .lire_une(
+            "SELECT id FROM depot WHERE est_defaut = 1 AND dossier_id = ?1 LIMIT 1",
+            &parametres![dossier.clone()],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?;
+    if let Some(depot_id) = depot {
+        let _ = tx.executer(
+            "INSERT INTO stock_depot (id, article_id, depot_id, quantite, dossier_id)
+             VALUES (?1,?2,?3,0,?4)
+             ON CONFLICT (article_id, depot_id) DO NOTHING",
+            &parametres![uuid::Uuid::new_v4().to_string(), art_id.clone(), depot_id, dossier],
+        );
+    }
+    tx.valider().map_err(|e| e.0)?;
+    Ok(art_id)
+}
+
+pub fn ajouter_unite_vente_sur_base(
+    base: &mut Base,
+    article_id: String,
+    libelle: String,
+    facteur: f64,
+    prix_reference: i64,
+    code_barre: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let lib = libelle.trim().to_string();
+    if lib.is_empty() {
+        return Err("Le libellé de l'unité est obligatoire".to_string());
+    }
+    if facteur <= 0.0 {
+        return Err("Le facteur doit être supérieur à zéro".to_string());
+    }
+    if prix_reference <= 0 {
+        return Err("Le prix de vente est obligatoire".to_string());
+    }
+
+    let existe: i64 = base
+        .lire_une(
+            "SELECT COUNT(*) FROM unite_vente
+             WHERE article_id = ?1 AND LOWER(libelle) = LOWER(?2) AND actif = 1",
+            &parametres![article_id.clone(), lib.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    if existe > 0 {
+        return Err(format!("L'unité « {} » existe déjà pour cet article.", lib));
+    }
+
+    let cb = code_barre.map(|c| c.trim().to_string()).filter(|c| !c.is_empty());
+    if let Some(ref c) = cb {
+        let pris: i64 = base
+            .lire_une(
+                "SELECT (SELECT COUNT(*) FROM article WHERE code_barre = ?1)
+                      + (SELECT COUNT(*) FROM unite_vente WHERE code_barre = ?1 AND actif = 1)",
+                &parametres![c.clone()],
+                |r| r.get::<i64>(0),
+            )
+            .map_err(|e| e.0)?
+            .unwrap_or(0);
+        if pris > 0 {
+            return Err(format!("Le code-barres {} est déjà attribué.", c));
+        }
+    }
+
+    let now = maintenant_iso();
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let id = uuid::Uuid::new_v4().to_string();
+    base.executer(
+        "INSERT INTO unite_vente
+         (id, article_id, libelle, facteur, prix_reference, code_barre, actif,
+          cree_le, modifie_le, cree_par, modifie_par, origine)
+         VALUES (?1,?2,?3,?4,?5,CAST(?6 AS TEXT),1,?7,?7,?8,?8,'app')",
+        &parametres![id.clone(), article_id.clone(), lib, facteur, prix_reference, cb, now, auteur],
+    )
+    .map_err(|e| e.0)?;
+
+    let prix_base: Option<i64> = base
+        .lire_une(
+            "SELECT prix_reference FROM unite_vente
+             WHERE article_id = ?1 AND facteur = 1.0 AND actif = 1 LIMIT 1",
+            &parametres![article_id],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?;
+    let alerte = prix_base.and_then(|pb| {
+        let attendu = pb as f64 * facteur;
+        if attendu <= 0.0 {
+            return None;
+        }
+        let ecart = (prix_reference as f64 - attendu).abs() / attendu;
+        (ecart > ECART_PRIX_TOLERE).then(|| {
+            format!(
+                "Prix inhabituel : {} F pour {} × {} F attendus ({} F). À vérifier.",
+                prix_reference, facteur, pb, attendu.round() as i64
+            )
+        })
+    });
+    Ok(serde_json::json!({ "id": id, "alerte": alerte }))
+}
+
+pub fn modifier_unite_vente_sur_base(
+    base: &mut Base,
+    unite_id: String,
+    libelle: Option<String>,
+    facteur: Option<f64>,
+    prix_reference: Option<i64>,
+    code_barre: Option<String>,
+) -> Result<(), String> {
+    if let Some(f) = facteur {
+        if f <= 0.0 {
+            return Err("Le facteur doit être supérieur à zéro".to_string());
+        }
+    }
+    if let Some(p) = prix_reference {
+        if p <= 0 {
+            return Err("Le prix de vente doit être positif".to_string());
+        }
+    }
+    let facteur_actuel: f64 = base
+        .lire_une(
+            "SELECT facteur FROM unite_vente WHERE id = ?1",
+            &parametres![unite_id.clone()],
+            |r| r.get::<f64>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Unité introuvable".to_string())?;
+    if facteur_actuel == 1.0 && facteur.map(|f| f != 1.0).unwrap_or(false) {
+        return Err(
+            "Le facteur de l'unité de base ne peut pas changer. \
+             Créer une nouvelle unité pour le conditionnement."
+                .to_string(),
+        );
+    }
+    base.executer(
+        "UPDATE unite_vente SET
+            libelle = COALESCE(CAST(?1 AS TEXT), libelle),
+            facteur = COALESCE(CAST(?2 AS DOUBLE PRECISION), facteur),
+            prix_reference = COALESCE(CAST(?3 AS BIGINT), prix_reference),
+            code_barre = COALESCE(CAST(?4 AS TEXT), code_barre),
+            modifie_le = ?5
+         WHERE id = ?6",
+        &parametres![
+            libelle.map(|l| l.trim().to_string()).filter(|l| !l.is_empty()),
+            facteur,
+            prix_reference,
+            code_barre.map(|c| c.trim().to_string()).filter(|c| !c.is_empty()),
+            maintenant_iso(),
+            unite_id
+        ],
+    )
+    .map_err(|e| e.0)?;
+    Ok(())
+}
+
+pub fn desactiver_unite_vente_sur_base(base: &mut Base, unite_id: String) -> Result<(), String> {
+    let (article_id, facteur): (String, f64) = base
+        .lire_une(
+            "SELECT article_id, facteur FROM unite_vente WHERE id = ?1",
+            &parametres![unite_id.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<f64>(1)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Unité introuvable".to_string())?;
+    if facteur == 1.0 {
+        return Err(
+            "L'unité de base ne peut pas être désactivée : c'est elle qui \
+             porte le stock et les états."
+                .to_string(),
+        );
+    }
+    let restantes: i64 = base
+        .lire_une(
+            "SELECT COUNT(*) FROM unite_vente WHERE article_id = ?1 AND actif = 1 AND id <> ?2",
+            &parametres![article_id, unite_id.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    if restantes == 0 {
+        return Err("Un article doit garder au moins une unité de vente.".to_string());
+    }
+    base.executer(
+        "UPDATE unite_vente SET actif = 0, modifie_le = ?1 WHERE id = ?2",
+        &parametres![maintenant_iso(), unite_id],
+    )
+    .map_err(|e| e.0)?;
+    Ok(())
+}
+
+/// Un reglage de `config_app`, ou son defaut si la cle n'existe pas.
+/// Une chaine vide enregistree volontairement reste vide.
+fn config_sur(acces: &mut impl Acces, cle: &str) -> Option<String> {
+    acces
+        .lire_une(
+            "SELECT valeur FROM config_app WHERE cle = ?1",
+            &parametres![cle],
+            |r| r.get::<String>(0),
+        )
+        .ok()
+        .flatten()
+}
+
+fn poser_config(acces: &mut impl Acces, cle: &str, valeur: &str) -> Result<(), String> {
+    acces
+        .executer(
+            "INSERT INTO config_app (cle, valeur) VALUES (?1, ?2)
+             ON CONFLICT (cle) DO UPDATE SET valeur = ?2",
+            &parametres![cle, valeur],
+        )
+        .map_err(|e| e.0)
+        .map(|_| ())
+}
+
+pub fn lire_config_bon_sortie_sur_base(base: &mut Base) -> Result<bool, String> {
+    Ok(config_sur(base, "bon_sortie_actif").as_deref() == Some("1"))
+}
+
+pub fn sauvegarder_config_bon_sortie_sur_base(base: &mut Base, actif: bool) -> Result<(), String> {
+    poser_config(base, "bon_sortie_actif", if actif { "1" } else { "0" })
+}
+
+pub fn lire_config_suivi_livraison_sur_base(base: &mut Base) -> Result<bool, String> {
+    Ok(config_sur(base, "suivi_livraison_actif").as_deref() == Some("1"))
+}
+
+pub fn sauvegarder_config_suivi_livraison_sur_base(base: &mut Base, actif: bool) -> Result<(), String> {
+    poser_config(base, "suivi_livraison_actif", if actif { "1" } else { "0" })
+}
+
+pub fn lire_config_signatures_sur_base(base: &mut Base) -> Result<serde_json::Value, String> {
+    let mut out = serde_json::Map::new();
+    for (cle, defaut) in SIGNATURES {
+        let valeur = config_sur(base, cle).unwrap_or_else(|| defaut.to_string());
+        out.insert(cle.to_string(), serde_json::json!(valeur));
+    }
+    Ok(serde_json::Value::Object(out))
+}
+
+pub fn sauvegarder_config_signatures_sur_base(
+    base: &mut Base,
+    valeurs: std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    for (cle, _) in SIGNATURES {
+        if let Some(v) = valeurs.get(cle) {
+            poser_config(base, cle, v.trim())?;
+        }
+    }
+    Ok(())
+}
+
+pub fn lire_stocks_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT a.id, a.nom, a.unite_base, d.nom, sd.quantite, sd.depot_id
+         FROM stock_depot sd
+         JOIN article a ON a.id = sd.article_id
+         JOIN depot d ON d.id = sd.depot_id
+         WHERE a.actif = 1 AND sd.dossier_id = ?1
+         ORDER BY sd.quantite ASC, a.nom ASC",
+        &parametres![dossier],
+        |r| {
+            Ok(serde_json::json!({
+                "article_id":  r.get::<String>(0)?,
+                "article_nom": r.get::<String>(1)?,
+                "unite_base":  r.get::<String>(2)?,
+                "depot_nom":   r.get::<String>(3)?,
+                "quantite":    r.get::<f64>(4)?,
+                "depot_id":    r.get::<String>(5)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+/// Les controles de coherence metier, en SQL que les deux moteurs
+/// acceptent. Meme liste que `persistance::anomalies_metier`, moins le
+/// controle des compteurs, qui lit `substr(numero, -5)` — un SQLite-isme
+/// a reecrire avec lui.
+pub fn anomalies_metier_sur_base(base: &mut Base) -> Vec<(String, i64)> {
+    let dossier = base.dossier().to_string();
+    let controles: [(&str, &str); 6] = [
+        ("Ventes sans aucune ligne",
+         "SELECT COUNT(*) FROM vente v WHERE v.statut <> 'annulee' AND v.dossier_id = ?1
+            AND NOT EXISTS (SELECT 1 FROM ligne_vente WHERE vente_id = v.id)"),
+        ("Paiements rattaches a une vente inexistante",
+         "SELECT COUNT(*) FROM paiement p WHERE p.dossier_id = ?1
+            AND NOT EXISTS (SELECT 1 FROM vente WHERE id = p.vente_id)"),
+        ("Lignes de piece sans piece",
+         "SELECT COUNT(*) FROM ligne_piece lp WHERE lp.dossier_id = ?1
+            AND NOT EXISTS (SELECT 1 FROM piece_commerciale WHERE id = lp.piece_id)"),
+        ("Mouvements de caisse hors session",
+         "SELECT COUNT(*) FROM mouvement_caisse mc WHERE mc.dossier_id = ?1
+            AND NOT EXISTS (SELECT 1 FROM session_caisse WHERE id = mc.session_id)"),
+        ("Stock negatif",
+         "SELECT COUNT(*) FROM stock_depot WHERE quantite < 0 AND dossier_id = ?1"),
+        ("Stocks qui ne correspondent pas a leurs mouvements",
+         "SELECT COUNT(*) FROM stock_depot sd WHERE sd.dossier_id = ?1
+          AND sd.quantite <> COALESCE((
+                SELECT SUM(ms.quantite_delta) FROM mouvement_stock ms
+                WHERE ms.article_id = sd.article_id AND ms.depot_id = sd.depot_id), 0)"),
+    ];
+    controles
+        .iter()
+        .filter_map(|(libelle, sql)| {
+            let n = base
+                .lire_une(sql, &parametres![dossier.clone()], |r| r.get::<i64>(0))
+                .ok()
+                .flatten()
+                .unwrap_or(0);
+            (n > 0).then(|| (libelle.to_string(), n))
+        })
+        .collect()
+}
+
+pub fn diagnostiquer_base_sur_base(base: &mut Base) -> Result<serde_json::Value, String> {
+    // `quick_check` n'existe que sur SQLite. Sur PostgreSQL, le fichier
+    // n'est pas a nous : le moteur veille sur ses pages, on ne rend que
+    // les anomalies metier.
+    let corruption: Option<String> = match base.sqlite() {
+        Some(conn) => crate::persistance::verifier_integrite(conn).map_err(|e| e.to_string())?,
+        None => None,
+    };
+    let anomalies = anomalies_metier_sur_base(base);
+    Ok(serde_json::json!({
+        "corruption": corruption,
+        "anomalies": anomalies.iter().map(|(libelle, n)| serde_json::json!({
+            "libelle": libelle, "nombre": n,
+        })).collect::<Vec<_>>(),
+        "sain": corruption.is_none() && anomalies.is_empty(),
+    }))
+}
