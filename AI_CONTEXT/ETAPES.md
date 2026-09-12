@@ -544,6 +544,13 @@ cargo run -p gescom-noyau --example amorcer -- <cible> [--demo]
 .\outils\cargo-tenace.ps1 test --workspace          # SQLite
 GESCOM_PG="postgresql://..." cargo test -p gescom-noyau \
     --test postgres_amorcage -- --test-threads=1     # PostgreSQL
+GESCOM_PG="postgresql://..." cargo test -p gescom-noyau \
+    --test tableau_bord_base -- --test-threads=1     # idem, tableau de bord
+
+# ⚠️ Les scénarios PostgreSQL font DROP SCHEMA : JAMAIS sur la base du
+# serveur (`gescom`). Une base jetable existe pour ça : `gescom_test`.
+# `cargo-tenace.ps1` avale `-p` et `--` : passer `--package`, et lancer
+# les scénarios PostgreSQL avec cargo directement, depuis bash.
 ```
 
 `cargo-tenace` et non `cargo` : Smart App Control bloque les binaires
