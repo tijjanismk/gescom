@@ -8,7 +8,7 @@ décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 Dernière mise à jour : **12 septembre 2026**.
 État : **392 tests SQLite + 21 tests PostgreSQL**, tous au vert, plus
 **84 scénarios** en dix fichiers `*_base.rs` qui tournent sur les deux
-moteurs (`GESCOM_PG`). Dernier commit : `8a85edd`.
+moteurs (`GESCOM_PG`). Dernier commit : voir `git log`.
 
 ---
 
@@ -50,7 +50,7 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | 5 | `entretenir_base` reste locale | c'est un travail de serveur (D9) |
 | 6 | **La restauration `pg_restore` jamais jouée** | D4 le demande ; la commande est dans [postgresql.md](modules/postgresql.md) — à essayer sur une base jetable |
 | 7 | Une **vraie impression papier**, le glisser-déposer du pied | jamais vérifiés à la main |
-| 8 | La fenêtre en **mode caisse**, une caisse sur **PostgreSQL** écran par écran | tous les essais sont passés par HTTP ; les scénarios disent ce que le SQL fait, pas ce que l'écran montre |
+| 8 | La fenêtre en **mode caisse**, pour de bon | tous les essais passent par HTTP — dont `outils/caisse_pg.py`, 129 clics ok sur PostgreSQL le 12/09 ; la fenêtre Tauri elle-même n'a pas été utilisée |
 | 9 | Le déclencheur de stock sur SQLite multi-dossier | un mouvement de `dossier-b` crée sa ligne de stock dans `defaut` ; sans effet tant qu'une base SQLite n'a qu'un dossier — à régler avec la v3 |
 
 ## v3 — fondation posée, pas commencée

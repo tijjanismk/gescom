@@ -523,3 +523,36 @@ reprendre les mêmes fichiers deux fois.
 
 ---
 
+---
+
+## La caisse sur PostgreSQL, écran par écran — **fait le 12/09/2026**
+
+`outils/caisse_pg.py <url>` rejoue ce que la fenêtre fait contre un
+serveur qui tourne : connexion (et le changement de mot de passe
+imposé), puis chaque écran dans l'ordre d'une journée — tableau de
+bord, POS (comptant, crédit, chèque), clients, créances, pièces
+(devis → commande → BL + facture → validation → avoir), achats et
+retours fournisseur, retour client, stock, magasins, transferts,
+dépense, clôture, rapports, relances, chantiers, paramètres,
+sauvegarde `pg_dump`. Par le même pont HTTP et les mêmes noms de
+paramètres que `src/pages`.
+
+Sur une base vierge amorcée avec la démo : **129 clics, 129 ok**.
+
+Un seul défaut, et pas du SQL : `lire_catalogue_permissions` — la
+commande qui ne lit pas la base — n'avait pas de poignée `Base`, donc
+le registre la refusait sur PostgreSQL et l'onglet Rôles s'ouvrait
+vide. Les 84 scénarios ne pouvaient pas le voir : ils appellent le
+noyau, pas le registre. C'est exactement ce qu'un essai « à la main »
+attrape. Corrigé : 187/187.
+
+Au passage : le serveur affichait l'URL de la base **avec le mot de
+passe** au démarrage — masqué (D10).
+
+## Les fiches ramenées à l'essentiel — **fait le 12/09/2026**
+
+`reseau-v2`, `permissions`, `numerotation`, `commandes-achat-fournisseur`,
+`livraison-stock`, `environnement-windows` : 61 k → 27 k octets. Les
+règles avec leur `fichier:ligne` restent ; les récits (« le bug qu'on
+vient de fermer », « le piège que le test a attrapé ») sont ici. Zéro
+lien cassé après réécriture.
