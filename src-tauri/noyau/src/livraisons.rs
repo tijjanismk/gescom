@@ -430,7 +430,7 @@ mod tests {
 // que sur SQLite. Le reste du module (saisie ligne a ligne, lecture)
 // suit dans son propre lot.
 
-use crate::base::Acces;
+use crate::base::{Acces, Base};
 use crate::parametres;
 
 #[allow(clippy::too_many_arguments)]
@@ -554,4 +554,122 @@ pub fn marquer_entierement_livre_sur(
         )?;
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------
+//  Lecture et saisie ligne a ligne
+// ---------------------------------------------------------------------
+
+pub fn lire_livraison_piece_sur_base(base: &mut Base, piece_id: String) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let (numero, type_piece): (String, String) = base
+        .lire_une(
+            "SELECT numero, type_piece FROM piece_commerciale WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![piece_id.clone(), dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Piece introuvable".to_string())?;
+
+    let lignes: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT lp.id, a.nom, COALESCE(u.libelle, a.unite_base),
+                    lp.quantite, COALESCE(lp.quantite_livree, 0)
+             FROM ligne_piece lp
+             JOIN article a ON a.id = lp.article_id
+             LEFT JOIN unite_vente u ON u.id = lp.unite_vente_id
+             WHERE lp.piece_id = ?1 AND lp.dossier_id = ?2
+             ORDER BY a.nom",
+            &parametres![piece_id.clone(), dossier],
+            |r| {
+                let qte: f64 = r.get::<f64>(3)?;
+                let livree: f64 = r.get::<f64>(4)?;
+                Ok(serde_json::json!({
+                    "id":              r.get::<String>(0)?,
+                    "article_nom":     r.get::<String>(1)?,
+                    "unite":           r.get::<String>(2)?,
+                    "quantite":        qte,
+                    "quantite_livree": livree,
+                    "reste":           (qte - livree).max(0.0),
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+    let commandee: f64 = lignes.iter().filter_map(|l| l["quantite"].as_f64()).sum();
+    let livree: f64 = lignes.iter().filter_map(|l| l["quantite_livree"].as_f64()).sum();
+    Ok(serde_json::json!({
+        "piece_id":   piece_id,
+        "numero":     numero,
+        "type_piece": type_piece,
+        "lignes":     lignes,
+        "etat":       etat(livree, commandee),
+    }))
+}
+
+/// Enregistre l'etat de livraison d'une piece : le stock bouge de
+/// l'ECART, pas du total. Aucune caisse exigee — livrer n'est pas
+/// encaisser.
+pub fn enregistrer_livraison_sur_base(
+    base: &mut Base,
+    piece_id: String,
+    lignes: Vec<LigneLivraison>,
+) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let now = maintenant_iso();
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let (type_piece, depot_piece): (String, Option<String>) = base
+        .lire_une(
+            "SELECT type_piece, depot_id FROM piece_commerciale WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![piece_id.clone(), dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<Option<String>>(1)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Piece introuvable".to_string())?;
+    let depot = crate::pieces::depot_de_piece_sur(base, depot_piece);
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    for l in &lignes {
+        let (commandee, deja, article_id, unite_id): (f64, f64, String, String) = tx
+            .lire_une(
+                "SELECT quantite, COALESCE(quantite_livree, 0), article_id, unite_vente_id
+                 FROM ligne_piece WHERE id = ?1 AND piece_id = ?2 AND dossier_id = ?3",
+                &parametres![l.ligne_id.clone(), piece_id.clone(), dossier.clone()],
+                |r| Ok((r.get::<f64>(0)?, r.get::<f64>(1)?, r.get::<String>(2)?, r.get::<String>(3)?)),
+            )
+            .map_err(|e| e.0)?
+            .ok_or_else(|| format!("Ligne {} introuvable sur cette piece", l.ligne_id))?;
+        // Livrer plus que commande n'est pas une livraison.
+        let valeur = l.quantite_livree.clamp(0.0, commandee);
+        tx.executer(
+            "UPDATE ligne_piece SET quantite_livree = ?1 WHERE id = ?2 AND dossier_id = ?3",
+            &parametres![valeur, l.ligne_id.clone(), dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
+        mouvementer_ecart_sur(&mut tx, &type_piece, depot.as_deref(), &article_id, &unite_id, valeur - deja, &auteur, &now, &piece_id)?;
+    }
+
+    let (livree, commandee): (f64, f64) = tx
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(quantite_livree), 0) AS DOUBLE PRECISION),
+                    CAST(COALESCE(SUM(quantite), 0) AS DOUBLE PRECISION)
+             FROM ligne_piece WHERE piece_id = ?1 AND dossier_id = ?2",
+            &parametres![piece_id.clone(), dossier.clone()],
+            |r| Ok((r.get::<f64>(0)?, r.get::<f64>(1)?)),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or((0.0, 0.0));
+    let e = etat(livree, commandee);
+    let _ = tx.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1,'livraison_enregistree','piece_commerciale',?2,?3,?4,'app',?5,?6)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(), piece_id, auteur,
+            format!(r#"{{"etat":"{}","livree":{},"commandee":{}}}"#, e, livree, commandee),
+            now, dossier
+        ],
+    );
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({ "etat": e, "livree": livree, "commandee": commandee }))
 }

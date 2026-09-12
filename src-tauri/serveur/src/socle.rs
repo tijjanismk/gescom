@@ -365,10 +365,20 @@ pub fn registre() -> Registre {
         let v = modeles::lister(c.conn, genre).map_err(|e| e.to_string())?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_modeles", |c, p| {
+        let genre = p.get("genre").and_then(Value::as_str);
+        let v = modeles::lister_sur_base(c.base, genre).map_err(|e| e.to_string())?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_modele_actif", |c, p| {
         let genre = texte(&p, "genre")?;
         serde_json::to_value(modeles::lire_actif(c.conn, &genre))
+            .map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_modele_actif", |c, p| {
+        let genre = texte(&p, "genre")?;
+        serde_json::to_value(modeles::lire_actif_sur_base(c.base, &genre))
             .map_err(|e| e.to_string())
     });
 
@@ -380,16 +390,34 @@ pub fn registre() -> Registre {
         modeles::enregistrer(c.conn, &m, &c.appelant.utilisateur_id)?;
         Ok(json!({ "id": m.id }))
     });
+    r.aussi_sur_base("enregistrer_modele", |c, p| {
+        let m: modeles::Modele = serde_json::from_value(
+            p.get("modele").cloned().unwrap_or(Value::Null),
+        )
+        .map_err(|e| format!("Modèle illisible : {e}"))?;
+        modeles::enregistrer_sur_base(c.base, &m, &c.appelant.utilisateur_id)?;
+        Ok(json!({ "id": m.id }))
+    });
 
     r.ecriture("definir_modele_actif", "modeles:gerer", |c, p| {
         let id = texte(&p, "id")?;
         modeles::definir_actif(c.conn, &id)?;
         Ok(json!({ "id": id }))
     });
+    r.aussi_sur_base("definir_modele_actif", |c, p| {
+        let id = texte(&p, "id")?;
+        modeles::definir_actif_sur_base(c.base, &id)?;
+        Ok(json!({ "id": id }))
+    });
 
     r.ecriture("supprimer_modele", "modeles:gerer", |c, p| {
         let id = texte(&p, "id")?;
         modeles::supprimer(c.conn, &id)?;
+        Ok(json!({ "id": id }))
+    });
+    r.aussi_sur_base("supprimer_modele", |c, p| {
+        let id = texte(&p, "id")?;
+        modeles::supprimer_sur_base(c.base, &id)?;
         Ok(json!({ "id": id }))
     });
 
@@ -568,6 +596,12 @@ pub fn registre() -> Registre {
     r.lecture("lire_modele", |c, p| {
         let id: String = arg(&p, "id", "id")?;
         let v = gescom_noyau::modeles::lire(c.conn, &id)
+            .map_err(|_| "Modèle introuvable.".to_string())?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_modele", |c, p| {
+        let id: String = arg(&p, "id", "id")?;
+        let v = gescom_noyau::modeles::lire_sur_base(c.base, &id)
             .map_err(|_| "Modèle introuvable.".to_string())?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
@@ -905,6 +939,10 @@ pub fn registre() -> Registre {
         let v = catalogue_csv::exporter_articles_csv(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("exporter_articles_csv", |c, _p| {
+        let v = catalogue_csv::exporter_articles_csv_sur_base(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("importer_articles_csv", "articles:creer", |c, p| {
         let contenu: String = arg(&p, "contenu", "contenu")?;
@@ -912,11 +950,23 @@ pub fn registre() -> Registre {
         let v = catalogue_csv::importer_articles_csv(c.conn, contenu, mettre_a_jour)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("importer_articles_csv", |c, p| {
+        let contenu: String = arg(&p, "contenu", "contenu")?;
+        let mettre_a_jour: Option<bool> = arg(&p, "mettreAJour", "mettre_a_jour")?;
+        let v = catalogue_csv::importer_articles_csv_sur_base(c.base, contenu, mettre_a_jour)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_etat_stock", |c, p| {
         let depot_id: Option<String> = arg(&p, "depotId", "depot_id")?;
         let avec_zero: Option<bool> = arg(&p, "avecZero", "avec_zero")?;
         let v = catalogue_csv::lire_etat_stock(c.conn, depot_id, avec_zero)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_etat_stock", |c, p| {
+        let depot_id: Option<String> = arg(&p, "depotId", "depot_id")?;
+        let avec_zero: Option<bool> = arg(&p, "avecZero", "avec_zero")?;
+        let v = catalogue_csv::lire_etat_stock_sur_base(c.base, depot_id, avec_zero)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1557,11 +1607,22 @@ pub fn registre() -> Registre {
         let v = livraisons::lire_livraison_piece(c.conn, piece_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_livraison_piece", |c, p| {
+        let piece_id: String = arg(&p, "pieceId", "piece_id")?;
+        let v = livraisons::lire_livraison_piece_sur_base(c.base, piece_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.ecriture("enregistrer_livraison", "livraisons:enregistrer", |c, p| {
         let piece_id: String = arg(&p, "pieceId", "piece_id")?;
         let lignes: Vec<livraisons::LigneLivraison> = arg(&p, "lignes", "lignes")?;
         let v = livraisons::enregistrer_livraison(c.conn, piece_id, lignes)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("enregistrer_livraison", |c, p| {
+        let piece_id: String = arg(&p, "pieceId", "piece_id")?;
+        let lignes: Vec<livraisons::LigneLivraison> = arg(&p, "lignes", "lignes")?;
+        let v = livraisons::enregistrer_livraison_sur_base(c.base, piece_id, lignes)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1576,6 +1637,17 @@ pub fn registre() -> Registre {
         let v = pagination::lire_ventes_paginees(c.conn, page, limite, recherche, statut, periode, date_debut, date_fin)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_ventes_paginees", |c, p| {
+        let page: i64 = arg(&p, "page", "page")?;
+        let limite: i64 = arg(&p, "limite", "limite")?;
+        let recherche: Option<String> = arg(&p, "recherche", "recherche")?;
+        let statut: Option<String> = arg(&p, "statut", "statut")?;
+        let periode: Option<String> = arg(&p, "periode", "periode")?;
+        let date_debut: Option<String> = arg(&p, "dateDebut", "date_debut")?;
+        let date_fin: Option<String> = arg(&p, "dateFin", "date_fin")?;
+        let v = pagination::lire_ventes_paginees_sur_base(c.base, page, limite, recherche, statut, periode, date_debut, date_fin)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_clients_pagines", |c, p| {
         let page: i64 = arg(&p, "page", "page")?;
@@ -1585,6 +1657,16 @@ pub fn registre() -> Registre {
         let ventes_filtre: Option<String> = arg(&p, "ventesFiltre", "ventes_filtre")?;
         let tri: Option<String> = arg(&p, "tri", "tri")?;
         let v = pagination::lire_clients_pagines(c.conn, page, limite, recherche, avec_creances_seulement, ventes_filtre, tri)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_clients_pagines", |c, p| {
+        let page: i64 = arg(&p, "page", "page")?;
+        let limite: i64 = arg(&p, "limite", "limite")?;
+        let recherche: Option<String> = arg(&p, "recherche", "recherche")?;
+        let avec_creances_seulement: bool = arg(&p, "avecCreancesSeulement", "avec_creances_seulement")?;
+        let ventes_filtre: Option<String> = arg(&p, "ventesFiltre", "ventes_filtre")?;
+        let tri: Option<String> = arg(&p, "tri", "tri")?;
+        let v = pagination::lire_clients_pagines_sur_base(c.base, page, limite, recherche, avec_creances_seulement, ventes_filtre, tri)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1597,12 +1679,28 @@ pub fn registre() -> Registre {
         let v = pagination::lire_stocks_pagines(c.conn, page, limite, recherche, a_regulariser_seulement, categorie_id)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
+    r.aussi_sur_base("lire_stocks_pagines", |c, p| {
+        let page: i64 = arg(&p, "page", "page")?;
+        let limite: i64 = arg(&p, "limite", "limite")?;
+        let recherche: Option<String> = arg(&p, "recherche", "recherche")?;
+        let a_regulariser_seulement: bool = arg(&p, "aRegulariserSeulement", "a_regulariser_seulement")?;
+        let categorie_id: Option<String> = arg(&p, "categorieId", "categorie_id")?;
+        let v = pagination::lire_stocks_pagines_sur_base(c.base, page, limite, recherche, a_regulariser_seulement, categorie_id)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
 
     r.lecture("lire_fournisseurs_pagines", |c, p| {
         let page: i64 = arg(&p, "page", "page")?;
         let limite: i64 = arg(&p, "limite", "limite")?;
         let recherche: Option<String> = arg(&p, "recherche", "recherche")?;
         let v = pagination::lire_fournisseurs_pagines(c.conn, page, limite, recherche)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_fournisseurs_pagines", |c, p| {
+        let page: i64 = arg(&p, "page", "page")?;
+        let limite: i64 = arg(&p, "limite", "limite")?;
+        let recherche: Option<String> = arg(&p, "recherche", "recherche")?;
+        let v = pagination::lire_fournisseurs_pagines_sur_base(c.base, page, limite, recherche)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1614,6 +1712,16 @@ pub fn registre() -> Registre {
         let date_debut: Option<String> = arg(&p, "dateDebut", "date_debut")?;
         let date_fin: Option<String> = arg(&p, "dateFin", "date_fin")?;
         let v = pagination::lire_ventes_recentes_paginee(c.conn, page, limite, recherche, periode, date_debut, date_fin)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lire_ventes_recentes_paginee", |c, p| {
+        let page: i64 = arg(&p, "page", "page")?;
+        let limite: i64 = arg(&p, "limite", "limite")?;
+        let recherche: Option<String> = arg(&p, "recherche", "recherche")?;
+        let periode: Option<String> = arg(&p, "periode", "periode")?;
+        let date_debut: Option<String> = arg(&p, "dateDebut", "date_debut")?;
+        let date_fin: Option<String> = arg(&p, "dateFin", "date_fin")?;
+        let v = pagination::lire_ventes_recentes_paginee_sur_base(c.base, page, limite, recherche, periode, date_debut, date_fin)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 

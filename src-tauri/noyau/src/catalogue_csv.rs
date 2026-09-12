@@ -467,3 +467,297 @@ pub fn lire_etat_stock(
         "societe": societe,
     }))
 }
+
+// =====================================================================
+//  SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// `article`, `unite_vente`, `categorie` ne sont pas cloisonnes ;
+// `stock_depot`, `depot`, `mouvement_stock` le sont. Les `GROUP BY`
+// sans agregat de la version SQLite sont retires : PostgreSQL exige
+// que chaque colonne lue soit groupee, et ils ne servaient a rien.
+
+use crate::base::Base;
+use crate::parametres;
+
+pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String> {
+    let dossier = base.dossier().to_string();
+    let lignes: Vec<String> = base
+        .lire_plusieurs(
+            "SELECT a.nom, COALESCE(c.nom, ''), COALESCE(uv.libelle, a.unite_base),
+                    COALESCE(uv.facteur, 1.0),
+                    CAST(COALESCE(uv.prix_reference, 0) AS BIGINT),
+                    CAST(COALESCE(a.dernier_prix_achat, 0) AS BIGINT),
+                    COALESCE(a.taux_tva_defaut, 0.0),
+                    COALESCE(uv.code_barre, a.code_barre, ''),
+                    CAST(COALESCE((SELECT SUM(sd.quantite) FROM stock_depot sd
+                                   WHERE sd.article_id = a.id AND sd.dossier_id = ?1), 0) AS DOUBLE PRECISION)
+             FROM article a
+             LEFT JOIN categorie c ON c.id = a.categorie_id
+             LEFT JOIN unite_vente uv ON uv.article_id = a.id AND uv.actif = 1
+             WHERE a.actif = 1
+             ORDER BY a.nom, uv.facteur",
+            &parametres![dossier],
+            |r| {
+                let facteur: f64 = r.get::<f64>(3)?;
+                let taux: f64 = r.get::<f64>(6)?;
+                Ok(format!(
+                    "{};{};{};{};{};{};{};{};{}",
+                    echapper(&r.get::<String>(0)?),
+                    echapper(&r.get::<String>(1)?),
+                    echapper(&r.get::<String>(2)?),
+                    if facteur.fract() == 0.0 { format!("{}", facteur as i64) } else { format!("{}", facteur) },
+                    r.get::<i64>(4)?,
+                    r.get::<i64>(5)?,
+                    (taux * 100.0).round() as i64,
+                    echapper(&r.get::<String>(7)?),
+                    r.get::<f64>(8)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+    Ok(format!("\u{FEFF}{}\n{}", ENTETE, lignes.join("\n")))
+}
+
+pub fn importer_articles_csv_sur_base(
+    base: &mut Base,
+    contenu: String,
+    mettre_a_jour: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let maj = mettre_a_jour.unwrap_or(true);
+    let now = maintenant_iso();
+    let depot_defaut: String = base
+        .lire_une(
+            "SELECT id FROM depot WHERE est_defaut = 1 AND dossier_id = ?1 LIMIT 1",
+            &parametres![dossier.clone()],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Aucun magasin par défaut".to_string())?;
+
+    let contenu = contenu.trim_start_matches('\u{FEFF}');
+    let mut lignes = contenu.lines();
+    let premiere = lignes.next().unwrap_or("");
+    let a_entete = premiere.to_lowercase().starts_with("nom");
+    let cols: std::collections::HashMap<String, usize> = if a_entete {
+        decouper(premiere).iter().enumerate().map(|(i, c)| (normaliser_entete(c), i)).collect()
+    } else {
+        std::collections::HashMap::new()
+    };
+    let mut a_traiter: Vec<&str> = Vec::new();
+    if !a_entete {
+        a_traiter.push(premiere);
+    }
+    a_traiter.extend(lignes);
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    let mut crees = 0;
+    let mut majs = 0;
+    let mut erreurs: Vec<String> = Vec::new();
+
+    for (i, ligne) in a_traiter.iter().enumerate() {
+        let num = i + 2;
+        if ligne.trim().is_empty() {
+            continue;
+        }
+        let ch = decouper(ligne);
+        if ch.len() < 4 {
+            erreurs.push(format!(
+                "Ligne {} : {} colonne(s), 4 minimum (Nom;Categorie;Unite;Prix). Colonne Facteur facultative.",
+                num, ch.len()
+            ));
+            continue;
+        }
+        let nom = champ(&ch, &cols, "nom", Some(0)).unwrap_or("");
+        if nom.is_empty() {
+            erreurs.push(format!("Ligne {} : nom vide", num));
+            continue;
+        }
+        let brut_prix = champ(&ch, &cols, "prix", Some(3)).unwrap_or("");
+        let prix = match parser_montant(brut_prix) {
+            Some(p) if p > 0 => p,
+            _ => {
+                erreurs.push(format!("Ligne {} « {} » : prix illisible ou nul (« {} »)", num, nom, brut_prix));
+                continue;
+            }
+        };
+        let categorie = champ(&ch, &cols, "categorie", Some(1)).unwrap_or("");
+        let unite = {
+            let u = champ(&ch, &cols, "unite", Some(2)).unwrap_or("");
+            if u.is_empty() { "unité" } else { u }
+        };
+        let facteur = champ(&ch, &cols, "facteur", None).and_then(parser_decimal).filter(|f| *f > 0.0).unwrap_or(1.0);
+        let prix_achat = champ(&ch, &cols, "prixachat", Some(4)).and_then(parser_montant);
+        let tva = champ(&ch, &cols, "tva", Some(5))
+            .and_then(parser_decimal)
+            .map(|t| if t > 1.0 { t / 100.0 } else { t })
+            .unwrap_or(0.0);
+        let code_barre = champ(&ch, &cols, "codebarre", Some(6)).filter(|s| !s.is_empty()).map(|s| s.to_string());
+        let stock = champ(&ch, &cols, "stock", Some(7)).and_then(parser_decimal).unwrap_or(0.0);
+
+        // Categorie : creee si absente.
+        let cat_id: Option<String> = if categorie.is_empty() {
+            None
+        } else {
+            let existante: Option<String> = tx
+                .lire_une(
+                    "SELECT id FROM categorie WHERE LOWER(nom) = LOWER(?1)",
+                    &parametres![categorie],
+                    |r| r.get::<String>(0),
+                )
+                .map_err(|e| e.0)?;
+            match existante {
+                Some(id) => Some(id),
+                None => {
+                    let id = uuid::Uuid::new_v4().to_string();
+                    tx.executer(
+                        "INSERT INTO categorie (id, nom, schema_attributs, actif, cree_le, modifie_le, origine)
+                         VALUES (?1,?2,'[]',1,?3,?3,'import')",
+                        &parametres![id.clone(), categorie, now.clone()],
+                    )
+                    .map_err(|e| e.0)?;
+                    Some(id)
+                }
+            }
+        };
+
+        let existant: Option<String> = tx
+            .lire_une("SELECT id FROM article WHERE LOWER(nom) = LOWER(?1)", &parametres![nom], |r| r.get::<String>(0))
+            .map_err(|e| e.0)?;
+
+        match existant {
+            Some(art_id) if maj => {
+                tx.executer(
+                    "UPDATE article SET categorie_id = COALESCE(CAST(?1 AS TEXT), categorie_id),
+                        dernier_prix_achat = COALESCE(CAST(?2 AS BIGINT), dernier_prix_achat),
+                        taux_tva_defaut = ?3, modifie_le = ?4
+                     WHERE id = ?5",
+                    &parametres![cat_id, prix_achat, tva, now.clone(), art_id.clone()],
+                )
+                .map_err(|e| e.0)?;
+                if let Some(ref cb) = code_barre {
+                    let _ = tx.executer(
+                        "UPDATE article SET code_barre = ?1 WHERE id = ?2
+                         AND NOT EXISTS (SELECT 1 FROM article WHERE code_barre = ?1 AND id <> ?2)",
+                        &parametres![cb.clone(), art_id.clone()],
+                    );
+                }
+                // Une unite absente est CREEE, pas ignoree.
+                let touchees = tx
+                    .executer(
+                        "UPDATE unite_vente
+                         SET prix_reference = ?1, facteur = ?2,
+                             code_barre = COALESCE(CAST(?3 AS TEXT), code_barre), modifie_le = ?4
+                         WHERE article_id = ?5 AND LOWER(libelle) = LOWER(?6)",
+                        &parametres![prix, facteur, code_barre.clone(), now.clone(), art_id.clone(), unite],
+                    )
+                    .unwrap_or(0);
+                if touchees == 0 {
+                    tx.executer(
+                        "INSERT INTO unite_vente
+                         (id, article_id, libelle, facteur, prix_reference, code_barre, actif,
+                          cree_le, modifie_le, cree_par, modifie_par, origine)
+                         VALUES (?1,?2,?3,?4,?5,CAST(?6 AS TEXT),1,?7,?7,'import','import','import')",
+                        &parametres![uuid::Uuid::new_v4().to_string(), art_id, unite, facteur, prix, code_barre, now.clone()],
+                    )
+                    .map_err(|e| e.0)?;
+                }
+                majs += 1;
+            }
+            Some(_) => {}
+            None => {
+                let art_id = uuid::Uuid::new_v4().to_string();
+                tx.executer(
+                    "INSERT INTO article
+                     (id, nom, categorie_id, unite_base, gere_en_stock, attributs,
+                      dernier_prix_achat, code_barre, actif,
+                      cree_le, modifie_le, cree_par, modifie_par, origine, taux_tva_defaut)
+                     VALUES (?1,?2,CAST(?3 AS TEXT),?4,1,'{}',CAST(?5 AS BIGINT),CAST(?6 AS TEXT),1,?7,?7,'import','import','import',?8)",
+                    &parametres![art_id.clone(), nom, cat_id, unite, prix_achat, code_barre, now.clone(), tva],
+                )
+                .map_err(|e| e.0)?;
+                tx.executer(
+                    "INSERT INTO unite_vente
+                     (id, article_id, libelle, facteur, prix_reference, actif,
+                      cree_le, modifie_le, cree_par, modifie_par, origine)
+                     VALUES (?1,?2,?3,?4,?5,1,?6,?6,'import','import','import')",
+                    &parametres![uuid::Uuid::new_v4().to_string(), art_id.clone(), unite, facteur, prix, now.clone()],
+                )
+                .map_err(|e| e.0)?;
+                // Le stock importe est une ENTREE, tracee ; le
+                // declencheur tient le compteur.
+                if stock != 0.0 {
+                    let _ = tx.executer(
+                        "INSERT INTO mouvement_stock
+                         (id, article_id, depot_id, type_mouvement, quantite_delta,
+                          motif, auteur_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+                         VALUES (?1,?2,?3,'entree',?4,?5,'import',?6,?6,'import','import',?7)",
+                        &parametres![
+                            uuid::Uuid::new_v4().to_string(), art_id, depot_defaut.clone(), stock,
+                            "Import CSV du catalogue", now.clone(), dossier.clone()
+                        ],
+                    );
+                }
+                crees += 1;
+            }
+        }
+    }
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({
+        "crees": crees,
+        "mis_a_jour": majs,
+        "erreurs": erreurs,
+        "nb_erreurs": erreurs.len(),
+    }))
+}
+
+pub fn lire_etat_stock_sur_base(
+    base: &mut Base,
+    depot_id: Option<String>,
+    avec_zero: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let dep: Option<String> = depot_id.filter(|d| !d.is_empty());
+    let zero = avec_zero.unwrap_or(false) as i64;
+    let lignes: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT a.nom, COALESCE(c.nom, '—'), d.nom,
+                    COALESCE(uv.libelle, a.unite_base),
+                    sd.quantite,
+                    CAST(COALESCE(a.dernier_prix_achat, 0) AS BIGINT),
+                    CAST(COALESCE(uv.prix_reference, 0) AS BIGINT)
+             FROM stock_depot sd
+             JOIN article a ON a.id = sd.article_id
+             JOIN depot d ON d.id = sd.depot_id
+             LEFT JOIN categorie c ON c.id = a.categorie_id
+             LEFT JOIN unite_vente uv ON uv.article_id = a.id AND uv.actif = 1 AND uv.facteur = 1.0
+             WHERE a.actif = 1 AND d.actif = 1 AND sd.dossier_id = ?3
+               AND (CAST(?1 AS TEXT) IS NULL OR sd.depot_id = ?1)
+               AND (CAST(?2 AS BIGINT) = 1 OR sd.quantite <> 0)
+             ORDER BY c.nom, a.nom",
+            &parametres![dep, zero, dossier],
+            |r| {
+                let qte: f64 = r.get::<f64>(4)?;
+                let pa: i64 = r.get::<i64>(5)?;
+                Ok(serde_json::json!({
+                    "article":    r.get::<String>(0)?,
+                    "categorie":  r.get::<String>(1)?,
+                    "depot":      r.get::<String>(2)?,
+                    "unite":      r.get::<String>(3)?,
+                    "quantite":   qte,
+                    "prix_achat": pa,
+                    "prix_vente": r.get::<i64>(6)?,
+                    "valeur":     (pa as f64 * qte).round() as i64,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?;
+    let valeur_totale: i64 = lignes.iter().filter_map(|l| l["valeur"].as_i64()).sum();
+    Ok(serde_json::json!({
+        "lignes": lignes,
+        "valeur_totale": valeur_totale,
+        "nb_articles": lignes.len(),
+        "societe": crate::creances::societe_sur(base),
+    }))
+}

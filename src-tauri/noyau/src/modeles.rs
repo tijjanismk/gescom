@@ -345,3 +345,189 @@ pub fn importer(conn: &Connection, lot: &Lot, auteur: &str) -> Result<Bilan, Str
     }
     Ok(bilan)
 }
+
+// =====================================================================
+//  SUR L'UN OU L'AUTRE MOTEUR
+// =====================================================================
+//
+// `modele_document` n'est pas cloisonnee : un modele de facture vaut
+// pour toute l'installation. `definir_actif` tient ses deux ecritures
+// dans une transaction `Base`, plus de `BEGIN IMMEDIATE` a la main.
+
+use crate::base::{Acces, Base};
+use crate::parametres;
+
+const COLONNES: &str = "id, genre, nom, format, contenu, est_defaut, actif, modifie_le";
+
+fn ligne_sur(r: &crate::base::Ligne<'_>) -> crate::base::Resultat<Modele> {
+    let contenu: String = r.get::<String>(4)?;
+    Ok(Modele {
+        id: r.get::<String>(0)?,
+        genre: r.get::<String>(1)?,
+        nom: r.get::<String>(2)?,
+        format: r.get::<String>(3)?,
+        contenu: serde_json::from_str(&contenu).unwrap_or(serde_json::Value::Null),
+        est_defaut: r.get::<i64>(5)? != 0,
+        actif: r.get::<i64>(6)? != 0,
+        modifie_le: r.get::<Option<String>>(7)?.unwrap_or_default(),
+    })
+}
+
+pub fn lister_sur_base(base: &mut Base, genre: Option<&str>) -> Result<Vec<Modele>, String> {
+    base.lire_plusieurs(
+        &format!(
+            "SELECT {COLONNES} FROM modele_document
+             WHERE (CAST(?1 AS TEXT) IS NULL OR genre = ?1)
+             ORDER BY genre ASC, est_defaut DESC, nom ASC"
+        ),
+        &parametres![genre],
+        ligne_sur,
+    )
+    .map_err(|e| e.0)
+}
+
+pub fn lire_sur_base(base: &mut Base, id: &str) -> Result<Modele, String> {
+    base.lire_une(&format!("SELECT {COLONNES} FROM modele_document WHERE id = ?1"), &parametres![id], ligne_sur)
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Modèle introuvable.".to_string())
+}
+
+pub fn lire_actif_sur_base(base: &mut Base, genre: &str) -> Option<Modele> {
+    base.lire_une(
+        &format!("SELECT {COLONNES} FROM modele_document WHERE genre = ?1 AND actif = 1 LIMIT 1"),
+        &parametres![genre],
+        ligne_sur,
+    )
+    .ok()
+    .flatten()
+}
+
+fn definir_actif_dans(acces: &mut impl Acces, id: &str, genre: &str) -> Result<(), String> {
+    acces
+        .executer("UPDATE modele_document SET actif = 0 WHERE genre = ?1", &parametres![genre])
+        .map_err(|e| e.0)?;
+    acces
+        .executer("UPDATE modele_document SET actif = 1 WHERE id = ?1", &parametres![id])
+        .map_err(|e| e.0)?;
+    Ok(())
+}
+
+pub fn enregistrer_sur_base(base: &mut Base, m: &Modele, auteur: &str) -> Result<(), String> {
+    if m.nom.trim().is_empty() {
+        return Err("Le modèle doit avoir un nom.".to_string());
+    }
+    if m.genre.trim().is_empty() {
+        return Err("Le modèle doit avoir un genre.".to_string());
+    }
+    let contenu = serde_json::to_string(&m.contenu).map_err(|e| e.to_string())?;
+    let maintenant = maintenant_iso();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO modele_document
+           (id, genre, nom, format, contenu, est_defaut, actif, cree_le, modifie_le, modifie_par)
+         VALUES (?1,?2,?3,?4,?5,?6,0,?7,?7,?8)
+         ON CONFLICT (id) DO UPDATE SET
+            genre = excluded.genre, nom = excluded.nom, format = excluded.format,
+            contenu = excluded.contenu, modifie_le = excluded.modifie_le,
+            modifie_par = excluded.modifie_par",
+        &parametres![m.id.clone(), m.genre.trim(), m.nom.trim(), m.format.clone(), contenu, m.est_defaut as i64, maintenant, auteur],
+    )
+    .map_err(|e| e.0)?;
+    // Le premier modele d'un genre devient actif tout seul.
+    let actifs: i64 = tx
+        .lire_une(
+            "SELECT COUNT(*) FROM modele_document WHERE genre = ?1 AND actif = 1",
+            &parametres![m.genre.trim()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    if actifs == 0 {
+        definir_actif_dans(&mut tx, &m.id, m.genre.trim())?;
+    }
+    tx.valider().map_err(|e| e.0)
+}
+
+pub fn definir_actif_sur_base(base: &mut Base, id: &str) -> Result<(), String> {
+    let genre: String = base
+        .lire_une("SELECT genre FROM modele_document WHERE id = ?1", &parametres![id], |r| r.get::<String>(0))
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Modèle introuvable.".to_string())?;
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    definir_actif_dans(&mut tx, id, &genre)?;
+    tx.valider().map_err(|e| e.0)
+}
+
+pub fn supprimer_sur_base(base: &mut Base, id: &str) -> Result<(), String> {
+    let (est_defaut, actif, genre): (i64, i64, String) = base
+        .lire_une(
+            "SELECT est_defaut, actif, genre FROM modele_document WHERE id = ?1",
+            &parametres![id],
+            |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?, r.get::<String>(2)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Modèle introuvable.".to_string())?;
+    if est_defaut != 0 {
+        return Err("Un modèle d'usine ne se supprime pas. Le modifier, ou en créer une copie.".to_string());
+    }
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer("DELETE FROM modele_document WHERE id = ?1", &parametres![id]).map_err(|e| e.0)?;
+    // Supprimer l'actif laisserait le genre sans modele : on designe le suivant.
+    if actif != 0 {
+        let suivant: Option<String> = tx
+            .lire_une(
+                "SELECT id FROM modele_document WHERE genre = ?1 ORDER BY est_defaut DESC, nom ASC LIMIT 1",
+                &parametres![genre.clone()],
+                |r| r.get::<String>(0),
+            )
+            .map_err(|e| e.0)?;
+        if let Some(s) = suivant {
+            definir_actif_dans(&mut tx, &s, &genre)?;
+        }
+    }
+    tx.valider().map_err(|e| e.0)
+}
+
+pub fn exporter_sur_base(base: &mut Base, ids: Option<Vec<String>>) -> Result<Lot, String> {
+    let tous = lister_sur_base(base, None)?;
+    let modeles = match ids {
+        Some(voulus) => tous.into_iter().filter(|m| voulus.iter().any(|v| v == &m.id)).collect(),
+        None => tous,
+    };
+    let societe: Option<String> = base
+        .lire_une("SELECT nom FROM parametres_societe WHERE id = 1", &[], |r| r.get::<String>(0))
+        .ok()
+        .flatten();
+    Ok(Lot { marqueur: MARQUEUR.to_string(), version: VERSION_ECHANGE, exporte_le: maintenant_iso(), societe, modeles })
+}
+
+pub fn importer_sur_base(base: &mut Base, lot: &Lot, auteur: &str) -> Result<Bilan, String> {
+    if lot.marqueur != MARQUEUR {
+        return Err("Ce fichier n'est pas un export de modèles Gescom.".to_string());
+    }
+    if lot.version > VERSION_ECHANGE {
+        return Err(format!(
+            "Ce fichier vient d'une version plus récente de Gescom \
+             (format {} contre {}). Mettre à jour ce poste d'abord.",
+            lot.version, VERSION_ECHANGE
+        ));
+    }
+    if lot.modeles.is_empty() {
+        return Err("Ce fichier ne contient aucun modèle.".to_string());
+    }
+    let mut bilan = Bilan { ajoutes: 0, remplaces: 0, ignores: Vec::new() };
+    for m in &lot.modeles {
+        let existe: i64 = base
+            .lire_une("SELECT COUNT(*) FROM modele_document WHERE id = ?1", &parametres![m.id.clone()], |r| r.get::<i64>(0))
+            .ok()
+            .flatten()
+            .unwrap_or(0);
+        match enregistrer_sur_base(base, m, auteur) {
+            Ok(()) => {
+                if existe > 0 { bilan.remplaces += 1 } else { bilan.ajoutes += 1 }
+            }
+            Err(e) => bilan.ignores.push(format!("{} — {e}", m.nom)),
+        }
+    }
+    Ok(bilan)
+}
