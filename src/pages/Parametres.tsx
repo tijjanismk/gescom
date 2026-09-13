@@ -30,6 +30,9 @@ import { OngletCodesBarres } from "@/components/OngletCodesBarres";
 import { OngletImportExport } from "@/components/OngletImportExport";
 import { OngletReseau } from "@/components/OngletReseau";
 import { OngletRoles } from "@/components/OngletRoles";
+import {
+  ModalPermissionsUtilisateur,
+} from "@/components/ModalPermissionsUtilisateur";
 import { peut } from "@/lib/droits";
 import { UTILISATEUR_ACTIF } from "@/App";
 
@@ -51,6 +54,10 @@ interface Utilisateur {
   id: string; nom: string; role: string;
   pseudo?: string; email?: string;
   derniere_connexion?: string; actif: boolean;
+}
+/** Le strict nécessaire pour masquer le bouton des rôles qui donnent tout. */
+interface RolePourPermissions {
+  id: string; nom: string; acces_total: boolean; protege: boolean;
 }
 interface ConfigSauvegarde {
   dossier_sauvegarde?: string;
@@ -226,12 +233,23 @@ function OngletUtilisateurs() {
   const [utilisateurs, setUtilisateurs] = useState<Utilisateur[]>([]);
   const [chargement, setChargement] = useState(true);
   const [modalNouvel, setModalNouvel] = useState(false);
+  const [modalPermissions, setModalPermissions] = useState<Utilisateur | null>(null);
+  // Les rôles qui donnent tout (acces_total) ou qui sont protégés
+  // (superadmin) n'offrent rien à ajuster : le sur-mesure n'y
+  // s'applique pas. Un bouton qui échoue est pire que pas de bouton.
+  const [rolesComplets, setRolesComplets] = useState<Set<string>>(new Set());
 
   async function charger() {
     setChargement(true);
     try {
-      const data = await invoke<Utilisateur[]>("lire_utilisateurs");
+      const [data, roles] = await Promise.all([
+        invoke<Utilisateur[]>("lire_utilisateurs"),
+        invoke<RolePourPermissions[]>("lire_roles"),
+      ]);
       setUtilisateurs(data);
+      setRolesComplets(new Set(
+        roles.filter(r => r.acces_total || r.protege).map(r => r.nom),
+      ));
     } catch (e) {
       console.error("Erreur utilisateurs :", e);
     } finally {
@@ -283,15 +301,34 @@ function OngletUtilisateurs() {
                 {u.role}
               </Badge>
               {!u.actif && <Badge variant="outline">Inactif</Badge>}
+              {!rolesComplets.has(u.role) && (
+                <Button variant="outline" size="sm"
+                  onClick={() => setModalPermissions(u)}
+                  title="Ce que cette personne peut, par-dessus son rôle">
+                  <Shield className="h-3.5 w-3.5 mr-1" /> Permissions
+                </Button>
+              )}
             </div>
           </div>
         ))}
       </div>
 
+      <p className="text-xs text-muted-foreground">
+        Une personne à qui le rôle donne tout (patron) ou au rôle
+        protégé (superadmin) n'a pas de bouton « Permissions » : le
+        sur-mesure ne s'y applique pas.
+      </p>
+
       <ModalNouvelUtilisateur
         ouvert={modalNouvel}
         onFermer={() => setModalNouvel(false)}
         onCreer={() => { setModalNouvel(false); charger(); }}
+      />
+      <ModalPermissionsUtilisateur
+        ouvert={modalPermissions !== null}
+        utilisateur={modalPermissions}
+        onFermer={() => setModalPermissions(null)}
+        onEnregistre={() => { setModalPermissions(null); charger(); }}
       />
     </div>
   );
@@ -313,7 +350,6 @@ function OngletSauvegarde() {
   const [enCours, setEnCours] = useState(false);
   const [diag, setDiag] = useState<Diagnostic | null>(null);
   const [diagEnCours, setDiagEnCours] = useState(false);
-  const [entretienEnCours, setEntretienEnCours] = useState(false);
   const [manuelEnCours, setManuelEnCours] = useState(false);
 
   /**
@@ -338,37 +374,6 @@ function OngletSauvegarde() {
       await message(`Erreur : ${e}`, { title: "Manuel", kind: "error" });
     } finally {
       setManuelEnCours(false);
-    }
-  }
-
-  async function entretenirBase() {
-    if (!window.confirm(
-      "Entretenir la base ?\n\n" +
-      "1. Réaffecte les règlements fournisseur enregistrés globalement " +
-      "sur les factures qu'ils couvrent, de la plus ancienne à la plus " +
-      "récente. Les montants ne changent pas, seule leur affectation.\n" +
-      "2. Reconstruit les index et compacte le fichier.\n\n" +
-      "Une copie de sécurité est faite avant. Aucune donnée perdue n'est " +
-      "récupérée."
-    )) return;
-    setEntretienEnCours(true);
-    try {
-      const r = await invoke<{ gagne: number; copie: string; reimputes: number }>(
-        "entretenir_base",
-        { utilisateurRole: UTILISATEUR_ACTIF?.role ?? "employe" });
-      await message(
-        (r.reimputes > 0
-          ? `${r.reimputes} règlement(s) fournisseur réaffecté(s) sur leurs `
-            + `factures.\n\n`
-          : "Aucun règlement à réaffecter.\n\n") +
-        `${Math.round(r.gagne / 1024)} Ko récupérés.\n\n` +
-        `Copie de sécurité : ${r.copie}`,
-        { title: "Entretien", kind: "info" });
-      setDiag(null);
-    } catch (e) {
-      await message(`${e}`, { title: "Entretien impossible", kind: "error" });
-    } finally {
-      setEntretienEnCours(false);
     }
   }
 
@@ -473,9 +478,9 @@ function OngletSauvegarde() {
           <p className="text-sm font-medium">État de la base</p>
           <p className="text-xs text-muted-foreground">
             À vérifier après une coupure de courant, avant de saisir quoi
-            que ce soit. La réparation qui suit réaffecte aussi les
-            règlements fournisseur enregistrés globalement sur les
-            factures qu'ils couvrent.
+            que ce soit. L'entretien (réparation, compactage) se fait
+            maintenant dans la console du serveur, à côté de la
+            sauvegarde : l'écran Administration.
           </p>
         </div>
 
@@ -486,17 +491,6 @@ function OngletSauvegarde() {
               ? <Loader2 className="h-4 w-4 animate-spin" />
               : "Vérifier la base"}
           </Button>
-          {/* Proposé seulement après une vérification réussie : lancer
-              un VACUUM sur une base abîmée peut aggraver les dégâts,
-              et le serveur refuse de toute façon. */}
-          {diag?.sain && (
-            <Button variant="outline" size="sm"
-              onClick={entretenirBase} disabled={entretienEnCours}>
-              {entretienEnCours
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : "Réparer et compacter"}
-            </Button>
-          )}
         </div>
 
         {diag && diag.sain && (

@@ -941,3 +941,123 @@ pub fn diagnostiquer_base_sur_base(base: &mut Base) -> Result<serde_json::Value,
         "sain": corruption.is_none() && anomalies.is_empty(),
     }))
 }
+
+// =====================================================================
+//  Entretien — le travail du serveur (D9)
+// =====================================================================
+
+/// Entretien de la base : reindexation et compactage, lance par le
+/// serveur.
+///
+/// D9 : cette operation a quitte l'ecran des caisses — la base n'y est
+/// pas — pour la console du serveur, a cote de la sauvegarde. La copie
+/// de securite va dans le dossier que le serveur tient deja pour ses
+/// sauvegardes.
+///
+/// SQLite : l'integrite est verifiee AVANT (sur une base deja abimee,
+/// REINDEX et VACUUM peuvent aggraver les degats), puis les paiements
+/// globaux sont repares, puis la copie `VACUUM INTO` horodatee et le
+/// compactage.
+///
+/// PostgreSQL : la copie est un `pg_dump` — la meme machinerie que la
+/// sauvegarde — et l'entretien un `VACUUM (ANALYZE)`. Pas de
+/// reindexation : le moteur veille lui-meme sur ses index, et un
+/// REINDEX bloquerait les caisses.
+pub fn entretenir_base_sur_base(
+    base: &mut Base,
+    dossier_copies: &std::path::Path,
+) -> Result<serde_json::Value, String> {
+    if base.sqlite().is_some() {
+        // Chaque bloc emprunte la connexion, puis la rend : entre les
+        // deux, `base` redevient libre pour la reimputation, qui passe
+        // par les poignees `Acces`.
+        let (fichier, corruption) = {
+            let conn = base.sqlite().unwrap();
+            let fichier: String = conn
+                .query_row("PRAGMA database_list", [], |r| r.get(2))
+                .map_err(|e| e.to_string())?;
+            let corruption = crate::persistance::verifier_integrite(conn)
+                .map_err(|e| e.to_string())?;
+            (fichier, corruption)
+        };
+        // Une base en memoire n'a pas de fichier : la copie avant serait
+        // une fiction. Meme refus que la sauvegarde.
+        if fichier.is_empty() {
+            return Err("Base de données en mémoire — l'entretien est impossible".to_string());
+        }
+        if let Some(detail) = corruption {
+            return Err(format!(
+                "Base endommagée — l'entretien ne peut rien réparer. \
+                 Restaurer la dernière sauvegarde. Détail : {detail}"
+            ));
+        }
+        std::fs::create_dir_all(dossier_copies)
+            .map_err(|e| format!("Impossible de créer le dossier : {e}"))?;
+        let copie = dossier_copies.join(format!(
+            "gescom_avant_entretien_{}.db",
+            chrono::Local::now().format("%Y%m%d_%H%M%S")
+        ));
+        let _ = std::fs::remove_file(&copie);
+        let avant = {
+            let conn = base.sqlite().unwrap();
+            let pages: i64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0)).unwrap_or(0);
+            let taille_page: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0)).unwrap_or(0);
+            pages * taille_page
+        };
+        let reimputes = crate::chantiers::reimputer_paiements_globaux_sur_base(base)?;
+        let apres = crate::persistance::entretenir(base.sqlite().unwrap(), &copie.to_string_lossy())
+            .map_err(|e| format!("Entretien interrompu : {e}"))?;
+        return conclure_entretien(
+            base,
+            copie.to_string_lossy().to_string(),
+            avant,
+            apres as i64,
+            reimputes,
+        );
+    }
+
+    let executable = config_sur(base, "pg_dump_chemin").filter(|c| !c.trim().is_empty());
+    let copie = crate::sauvegarde::pg_dump(base.cible(), dossier_copies, executable.as_deref())?;
+    let avant = taille_base_pg(base)?;
+    let reimputes = crate::chantiers::reimputer_paiements_globaux_sur_base(base)?;
+    // Hors transaction : PostgreSQL refuse VACUUM dedans, et `Base`
+    // execute chaque ordre pour lui-meme.
+    base.executer("VACUUM (ANALYZE)", &[])?;
+    let apres = taille_base_pg(base)?;
+    conclure_entretien(base, copie.to_string_lossy().to_string(), avant, apres, reimputes)
+}
+
+fn taille_base_pg(base: &mut Base) -> Result<i64, String> {
+    base.lire_une(
+        "SELECT pg_database_size(current_database())",
+        &[],
+        |r| r.get::<i64>(0),
+    )?
+    .ok_or_else(|| "Taille de la base illisible.".to_string())
+}
+
+/// La ligne de journal, puis la reponse telle que la console l'affiche.
+fn conclure_entretien(
+    base: &mut Base,
+    copie: String,
+    avant: i64,
+    apres: i64,
+    reimputes: i64,
+) -> Result<serde_json::Value, String> {
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let dossier = base.dossier().to_string();
+    let _ = base.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'entretien', 'base', 'db', ?2, ?3, 'serveur', ?4, ?5)",
+        &parametres![uuid::Uuid::new_v4().to_string(), auteur, copie.clone(), maintenant_iso(), dossier],
+    );
+    Ok(serde_json::json!({
+        "copie": copie,
+        "taille_avant": avant,
+        "taille_apres": apres,
+        "gagne": (avant - apres).max(0),
+        "reimputes": reimputes,
+    }))
+}

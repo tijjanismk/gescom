@@ -50,8 +50,6 @@ pub fn regler_dette_fournisseur(
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     gescom_noyau::chantiers::regler_dette_fournisseur(&conn, fournisseur_id, montant, mode, note, piece_id)
 }
-#[allow(unused_imports)]
-pub use gescom_noyau::chantiers::reimputer_paiements_globaux;
 #[tauri::command]
 pub fn marquer_irrecouvrable(
     etat: State<EtatApp>,

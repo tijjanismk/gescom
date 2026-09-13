@@ -11,7 +11,7 @@ use gescom_noyau::protocole::{
 };
 use gescom_noyau::VERSION_PROTOCOLE;
 use gescom_noyau::registre::{Appelant, Contexte, ContexteBase};
-use gescom_noyau::{caisses, persistance, postes, sessions};
+use gescom_noyau::{caisses, parametres, persistance, postes, sessions};
 
 use crate::etat::Serveur;
 use crate::http::{repondre_html, repondre_json, repondre_texte, Requete};
@@ -42,6 +42,7 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
         }
         ("GET", "/canal") => canal(srv, req, flux),
         ("POST", "/sauvegarde") => sauvegarde_manuelle(srv, req, flux),
+        ("POST", "/entretien") => entretien(srv, req, flux),
         _ => repondre_json(
             flux,
             404,
@@ -463,6 +464,48 @@ fn sauvegarde_manuelle(
 
     match sauvegarde::maintenant(srv) {
         Ok(chemin) => repondre_json(flux, 200, &json!({ "etat": "ok", "fichier": chemin })),
+        Err(e) => erreur(flux, 500, CodeErreur::Technique, &e),
+    }
+}
+
+// =====================================================================
+//  Entretien — le travail du serveur (D9)
+// =====================================================================
+
+fn entretien(
+    srv: &Arc<Serveur>,
+    req: &Requete,
+    flux: &mut TcpStream,
+) -> std::io::Result<()> {
+    let appelant = match authentifier(srv, req) {
+        Ok(a) => a,
+        Err((code, message)) => return erreur(flux, 401, code, &message),
+    };
+    let ctx = ContexteUtilisateur {
+        id: appelant.utilisateur_id,
+        role: appelant.role,
+    };
+
+    // Meme permission que la sauvegarde : entretenir et sauvegarder
+    // vont ensemble, dans la console du serveur. Ici le verrou de la
+    // base se GARDE pendant toute l'operation — le travail porte sur la
+    // base elle-meme (reimputation, reindexation, compactage) — et les
+    // caisses patientent : c'est pour cela que la console conseille de
+    // le faire hors ouverture.
+    let mut base = match srv.base.lock() {
+        Ok(b) => b,
+        Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+    };
+    if let Err(e) = verifier_permission_sur(&mut base, &ctx, "sauvegarde:lancer") {
+        return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
+    }
+
+    let dossier_copies = sauvegarde::dossier(srv);
+    match parametres::entretenir_base_sur_base(&mut base, &dossier_copies) {
+        Ok(mut v) => {
+            v["etat"] = json!("ok");
+            repondre_json(flux, 200, &v)
+        }
         Err(e) => erreur(flux, 500, CodeErreur::Technique, &e),
     }
 }

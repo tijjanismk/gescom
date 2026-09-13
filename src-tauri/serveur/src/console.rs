@@ -97,13 +97,23 @@ pub fn page(port: u16) -> String {
   </section>
 
   <section class="carte cachee" id="carte-actions">
-    <h2>Sauvegarde</h2>
+    <h2>Administration</h2>
+    <h3>Sauvegarde</h3>
     <p class="aide">
       Une copie complète, WAL inclus. Automatique toutes les 24 h ;
       ce bouton en fait une tout de suite.
     </p>
     <button id="btn-sauvegarde">Sauvegarder maintenant</button>
     <p id="resultat-sauvegarde" class="aide"></p>
+    <h3>Entretien</h3>
+    <p class="aide">
+      Réaffecte les règlements fournisseur restés globaux, reconstruit
+      les index, compacte la base&nbsp;; une copie est écrite avant. À
+      faire hors ouverture&nbsp;: pendant l'opération, les caisses
+      patientent.
+    </p>
+    <button id="btn-entretien">Entretenir maintenant</button>
+    <p id="resultat-entretien" class="aide"></p>
   </section>
 </main>
 
@@ -133,6 +143,8 @@ header { display:flex; align-items:center; gap:12px; padding:16px 20px;
 h1 { font-size:18px; margin:0; }
 h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em;
      color:var(--gris); margin:0 0 10px; }
+h3 { font-size:14px; margin:18px 0 6px; }
+h3:first-of-type { margin-top:0; }
 main { max-width:760px; margin:0 auto; padding:20px; display:grid; gap:16px; }
 .carte { background:var(--carte); border:1px solid var(--filet);
          border-radius:8px; padding:16px; }
@@ -308,6 +320,28 @@ $("btn-sauvegarde").addEventListener("click", async () => {
       c.fichier ? "Écrite : " + c.fichier : (c.message || "Échec");
   } catch (e) {
     $("resultat-sauvegarde").textContent = String(e);
+  }
+  rafraichirEtat();
+});
+
+$("btn-entretien").addEventListener("click", async () => {
+  $("resultat-entretien").textContent = "Entretien en cours — les caisses patientent…";
+  try {
+    const r = await fetch("/entretien", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + jeton },
+    });
+    const c = await r.json();
+    if (c.etat === "ok") {
+      const kio = n => (n / 1024).toFixed(0) + " Kio";
+      $("resultat-entretien").textContent =
+        "Fait : " + c.reimputes + " règlement(s) réaffecté(s), " +
+        kio(c.taille_avant) + " → " + kio(c.taille_apres) + ", copie : " + c.copie;
+    } else {
+      $("resultat-entretien").textContent = c.message || "Échec";
+    }
+  } catch (e) {
+    $("resultat-entretien").textContent = String(e);
   }
   rafraichirEtat();
 });

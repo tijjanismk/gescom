@@ -89,7 +89,6 @@ pub fn run() {
             commandes::parametres::modifier_unite_vente,
             commandes::parametres::desactiver_unite_vente,
             commandes::parametres::diagnostiquer_base,
-            commandes::parametres::entretenir_base,
             commandes::parametres::lire_config_bon_sortie,
             commandes::parametres::sauvegarder_config_bon_sortie,
             commandes::parametres::lire_config_suivi_livraison,

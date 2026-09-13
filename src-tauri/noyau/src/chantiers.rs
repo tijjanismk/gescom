@@ -144,9 +144,8 @@ pub fn regler_dette_fournisseur(
     crate::argent::regler_dette_fournisseur(&conn, fournisseur_id, montant, mode, note, piece_id)
 }
 
-/// Repare les reglements globaux enregistres AVANT la repartition
-/// ecrite : ceux dont `piece_id` est NULL alors qu'ils couvrent des
-/// factures.
+/// Repare les reglements fournisseur globaux restes sans facture, sur
+/// `Base` — le chemin du serveur, qui entretient (D9).
 ///
 /// Chaque ligne non imputee est remplacee par une ou plusieurs lignes
 /// portant leur `piece_id`, dont la somme vaut exactement l'ancienne.
@@ -154,59 +153,34 @@ pub fn regler_dette_fournisseur(
 ///
 /// Idempotent : une fois reparties, les lignes ont un `piece_id` et ne
 /// sont plus reprises. Un surplus reel (paiement superieur a la dette)
-/// reste NULL et le restera, c'est une avance legitime.
-///
-/// Appelee par `entretenir_base`, qui copie la base avant d'agir.
-pub fn reimputer_paiements_globaux(
-    conn: &rusqlite::Connection,
-) -> Result<i64, String> {
-    let mut st = conn.prepare(
+/// reste NULL et le restera, c'est une avance legitime. Le filtre de
+/// dossier est ici explicite, comme partout sur `Base`.
+pub fn reimputer_paiements_globaux_sur_base(base: &mut crate::base::Base) -> Result<i64, String> {
+    let dossier = base.dossier().to_string();
+    let fournisseurs: Vec<String> = base.lire_plusieurs(
         "SELECT DISTINCT fournisseur_id FROM paiement_fournisseur
-         WHERE piece_id IS NULL"
-    ).map_err(|e| e.to_string())?;
-    let fournisseurs: Vec<String> = st.query_map([], |r| r.get(0))
-        .map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-    drop(st);
+         WHERE piece_id IS NULL AND dossier_id = ?1",
+        &parametres![dossier],
+        |r| r.get::<String>(0),
+    )?;
 
     let now = maintenant_iso();
     let mut reparties = 0_i64;
 
     for f_id in fournisseurs {
-        // `imputer_paiements_fournisseur` realloue puis recalcule les
-        // statuts : un seul chemin, celui qu'empruntent aussi les
-        // reglements courants.
-        reparties += reallouer_globaux(conn, &f_id, &now)?;
-        imputer_paiements_fournisseur(conn, &f_id, &now)?;
+        // `reallouer_globaux_sur` realloue, puis
+        // `imputer_paiements_fournisseur_sur` recalcule les statuts :
+        // un seul chemin, celui qu'empruntent aussi les reglements
+        // courants.
+        reparties += crate::argent::reallouer_globaux_sur(base, &f_id, &now)?;
+        crate::argent::imputer_paiements_fournisseur_sur(base, &f_id, &now)?;
     }
 
     Ok(reparties)
 }
 
-/// Ecrit l'affectation des paiements non imputes d'UN fournisseur.
-///
-/// Chaque ligne `piece_id IS NULL` est remplacee par une ou plusieurs
-/// lignes portant leur `piece_id`, dont la somme vaut exactement
-/// l'ancienne. Aucun franc n'est cree ni perdu — seule l'attribution
-/// change.
-///
-/// Idempotent : une ligne imputee n'est plus reprise, et une avance
-/// reelle (rien a couvrir) reste NULL sans etre reecrite a chaque appel.
-// Deplace avec `imputer_paiements_fournisseur`, son appelant.
-pub(crate) use crate::argent::reallouer_globaux;
-
-/// Recalcule le statut des factures fournisseur d'apres les paiements.
-///
-/// Deux sources de reglement :
-///   - paiements IMPUTES (piece_id renseigne) — affectes a leur facture
-///   - paiements GLOBAUX (piece_id NULL) — repartis de la facture la
-///     plus ancienne a la plus recente
-///
-/// Une facture passe a "paye" quand le cumul couvre son total, et
-/// revient a "emis" sinon (annulation d'un paiement, avoir ajoute).
-/// Retourne les numeros des factures desormais soldees.
-// Le corps a demenage dans `noyau::argent` avec
-// `regler_dette_fournisseur`, son unique appelant.
-pub(crate) use crate::argent::imputer_paiements_fournisseur;
+// Les reglements fournisseur (reallouer, imputer) vivent dans
+// `noyau::argent` avec `regler_dette_fournisseur`, leur appelant.
 
 // =====================================================================
 //  IRRÉCOUVRABLE
