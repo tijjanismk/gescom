@@ -10,7 +10,7 @@
 use gescom_noyau::base::Base;
 use gescom_noyau::parametres;
 use gescom_noyau::portes::ContexteUtilisateur;
-use gescom_noyau::{amorcage, portes, postes, sessions};
+use gescom_noyau::{amorcage, auth, portes, postes, sessions};
 
 fn base_amorcee() -> Base {
     let mut base = Base::ouvrir(":memory:").expect("base en mémoire");
@@ -295,4 +295,85 @@ fn le_login_complet_fonctionne_de_bout_en_bout_sur_base() {
         sessions::Etat::Valide { role: r, .. } => assert_eq!(r, role),
         _ => panic!("la session du login doit être valide"),
     }
+}
+
+// =====================================================================
+//  auth::promouvoir_superadmin_sur (D6) — le geste de secours du serveur
+// =====================================================================
+
+/// Personne ne porte le rôle `superadmin` au sortir de l'amorçage :
+/// c'est voulu (D6), aucun compte de secours livré. `--promouvoir`
+/// redonne le rôle à un compte existant, depuis la machine du serveur.
+#[test]
+fn promouvoir_met_le_role_superadmin() {
+    let mut base = base_amorcee();
+    let avant = porteurs_superadmin(&mut base);
+    assert_eq!(avant, 0, "l'amorçage ne crée aucun superadmin (D6)");
+
+    let message = auth::promouvoir_superadmin_sur(&mut base, "admin").expect("promotion");
+    assert!(message.contains("superadmin"), "message reçu : {message}");
+
+    let (_, _, role) = compte_admin(&mut base);
+    assert_eq!(role, "superadmin", "le rôle a changé en base");
+
+    // Le geste de secours est un changement de droits comme un autre :
+    // il s'écrit au journal, append-only.
+    let lignes = base
+        .lire_une(
+            "SELECT COUNT(*) FROM journal WHERE type_evenement = 'role_change'",
+            &[],
+            |r| r.get::<i64>(0),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(lignes, 1);
+}
+
+#[test]
+fn promouvoir_un_compte_inconnu_refuse() {
+    let mut base = base_amorcee();
+    let erreur = auth::promouvoir_superadmin_sur(&mut base, "personne").unwrap_err();
+    assert!(erreur.contains("Aucun compte"), "erreur reçue : {erreur}");
+
+    // Le refus ne doit rien avoir écrit.
+    assert_eq!(porteurs_superadmin(&mut base), 0, "rien n'a bougé");
+    let lignes = base
+        .lire_une(
+            "SELECT COUNT(*) FROM journal WHERE type_evenement = 'role_change'",
+            &[],
+            |r| r.get::<i64>(0),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(lignes, 0);
+}
+
+#[test]
+fn promouvoir_deux_fois_est_sans_effet() {
+    let mut base = base_amorcee();
+    auth::promouvoir_superadmin_sur(&mut base, "employe").expect("première promotion");
+    let second = auth::promouvoir_superadmin_sur(&mut base, "employe").expect("seconde promotion");
+    assert!(second.contains("déjà"), "message reçu : {second}");
+
+    assert_eq!(porteurs_superadmin(&mut base), 1, "un seul porteur du rôle");
+    let lignes = base
+        .lire_une(
+            "SELECT COUNT(*) FROM journal WHERE type_evenement = 'role_change'",
+            &[],
+            |r| r.get::<i64>(0),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(lignes, 1, "la seconde invocation n'écrit rien");
+}
+
+fn porteurs_superadmin(base: &mut Base) -> i64 {
+    base.lire_une(
+        "SELECT COUNT(*) FROM utilisateur u JOIN role r ON r.id = u.role_id
+         WHERE r.nom = 'superadmin'",
+        &[],
+        |r| r.get::<i64>(0),
+    )
+    .unwrap()
+    .unwrap()
 }

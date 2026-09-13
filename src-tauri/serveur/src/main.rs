@@ -163,6 +163,23 @@ fn main() {
         }
     }
 
+    // D6 : `--promouvoir` redonne le role superadmin a un compte, puis
+    // on s'arrete — pas d'ecoute, pas de session. Il faut etre devant
+    // la machine : c'est ce qui distingue ce chemin d'un compte de
+    // secours livre, utilisable depuis n'importe quelle caisse.
+    if let Some(pseudo) = options.promouvoir.as_deref() {
+        match gescom_noyau::auth::promouvoir_superadmin_sur(&mut base, pseudo) {
+            Ok(message) => {
+                println!("{message}");
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Promotion impossible : {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let srv = Arc::new(Serveur {
         conn: conn.map(Mutex::new),
         base: Mutex::new(base),
@@ -225,19 +242,6 @@ fn main() {
         println!("    Les deux exigent un changement de mot de passe à la");
         println!("    première connexion.");
     }
-    // D11 : le serveur tient une Base sur les deux moteurs, et
-    // l'authentification (sessions, postes, permissions) est portee —
-    // une caisse PEUT se connecter. Mais les 186 commandes du registre
-    // restent sur `Connection` : dire ici ce qui marche et ce qui ne
-    // marche pas encore vaut mieux qu'un silence qu'on decouvre commande
-    // par commande.
-    if est_postgres {
-        println!();
-        println!("  ⚠ PostgreSQL : une caisse peut se connecter (identifiants,");
-        println!("    permissions, sessions — portés). Aucune des 186 commandes");
-        println!("    de vente, stock, pièces ne répond encore : chacune refusera");
-        println!("    avec « pas encore disponible sur PostgreSQL » (D11).");
-    }
     println!("  Console : http://localhost:{}", options.port);
     println!("            a ouvrir dans un navigateur sur ce poste.");
 
@@ -283,6 +287,7 @@ struct Options {
     port: u16,
     base: Option<String>,
     sauvegardes: Option<String>,
+    promouvoir: Option<String>,
 }
 
 impl Options {
@@ -295,6 +300,7 @@ impl Options {
             port: PORT_DEFAUT,
             base: None,
             sauvegardes: None,
+            promouvoir: None,
         };
         let args: Vec<String> = std::env::args().skip(1).collect();
         let mut i = 0;
@@ -320,10 +326,14 @@ impl Options {
                     o.sauvegardes = args.get(i + 1).cloned();
                     i += 2;
                 }
+                "--promouvoir" => {
+                    o.promouvoir = args.get(i + 1).cloned();
+                    i += 2;
+                }
                 "--aide" | "-h" | "--help" => {
                     println!(
                         "gescom-serveur [--hote 0.0.0.0] [--port {PORT_DEFAUT}] \
-                         [--base CHEMIN] [--sauvegardes DOSSIER]"
+                         [--base CHEMIN] [--sauvegardes DOSSIER] [--promouvoir IDENTIFIANT]"
                     );
                     std::process::exit(0);
                 }

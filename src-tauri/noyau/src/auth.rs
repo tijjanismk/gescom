@@ -382,3 +382,67 @@ pub fn creer_utilisateur_sur_base(
     tx.valider().map_err(|e| e.0)?;
     Ok(utilisateur_id)
 }
+
+/// D6 : redonne le role `superadmin` a un compte existant, cherche par
+/// pseudo. Une commande du SERVEUR, jamais servie par HTTP : il faut
+/// etre devant la machine. Un compte de secours livre, lui, serait
+/// utilisable depuis n'importe quelle caisse du magasin.
+///
+/// Le role se suffit : `verifier_permission_sur` laisse passer
+/// `superadmin` avant toute lecture des permissions (portes.rs).
+pub fn promouvoir_superadmin_sur(base: &mut Base, pseudo: &str) -> Result<String, String> {
+    let role_id: String = base
+        .lire_une(
+            "SELECT id FROM role WHERE nom = ?1",
+            &parametres![crate::portes::SUPERADMIN],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| {
+            "Le rôle superadmin est introuvable — la base est-elle amorcée ?".to_string()
+        })?;
+
+    let (utilisateur_id, nom, role_actuel): (String, String, String) = base
+        .lire_une(
+            "SELECT u.id, u.nom, COALESCE(r.nom, '')
+             FROM utilisateur u
+             JOIN utilisateur_auth ua ON ua.utilisateur_id = u.id
+             LEFT JOIN role r ON r.id = u.role_id
+             WHERE ua.pseudo = ?1",
+            &parametres![pseudo],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| format!("Aucun compte « {pseudo} »"))?;
+
+    if role_actuel == crate::portes::SUPERADMIN {
+        return Ok(format!("{nom} porte déjà le rôle superadmin — rien à faire."));
+    }
+
+    let maintenant = maintenant_iso();
+    let dossier = base.dossier().to_string();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE utilisateur SET role_id = ?1, modifie_le = ?2 WHERE id = ?3",
+        &parametres![role_id, maintenant.clone(), utilisateur_id.clone()],
+    )
+    .map_err(|e| e.0)?;
+    // Le geste de secours est un changement de droits comme un autre :
+    // il s'écrit au journal, append-only.
+    tx.executer(
+        "INSERT INTO journal
+           (id, type_evenement, entite_type, entite_id, auteur_id,
+            nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'role_change', 'utilisateur', ?2, 'serveur', ?3, 'serveur', ?4, ?5)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            utilisateur_id,
+            format!(r#"{{"nom":"{nom}","role":"{}"}}"#, crate::portes::SUPERADMIN),
+            maintenant,
+            dossier
+        ],
+    )
+    .map_err(|e| e.0)?;
+    tx.valider().map_err(|e| e.0)?;
+    Ok(format!("{nom} porte maintenant le rôle superadmin."))
+}
