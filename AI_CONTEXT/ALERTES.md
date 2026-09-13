@@ -44,7 +44,7 @@ catalogue des permissions et `permissions_de_sur` (les deux moteurs).
 
 ## Commandes enregistrées, jamais appelées par l'écran
 
-15 sur 187. Déclarées côté Rust, servies par le serveur, aucun `invoke`
+15 sur 193. Déclarées côté Rust, servies par le serveur, aucun `invoke`
 dans `src/`. Ne rien supprimer : plusieurs sont des demi-chantiers
 volontairement laissés branchés.
 
@@ -83,7 +83,7 @@ Modifier une signature ici casse loin.
 | fichier | lignes | pourquoi |
 |---|---|---|
 | [noyau/src/pieces.rs](../src-tauri/noyau/src/pieces.rs) | 3 579 | le cycle documentaire, en deux versions |
-| [serveur/src/socle.rs](../src-tauri/serveur/src/socle.rs) | 2 661 | 187 commandes × 2 poignées ; le bloc généré est entre marqueurs |
+| [serveur/src/socle.rs](../src-tauri/serveur/src/socle.rs) | 2 770 | 193 commandes × 2 poignées ; le bloc généré est entre marqueurs |
 | [noyau/src/argent.rs](../src-tauri/noyau/src/argent.rs) | 2 420 | vente, facture, règlement — **ouvrir avant de toucher à l'argent** |
 | [noyau/src/achats.rs](../src-tauri/noyau/src/achats.rs) | 2 030 | |
 | [src/pages/Pieces.tsx](../src/pages/Pieces.tsx), [Ventes.tsx](../src/pages/Ventes.tsx) | 1 700 | |

@@ -556,3 +556,191 @@ passe** au démarrage — masqué (D10).
 règles avec leur `fichier:ligne` restent ; les récits (« le bug qu'on
 vient de fermer », « le piège que le test a attrapé ») sont ici. Zéro
 lien cassé après réécriture.
+
+## La restauration `pg_restore` jouée pour de vrai — **fait le 13/09/2026**
+
+D4 l'exigeait : une sauvegarde n'existe que si la restauration marche.
+Essai du cycle complet, avec les mêmes arguments que
+`noyau::sauvegarde::pg_dump` (`--format=custom --no-password`, mot de
+passe en `PGPASSWORD`) :
+
+1. dump de `gescom_essai` → `gescom_backup_2026-09-13_essai.dump` (77 Ko) ;
+2. base jetable neuve `gescom_restaure`, puis
+   `pg_restore --clean --if-exists --dbname gescom_restaure …` ;
+3. contenu vérifié : 36 tables, les deux comptes d'amorçage (Patron,
+   Employé), 6 rôles, 1 dépôt ;
+4. `gescom-serveur --base postgresql://…/gescom_restaure` démarre **sans**
+   « BASE NEUVE » — l'amorçage reconnaît la base peuplée —, sert les
+   187 commandes, répond HTTP 200.
+
+Au passage : retiré le message de démarrage périmé « aucune des 186
+commandes ne répond encore (D11) » (187/187 est servi depuis le 12/09),
+et créé `deepseek-context/` — instantané d'état, plan et reste, pour
+qu'un agent externe reprenne sans relire la conversation.
+
+## La caisse écran par écran rejouée — **fait le 13/09/2026**
+
+`caisse_pg.py` repassé contre un serveur PostgreSQL : **129 clics,
+129 ok, 0 en erreur** — connexion, POS, pièces (devis → commande →
+BL + facture → validation → avoir), achats, retours, stock, magasins,
+transferts, dépense, clôture, rapports, relances, chèques, chantiers,
+paramètres, et la sauvegarde `pg_dump` déclenchée par HTTP.
+
+En route, un piège de plus du portage : la démo refusait de se semer
+sur `gescom_essai` — `error serializing parameter 3`, colonnes restées
+en `integer`/`real` 4 octets. Pas le code : la base gardait un schéma
+d'avant `types_postgres` (les 21 tests PG passent sur base fraîche,
+dont `les_donnees_de_demonstration_passent_sur_postgresql`). Base
+jetable recréée à neuf → démo semée (8 articles, 4 clients). Leçon :
+une base PostgreSQL d'essai créée par un vieux binaire ne s'élargit
+pas toute seule — la recréer.
+
+Au passage : `caisse_pg.py` affichait « connecté : None » — il lisait
+`nom` alors que `/connexion` répond `utilisateur_nom` (« Patron »).
+Corrigé dans le script.
+
+Reste pour fermer l'essai à la main : la fenêtre Tauri elle-même,
+jamais utilisée en mode caisse contre un serveur PostgreSQL.
+
+## `--promouvoir` : le geste de secours du serveur — **fait le 13/09/2026**
+
+ETAPES #3 / D6 : le rôle `superadmin` existe, personne ne le porte, et
+c'est voulu — un compte de secours **livré** serait utilisable depuis
+n'importe quelle caisse. La solution retenue : une commande du serveur,
+qui exige d'être devant la machine.
+
+`gescom-serveur --base <cible> --promouvoir IDENTIFIANT` cherche le
+compte par pseudo, lui met le rôle `superadmin`, écrit un événement
+`role_change` au journal (auteur `serveur`, origine `serveur`), puis
+s'arrête — pas d'écoute, pas de session. Refuse « Aucun compte … »
+(exit 1) ; un compte déjà porteur répond « porte déjà » sans rien
+écrire. La logique vit dans `noyau/src/auth.rs`
+(`promouvoir_superadmin_sur`, les deux moteurs) ; le serveur ne fait
+que l'appeler avant de construire son `Serveur`.
+
+Vérifié en vrai, pas seulement en test : base PostgreSQL jetable
+`gescom_promo` créée, promotion d'`employe` → rôle en base, ligne de
+journal, re-promotion idempotente, pseudo inconnu refusé, base
+supprimée. Tests : trois scénarios ajoutés à `auth_base.rs`
+(promotion, refus, idempotence) — 16/16 sur SQLite et sur PostgreSQL,
+suite SQLite complète au vert (399 tests).
+
+En route : `cargo test` ne relie pas `target\debug\gescom-serveur.exe`
+— le premier essai CLI a tourné un binaire d'avant la modification et
+s'est comporté comme si `--promouvoir` n'existait pas. Rebuild
+explicite du binaire, puis tout a marché. Le piège est consigné dans
+[environnement-windows.md](modules/environnement-windows.md).
+
+## L'écran des permissions par personne — **fait le 13/09/2026**
+
+ETAPES #2 / D7 : les commandes existaient depuis le portage, pas
+l'interface. Paramètres → Utilisateurs : chaque personne qui n'a ni
+rôle protégé ni accès total porte un bouton « Permissions », qui ouvre
+[ModalPermissionsUtilisateur.tsx](../../src/components/ModalPermissionsUtilisateur.tsx) :
+le catalogue groupé, une coche de l'effet réel, et **trois états par
+permission** — « Rôle » (rien en base), « Autorisée » (`accorde = 1`),
+« Refusée » (`accorde = 0`, le retrait l'emporte). « Tout remettre au
+rôle » efface les réglages personnels (`accorde = null`), le troisième
+état sans lequel revenir en arrière exigeait de se souvenir de ce que
+le rôle accordait.
+
+Le noyau n'a pas bougé : `lire_permissions_utilisateur` et
+`definir_permission_utilisateur` existaient sur les deux moteurs. Le
+chemin exact que la fenêtre envoie a été rejoué par HTTP contre le
+serveur PostgreSQL : ajout → effectif, retrait d'une permission du rôle
+→ plus effectif, retour au rôle → état initial, refus « Permission
+inconnue » et « Utilisateur introuvable » rendus. TypeScript au vert
+(`npm run typecheck`). La fenêtre elle-même reste à voir à l'écran
+(item qui attend le mode caisse réel).
+
+## Les images depuis une caisse : le contenu, pas le chemin — **fait le 13/09/2026**
+
+ETAPES #4 / D8 : les commandes d'image recevaient un **chemin local**,
+qui ne désigne rien chez le serveur. La caisse lit désormais le fichier
+elle-même et envoie le **contenu** en base64 ; le serveur range les
+octets dans **son** dossier d'images et enregistre le chemin en base.
+
+Toute la logique vit dans [images.rs](../src-tauri/noyau/src/images.rs),
+partagée par la façade et le serveur : extension sur liste blanche
+(png, jpg, jpeg, webp, svg), 10 Mo maximum, base64 standard, trois
+refus nets (« Format refusé », « base64 », « trop lourde »). Sur SQLite
+le dossier est le parent du fichier de base ; sur PostgreSQL
+`data_dir()/ml.gescom.app`. Six commandes de plus au registre, chacune
+en deux poignées : `sauvegarder_logo/entete/pied`, `supprimer_*`.
+Le serveur sert **193 commandes**. La façade `logo.rs` fond de moitié
+(202 → 132 l.) : elle ne copie plus de fichier, elle appelle le noyau.
+Le front lit le fichier choisi (`@tauri-apps/plugin-fs`), l'encode en
+base64 et envoie `{nom, contenu}`.
+
+Deux trous fermés en route :
+
+- **`supprimer_*` n'existait pas côté serveur** — les boutons de
+  suppression étaient morts en mode caisse. Et vider la colonne ne
+  suffisait pas : le repli de lecture au dossier ferait **revenir**
+  l'image. `supprimer` efface donc le fichier aussi, puis la colonne.
+- **Le plafond HTTP de 8 Mio refusait une image légitime de 10 Mo**
+  avant que le noyau la juge. `CORPS_MAX` passe à 16 Mio : le plus gros
+  contenu légitime (10 Mo × 4/3 de base64 + l'enveloppe JSON ≈ 14 Mio)
+  atteint le contrôle du noyau, qui le refuse proprement.
+
+10 scénarios dans
+[images_base.rs](../src-tauri/noyau/tests/images_base.rs) — aller-retour
+écrire/relire, genres distincts, réécriture qui écrase, les trois
+refus, sans dossier refusé plutôt que faire semblant, suppression qui
+efface colonne **et** fichier, détecteur — passés sur SQLite **et** sur
+PostgreSQL.
+
+Vérifié en vrai : `caisse_pg.py` rejoué par HTTP sur base neuve —
+**141 clics, 141 ok, 0 en erreur**, y compris le refus « Image trop
+lourde : 10485761 octets, maximum 10485760. » rendu après un corps de
+14 Mio passé sous le nouveau plafond. Mesuré au passage : 389 tests
+noyau SQLite, 1 073 tests workspace, 34 tests PostgreSQL, 97 scénarios
+en onze fichiers.
+
+## L'entretien devient un travail du serveur — **fait le 13/09/2026**
+
+ETAPES #5 / D9 : `entretenir_base` restait une commande locale, mais
+la caisse n'a pas la base — réindexer et compacter n'était pas sa
+place. La route `POST /entretien` du serveur (même permission que la
+sauvegarde, `sauvegarde:lancer`) fait le travail, et la console gagne
+sa carte Administration avec le bouton Entretien. L'écran des caisses
+garde le diagnostic, perd le bouton « Réparer et compacter » — il
+renvoie à la console.
+
+Ce que fait la route, dans l'ordre : vérification d'intégrité (une
+base corrompue est refusée : « Restaurer la dernière sauvegarde »),
+réaffectation des règlements fournisseur globaux restés sans pièce,
+copie avant dans le dossier des sauvegardes (`VACUUM INTO` sur SQLite,
+`pg_dump` sur PostgreSQL), compactage (`REINDEX`+`VACUUM` / `VACUUM
+(ANALYZE)` — pas de REINDEX sur PostgreSQL, autovacuum veille sur les
+index et un REINDEX bloquerait les caisses). Le verrou de la base se
+**garde** pendant toute l'opération : les caisses patientent, la
+console conseille de le faire hors ouverture. Refus net sur une base
+en mémoire, comme la sauvegarde. Journal : type `entretien`, origine
+`serveur`.
+
+5 scénarios dans
+[entretien_base.rs](../src-tauri/noyau/tests/entretien_base.rs) — la
+réaffectation sans changer les montants, l'idempotence, une base saine
+sans rien à réaffecter, le refus en mémoire, le détecteur — passés sur
+les deux moteurs.
+
+**La vérification HTTP a attrapé un interblocage que les scénarios ne
+pouvaient pas voir** : les scénarios testent le noyau, pas la route.
+`POST /entretien` garde le verrou de la base pendant l'opération, or
+`sauvegarde::dossier` — appelé pour savoir où ranger la copie — relit
+le réglage par `Base` et **reprend le verrou** lui-même : le serveur
+se mordait la main, plus aucune requête ne répondait. Corrigé en
+calculant le dossier **avant** de prendre le verrou (le même ordre que
+`maintenant`, la sauvegarde). Reconstruit, rejoué : 401 sans jeton,
+`etat: ok` avec — copie lisible par `pg_restore --list` (201 entrées),
+trace au journal `origine = serveur`. Leçon : les routes du serveur ne
+sont pas testées automatiquement ; un test de route, même un seul,
+vaudrait cher ([RESTE.md](../../deepseek-context/RESTE.md)).
+
+Mesuré en fin de séance, les deux moteurs : **394 tests noyau
+SQLite**, **414 tests workspace SQLite** (les chiffres précédents —
+389, 1 073 — ne se reproduisent pas, la présente mesure fait foi) ;
+sur PostgreSQL, suite complète du paquet sur `gescom_test` : **394
+tests, 0 échec**, dont **140 scénarios** répartis dans **seize**
+fichiers `*_base.rs`.

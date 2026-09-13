@@ -34,7 +34,7 @@ lisait `UTILISATEUR_ACTIF` encore `null` au premier rendu.
 | [Ventes.tsx](../../src/pages/Ventes.tsx) | 1 670 | le POS : panier, scan, chèque, facture auto |
 | [Pieces.tsx](../../src/pages/Pieces.tsx) | 1 661 | cycle documentaire complet, validation, annulation |
 | [FicheClient.tsx](../../src/pages/FicheClient.tsx) | 1 414 | créances, règlements, avoirs, pièces d'un client |
-| [Parametres.tsx](../../src/pages/Parametres.tsx) | 1 040 | conteneur des onglets de réglages |
+| [Parametres.tsx](../../src/pages/Parametres.tsx) | 1 089 | conteneur des onglets de réglages — sans l'entretien, parti à la console du serveur (D9) |
 | [FicheFournisseur.tsx](../../src/pages/FicheFournisseur.tsx) | 912 | dette, règlements, historique |
 | [Achats.tsx](../../src/pages/Achats.tsx) | 845 | saisie d'un achat facturé |
 | [Stock.tsx](../../src/pages/Stock.tsx) | 842 | état, entrées, ajustements, mouvements |

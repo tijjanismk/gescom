@@ -9,9 +9,9 @@ rapports, pagination.
 | Fichier | l. | Rôle |
 |---|---|---|
 | [auth.rs](../../src-tauri/src/commandes/auth.rs) | 207 | connexion bcrypt, utilisateurs |
-| [parametres.rs](../../src-tauri/src/commandes/parametres.rs) | 590 | catégories, articles complets, unités de vente, **et tous les réglages d'écran** |
+| [parametres.rs](../../src-tauri/src/commandes/parametres.rs) | 132 | catégories, articles complets, unités de vente, réglages d'écran, diagnostic — **sans l'entretien** : il est au serveur (D9) |
 | [societe.rs](../../src-tauri/src/commandes/societe.rs) | 80 | identité de l'entreprise |
-| [logo.rs](../../src-tauri/src/commandes/logo.rs) | 202 | logo, bandeau d'en-tête, pied de page |
+| [logo.rs](../../src-tauri/src/commandes/logo.rs) | 132 | logo, bandeau d'en-tête, pied de page — mince : le travail est dans `noyau/src/images.rs` |
 | [sauvegarde.rs](../../src-tauri/src/commandes/sauvegarde.rs) | 242 | sauvegarde manuelle et auto |
 | [journal.rs](../../src-tauri/src/commandes/journal.rs) | 415 | journal du jour (lecture) |
 | [dashboard.rs](../../src-tauri/src/commandes/dashboard.rs) | 428 | résumé, ventes période, tops |
@@ -23,13 +23,15 @@ rapports, pagination.
 **auth** — `connexion`, `changer_mot_de_passe`, `creer_utilisateur`,
 `lire_utilisateurs`.
 
-**parametres** (16) — `lire_categories`, `creer_categorie`,
+**parametres** (15) — `lire_categories`, `creer_categorie`,
 `lire_articles_complets`, `creer_article_complet`, `ajouter_unite_vente`,
 `modifier_unite_vente`, `desactiver_unite_vente`, `diagnostiquer_base`,
-`entretenir_base`, `lire_config_bon_sortie`,
+`lire_config_bon_sortie`,
 `sauvegarder_config_bon_sortie`, `lire_config_suivi_livraison`,
 `sauvegarder_config_suivi_livraison`, `lire_config_signatures`,
 `sauvegarder_config_signatures` ; `lire_stocks` *(jamais appelée)*.
+`entretenir_base` n'est plus une commande (D9) : c'est la route
+`POST /entretien` du serveur, à côté de la sauvegarde.
 
 **societe** — `lire_parametres_societe`, `sauvegarder_parametres_societe`.
 
@@ -55,8 +57,10 @@ rapports, pagination.
 
 ## Entrant
 
-`Parametres.tsx` (1 040 l.) concentre auth, catégories, articles,
-diagnostic et sauvegarde. `ParametresSociete.tsx` porte l'identité et les
+`Parametres.tsx` (1 089 l.) concentre auth, catégories, articles,
+diagnostic et sauvegarde — l'entretien, lui, a quitté l'écran : le
+bouton « Réparer et compacter » est remplacé par un renvoi vers la
+console du serveur (D9). `ParametresSociete.tsx` porte l'identité et les
 images ; `ParametresVentes.tsx` les réglages d'écran (scanner, bon de
 sortie, suivi de livraison). `Dashboard.tsx`, `Rapports.tsx`,
 `Journal.tsx` ne font que lire.
@@ -71,11 +75,24 @@ front** — chaque écran imprimable recharge le logo en base64 lui-même.
   `lire_rapport_top_clients`). Deux implémentations, deux écrans : une
   divergence de chiffres entre le tableau de bord et les rapports est
   possible et ne serait signalée par rien.
-- [CONFIRMÉ] `diagnostiquer_base` et `entretenir_base` sont ici, mais le
-  travail est fait par [persistance/mod.rs](../../src-tauri/noyau/src/persistance/mod.rs)
-  (`verifier_integrite`, `anomalies_metier`, `entretenir`).
+- [CONFIRMÉ] `diagnostiquer_base` est ici, mais le travail est fait par
+  [persistance/mod.rs](../../src-tauri/noyau/src/persistance/mod.rs)
+  (`verifier_integrite`, `anomalies_metier`).
+- [CONFIRMÉ] L'entretien n'appartient plus à l'écran (D9) :
+  `entretenir_base_sur_base` dans
+  [noyau/src/parametres.rs](../../src-tauri/noyau/src/parametres.rs) fait
+  le travail (intégrité, réaffectation des règlements globaux, copie
+  avant, compactage) ; la route `POST /entretien` du serveur l'expose à
+  la console, sous la même permission que la sauvegarde. La caisse n'en
+  garde que le diagnostic.
 - [CONFIRMÉ] Images en **base64 dans le HTML** d'impression (D4) : le
   document imprimé doit être autonome, il n'a pas accès au disque.
+- [CONFIRMÉ] Les images voyagent **en contenu, jamais en chemin** (D8) :
+  la caisse lit le fichier et envoie du base64, le serveur range les
+  octets dans **son** dossier d'images et enregistre le chemin. Toute la
+  validation (format, taille, base64) vit dans `noyau/src/images.rs`,
+  partagée par la façade et le serveur. `supprimer_*` efface aussi le
+  fichier, sinon le repli de lecture ferait revenir l'image.
 - [CONFIRMÉ] Impression via une fenêtre **Tauri**, jamais le navigateur
   (D3) — le navigateur ajoute ses propres en-têtes et pieds de page.
 - [DÉDUIT] Les réglages d'écran sont volontairement regroupés dans

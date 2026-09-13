@@ -16,7 +16,7 @@ Deux étages à ne pas confondre :
 | [ModalsRetour.tsx](../../src/components/ModalsRetour.tsx) | 691 | Pieces, Retours | `enregistrer_retour` — 3 modales : remboursement, échange, avoir conservé |
 | [OngletChantiers.tsx](../../src/components/OngletChantiers.tsx) | 795 | Parametres | TVA, dettes, irrécouvrable, avoirs expirés — exporte **4** onglets |
 | [ModalNouvellePiece.tsx](../../src/components/ModalNouvellePiece.tsx) | 652 | Pieces | création de pièce |
-| [ParametresSociete.tsx](../../src/components/ParametresSociete.tsx) | 448 | Parametres | identité, logo, en-tête, pied, signatures |
+| [ParametresSociete.tsx](../../src/components/ParametresSociete.tsx) | 464 | Parametres | identité, logo, en-tête, pied, signatures |
 | [OngletDepots.tsx](../../src/components/OngletDepots.tsx) | 418 | Parametres | CRUD dépôt complet |
 | [RetourFournisseur.tsx](../../src/components/RetourFournisseur.tsx) | 352 | Retours | `enregistrer_retour_fournisseur` |
 | [OngletCodesBarres.tsx](../../src/components/OngletCodesBarres.tsx) | 328 | Parametres | les 4 commandes de `codebarre.rs` |
@@ -65,6 +65,10 @@ composants maison (effet verre, tuiles de KPI).
   `CAISSE_FERMEE` ([utils.rs:40](../../src-tauri/noyau/src/utils.rs#L40)).
   Reformuler ce message côté Rust casse la modale d'ouverture de caisse,
   sans erreur de compilation d'aucun côté.
+- [CONFIRMÉ] Les images partent **en contenu** (D8) :
+  `ParametresSociete.tsx` lit le fichier choisi
+  (`@tauri-apps/plugin-fs`), l'encode en base64 et envoie
+  `{nom, contenu}` — jamais un chemin local.
 - [CONFIRMÉ] `ParametresVentes.tsx` exporte `OngletVentes` : le nom du
   fichier et celui du symbole divergent. Chercher par nom de fichier ne
   donne rien.

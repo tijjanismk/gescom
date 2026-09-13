@@ -15,6 +15,7 @@ Le serveur doit tourner sur une base JETABLE : le script vend, achète,
 rend, transfère, dépense. Jamais sur la base de la boutique.
 """
 
+import base64
 import json
 import sys
 import urllib.error
@@ -77,7 +78,7 @@ def connexion():
         print(f"Connexion refusée ({statut}) : {corps}")
         sys.exit(1)
     jeton = corps["jeton"]
-    print(f"connecté : {corps.get('nom')} ({corps.get('role')}), poste {corps.get('poste_id')}")
+    print(f"connecté : {corps.get('utilisateur_nom')} ({corps.get('role')}), poste {corps.get('poste_id')}")
     return corps
 
 
@@ -310,6 +311,20 @@ def main():
     rpc("Parametres", "lire_postes", {})
     rpc("Parametres", "lire_sessions_reseau", {})
     rpc("Parametres", "lire_logo_base64", {})
+    # D8 : les images voyagent EN CONTENU (base64), jamais en chemin.
+    octets_logo = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + b"logo-envoye-par-la-caisse"
+    rpc("Parametres", "sauvegarder_logo", {"nom": "logo.png", "contenu": base64.b64encode(octets_logo).decode()})
+    rpc("Parametres", "sauvegarder_entete", {"nom": "entete.jpg", "contenu": base64.b64encode(b"bandeau d'en-tete").decode()})
+    rpc("Parametres", "sauvegarder_pied", {"nom": "pied.svg", "contenu": base64.b64encode(b"mentions de pied").decode()})
+    rpc("Parametres", "lire_logo_base64", {})
+    rpc("Parametres", "lire_entete_base64", {})
+    rpc("Parametres", "lire_pied_base64", {})
+    rpc("Parametres", "sauvegarder_logo", {"nom": "logo.txt", "contenu": base64.b64encode(b"du texte").decode()}, attendu_erreur="Format refusé")
+    rpc("Parametres", "sauvegarder_logo", {"nom": "logo.png", "contenu": "pas du base64!!!"}, attendu_erreur="base64")
+    rpc("Parametres", "sauvegarder_logo", {"nom": "logo.png", "contenu": base64.b64encode(bytes(10 * 1024 * 1024 + 1)).decode()}, attendu_erreur="trop lourde")
+    rpc("Parametres", "supprimer_logo", {})
+    rpc("Parametres", "supprimer_entete", {})
+    rpc("Parametres", "supprimer_pied", {})
     rpc("Parametres", "sauvegarder_base", {"dossierDestination": "C:/Temp/gescom-essai-sauvegarde"})
 
     # ---- Bilan

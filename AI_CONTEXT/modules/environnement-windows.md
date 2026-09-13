@@ -64,3 +64,30 @@ terminateur ' est manquant » trente lignes plus haut que la faute :
 second paramètre positionnel après un `ValueFromRemainingArguments` —
 `cargo-tenace.ps1 test` lisait « test » comme un nombre d'essais ; d'où
 la variable d'environnement.
+
+## 4. Un serveur qui tourne verrouille le sidecar : `tauri build` échoue
+
+**Symptôme** — `npm run tauri dev`/`build` meurt sur
+`error: failed to run custom build command for `gescom v0.1.0``,
+panique `Os { code: 5, kind: PermissionDenied, message: "Accès
+refusé." }` à `tauri-build-…/src/lib.rs:80` (`fs::remove_file(&dest)`).
+**Ce n'est pas SAC** — c'est le serveur : un `gescom-serveur.exe`
+lancé verrouille la copie sidecar `target\debug\gescom-serveur.exe`,
+que tauri-build remplace à chaque build et ne peut pas supprimer.
+
+**Remède** : arrêter le serveur (`Stop-Process` sur son PID, vérifié le
+13/09/2026 : PID 26956, `target\debug`) avant de builder l'appli. Le
+release sur un autre port ne gêne pas le build — le verrou est sur le
+fichier `target\debug\gescom-serveur.exe`, pas sur le port.
+
+## 5. `cargo test` ne relie pas `target\debug\gescom-serveur.exe`
+
+Après une modification de `serveur/src/main.rs`, `cargo test
+--workspace` compile le binaire en **harnais de test**
+(`target\debug\deps\gescom_serveur-<hash>.exe`) mais laisse le binaire
+nu `target\debug\gescom-serveur.exe` tel quel — la date du fichier
+tranche (vérifié le 13/09/2026 : un essai CLI a tourné un binaire
+d'avant la modification et s'est comporté comme si l'option
+n'existait pas). **Remède** : `.\outils\cargo-tenace.ps1 build
+--package gescom-serveur` avant tout essai de la ligne de commande du
+serveur.

@@ -123,12 +123,16 @@ schéma, les rôles, les comptes, le dépôt, le client « Comptant », les
 tables du réseau v2, le cloisonnement par dossier et le déclencheur de
 stock — sur les deux moteurs.
 
-**Les 187 commandes du serveur ont leur poignée `Base`**
+**Les 193 commandes du serveur ont leur poignée `Base`**
 (`*_sur_base`, branchée par `Registre::aussi_sur_base` — y compris
 `lire_catalogue_permissions`, qui ne lit pas la base mais que le registre
 refusait sans poignée). Vendre, facturer,
 encaisser, acheter, rendre, transférer, clôturer, relancer, imprimer :
-tout passe. Voir [JOURNAL.md](../JOURNAL.md) pour le détail des lots et
+tout passe. L'**entretien** aussi (D9, le 13/09/2026) : copie par
+`pg_dump` dans le dossier des sauvegardes, réaffectation des règlements
+fournisseur globaux, puis `VACUUM (ANALYZE)` hors transaction — pas de
+REINDEX, autovacuum veille sur les index, un REINDEX bloquerait les
+caisses. Voir [JOURNAL.md](../JOURNAL.md) pour le détail des lots et
 [DECISIONS.md](../DECISIONS.md) D11.
 
 Ce qui distingue une version `Base` de sa jumelle `Connection`, partout
@@ -181,8 +185,9 @@ par colonne et nomme ce qui manque.
   [sauvegarde_pg.rs](../../src-tauri/noyau/tests/sauvegarde_pg.rs)
   produit un dump de la démo et `pg_restore --list` le lit.
   **Restaurer** : `pg_restore --clean --if-exists --dbname gescom
-  gescom_backup_….dump` — à essayer une fois sur une base jetable avant
-  d'en avoir besoin (D4 le demande).
+  gescom_backup_….dump` — **jouée le 13/09/2026** sur une base jetable :
+  dump de `gescom_essai`, restauration sur `gescom_restaure`, le serveur
+  redémarre dessus sans ré-amorçage (D4).
 - **Le déclencheur de stock et le dossier.** `stock_suit_les_mouvements`
   pose la ligne `stock_depot` sans `dossier_id` explicite : le défaut de
   la colonne (SQLite : `defaut` ; PostgreSQL : le dossier de session)
@@ -191,8 +196,12 @@ par colonne et nomme ce qui manque.
   qu'une installation SQLite ne connaît qu'un dossier — à régler avec
   la v3.
 - **Un essai à la main, écran par écran**, sur une caisse branchée à un
-  serveur PostgreSQL. Les 83 scénarios disent ce que le SQL fait à la
-  base ; ils ne disent pas ce que l'écran en montre.
+  serveur PostgreSQL. Les scénarios disent ce que le SQL fait à la
+  base ; ils ne disent pas ce que l'écran en montre. Rejoué par HTTP le
+  13/09/2026 : `caisse_pg.py`, 141 clics, 141 ok. `POST /entretien`
+  aussi (D9) : 401 sans jeton, ok avec, copie `pg_dump` lisible — et la
+  vérification a attrapé un interblocage corrigé dans la foulée. La
+  fenêtre Tauri elle-même reste à essayer.
 
 ## Le raccordement
 
@@ -211,8 +220,15 @@ le port 5432 et la base d'essai s'appelle `gescom_essai`.
   jamais la base. Changer de moteur ne demande rien au poste caisse.
 - [CONFIRMÉ] `amorcage.rs` crée une boutique utilisable sur PostgreSQL —
   vérifié sur une base réelle.
-- [CONFIRMÉ] Les 83 scénarios `*_base.rs` passent sur PostgreSQL
-  (`GESCOM_PG=… cargo test --test <fichier> -- --test-threads=1`, sur
-  une base jetable, jamais celle du serveur).
+- [CONFIRMÉ] Les **140 scénarios** des seize fichiers `*_base.rs`
+  passent sur PostgreSQL (`GESCOM_PG=… cargo test --test <fichier>
+  -- --test-threads=1`, sur une base jetable, jamais celle du serveur)
+  — les 5 de l'entretien (D9) avec `pg_dump` et `VACUUM (ANALYZE)`
+  pour de vrai. Suite complète du paquet rejouée le 13/09/2026 :
+  **394 tests PostgreSQL, 0 échec** (103 lib + 291 dans les 31
+  fichiers de `tests/`).
 - [CONFIRMÉ] La sauvegarde PostgreSQL passe par `pg_dump`, mot de passe
   en variable d'environnement, jamais en argument.
+- [CONFIRMÉ] Le cycle sauvegarde → restauration → redémarrage fonctionne :
+  `pg_dump --format=custom` puis `pg_restore --clean --if-exists` sur une
+  base jetable, serveur redémarré dessus sans ré-amorçage (13/09/2026).

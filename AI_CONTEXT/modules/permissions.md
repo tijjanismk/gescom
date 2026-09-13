@@ -12,6 +12,7 @@ du noyau, **à chaque appel** ; l'écran ne fait que cacher des boutons.
 | [noyau/src/roles.rs](../../src-tauri/noyau/src/roles.rs) | créer, modifier, supprimer un rôle ; permissions par personne — en deux versions (`_sur_base`) |
 | [src/lib/droits.ts](../../src/lib/droits.ts) | `peut(droit)` côté écran : menu, onglets, choix de rôle |
 | [src/components/OngletRoles.tsx](../../src/components/OngletRoles.tsx) | Paramètres → Rôles : les rôles, leurs cases par groupe, création |
+| [src/components/ModalPermissionsUtilisateur.tsx](../../src/components/ModalPermissionsUtilisateur.tsx) | Paramètres → Utilisateurs → Permissions : le sur-mesure d'une personne, à trois états par permission |
 
 ## Les trois niveaux
 
@@ -38,6 +39,7 @@ recompiler.
 - [CONFIRMÉ] `registre::ecriture_libre` : une écriture sans permission, nommée pour qu'on ne l'utilise pas par paresse. Deux seulement : `connexion`, `changer_mot_de_passe` (sinon un caissier à qui l'amorçage impose de changer son mot de passe était enfermé dehors).
 - [CONFIRMÉ] La **reprise** (migration) écrit ce que le code accordait avant — `patron` : `acces_total`, `employe` : sa liste — une seule fois, gardée par `config_app['roles_repris']`. Rejouée, elle écraserait les réglages du commerçant. « Base vide » se compte sur `utilisateur_auth`, pas sur les rôles : la reprise pose des rôles avant le seed.
 - [CONFIRMÉ] Le serveur renvoie les permissions **avec l'identité** à la connexion ; `droits.ts` filtre le menu. Confort, pas sécurité.
+- [CONFIRMÉ] `promouvoir_superadmin_sur` ([auth.rs](../../src-tauri/noyau/src/auth.rs)) : `gescom-serveur --promouvoir IDENTIFIANT` redonne `superadmin` à un compte existant — une commande du **serveur**, jamais servie par HTTP, qui exige d'être devant la machine. Le geste s'écrit au journal (`role_change`, auteur `serveur`). Le compte de secours **livré** reste refusé (D6).
 
 ## Tests
 
@@ -51,8 +53,11 @@ est refusé sur `ouvrir_session_caisse` après un retrait.
 
 ## Ce qui reste
 
-1. L'écran des **permissions par personne** — la commande
-   `definir_permission_utilisateur` existe, pas l'interface (D7).
-2. Aucun compte `superadmin` n'est créé par l'amorçage (D6).
+1. ~~L'écran des **permissions par personne** — la commande
+   `definir_permission_utilisateur` existe, pas l'interface (D7)~~
+   **fait le 13/09/2026** :
+   [ModalPermissionsUtilisateur.tsx](../../src/components/ModalPermissionsUtilisateur.tsx).
+2. ~~Aucun compte `superadmin` n'est créé par l'amorçage (D6)~~
+   **réglé le 13/09/2026** : `gescom-serveur --promouvoir IDENTIFIANT`.
 3. La confidentialité des lectures, le jour où ce sera un sujet :
    des permissions `:lire` et un argument à `r.lecture`.
