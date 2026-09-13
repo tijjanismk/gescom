@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { open } from "@tauri-apps/plugin-dialog";
+import { readFile } from "@tauri-apps/plugin-fs";
 import {
   Loader2, Save, Building2, Upload, X, Image, PanelTop, PanelBottom
 } from "lucide-react";
@@ -19,6 +20,23 @@ interface ParamsSociete {
   rccm?: string;
   site_web?: string;
   pied_facture?: string;
+}
+
+// Un fichier choisi par la caisse part EN OCTETS (D8) : un chemin
+// local ne designe rien chez le serveur. Le pont envoie du base64.
+function enBase64(octets: Uint8Array): string {
+  let texte = "";
+  for (let i = 0; i < octets.length; i += 0x8000) {
+    texte += String.fromCharCode(...octets.subarray(i, i + 0x8000));
+  }
+  return btoa(texte);
+}
+
+// Lit le fichier choisi et l'envoie en contenu a la commande donnee.
+async function envoyerImage(commande: string, fichier: string): Promise<void> {
+  const octets = await readFile(fichier);
+  const nom = fichier.split(/[\\/]/).pop() || "image.png";
+  await invoke(commande, { nom, contenu: enBase64(octets) });
 }
 
 export function ParametresSociete() {
@@ -107,8 +125,7 @@ export function ParametresSociete() {
 
       if (!fichier || typeof fichier !== "string") return;
 
-      // Copier le logo dans le répertoire de l'app
-      await invoke("sauvegarder_logo", { cheminSource: fichier });
+      await envoyerImage("sauvegarder_logo", fichier);
 
       // Recharger le logo en base64
       const logo = await invoke<string | null>("lire_logo_base64");
@@ -130,7 +147,7 @@ export function ParametresSociete() {
         filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "svg", "webp"] }],
       });
       if (!fichier || typeof fichier !== "string") return;
-      await invoke("sauvegarder_entete", { cheminSource: fichier });
+      await envoyerImage("sauvegarder_entete", fichier);
       setEnteteBase64(await invoke<string | null>("lire_entete_base64"));
       await message("En-tête mis à jour ✓", { title: "Succès", kind: "info" });
     } catch (e) {
@@ -157,7 +174,7 @@ export function ParametresSociete() {
         filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "svg", "webp"] }],
       });
       if (!fichier || typeof fichier !== "string") return;
-      await invoke("sauvegarder_pied", { cheminSource: fichier });
+      await envoyerImage("sauvegarder_pied", fichier);
       setPiedBase64(await invoke<string | null>("lire_pied_base64"));
       await message("Pied de page mis à jour ✓", { title: "Succès", kind: "info" });
     } catch (e) {

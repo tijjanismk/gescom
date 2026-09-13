@@ -688,6 +688,100 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
+    // L'ecriture (D8) : la caisse envoie les OCTETS en base64, jamais
+    // un chemin — un chemin de caisse ne designe rien chez le serveur.
+    // Celui-ci range le fichier dans SON dossier d'images et enregistre
+    // le chemin ; les caisses le relisent par `lire_*_base64` ci-dessus.
+    r.ecriture("sauvegarder_logo", "parametres:modifier", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let contenu: String = arg(&p, "contenu", "contenu")?;
+        let octets = gescom_noyau::images::decoder_base64(&contenu)?;
+        let dossier = dossier_des_images(c.conn).ok_or_else(|| {
+            "Impossible d'écrire l'image : aucun dossier d'images sur ce moteur.".to_string()
+        })?;
+        gescom_noyau::images::ecrire(c.conn, "logo", &nom, &octets, &dossier)?;
+        Ok(Value::Null)
+    });
+    r.aussi_sur_base("sauvegarder_logo", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let contenu: String = arg(&p, "contenu", "contenu")?;
+        let octets = gescom_noyau::images::decoder_base64(&contenu)?;
+        let dossier = dossier_des_images_base(c.base);
+        gescom_noyau::images::ecrire_sur_base(c.base, "logo", &nom, &octets, dossier.as_deref())?;
+        Ok(Value::Null)
+    });
+
+    r.ecriture("sauvegarder_entete", "parametres:modifier", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let contenu: String = arg(&p, "contenu", "contenu")?;
+        let octets = gescom_noyau::images::decoder_base64(&contenu)?;
+        let dossier = dossier_des_images(c.conn).ok_or_else(|| {
+            "Impossible d'écrire l'image : aucun dossier d'images sur ce moteur.".to_string()
+        })?;
+        gescom_noyau::images::ecrire(c.conn, "entete", &nom, &octets, &dossier)?;
+        Ok(Value::Null)
+    });
+    r.aussi_sur_base("sauvegarder_entete", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let contenu: String = arg(&p, "contenu", "contenu")?;
+        let octets = gescom_noyau::images::decoder_base64(&contenu)?;
+        let dossier = dossier_des_images_base(c.base);
+        gescom_noyau::images::ecrire_sur_base(c.base, "entete", &nom, &octets, dossier.as_deref())?;
+        Ok(Value::Null)
+    });
+
+    r.ecriture("sauvegarder_pied", "parametres:modifier", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let contenu: String = arg(&p, "contenu", "contenu")?;
+        let octets = gescom_noyau::images::decoder_base64(&contenu)?;
+        let dossier = dossier_des_images(c.conn).ok_or_else(|| {
+            "Impossible d'écrire l'image : aucun dossier d'images sur ce moteur.".to_string()
+        })?;
+        gescom_noyau::images::ecrire(c.conn, "pied", &nom, &octets, &dossier)?;
+        Ok(Value::Null)
+    });
+    r.aussi_sur_base("sauvegarder_pied", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let contenu: String = arg(&p, "contenu", "contenu")?;
+        let octets = gescom_noyau::images::decoder_base64(&contenu)?;
+        let dossier = dossier_des_images_base(c.base);
+        gescom_noyau::images::ecrire_sur_base(c.base, "pied", &nom, &octets, dossier.as_deref())?;
+        Ok(Value::Null)
+    });
+
+    r.ecriture("supprimer_logo", "parametres:modifier", |c, _| {
+        let dossier = dossier_des_images(c.conn);
+        gescom_noyau::images::supprimer(c.conn, "logo", dossier.as_deref())?;
+        Ok(Value::Null)
+    });
+    r.aussi_sur_base("supprimer_logo", |c, _| {
+        let dossier = dossier_des_images_base(c.base);
+        gescom_noyau::images::supprimer_sur_base(c.base, "logo", dossier.as_deref())?;
+        Ok(Value::Null)
+    });
+
+    r.ecriture("supprimer_entete", "parametres:modifier", |c, _| {
+        let dossier = dossier_des_images(c.conn);
+        gescom_noyau::images::supprimer(c.conn, "entete", dossier.as_deref())?;
+        Ok(Value::Null)
+    });
+    r.aussi_sur_base("supprimer_entete", |c, _| {
+        let dossier = dossier_des_images_base(c.base);
+        gescom_noyau::images::supprimer_sur_base(c.base, "entete", dossier.as_deref())?;
+        Ok(Value::Null)
+    });
+
+    r.ecriture("supprimer_pied", "parametres:modifier", |c, _| {
+        let dossier = dossier_des_images(c.conn);
+        gescom_noyau::images::supprimer(c.conn, "pied", dossier.as_deref())?;
+        Ok(Value::Null)
+    });
+    r.aussi_sur_base("supprimer_pied", |c, _| {
+        let dossier = dossier_des_images_base(c.base);
+        gescom_noyau::images::supprimer_sur_base(c.base, "pied", dossier.as_deref())?;
+        Ok(Value::Null)
+    });
+
     r.lecture("lire_factures_fournisseur_retournables", |c, p| {
         let fournisseur_id: String = arg(&p, "fournisseurId", "fournisseur_id")?;
         let v = achats::lire_factures_fournisseur_retournables(c.conn, fournisseur_id)?;
@@ -2663,4 +2757,14 @@ fn dossier_des_images(conn: &rusqlite::Connection) -> Option<std::path::PathBuf>
     std::path::Path::new(chemin)
         .parent()
         .map(|d| d.to_path_buf())
+}
+
+/// Le dossier ou ranger les images, selon le moteur : a cote du
+/// fichier pour SQLite ; un dossier fixe pour PostgreSQL, qui n'a pas
+/// de fichier a cote duquel les poser.
+fn dossier_des_images_base(base: &gescom_noyau::base::Base) -> Option<std::path::PathBuf> {
+    if let Some(conn) = base.sqlite() {
+        return dossier_des_images(conn);
+    }
+    dirs::data_dir().map(|d| d.join("ml.gescom.app"))
 }

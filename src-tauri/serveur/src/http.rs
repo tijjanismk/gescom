@@ -47,13 +47,15 @@ impl Requete {
     }
 }
 
-/// Taille maximale d'un corps de requete : 8 Mio.
+/// Taille maximale d'un corps de requete : 16 Mio.
 ///
-/// Un logo ou un en-tete de facture en base64 passe largement. Au-dela,
-/// c'est une erreur ou une attaque, et lire sans borne offrirait a
-/// n'importe qui sur le reseau de faire tomber le serveur par la
-/// memoire.
-const CORPS_MAX: usize = 8 * 1024 * 1024;
+/// La plus grosse image legitime pese 10 Mo
+/// (`images::TAILLE_MAX_IMAGE`), et voyage en base64 — × 4/3, plus
+/// l'enveloppe JSON : il faut la laisser passer jusqu'au noyau, qui
+/// la juge. Au-dela, c'est une erreur ou une attaque, et lire sans
+/// borne offrirait a n'importe qui sur le reseau de faire tomber le
+/// serveur par la memoire.
+const CORPS_MAX: usize = 16 * 1024 * 1024;
 
 pub fn lire_requete(flux: &TcpStream) -> Result<Requete, String> {
     let ip = flux
