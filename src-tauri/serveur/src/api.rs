@@ -492,6 +492,12 @@ fn entretien(
     // base elle-meme (reimputation, reindexation, compactage) — et les
     // caisses patientent : c'est pour cela que la console conseille de
     // le faire hors ouverture.
+    //
+    // Le dossier des copies se calcule AVANT le verrou : `dossier`
+    // relit le reglage par `Base` et reprend donc le verrou lui-meme.
+    // Le calculer apres, verrou en main, enverrait le serveur se
+    // mordre la main (interblocage sur le mutex de la base).
+    let dossier_copies = sauvegarde::dossier(srv);
     let mut base = match srv.base.lock() {
         Ok(b) => b,
         Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
@@ -500,7 +506,6 @@ fn entretien(
         return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
     }
 
-    let dossier_copies = sauvegarde::dossier(srv);
     match parametres::entretenir_base_sur_base(&mut base, &dossier_copies) {
         Ok(mut v) => {
             v["etat"] = json!("ok");
