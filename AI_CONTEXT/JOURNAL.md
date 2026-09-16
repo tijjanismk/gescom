@@ -804,3 +804,80 @@ encore vrai est replié ici — la dette dans [ETAPES.md](ETAPES.md)
 [modules/environnement-windows.md](modules/environnement-windows.md).
 Un instantané figé à côté d'une carte tenue à jour finit par dire le
 contraire d'elle, et rien n'indique laquelle a raison.
+
+## R1 et R5 corrigés — **16/09/2026**
+
+Les deux écarts de la revue qui pouvaient abîmer des données sont
+fermés ; R2, R3, R4 restent ouverts et décrits dans
+[ETAPES.md](ETAPES.md) § Revue du 16/09/2026.
+
+**R1 — l'argent ne se réécrit plus hors transaction.**
+`reimputer_paiements_globaux_sur_base` ouvre maintenant
+`base.transaction()` et passe `&mut tx` à `reallouer_globaux_sur` et
+`imputer_paiements_fournisseur_sur`. Répartir un règlement global, c'est
+l'effacer puis le reposer en plusieurs lignes : hors transaction, une
+coupure entre le `DELETE` et les `INSERT` faisait **disparaître un
+paiement fournisseur**. Les deux aides étaient déjà écrites en
+`&mut impl Acces` pour ça — c'est ainsi que les appelle
+`regler_dette_fournisseur_sur_base` — seul l'appel de l'entretien
+passait `Base` nue. Rien d'autre n'a bougé : l'entretien PostgreSQL fait
+toujours son `VACUUM (ANALYZE)` **après** que la transaction est
+validée, le moteur le refuserait dedans.
+
+**R5 — le journal de `--promouvoir` est sérialisé.**
+`format!(r#"{{"nom":"{nom}"…}}"#)` devient
+`serde_json::json!({ … }).to_string()` : un nom portant un guillemet ou
+une barre oblique inverse produisait un `nouveau_valeur` que plus rien
+ne relisait. Scénario ajouté dans
+[auth_base.rs](../src-tauri/noyau/tests/auth_base.rs) — le compte est
+renommé `Ba "Le Grand" \ Traoré`, promu, et la ligne de journal est
+relue par `serde_json::from_str` puis comparée champ à champ.
+
+Mesuré : `cargo check --workspace --all-targets` au vert sans
+avertissement ; **395 tests noyau SQLite** (394 + le nouveau), 0 échec ;
+sur PostgreSQL (`gescom_test`), `auth_base` **17/17** et
+`entretien_base` **5/5**, 0 échec — c'est la transaction de R1 qui est
+vérifiée là, sur le moteur où elle compte le plus.
+
+Ce que cette correction ne prouve pas : aucun scénario ne coupe
+l'alimentation au milieu d'une réimputation. L'atomicité repose sur la
+transaction du moteur, pas sur un test — et les routes HTTP, elles, ne
+sont toujours pas testées.
+
+## R2 corrigé — la copie précède la réparation — **16/09/2026**
+
+`persistance::entretenir` faisait deux choses en une : le `VACUUM INTO`
+qui produit la copie, puis le `REINDEX; VACUUM;` qui compacte. Comme
+l'appelant réparait les règlements fournisseur globaux **avant**
+d'appeler cette fonction, la copie « de sécurité » contenait déjà la
+réaffectation — elle ne protégeait que du compactage, jamais de l'étape
+qui déplace de l'argent. Le chemin PostgreSQL, lui, faisait son
+`pg_dump` en premier : les deux moteurs ne racontaient pas la même
+histoire, et la console annonçait celle de PostgreSQL.
+
+La fonction se scinde en **`copier_avant`** et **`compacter`**, et
+`entretenir_base_sur_base` suit maintenant l'ordre annoncé : intégrité →
+copie → réimputation → compactage. Aucun autre appelant à reprendre,
+`entretenir` n'en avait qu'un.
+
+Scénario ajouté dans
+[entretien_base.rs](../src-tauri/noyau/tests/entretien_base.rs) : après
+un entretien qui réaffecte, la base vivante n'a plus de règlement
+global, mais **la copie rouverte en contient encore un**. SQLite
+seulement — un dump PostgreSQL ne se relit pas comme une base.
+
+Mesuré : **396 tests noyau SQLite**, 0 échec ; `entretien_base` **6/6**
+sur PostgreSQL. R3 et R4 (les images) restent ouverts.
+
+### Un scénario instable, trouvé en passant
+
+`gestion_base::une_creance_se_regle_en_deux_fois_puis_un_reglement_s_annule`
+échoue environ une fois sur trois : deux règlements écrits dans la même
+seconde, et `lire_reglements_client_sur_base` trie `ORDER BY
+p.date_paiement DESC` **sans départage** — l'ordre des deux lignes est
+alors celui que le moteur veut, et le test lit `reglements[1]`. Sans
+rapport avec R1 ni R2 : le chemin des créances n'a pas été touché, et
+la suite complète repasse au vert au ré-essai. Noté dans ALERTES.md pour
+qu'un échec de ce test n'accuse pas le prochain chantier. Non corrigé :
+le remède (départager par `id` ou par `cree_le`) change un ordre
+d'affichage, ça se décide.

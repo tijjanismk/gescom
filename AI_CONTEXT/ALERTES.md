@@ -11,15 +11,20 @@ semblent vivantes.
 
 ---
 
-## Cinq écarts connus, non corrigés (revue du 16/09/2026)
+## Deux écarts connus, non corrigés (revue du 16/09/2026)
 
-Avant de toucher à l'entretien, aux images ou à `--promouvoir`, lire
-[ETAPES.md](ETAPES.md) § Revue du 16/09/2026 : la réimputation des
-règlements globaux écrit de l'argent **hors transaction** (R1), la copie
-de sécurité SQLite est faite **après** elle (R2), la lecture des images
-n'a pas de dossier de repli sur PostgreSQL (R3), une image qui change
-d'extension laisse l'ancienne sur le disque (R4), le JSON du journal de
-`--promouvoir` est construit par `format!` (R5).
+Avant de toucher aux images, lire [ETAPES.md](ETAPES.md) § Revue du
+16/09/2026 : la lecture des images n'a pas de dossier de repli sur
+PostgreSQL (R3), et une image qui change d'extension laisse l'ancienne
+sur le disque (R4). R1 (argent réécrit hors transaction), R2 (copie de
+sécurité prise après la réimputation) et R5 (JSON du journal assemblé à
+la main) sont corrigés depuis le 16/09/2026.
+
+⚠️ **Un scénario instable**, sans rapport avec ces écarts :
+`gestion_base::une_creance_se_regle_en_deux_fois…` échoue environ une
+fois sur trois — deux règlements dans la même seconde, un `ORDER BY
+p.date_paiement DESC` sans départage. Un échec de CE test n'accuse pas
+la modification en cours ; le relancer.
 
 ⚠️ **Un helper du serveur qui prend le verrou de la base ne s'appelle
 pas verrou en main** : `sauvegarde::dossier` relit son réglage par

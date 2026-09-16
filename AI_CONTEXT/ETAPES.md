@@ -7,10 +7,12 @@ décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 
 Dernière mise à jour : **16 septembre 2026** (revue du code de la séance
 du 13/09 ; `deepseek-context/` replié ici et supprimé).
-État : **394 tests noyau SQLite** (`cargo test -p gescom-noyau`) et
-**414 tests workspace SQLite** (`--workspace`), tous au vert ;
+État : **396 tests noyau SQLite** (`cargo test -p gescom-noyau`,
+mesuré le 16/09 après R1, R2 et R5) ; **414 tests workspace SQLite**
+(`--workspace`, mesure du 13/09, non rejouée depuis) ;
 **394 tests noyau sur PostgreSQL** (suite complète sur `gescom_test`,
-0 échec) ; **140 scénarios** en seize fichiers `*_base.rs` qui
+0 échec le 13/09 ; `auth_base` et `entretien_base` rejoués le 16/09,
+23 tests, 0 échec) ; **142 scénarios** en seize fichiers `*_base.rs` qui
 tournent sur les deux moteurs (`GESCOM_PG`). Serveur : **193
 commandes**, rejouées **141/141** par HTTP sur base neuve, et
 `POST /entretien` vérifié par HTTP (D9). `cargo check --workspace
@@ -63,15 +65,16 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 ## Revue du 16/09/2026 — à corriger, par ordre de gravité
 
 Relecture des lots du 13/09 contre les règles de CLAUDE.md. Le récit est
-dans [JOURNAL.md](JOURNAL.md) § 16/09/2026.
+dans [JOURNAL.md](JOURNAL.md) § 16/09/2026. **R1, R2 et R5 sont
+corrigés ; R3 et R4 restent ouverts.**
 
 | # | quoi | où |
 |---|---|---|
-| R1 | **La réimputation des règlements globaux réécrit de l'argent hors transaction** (`DELETE` puis N `INSERT` par règlement) — règle 4. L'aide est en `&mut impl Acces` pour être appelée depuis une `tx` | `noyau/src/parametres.rs` (`entretenir_base_sur_base`), `noyau/src/argent.rs` (`reallouer_globaux_sur`) |
-| R2 | **Sur SQLite la copie de sécurité est faite APRÈS la réimputation** (le `VACUUM INTO` vit dans `persistance::entretenir`) ; sur PostgreSQL le `pg_dump` précède. Le filet ne couvre pas l'étape qui touche à l'argent, et la console annonce l'inverse | `noyau/src/parametres.rs`, `noyau/src/persistance/mod.rs`, `serveur/src/console.rs` |
+| R1 | ~~**La réimputation des règlements globaux réécrivait de l'argent hors transaction**~~ **corrigé le 16/09/2026** : `reimputer_paiements_globaux_sur_base` ouvre `base.transaction()` et passe `&mut tx` aux deux aides — le `DELETE` du règlement global et les `INSERT` qui le reposent sont désormais tout ou rien (règle 4) | `noyau/src/chantiers.rs`, `noyau/src/argent.rs` (`reallouer_globaux_sur`) |
+| R2 | ~~**Sur SQLite la copie de sécurité était faite APRÈS la réimputation**~~ **corrigé le 16/09/2026** : `persistance::entretenir` se scinde en `copier_avant` et `compacter`, et l'entretien copie → réimpute → compacte, comme le `pg_dump` le fait déjà sur PostgreSQL. Scénario : la copie relue montre l'état d'avant | `noyau/src/parametres.rs`, `noyau/src/persistance/mod.rs` |
 | R3 | **La lecture des images oublie le dossier sur PostgreSQL** : `lire_*_base64` sur base fait `base.sqlite().and_then(…)` → `None`, quand l'écriture et la suppression utilisent `dossier_des_images_base` | `serveur/src/socle.rs` |
 | R4 | **Changer d'extension laisse l'ancienne image** (`logo.jpg` sur `logo.png`) et le repli de lecture balaie `png` d'abord : colonne vidée → ancien logo. `supprimer` sait déjà balayer les extensions | `noyau/src/images.rs` (`poser_fichier`) |
-| R5 | **Le JSON du journal de `--promouvoir` est construit par `format!`** : un nom avec `"` ou `\` le casse | `noyau/src/auth.rs` |
+| R5 | ~~**Le JSON du journal de `--promouvoir` est construit par `format!`**~~ **corrigé le 16/09/2026** : `serde_json::json!(…).to_string()`, avec un scénario qui promeut un nom portant guillemet et barre oblique inverse | `noyau/src/auth.rs` |
 
 Mineurs : `--promouvoir` cherche `pseudo` seul (la connexion accepte
 `pseudo OR email`) et ne regarde pas `u.actif` ; la modale des
@@ -90,7 +93,7 @@ Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
   dit « restaurer la dernière sauvegarde », aucun bouton ne le fait.
 - **Les routes HTTP ne sont pas testées** : les scénarios couvrent le
   noyau, pas `serveur/src/api.rs`. C'est ce qui a laissé passer
-  l'interblocage du 13/09, et R1…R3 sont toutes sur ce chemin. Un seul
+  l'interblocage du 13/09, et R3 est encore sur ce chemin. Un seul
   test de route vaudrait cher.
 - **Les commandes Tauri n'ont aucun test** — à commencer par
   `creer_vente`, `valider_facture`, `regler_dette_fournisseur`.
@@ -102,6 +105,12 @@ Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
 - `lire_fournisseurs_pagines` construit son `WHERE` par `format!()`.
 - `ModalImpression` fait doublon avec `ApercuPiece` ; codes-barres non
   dessinés ; pièces historiques restées en `validee`.
+- **Un scénario instable** : `gestion_base::une_creance_se_regle_en_deux_fois_puis_un_reglement_s_annule`
+  échoue environ une fois sur trois. Deux règlements écrits dans la même
+  seconde et `lire_reglements_client_sur_base` trie `ORDER BY
+  p.date_paiement DESC` **sans départage** : l'ordre des deux lignes est
+  alors celui que le moteur veut. Vu le 16/09/2026, antérieur aux
+  corrections R1/R2 (le chemin des créances n'a pas été touché).
 - Hors code : signature de l'installeur (D5), impression papier réelle.
 
 ## v3 — fondation posée, pas commencée
