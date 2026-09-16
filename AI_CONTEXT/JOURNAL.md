@@ -576,7 +576,9 @@ passe en `PGPASSWORD`) :
 Au passage : retiré le message de démarrage périmé « aucune des 186
 commandes ne répond encore (D11) » (187/187 est servi depuis le 12/09),
 et créé `deepseek-context/` — instantané d'état, plan et reste, pour
-qu'un agent externe reprenne sans relire la conversation.
+qu'un agent externe reprenne sans relire la conversation. (Ce dossier a
+été replié dans `AI_CONTEXT/` et supprimé le 16/09/2026 : deux cartes du
+même projet divergent, et la carte qui ne se met pas à jour ment.)
 
 ## La caisse écran par écran rejouée — **fait le 13/09/2026**
 
@@ -736,7 +738,8 @@ calculant le dossier **avant** de prendre le verrou (le même ordre que
 `etat: ok` avec — copie lisible par `pg_restore --list` (201 entrées),
 trace au journal `origine = serveur`. Leçon : les routes du serveur ne
 sont pas testées automatiquement ; un test de route, même un seul,
-vaudrait cher ([RESTE.md](../../deepseek-context/RESTE.md)).
+vaudrait cher (dette reprise dans [ETAPES.md](ETAPES.md) § Dette
+connue).
 
 Mesuré en fin de séance, les deux moteurs : **394 tests noyau
 SQLite**, **414 tests workspace SQLite** (les chiffres précédents —
@@ -744,3 +747,60 @@ SQLite**, **414 tests workspace SQLite** (les chiffres précédents —
 sur PostgreSQL, suite complète du paquet sur `gescom_test` : **394
 tests, 0 échec**, dont **140 scénarios** répartis dans **seize**
 fichiers `*_base.rs`.
+
+## Revue du code de la séance, et la carte recentrée — **16/09/2026**
+
+Relecture des quatre lots du 13/09 (D6 `--promouvoir`, D7 écran des
+permissions, D8 images par le serveur, D9 entretien au serveur) contre
+les règles de CLAUDE.md. `cargo check --workspace --all-targets` : exit
+0, aucun avertissement.
+
+**Ce qui tient.** La correction d'interblocage de `POST /entretien` est
+la bonne — `sauvegarde::dossier` reprend le verrou, le calculer avant
+règle le cas, et `sauvegarde_manuelle` suit le même ordre. D8 met sa
+validation une seule fois dans le noyau, n'interpole que des noms de
+colonnes tirés d'une liste fermée, et aucun chemin reçu du réseau
+n'atteint `join` : le nom sur disque vient du genre. D9 refuse net sur
+base en mémoire et sur base corrompue, et journalise avec `dossier_id`.
+D6 écrit sous transaction, est idempotent, refuse un compte inconnu.
+
+**Cinq écarts trouvés**, tous dans le chemin de l'entretien ou autour :
+
+1. **La réimputation réécrit de l'argent hors transaction.**
+   `reimputer_paiements_globaux_sur_base` passe `base` directement à
+   `reallouer_globaux_sur`, qui fait `DELETE` puis N `INSERT` par
+   règlement global. Chaque ordre s'exécute pour lui-même : une coupure
+   entre les deux fait disparaître un paiement fournisseur. C'est la
+   règle 4 de CLAUDE.md, et l'aide est écrite en `&mut impl Acces`
+   précisément pour être appelée depuis une `tx` — c'est ce que fait
+   `regler_dette_fournisseur_sur_base`.
+2. **Sur SQLite, la « copie avant » est faite après la réimputation** :
+   le `VACUUM INTO` vit dans `persistance::entretenir`, appelé après. Sur
+   PostgreSQL le `pg_dump` précède bien. Le filet ne couvre donc pas
+   l'étape qui touche à l'argent — celle qui en a le plus besoin (cf. 1)
+   — alors que la console annonce une copie avant.
+3. **La lecture des images oublie le dossier sur PostgreSQL** :
+   `lire_*_base64` sur base fait `c.base.sqlite().and_then(…)` → `None`
+   sur PG, quand l'écriture et la suppression utilisent
+   `dossier_des_images_base`. Invisible tant que la colonne porte le
+   chemin ; le repli ne trouve rien le jour où elle est vide.
+4. **Changer d'extension laisse l'ancienne image sur le disque**
+   (`logo.jpg` par-dessus `logo.png`), et le repli de lecture balaie
+   `png` en premier : une colonne vidée fait ressortir l'ancien logo. Le
+   test de réécriture ne couvre que png → png.
+5. **D6 construit le JSON du journal par `format!`** : un nom contenant
+   `"` ou `\` produit un `nouveau_valeur` invalide.
+
+Mineurs notés : `--promouvoir` cherche `pseudo` seul quand la connexion
+accepte `pseudo OR email`, et ne regarde pas `u.actif` ; la modale des
+permissions garde une coche « effective » figée au chargement et
+applique une commande par permission, sans rafraîchir si l'une échoue.
+Structurel : faire prendre à `sauvegarde::dossier` un `&mut Base` ferait
+refuser par le compilateur la reprise de verrou qui a mordu le 13/09.
+
+**La carte recentrée.** `deepseek-context/` supprimé : son contenu
+encore vrai est replié ici — la dette dans [ETAPES.md](ETAPES.md)
+§ Dette connue, l'environnement de la machine dans
+[modules/environnement-windows.md](modules/environnement-windows.md).
+Un instantané figé à côté d'une carte tenue à jour finit par dire le
+contraire d'elle, et rien n'indique laquelle a raison.

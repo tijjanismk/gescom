@@ -5,15 +5,17 @@ Le récit daté de chaque avancée vit dans [JOURNAL.md](JOURNAL.md), les
 décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md).
 
-Dernière mise à jour : **13 septembre 2026**.
+Dernière mise à jour : **16 septembre 2026** (revue du code de la séance
+du 13/09 ; `deepseek-context/` replié ici et supprimé).
 État : **394 tests noyau SQLite** (`cargo test -p gescom-noyau`) et
 **414 tests workspace SQLite** (`--workspace`), tous au vert ;
 **394 tests noyau sur PostgreSQL** (suite complète sur `gescom_test`,
 0 échec) ; **140 scénarios** en seize fichiers `*_base.rs` qui
 tournent sur les deux moteurs (`GESCOM_PG`). Serveur : **193
 commandes**, rejouées **141/141** par HTTP sur base neuve, et
-`POST /entretien` vérifié par HTTP (D9). Dernier commit : voir
-`git log`.
+`POST /entretien` vérifié par HTTP (D9). `cargo check --workspace
+--all-targets` au vert le 16/09, sans avertissement. Dernier commit :
+voir `git log`.
 
 ---
 
@@ -57,6 +59,50 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | 7 | Une **vraie impression papier**, le glisser-déposer du pied | jamais vérifiés à la main |
 | 8 | La fenêtre en **mode caisse**, pour de bon | tous les essais passent par HTTP — `outils/caisse_pg.py` rejoué le 13/09 : 141/141 ok sur PostgreSQL, base neuve ; la fenêtre Tauri elle-même n'a pas été utilisée |
 | 9 | Le déclencheur de stock sur SQLite multi-dossier | un mouvement de `dossier-b` crée sa ligne de stock dans `defaut` ; sans effet tant qu'une base SQLite n'a qu'un dossier — à régler avec la v3 |
+
+## Revue du 16/09/2026 — à corriger, par ordre de gravité
+
+Relecture des lots du 13/09 contre les règles de CLAUDE.md. Le récit est
+dans [JOURNAL.md](JOURNAL.md) § 16/09/2026.
+
+| # | quoi | où |
+|---|---|---|
+| R1 | **La réimputation des règlements globaux réécrit de l'argent hors transaction** (`DELETE` puis N `INSERT` par règlement) — règle 4. L'aide est en `&mut impl Acces` pour être appelée depuis une `tx` | `noyau/src/parametres.rs` (`entretenir_base_sur_base`), `noyau/src/argent.rs` (`reallouer_globaux_sur`) |
+| R2 | **Sur SQLite la copie de sécurité est faite APRÈS la réimputation** (le `VACUUM INTO` vit dans `persistance::entretenir`) ; sur PostgreSQL le `pg_dump` précède. Le filet ne couvre pas l'étape qui touche à l'argent, et la console annonce l'inverse | `noyau/src/parametres.rs`, `noyau/src/persistance/mod.rs`, `serveur/src/console.rs` |
+| R3 | **La lecture des images oublie le dossier sur PostgreSQL** : `lire_*_base64` sur base fait `base.sqlite().and_then(…)` → `None`, quand l'écriture et la suppression utilisent `dossier_des_images_base` | `serveur/src/socle.rs` |
+| R4 | **Changer d'extension laisse l'ancienne image** (`logo.jpg` sur `logo.png`) et le repli de lecture balaie `png` d'abord : colonne vidée → ancien logo. `supprimer` sait déjà balayer les extensions | `noyau/src/images.rs` (`poser_fichier`) |
+| R5 | **Le JSON du journal de `--promouvoir` est construit par `format!`** : un nom avec `"` ou `\` le casse | `noyau/src/auth.rs` |
+
+Mineurs : `--promouvoir` cherche `pseudo` seul (la connexion accepte
+`pseudo OR email`) et ne regarde pas `u.actif` ; la modale des
+permissions garde une coche « effective » figée au chargement et
+n'annule rien si une des commandes échoue en cours d'enregistrement.
+Structurel : donner à `sauvegarde::dossier` un `&mut Base` plutôt qu'un
+`&Arc<Serveur>` ferait refuser par le compilateur la reprise de verrou
+qui a mordu le 13/09.
+
+## Dette connue
+
+Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
+`ALERTES.md` et les fiches `modules/*.md` restent plus récentes.
+
+- **Aucune restauration dans l'application** : le contrôle d'intégrité
+  dit « restaurer la dernière sauvegarde », aucun bouton ne le fait.
+- **Les routes HTTP ne sont pas testées** : les scénarios couvrent le
+  noyau, pas `serveur/src/api.rs`. C'est ce qui a laissé passer
+  l'interblocage du 13/09, et R1…R3 sont toutes sur ce chemin. Un seul
+  test de route vaudrait cher.
+- **Les commandes Tauri n'ont aucun test** — à commencer par
+  `creer_vente`, `valider_facture`, `regler_dette_fournisseur`.
+- **Un chèque rejeté ne défait pas son mouvement de caisse** : le
+  correctif propre est un mouvement INVERSE, pas une suppression ;
+  reste à décider si un rejet exige une caisse ouverte (D46).
+- **Bon de livraison partiel** : le suivi gère le partiel, le document
+  non — la conversion copie toutes les lignes à quantité pleine.
+- `lire_fournisseurs_pagines` construit son `WHERE` par `format!()`.
+- `ModalImpression` fait doublon avec `ApercuPiece` ; codes-barres non
+  dessinés ; pièces historiques restées en `validee`.
+- Hors code : signature de l'installeur (D5), impression papier réelle.
 
 ## v3 — fondation posée, pas commencée
 

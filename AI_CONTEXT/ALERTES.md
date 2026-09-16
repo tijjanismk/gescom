@@ -11,6 +11,21 @@ semblent vivantes.
 
 ---
 
+## Cinq écarts connus, non corrigés (revue du 16/09/2026)
+
+Avant de toucher à l'entretien, aux images ou à `--promouvoir`, lire
+[ETAPES.md](ETAPES.md) § Revue du 16/09/2026 : la réimputation des
+règlements globaux écrit de l'argent **hors transaction** (R1), la copie
+de sécurité SQLite est faite **après** elle (R2), la lecture des images
+n'a pas de dossier de repli sur PostgreSQL (R3), une image qui change
+d'extension laisse l'ancienne sur le disque (R4), le JSON du journal de
+`--promouvoir` est construit par `format!` (R5).
+
+⚠️ **Un helper du serveur qui prend le verrou de la base ne s'appelle
+pas verrou en main** : `sauvegarde::dossier` relit son réglage par
+`Base` et reprend le mutex — c'est l'interblocage du 13/09, corrigé en
+calculant le dossier avant de verrouiller. Le mutex n'est pas réentrant.
+
 ## Deux fichiers du même nom : lequel ouvrir
 
 `src-tauri/src/commandes/<module>.rs` et `src-tauri/noyau/src/<module>.rs`

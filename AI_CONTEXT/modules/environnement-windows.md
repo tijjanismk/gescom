@@ -91,3 +91,22 @@ d'avant la modification et s'est comporté comme si l'option
 n'existait pas). **Remède** : `.\outils\cargo-tenace.ps1 build
 --package gescom-serveur` avant tout essai de la ligne de commande du
 serveur.
+
+## 6. Trois bases PostgreSQL sur cette machine, à ne jamais confondre
+
+PostgreSQL local sur `127.0.0.1:5432` (`psql` dans
+`C:\Program Files\PostgreSQL\18\bin`). Le mot de passe ne s'écrit pas
+ici : il est local, et D10 interdit un secret dans le dépôt.
+
+| base | usage |
+|---|---|
+| `gescom` | **la base du serveur**. Jamais `GESCOM_PG` dessus : les scénarios font `DROP SCHEMA public CASCADE` |
+| `gescom_test` | jetable, pour les tests automatisés |
+| `gescom_essai` | jetable, pour les essais à la main (serveur + clics) |
+
+Le serveur d'essai tourne sur le **port 7300** ; une instance
+`gescom.exe` (la fenêtre Tauri) peut tourner en même temps — vérifier
+avant d'ouvrir un serveur sur ce port. Pour que les autres postes le
+joignent : `outils/parefeu.ps1 -Ouvrir` (admin). Les comptes de la base
+d'essai exigent un changement de mot de passe à la première connexion ;
+`outils/caisse_pg.py` sait le rejouer.
