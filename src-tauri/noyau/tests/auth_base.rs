@@ -367,6 +367,36 @@ fn promouvoir_deux_fois_est_sans_effet() {
     assert_eq!(lignes, 1, "la seconde invocation n'écrit rien");
 }
 
+/// R5 : le detail du journal est SERIALISE, pas assemble a la main.
+/// Un nom qui porte un guillemet ou une barre oblique inverse cassait
+/// le JSON de `nouveau_valeur`, et plus rien ne le relisait.
+#[test]
+fn le_journal_de_la_promotion_reste_du_json_valide() {
+    let mut base = base_amorcee();
+    let nom_retors = r#"Ba "Le Grand" \ Traoré"#;
+    base.executer(
+        "UPDATE utilisateur SET nom = ?1
+         WHERE id = (SELECT utilisateur_id FROM utilisateur_auth WHERE pseudo = 'admin')",
+        &parametres![nom_retors],
+    )
+    .expect("renommer le compte");
+
+    auth::promouvoir_superadmin_sur(&mut base, "admin").expect("promotion");
+
+    let detail: String = base
+        .lire_une(
+            "SELECT nouveau_valeur FROM journal WHERE type_evenement = 'role_change'",
+            &[],
+            |r| r.get::<String>(0),
+        )
+        .unwrap()
+        .expect("la ligne de journal");
+    let lu: serde_json::Value = serde_json::from_str(&detail)
+        .unwrap_or_else(|e| panic!("le journal doit rester du JSON : {e} — {detail}"));
+    assert_eq!(lu["nom"], serde_json::json!(nom_retors), "le nom relu tel quel");
+    assert_eq!(lu["role"], serde_json::json!("superadmin"));
+}
+
 fn porteurs_superadmin(base: &mut Base) -> i64 {
     base.lire_une(
         "SELECT COUNT(*) FROM utilisateur u JOIN role r ON r.id = u.role_id

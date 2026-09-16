@@ -428,7 +428,9 @@ pub fn promouvoir_superadmin_sur(base: &mut Base, pseudo: &str) -> Result<String
     )
     .map_err(|e| e.0)?;
     // Le geste de secours est un changement de droits comme un autre :
-    // il s'écrit au journal, append-only.
+    // il s'écrit au journal, append-only. Le detail est serialise, pas
+    // assemble a la main : un nom qui porte un guillemet ou une barre
+    // oblique inverse produisait un JSON que plus rien ne relisait.
     tx.executer(
         "INSERT INTO journal
            (id, type_evenement, entite_type, entite_id, auteur_id,
@@ -437,7 +439,7 @@ pub fn promouvoir_superadmin_sur(base: &mut Base, pseudo: &str) -> Result<String
         &parametres![
             uuid::Uuid::new_v4().to_string(),
             utilisateur_id,
-            format!(r#"{{"nom":"{nom}","role":"{}"}}"#, crate::portes::SUPERADMIN),
+            serde_json::json!({ "nom": nom, "role": crate::portes::SUPERADMIN }).to_string(),
             maintenant,
             dossier
         ],
