@@ -227,6 +227,17 @@ fn poser_fichier(
     let chemin = dossier.join(format!("{base}.{ext}"));
     std::fs::write(&chemin, contenu)
         .map_err(|e| format!("Impossible d'écrire l'image : {e}"))?;
+    // Le nouveau fichier écrit, les AUTRES extensions du même genre
+    // s'effacent : poser un `logo.jpg` par-dessus un `logo.png` laissait
+    // le png sur le disque, et le repli de lecture balaie les extensions
+    // dans l'ordre — une colonne vidée faisait revenir l'ancien logo.
+    // Dans cet ordre : si l'écriture échoue, l'image précédente est
+    // encore là.
+    for autre in EXTENSIONS_IMAGE {
+        if autre != ext {
+            let _ = std::fs::remove_file(dossier.join(format!("{base}.{autre}")));
+        }
+    }
     Ok((colonne, chemin))
 }
 

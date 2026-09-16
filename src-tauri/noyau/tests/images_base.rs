@@ -181,6 +181,36 @@ fn sans_dossier_refuse_plutot_que_faire_semblant() {
     assert!(refus.contains("aucun dossier"), "message inattendu : {refus}");
 }
 
+/// R4 : changer d'extension n'abandonne pas l'ancien fichier.
+///
+/// Le nom sur disque vient du genre, l'extension du fichier choisi :
+/// poser un `logo.jpg` par-dessus un `logo.png` laissait le png en
+/// place. Le repli de lecture balaie les extensions dans l'ordre
+/// (`png` d'abord) — une colonne vidée faisait donc revenir l'ANCIEN
+/// logo, pas le dernier posé.
+#[test]
+fn changer_d_extension_efface_l_ancien_fichier() {
+    let mut base = base_avec_demo();
+    let dossier = DossierEssai::nouveau();
+
+    images::ecrire_sur_base(&mut base, "logo", "logo.png", &png_de_essai(), Some(dossier.chemin()))
+        .expect("le png d'abord");
+    let jpg = b"le nouveau logo, en jpg".to_vec();
+    images::ecrire_sur_base(&mut base, "logo", "logo.jpg", &jpg, Some(dossier.chemin()))
+        .expect("le jpg ensuite");
+
+    assert!(dossier.chemin().join("logo.jpg").exists(), "le nouveau fichier manque");
+    assert!(!dossier.chemin().join("logo.png").exists(), "l'ancien png reste sur le disque");
+
+    // Et le repli, colonne vidée, ne peut plus rendre que le dernier posé.
+    base.executer("UPDATE parametres_societe SET logo_chemin = NULL WHERE id = 1", &[])
+        .expect("vider la colonne");
+    let relu = images::lire_base64_sur_base(&mut base, "logo", Some(dossier.chemin()))
+        .expect("relire")
+        .expect("le repli trouve le jpg");
+    assert_eq!(corps_data_url(&relu), jpg, "le repli rend l'ancien logo");
+}
+
 #[test]
 fn supprimer_efface_la_colonne_et_le_fichier() {
     let mut base = base_avec_demo();

@@ -659,7 +659,11 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
     r.aussi_sur_base("lire_logo_base64", |c, _| {
-        let dossier = c.base.sqlite().and_then(dossier_des_images);
+        // Le MEME dossier qu'a l'ecriture et a la suppression : sur
+        // PostgreSQL, `sqlite()` ne rend rien et le repli « a cote du
+        // fichier » laissait les images sur le disque introuvables
+        // des que la colonne etait vide.
+        let dossier = dossier_des_images_base(c.base);
         let v = gescom_noyau::images::lire_base64_sur_base(c.base, "logo", dossier.as_deref())?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
@@ -671,7 +675,11 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
     r.aussi_sur_base("lire_entete_base64", |c, _| {
-        let dossier = c.base.sqlite().and_then(dossier_des_images);
+        // Le MEME dossier qu'a l'ecriture et a la suppression : sur
+        // PostgreSQL, `sqlite()` ne rend rien et le repli « a cote du
+        // fichier » laissait les images sur le disque introuvables
+        // des que la colonne etait vide.
+        let dossier = dossier_des_images_base(c.base);
         let v = gescom_noyau::images::lire_base64_sur_base(c.base, "entete", dossier.as_deref())?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
@@ -683,7 +691,11 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
     r.aussi_sur_base("lire_pied_base64", |c, _| {
-        let dossier = c.base.sqlite().and_then(dossier_des_images);
+        // Le MEME dossier qu'a l'ecriture et a la suppression : sur
+        // PostgreSQL, `sqlite()` ne rend rien et le repli « a cote du
+        // fichier » laissait les images sur le disque introuvables
+        // des que la colonne etait vide.
+        let dossier = dossier_des_images_base(c.base);
         let v = gescom_noyau::images::lire_base64_sur_base(c.base, "pied", dossier.as_deref())?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
