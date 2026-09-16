@@ -157,14 +157,26 @@ pub fn regler_dette_fournisseur(
 /// dossier est ici explicite, comme partout sur `Base`.
 pub fn reimputer_paiements_globaux_sur_base(base: &mut crate::base::Base) -> Result<i64, String> {
     let dossier = base.dossier().to_string();
-    let fournisseurs: Vec<String> = base.lire_plusieurs(
-        "SELECT DISTINCT fournisseur_id FROM paiement_fournisseur
-         WHERE piece_id IS NULL AND dossier_id = ?1",
-        &parametres![dossier],
-        |r| r.get::<String>(0),
-    )?;
-
     let now = maintenant_iso();
+
+    // TOUT OU RIEN (regle 4). Repartir un reglement global, c'est
+    // l'effacer (DELETE) puis le reposer en plusieurs lignes (INSERT) :
+    // hors transaction, une coupure entre les deux ferait DISPARAITRE un
+    // paiement fournisseur. C'est pourquoi `reallouer_globaux_sur` et
+    // `imputer_paiements_fournisseur_sur` prennent `&mut impl Acces` :
+    // ici comme depuis `regler_dette_fournisseur_sur_base`, elles
+    // travaillent dans la transaction de leur appelant.
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+
+    let fournisseurs: Vec<String> = tx
+        .lire_plusieurs(
+            "SELECT DISTINCT fournisseur_id FROM paiement_fournisseur
+             WHERE piece_id IS NULL AND dossier_id = ?1",
+            &parametres![dossier],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?;
+
     let mut reparties = 0_i64;
 
     for f_id in fournisseurs {
@@ -172,10 +184,11 @@ pub fn reimputer_paiements_globaux_sur_base(base: &mut crate::base::Base) -> Res
         // `imputer_paiements_fournisseur_sur` recalcule les statuts :
         // un seul chemin, celui qu'empruntent aussi les reglements
         // courants.
-        reparties += crate::argent::reallouer_globaux_sur(base, &f_id, &now)?;
-        crate::argent::imputer_paiements_fournisseur_sur(base, &f_id, &now)?;
+        reparties += crate::argent::reallouer_globaux_sur(&mut tx, &f_id, &now)?;
+        crate::argent::imputer_paiements_fournisseur_sur(&mut tx, &f_id, &now)?;
     }
 
+    tx.valider().map_err(|e| e.0)?;
     Ok(reparties)
 }
 

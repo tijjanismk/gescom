@@ -954,10 +954,12 @@ pub fn diagnostiquer_base_sur_base(base: &mut Base) -> Result<serde_json::Value,
 /// de securite va dans le dossier que le serveur tient deja pour ses
 /// sauvegardes.
 ///
-/// SQLite : l'integrite est verifiee AVANT (sur une base deja abimee,
-/// REINDEX et VACUUM peuvent aggraver les degats), puis les paiements
-/// globaux sont repares, puis la copie `VACUUM INTO` horodatee et le
-/// compactage.
+/// SQLite, dans l'ordre : l'integrite d'abord (sur une base deja
+/// abimee, REINDEX et VACUUM peuvent aggraver les degats), puis la copie
+/// `VACUUM INTO` horodatee, puis la reparation des paiements globaux,
+/// puis le compactage. La copie precede la reparation : celle-ci
+/// deplace de l'argent, et une copie prise apres elle ne permettrait
+/// pas d'y revenir.
 ///
 /// PostgreSQL : la copie est un `pg_dump` — la meme machinerie que la
 /// sauvegarde — et l'entretien un `VACUUM (ANALYZE)`. Pas de
@@ -998,14 +1000,21 @@ pub fn entretenir_base_sur_base(
             chrono::Local::now().format("%Y%m%d_%H%M%S")
         ));
         let _ = std::fs::remove_file(&copie);
+        // La copie D'ABORD, la reimputation ENSUITE : elle deplace de
+        // l'argent d'une facture a l'autre, et une copie prise apres
+        // elle ne permettrait pas d'y revenir. Le chemin PostgreSQL fait
+        // deja son `pg_dump` en premier ; les deux moteurs racontent
+        // maintenant la meme histoire, celle que la console annonce.
         let avant = {
             let conn = base.sqlite().unwrap();
+            crate::persistance::copier_avant(conn, &copie.to_string_lossy())
+                .map_err(|e| format!("Copie de sécurité impossible : {e}"))?;
             let pages: i64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0)).unwrap_or(0);
             let taille_page: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0)).unwrap_or(0);
             pages * taille_page
         };
         let reimputes = crate::chantiers::reimputer_paiements_globaux_sur_base(base)?;
-        let apres = crate::persistance::entretenir(base.sqlite().unwrap(), &copie.to_string_lossy())
+        let apres = crate::persistance::compacter(base.sqlite().unwrap())
             .map_err(|e| format!("Entretien interrompu : {e}"))?;
         return conclure_entretien(
             base,

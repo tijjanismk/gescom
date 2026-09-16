@@ -383,7 +383,27 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
 
     Ok(())
 }
-/// Entretien de la base : reconstruction des index et compactage.
+/// La copie de securite qui precede l'entretien.
+///
+/// Les deux moitiés de l'entretien sont SEPAREES — copier, puis
+/// compacter — parce qu'entre les deux l'appelant repare les reglements
+/// fournisseur globaux : il touche a l'argent. Une copie prise APRES
+/// cette reparation ne protege plus d'elle. C'est l'ordre que suit deja
+/// le chemin PostgreSQL, ou le `pg_dump` precede tout.
+///
+/// `VACUUM INTO` produit une copie COHERENTE, contenu du WAL inclus.
+/// Une copie de fichier a la main donnerait une base amputee des
+/// ecritures recentes — le piege documente dans MANUEL.md §13.
+pub fn copier_avant(conn: &Connection, copie: &str) -> Result<()> {
+    // Chemin en PARAMETRE LIE, jamais interpole : une apostrophe dans
+    // un nom d'utilisateur Windows cassait la requete (cf. le meme
+    // commentaire dans sauvegarde.rs).
+    conn.execute("VACUUM INTO ?1", rusqlite::params![copie])?;
+    Ok(())
+}
+
+/// La reindexation et le compactage, une fois la copie prise. Rend la
+/// taille du fichier apres coup.
 ///
 /// C'est l'equivalent de la « reparation » des vieux logiciels de
 /// gestion — et ce que ce mot recouvrait vraiment : une REINDEXATION.
@@ -396,18 +416,9 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
 ///
 /// Ce que ca NE corrige PAS : une page de donnees corrompue. Aucune
 /// commande SQL ne recree une donnee perdue. C'est pour ca qu'on exige
-/// une copie AVANT — VACUUM reecrit tout le fichier, et sur une base
+/// `copier_avant` — VACUUM reecrit tout le fichier, et sur une base
 /// deja abimee cette reecriture peut aggraver les degats.
-pub fn entretenir(conn: &Connection, copie_avant: &str) -> Result<u64> {
-    // `VACUUM INTO` produit une copie COHERENTE, contenu du WAL inclus.
-    // Une copie de fichier a la main donnerait une base amputee des
-    // ecritures recentes — le piege documente dans MANUEL.md §13.
-    //
-    // Chemin en PARAMETRE LIE, jamais interpole : une apostrophe dans
-    // un nom d'utilisateur Windows cassait la requete (cf. le meme
-    // commentaire dans sauvegarde.rs).
-    conn.execute("VACUUM INTO ?1", rusqlite::params![copie_avant])?;
-
+pub fn compacter(conn: &Connection) -> Result<u64> {
     conn.execute_batch("REINDEX; VACUUM;")?;
 
     let pages: i64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;

@@ -218,6 +218,47 @@ fn en_memoire_l_entretien_refuse_plutot_que_faire_semblant() {
     assert!(refus.contains("mémoire"), "message inattendu : {refus}");
 }
 
+/// R2 : la copie de securite est prise AVANT la reimputation.
+///
+/// La reimputation deplace de l'argent d'une facture a l'autre. Une
+/// copie prise apres elle contiendrait deja le deplacement, et ne
+/// permettrait pas d'y revenir — le filet ne couvrirait que le VACUUM.
+/// SQLite seulement : un dump PostgreSQL ne se relit pas comme une base.
+#[test]
+fn la_copie_de_securite_precede_la_reimputation() {
+    if std::env::var("GESCOM_PG").is_ok() {
+        return;
+    }
+    let mut e = BaseEntretien::nouvelle();
+    let dossier = DossierEssai::nouveau();
+    let f = fournisseur(&mut e.base, "Grossiste");
+    let _ = acheter_a_credit(&mut e.base, &f, 2.0);
+    ouvrir_caisse(&mut e.base);
+    argent::regler_dette_fournisseur_sur_base(&mut e.base, f.clone(), 1_000, "especes".into(), None, None)
+        .expect("reglement global");
+    oublier_l_affectation(&mut e.base, &f);
+
+    let r = parametres::entretenir_base_sur_base(&mut e.base, dossier.chemin())
+        .expect("entretien");
+    assert!(r["reimputes"].as_i64().unwrap() >= 1, "il y avait bien à réaffecter : {r}");
+
+    let globales = "SELECT COUNT(*) FROM paiement_fournisseur
+                    WHERE piece_id IS NULL AND fournisseur_id = ?1";
+    assert_eq!(
+        compter(&mut e.base, globales, &parametres![f.clone()]),
+        0,
+        "la base vivante est réaffectée"
+    );
+
+    // Et la copie, elle, montre l'etat d'AVANT : c'est tout son interet.
+    let chemin = r["copie"].as_str().expect("le chemin de la copie");
+    let mut copie = Base::ouvrir(chemin).expect("relire la copie");
+    assert!(
+        compter(&mut copie, globales, &parametres![f]) >= 1,
+        "la copie doit précéder la réimputation, pas la suivre"
+    );
+}
+
 #[test]
 fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     let mut e = BaseEntretien::nouvelle();
