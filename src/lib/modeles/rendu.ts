@@ -82,6 +82,20 @@ function fmtNombre(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(".", ",");
 }
 
+/**
+ * Une fraction (0,18) en pour-cent : « 18 % ».
+ *
+ * La TVA est stockée en fraction — `ligne_piece.taux_tva` vaut 0,18 —
+ * et une colonne « TVA » au format `nombre` imprimait « 0,18 » sur la
+ * facture du client. Espace insécable avant le signe, comme pour la
+ * devise : « 18 % » ne doit pas se couper en fin de colonne.
+ */
+function fmtPourcentage(n: number): string {
+  const p = n * 100;
+  const corps = Number.isInteger(p) ? String(p) : p.toFixed(1).replace(".", ",");
+  return `${corps} %`;
+}
+
 function fmtDate(v: unknown): string {
   const s = String(v ?? "");
   if (!s) return "";
@@ -111,6 +125,8 @@ export function formater(
       return fmtMontant(Number(valeur) || 0, devise);
     case "nombre":
       return fmtNombre(Number(valeur) || 0);
+    case "pourcentage":
+      return fmtPourcentage(Number(valeur) || 0);
     case "date":
       return fmtDate(valeur);
     case "date_heure":

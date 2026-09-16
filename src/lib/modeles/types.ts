@@ -55,7 +55,18 @@ export const FORMATS: { id: FormatPapier; nom: string; largeurMm: number }[] = [
 ];
 
 export type Alignement = "gauche" | "centre" | "droite";
-export type FormatValeur = "texte" | "montant" | "nombre" | "date" | "date_heure";
+/**
+ * `pourcentage` attend une FRACTION (0,18) et imprime « 18 % » : c'est
+ * ainsi que la TVA est stockée. Une valeur déjà en pour-cent, comme
+ * `remise_pct` (5 pour 5 %), reste un `nombre`.
+ */
+export type FormatValeur =
+  | "texte"
+  | "montant"
+  | "nombre"
+  | "pourcentage"
+  | "date"
+  | "date_heure";
 
 export interface Colonne {
   id: string;
@@ -85,7 +96,12 @@ export interface Champ {
  * pour un corps de facture, dont la hauteur dépend du nombre de lignes.
  * Un pied de page, lui, a une hauteur FIXE et connue — on y place les
  * choses côte à côte : le cachet à gauche, les mentions légales au
- * centre, le numéro de page à droite.
+ * centre, les coordonnées bancaires à droite.
+ *
+ * Pas de numéro de page : il faudrait `counter(page)`, que le moteur
+ * d'impression de la fenêtre ne rend que dans les boîtes de marge
+ * `@page`, lesquelles ne se garnissent pas depuis le document. Le
+ * promettre ici ferait chercher un réglage qui n'existe pas.
  *
  * D'où des coordonnées en millimètres plutôt qu'un empilement. Les
  * millimètres et non les pixels, parce que la cible est du papier.
@@ -265,9 +281,9 @@ export const COLONNES_LIGNES: ChampDisponible[] = [
   { chemin: "unite_libelle", libelle: "Unité", format: "texte" },
   { chemin: "quantite", libelle: "Quantité", format: "nombre" },
   { chemin: "prix_unitaire", libelle: "Prix unitaire", format: "montant" },
-  { chemin: "remise_pct", libelle: "Remise %", format: "nombre" },
+  { chemin: "remise_pct", libelle: "Remise (déjà en %)", format: "nombre" },
   { chemin: "montant_ht", libelle: "Montant HT", format: "montant" },
-  { chemin: "taux_tva", libelle: "Taux TVA", format: "nombre" },
+  { chemin: "taux_tva", libelle: "Taux TVA", format: "pourcentage" },
   { chemin: "montant_tva", libelle: "Montant TVA", format: "montant" },
   { chemin: "montant_ttc", libelle: "Montant TTC", format: "montant" },
 ];
@@ -297,6 +313,36 @@ export const CHAMPS_PAR_GENRE: Record<GenreDocument, ChampDisponible[]> = {
     { chemin: "journal.especes_comptees", libelle: "Espèces comptées", format: "montant" },
     { chemin: "journal.ecart", libelle: "Écart", format: "montant" },
     { chemin: "journal.ouvert_par", libelle: "Ouverte par", format: "texte" },
+  ],
+};
+
+/**
+ * Les colonnes qu'un tableau peut porter, SELON LE GENRE.
+ *
+ * Un relevé ne liste pas des articles et un journal de caisse encore
+ * moins : proposer « Désignation, Quantité, Prix unitaire » dans leur
+ * éditeur envoyait le commerçant vers des colonnes vides. Les chemins
+ * sont ceux que `contexte.ts` pose dans `factures` et `mouvements`.
+ */
+export const COLONNES_PAR_GENRE: Record<GenreDocument, ChampDisponible[]> = {
+  facture: COLONNES_LIGNES,
+  bon_sortie: COLONNES_LIGNES,
+  recu_paiement: COLONNES_LIGNES,
+  releve_creance: [
+    { chemin: "date", libelle: "Date", format: "date" },
+    { chemin: "numero", libelle: "Numéro de pièce", format: "texte" },
+    { chemin: "type", libelle: "Type (facture / avoir)", format: "texte" },
+    { chemin: "total", libelle: "Total", format: "montant" },
+    { chemin: "paye", libelle: "Réglé", format: "montant" },
+    { chemin: "reste", libelle: "Reste dû", format: "montant" },
+  ],
+  journal_caisse: [
+    { chemin: "heure", libelle: "Heure", format: "texte" },
+    { chemin: "motif", libelle: "Motif", format: "texte" },
+    { chemin: "libelle", libelle: "Libellé", format: "texte" },
+    { chemin: "moyen", libelle: "Moyen de paiement", format: "texte" },
+    { chemin: "entree", libelle: "Entrée", format: "montant" },
+    { chemin: "sortie", libelle: "Sortie", format: "montant" },
   ],
 };
 

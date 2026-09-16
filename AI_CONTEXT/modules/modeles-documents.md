@@ -36,8 +36,14 @@ Une suite de **blocs** empilés, pas un canevas libre en x/y : sur un
 document commercial, ce qui doit bouger c'est l'ordre et le contenu.
 Un canevas libre laisserait poser un total à cheval sur le pied de page.
 
-Dix types : `entete`, `titre`, `champs`, `tableau`, `totaux`, `texte`,
-`signatures`, `trait`, `espace`, `saut_page`.
+Onze types : `entete`, `titre`, `champs`, `tableau`, `totaux`, `texte`,
+`signatures`, `pied_page`, `trait`, `espace`, `saut_page`.
+
+`pied_page` est le seul qui ne s'empile pas : c'est une BANDE de hauteur
+fixe, où les éléments se posent au millimètre (`position: fixed` à
+l'impression, donc répétée sur chaque page). Pas de numéro de page :
+`counter(page)` n'est rendu que dans les boîtes de marge `@page`, que le
+document ne peut pas garnir.
 
 Chaque bloc lit ses données par un **chemin** (`piece.numero`,
 `totaux.total_ttc`, `journal.ecart`). Le chemin est une chaîne : c'est
@@ -45,7 +51,13 @@ ce qui permet d'ajouter un champ sans toucher au code. Le catalogue des
 chemins connus est dans `types.ts` — un chemin absent du catalogue reste
 saisissable à la main.
 
-Les blocs `texte` et `titre` interpolent `{{chemin}}`.
+Les blocs `texte` et `titre` interpolent `{{chemin}}`, ainsi que les
+éléments texte du pied.
+
+Six formats de valeur : `texte`, `montant`, `nombre`, `pourcentage`,
+`date`, `date_heure`. **`pourcentage` attend une FRACTION** (0,18 → « 18 %»)
+parce que c'est ainsi que `ligne_piece.taux_tva` est stocké ; `remise_pct`,
+déjà en pour-cent (5 pour 5 %), reste un `nombre`.
 
 ## Règles métier
 
@@ -95,6 +107,43 @@ Les blocs `texte` et `titre` interpolent `{{chemin}}`.
    version + modèles). `Importer` le reprend. Sert à passer d'une
    *installation* à une autre — clé USB, nouvelle boutique — pas d'un
    poste à l'autre du même magasin.
+
+## Ce que la revue du 16/09/2026 a trouvé
+
+Corrigé dans la foulée :
+
+- **Un chemin tapé à la main remettait le format à « texte »** à chaque
+  frappe (`ChoixChemin` renvoyait `"texte"` au lieu de rien) : régler le
+  chemin d'une colonne « Montant » la faisait imprimer `875678` au lieu
+  de `875 678 FCFA`. Le format ne vient plus que de la liste.
+- **La colonne « TVA » imprimait `0,18`** : `taux_tva` est une fraction
+  et le modèle d'usine la déclarait en `nombre`. D'où le format
+  `pourcentage`. ⚠️ Les modèles DÉJÀ en base gardent `nombre` —
+  `assurerModelesParDefaut` n'écrase jamais ; il faut rouvrir la colonne
+  dans l'atelier.
+- **L'éditeur proposait les colonnes d'articles pour tous les genres** :
+  un relevé liste des factures, un journal des mouvements.
+  `COLONNES_PAR_GENRE` remplace `COLONNES_LIGNES` dans le sélecteur.
+
+Laissé ouvert, et c'est le plus important :
+
+- **Le modèle ACTIF ne sert à rien à l'impression.** `imprimerParModele`
+  — le seul lecteur de `actif` — **n'a aucun appelant**. `ModalImpression`
+  liste les modèles et n'en choisit aucun par défaut : sans clic, c'est
+  le générateur historique qui imprime. Toute la machinerie de l'actif
+  (index unique en base, repli à la suppression, ★) ne décide donc
+  aujourd'hui de rien.
+- **On ne peut pas voir son modèle avec de VRAIES données avant
+  d'imprimer.** `ApercuPiece` ne rend que `genererImpression` ;
+  l'atelier ne rend que le jeu d'essai. Le premier document réel sort
+  sur papier.
+- `contexteRecu`, `contexteReleve`, `contexteJournal` sont écrits,
+  testés par personne et **appelés par personne** : les trois genres
+  correspondants s'éditent dans l'atelier mais ne peuvent pas imprimer.
+- `assurerModelesParDefaut` part à CHAQUE connexion, sur chaque caisse,
+  et écrit sous la permission `modeles:gerer` : un caissier qui se
+  connecte le premier sur une base neuve ne sème rien, et l'erreur
+  part dans la console.
 
 ## Ce que ça ne remplace pas encore
 

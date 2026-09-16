@@ -27,7 +27,7 @@ import { EditeurPiedPage } from "@/components/EditeurPiedPage";
 
 import {
   CHAMPS_PAR_GENRE, CHAMPS_PIECE, CHAMPS_SOCIETE, CHAMPS_TOTAUX,
-  COLONNES_LIGNES, FORMATS, GENRES, SOURCE_PAR_GENRE,
+  COLONNES_PAR_GENRE, FORMATS, GENRES, SOURCE_PAR_GENRE,
 } from "@/lib/modeles/types";
 import type {
   Alignement, Bloc, Champ, ChampDisponible, Colonne, FormatPapier,
@@ -459,6 +459,13 @@ export function Modeles() {
     () => [...CHAMPS_PIECE, ...CHAMPS_TOTAUX, ...CHAMPS_SOCIETE, ...CHAMPS_PAR_GENRE[genre]],
     [genre],
   );
+  // Les colonnes d'un tableau dependent du genre : un releve liste des
+  // factures, un journal des mouvements. Proposer « Designation,
+  // Quantite, Prix unitaire » la-bas envoyait vers des colonnes vides.
+  const colonnesDispo: ChampDisponible[] = useMemo(
+    () => COLONNES_PAR_GENRE[genre],
+    [genre],
+  );
 
   if (chargement) {
     return (
@@ -665,6 +672,7 @@ export function Modeles() {
               <ProprietesBloc
                 bloc={selection}
                 champsDispo={champsDispo}
+                colonnesDispo={colonnesDispo}
                 onChange={(patch) => majBloc(selection.id, patch)}
                 format={modele?.format ?? "a4"}
                 images={images}
@@ -798,6 +806,7 @@ const FORMATS_VALEUR: { id: FormatValeur; nom: string }[] = [
   { id: "texte", nom: "Texte" },
   { id: "montant", nom: "Montant" },
   { id: "nombre", nom: "Nombre" },
+  { id: "pourcentage", nom: "Pourcentage (0,18 → 18 %)" },
   { id: "date", nom: "Date" },
   { id: "date_heure", nom: "Date et heure" },
 ];
@@ -807,13 +816,16 @@ function ChoixChemin({
 }: {
   valeur: string;
   champs: ChampDisponible[];
-  onChange: (chemin: string, format: FormatValeur) => void;
+  /** Le format n'est donné QUE par la liste : une saisie à la main
+   *  garde celui du champ, sinon régler le chemin d'une colonne
+   *  « Montant » la remettait en texte brut à chaque frappe. */
+  onChange: (chemin: string, format?: FormatValeur) => void;
 }) {
   return (
     <div className="flex gap-1">
       <Input
         className="h-8 font-mono text-[11px]" value={valeur}
-        onChange={(e) => onChange(e.target.value, "texte")}
+        onChange={(e) => onChange(e.target.value)}
         placeholder="piece.numero"
       />
       <Select
@@ -837,10 +849,12 @@ function ChoixChemin({
 }
 
 function ProprietesBloc({
-  bloc, champsDispo, onChange, format, images,
+  bloc, champsDispo, colonnesDispo, onChange, format, images,
 }: {
   bloc: Bloc;
   champsDispo: ChampDisponible[];
+  /** Les colonnes proposees pour un tableau, selon le genre. */
+  colonnesDispo: ChampDisponible[];
   onChange: (patch: Record<string, unknown>) => void;
   /** Le format décide de la largeur utile du pied, en millimètres. */
   format: string;
@@ -1185,7 +1199,7 @@ function ProprietesBloc({
                   }}
                 />
                 <ChoixChemin
-                  valeur={c.chemin} champs={COLONNES_LIGNES}
+                  valeur={c.chemin} champs={colonnesDispo}
                   onChange={(chemin, format) => {
                     const copie = [...cols];
                     copie[i] = { ...c, chemin, format: format ?? c.format };

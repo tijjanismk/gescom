@@ -154,7 +154,7 @@ function factureClassique(): Bloc[] {
         colonne("Unité", "unite_libelle", 9, "gauche", "texte"),
         colonne("P.U. HT", "prix_unitaire", 13, "droite", "montant"),
         colonne("Rem.", "remise_pct", 7, "droite", "nombre"),
-        colonne("TVA", "taux_tva", 7, "droite", "nombre"),
+        colonne("TVA", "taux_tva", 7, "droite", "pourcentage"),
         colonne("Montant HT", "montant_ht", 18, "droite", "montant"),
       ],
     },
