@@ -7,12 +7,12 @@ décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 
 Dernière mise à jour : **16 septembre 2026** (revue du code de la séance
 du 13/09 ; `deepseek-context/` replié ici et supprimé).
-État : **396 tests noyau SQLite** (`cargo test -p gescom-noyau`,
-mesuré le 16/09 après R1, R2 et R5) ; **414 tests workspace SQLite**
+État : **397 tests noyau SQLite** (`cargo test -p gescom-noyau`,
+mesuré le 16/09 après les cinq correctifs R1…R5) ; **414 tests workspace SQLite**
 (`--workspace`, mesure du 13/09, non rejouée depuis) ;
 **394 tests noyau sur PostgreSQL** (suite complète sur `gescom_test`,
-0 échec le 13/09 ; `auth_base` et `entretien_base` rejoués le 16/09,
-23 tests, 0 échec) ; **142 scénarios** en seize fichiers `*_base.rs` qui
+0 échec le 13/09 ; `auth_base`, `entretien_base` et `images_base`
+rejoués le 16/09, 34 tests, 0 échec) ; **143 scénarios** en seize fichiers `*_base.rs` qui
 tournent sur les deux moteurs (`GESCOM_PG`). Serveur : **193
 commandes**, rejouées **141/141** par HTTP sur base neuve, et
 `POST /entretien` vérifié par HTTP (D9). `cargo check --workspace
@@ -62,18 +62,18 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | 8 | La fenêtre en **mode caisse**, pour de bon | tous les essais passent par HTTP — `outils/caisse_pg.py` rejoué le 13/09 : 141/141 ok sur PostgreSQL, base neuve ; la fenêtre Tauri elle-même n'a pas été utilisée |
 | 9 | Le déclencheur de stock sur SQLite multi-dossier | un mouvement de `dossier-b` crée sa ligne de stock dans `defaut` ; sans effet tant qu'une base SQLite n'a qu'un dossier — à régler avec la v3 |
 
-## Revue du 16/09/2026 — à corriger, par ordre de gravité
+## Revue du 16/09/2026 — les cinq écarts, tous corrigés
 
 Relecture des lots du 13/09 contre les règles de CLAUDE.md. Le récit est
-dans [JOURNAL.md](JOURNAL.md) § 16/09/2026. **R1, R2 et R5 sont
-corrigés ; R3 et R4 restent ouverts.**
+dans [JOURNAL.md](JOURNAL.md) § 16/09/2026. **Les cinq sont corrigés**
+(R1, R2, R5 puis R3, R4) ; restent les mineurs ci-dessous.
 
 | # | quoi | où |
 |---|---|---|
 | R1 | ~~**La réimputation des règlements globaux réécrivait de l'argent hors transaction**~~ **corrigé le 16/09/2026** : `reimputer_paiements_globaux_sur_base` ouvre `base.transaction()` et passe `&mut tx` aux deux aides — le `DELETE` du règlement global et les `INSERT` qui le reposent sont désormais tout ou rien (règle 4) | `noyau/src/chantiers.rs`, `noyau/src/argent.rs` (`reallouer_globaux_sur`) |
 | R2 | ~~**Sur SQLite la copie de sécurité était faite APRÈS la réimputation**~~ **corrigé le 16/09/2026** : `persistance::entretenir` se scinde en `copier_avant` et `compacter`, et l'entretien copie → réimpute → compacte, comme le `pg_dump` le fait déjà sur PostgreSQL. Scénario : la copie relue montre l'état d'avant | `noyau/src/parametres.rs`, `noyau/src/persistance/mod.rs` |
-| R3 | **La lecture des images oublie le dossier sur PostgreSQL** : `lire_*_base64` sur base fait `base.sqlite().and_then(…)` → `None`, quand l'écriture et la suppression utilisent `dossier_des_images_base` | `serveur/src/socle.rs` |
-| R4 | **Changer d'extension laisse l'ancienne image** (`logo.jpg` sur `logo.png`) et le repli de lecture balaie `png` d'abord : colonne vidée → ancien logo. `supprimer` sait déjà balayer les extensions | `noyau/src/images.rs` (`poser_fichier`) |
+| R3 | ~~**La lecture des images oubliait le dossier sur PostgreSQL**~~ **corrigé le 16/09/2026** : les trois `lire_*_base64` sur base appellent `dossier_des_images_base`, le même que l'écriture et la suppression | `serveur/src/socle.rs` |
+| R4 | ~~**Changer d'extension laissait l'ancienne image**~~ **corrigé le 16/09/2026** : `poser_fichier` écrit le nouveau fichier puis efface les autres extensions du même genre — dans cet ordre, pour qu'un échec d'écriture laisse l'image précédente. Scénario : png → jpg, le png disparaît et le repli rend le jpg | `noyau/src/images.rs` |
 | R5 | ~~**Le JSON du journal de `--promouvoir` est construit par `format!`**~~ **corrigé le 16/09/2026** : `serde_json::json!(…).to_string()`, avec un scénario qui promeut un nom portant guillemet et barre oblique inverse | `noyau/src/auth.rs` |
 
 Mineurs : `--promouvoir` cherche `pseudo` seul (la connexion accepte
@@ -93,8 +93,9 @@ Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
   dit « restaurer la dernière sauvegarde », aucun bouton ne le fait.
 - **Les routes HTTP ne sont pas testées** : les scénarios couvrent le
   noyau, pas `serveur/src/api.rs`. C'est ce qui a laissé passer
-  l'interblocage du 13/09, et R3 est encore sur ce chemin. Un seul
-  test de route vaudrait cher.
+  l'interblocage du 13/09, et R1 à R3 étaient toutes sur ce chemin —
+  corrigées par lecture, pas par un test qui les aurait attrapées. Un
+  seul test de route vaudrait cher.
 - **Les commandes Tauri n'ont aucun test** — à commencer par
   `creer_vente`, `valider_facture`, `regler_dette_fournisseur`.
 - **Un chèque rejeté ne défait pas son mouvement de caisse** : le

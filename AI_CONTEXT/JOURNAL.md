@@ -881,3 +881,40 @@ la suite complète repasse au vert au ré-essai. Noté dans ALERTES.md pour
 qu'un échec de ce test n'accuse pas le prochain chantier. Non corrigé :
 le remède (départager par `id` ou par `cree_le`) change un ordre
 d'affichage, ça se décide.
+
+## R3 et R4 corrigés — les images — **16/09/2026**
+
+Les deux derniers écarts de la revue, tous deux sur le chemin des
+images (D8), tous deux invisibles tant que la colonne `*_chemin` porte
+un chemin valide — et tous deux prêts à mordre le jour où elle est vide,
+c'est-à-dire après une restauration.
+
+**R3 — la lecture retrouve le dossier sur PostgreSQL.** Les trois
+`lire_*_base64` sur base calculaient leur repli par
+`c.base.sqlite().and_then(dossier_des_images)` : `None` sur PostgreSQL,
+où il n'y a pas de fichier de base à côté duquel chercher. L'écriture et
+la suppression, elles, utilisent `dossier_des_images_base`
+(`data_dir()/ml.gescom.app` sur PG). Le serveur rangeait donc ses images
+dans un dossier que sa propre lecture ne regardait jamais. Les trois
+poignées appellent maintenant la même fonction que les six autres.
+
+**R4 — changer d'extension n'abandonne plus l'ancien fichier.** Le nom
+sur disque vient du genre, l'extension du fichier choisi : poser un
+`logo.jpg` par-dessus un `logo.png` laissait le png en place. Comme le
+repli de lecture balaie les extensions dans l'ordre — `png` d'abord —
+une colonne vidée faisait revenir l'ANCIEN logo, pas le dernier posé.
+`poser_fichier` écrit le nouveau fichier **puis** efface les autres
+extensions du même genre ; dans cet ordre, pour qu'un échec d'écriture
+laisse l'image précédente en place. `supprimer` faisait déjà ce balayage
+— c'est de là que vient le remède.
+
+Scénario ajouté dans
+[images_base.rs](../src-tauri/noyau/tests/images_base.rs) : png puis
+jpg, le png a disparu du disque, et la colonne vidée le repli rend bien
+le jpg. Passé sur les deux moteurs (11 scénarios), **397 tests noyau
+SQLite**, 0 échec.
+
+Ce que R3 n'a pas : un test. Le registre du serveur (`socle.rs`) n'en a
+aucun, comme les routes — la correction s'est faite en lisant les neuf
+poignées côte à côte, et rien n'aurait signalé l'écart. C'est la même
+dette que le 13/09.

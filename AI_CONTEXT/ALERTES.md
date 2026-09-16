@@ -11,14 +11,13 @@ semblent vivantes.
 
 ---
 
-## Deux écarts connus, non corrigés (revue du 16/09/2026)
+## Ce que la revue du 16/09/2026 a corrigé
 
-Avant de toucher aux images, lire [ETAPES.md](ETAPES.md) § Revue du
-16/09/2026 : la lecture des images n'a pas de dossier de repli sur
-PostgreSQL (R3), et une image qui change d'extension laisse l'ancienne
-sur le disque (R4). R1 (argent réécrit hors transaction), R2 (copie de
-sécurité prise après la réimputation) et R5 (JSON du journal assemblé à
-la main) sont corrigés depuis le 16/09/2026.
+Les cinq écarts R1…R5 sont fermés (détail dans [ETAPES.md](ETAPES.md)
+§ Revue du 16/09/2026). Deux règles en sont sorties, qui valent pour la
+suite : **ce qui écrit plusieurs lignes ouvre une transaction, même dans
+un outil d'entretien**, et **une copie de sécurité se prend avant ce
+qu'elle protège, pas après**.
 
 ⚠️ **Un scénario instable**, sans rapport avec ces écarts :
 `gestion_base::une_creance_se_regle_en_deux_fois…` échoue environ une
