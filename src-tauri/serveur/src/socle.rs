@@ -160,23 +160,30 @@ pub fn registre() -> Registre {
     });
 
     r.ecriture("regler_dette_fournisseur", "fournisseurs:regler", |c, p| {
-        argent::regler_dette_fournisseur(
+        // La date de l'affaire : antidater exige sa permission a part.
+        let date = option_texte(&p, "datePaiement").or_else(|| option_texte(&p, "date_paiement"));
+        exiger_antidatage(c.conn, c.appelant, date.as_deref())?;
+        argent::regler_dette_fournisseur_datee(
             c.conn,
             texte(&p, "fournisseurId").or_else(|_| texte(&p, "fournisseur_id"))?,
             entier(&p, "montant").unwrap_or(0),
             texte(&p, "mode")?,
             option_texte(&p, "note"),
             option_texte(&p, "pieceId").or_else(|| option_texte(&p, "piece_id")),
+            date,
         )
     });
     r.aussi_sur_base("regler_dette_fournisseur", |c, p| {
-        argent::regler_dette_fournisseur_sur_base(
+        let date = option_texte(&p, "datePaiement").or_else(|| option_texte(&p, "date_paiement"));
+        exiger_antidatage_base(c.base, c.appelant, date.as_deref())?;
+        argent::regler_dette_fournisseur_datee_sur_base(
             c.base,
             texte(&p, "fournisseurId").or_else(|_| texte(&p, "fournisseur_id"))?,
             entier(&p, "montant").unwrap_or(0),
             texte(&p, "mode")?,
             option_texte(&p, "note"),
             option_texte(&p, "pieceId").or_else(|| option_texte(&p, "piece_id")),
+            date,
         )
     });
 
@@ -1507,14 +1514,18 @@ pub fn registre() -> Registre {
         let vente_id: String = arg(&p, "venteId", "vente_id")?;
         let montant: i64 = arg(&p, "montant", "montant")?;
         let mode: String = arg(&p, "mode", "mode")?;
-        let v = creances::regler_creance(c.conn, vente_id, montant, mode, Some(c.appelant.role.clone()))?;
+        let date: Option<String> = arg(&p, "datePaiement", "date_paiement")?;
+        exiger_antidatage(c.conn, c.appelant, date.as_deref())?;
+        let v = creances::regler_creance_datee(c.conn, vente_id, montant, mode, Some(c.appelant.role.clone()), date)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
     r.aussi_sur_base("regler_creance", |c, p| {
         let vente_id: String = arg(&p, "venteId", "vente_id")?;
         let montant: i64 = arg(&p, "montant", "montant")?;
         let mode: String = arg(&p, "mode", "mode")?;
-        let v = creances::regler_creance_sur_base(c.base, vente_id, montant, mode, Some(c.appelant.role.clone()))?;
+        let date: Option<String> = arg(&p, "datePaiement", "date_paiement")?;
+        exiger_antidatage_base(c.base, c.appelant, date.as_deref())?;
+        let v = creances::regler_creance_datee_sur_base(c.base, vente_id, montant, mode, Some(c.appelant.role.clone()), date)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 

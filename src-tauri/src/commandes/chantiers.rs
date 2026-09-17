@@ -46,9 +46,10 @@ pub fn regler_dette_fournisseur(
     mode: String,
     note: Option<String>,
     piece_id: Option<String>,
+    date_paiement: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    gescom_noyau::chantiers::regler_dette_fournisseur(&conn, fournisseur_id, montant, mode, note, piece_id)
+    gescom_noyau::argent::regler_dette_fournisseur_datee(&conn, fournisseur_id, montant, mode, note, piece_id, date_paiement)
 }
 #[tauri::command]
 pub fn marquer_irrecouvrable(

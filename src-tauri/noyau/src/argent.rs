@@ -123,15 +123,25 @@ pub struct ParamsLigneInput {
 /// Seul le JOUR se saisit ; on garde l'heure de la saisie pour que deux
 /// ventes du meme jour restent dans leur ordre. Sans date : aujourd'hui,
 /// et pas de libelle — la caisse n'a rien de special a dire.
-fn date_de_l_affaire(now: &str, date_vente: Option<&str>) -> Result<(String, Option<String>), String> {
-    let Some(d) = date_vente.filter(|d| !d.trim().is_empty()) else {
+pub(crate) fn date_de_l_affaire(now: &str, date_vente: Option<&str>) -> Result<(String, Option<String>), String> {
+    date_saisie(now, date_vente, "Vente")
+}
+
+/// Meme chose pour un reglement : le libelle de caisse dit « Reglement
+/// du 03/09 ».
+pub(crate) fn date_du_reglement(now: &str, date: Option<&str>) -> Result<(String, Option<String>), String> {
+    date_saisie(now, date, "Règlement")
+}
+
+fn date_saisie(now: &str, date: Option<&str>, geste: &str) -> Result<(String, Option<String>), String> {
+    let Some(d) = date.filter(|d| !d.trim().is_empty()) else {
         return Ok((now.to_string(), None));
     };
     let jour = crate::coeur::dates::verifier_date_saisie_maintenant(d)?;
     let heure = now.get(10..).unwrap_or("T00:00:00");
     let date_affaire = format!("{}{}", jour.format("%Y-%m-%d"), heure);
     let libelle = if crate::coeur::dates::est_antidatee(d, chrono::Local::now().date_naive()) {
-        Some(format!("Vente du {}", jour.format("%d/%m")))
+        Some(format!("{geste} du {}", jour.format("%d/%m")))
     } else {
         None
     };
@@ -960,8 +970,22 @@ pub fn regler_dette_fournisseur(
     // ancienne a la plus recente (voir imputer_paiements_fournisseur).
     piece_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    regler_dette_fournisseur_datee(conn, fournisseur_id, montant, mode, note, piece_id, None)
+}
+
+/// Meme reglement, avec la date de l'affaire — voir la version `Base`.
+pub fn regler_dette_fournisseur_datee(
+    conn: &rusqlite::Connection,
+    fournisseur_id: String,
+    montant: i64,
+    mode: String,
+    note: Option<String>,
+    piece_id: Option<String>,
+    date_paiement: Option<String>,
+) -> Result<serde_json::Value, String> {
     let auteur = id_utilisateur_courant_pub(&conn);
     let now = maintenant_iso();
+    let (date_affaire, libelle_caisse) = date_du_reglement(&now, date_paiement.as_deref())?;
 
     // AVANT toute ecriture : cette fonction n'ouvre pas de transaction,
     // donc un refus plus bas laisserait un paiement fournisseur
@@ -1015,7 +1039,7 @@ pub fn regler_dette_fournisseur(
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'app',?9)",
             rusqlite::params![
                 uuid::Uuid::new_v4().to_string(),
-                fournisseur_id, part, mode, note, auteur, now, now, pid
+                fournisseur_id, part, mode, note, auteur, date_affaire, now, pid
             ],
         ).map_err(|e| e.to_string())?;
     }
@@ -1028,12 +1052,12 @@ pub fn regler_dette_fournisseur(
     {
         conn.execute(
             "INSERT INTO mouvement_caisse
-             (id, session_id, sens, moyen, montant, motif,
+             (id, session_id, sens, moyen, montant, motif, libelle,
               operation_id, date_mouvement, cree_le, cree_par, origine)
-             VALUES (?1,?2,'sortie',?3,?4,'reglement_fournisseur',?5,?6,?7,?8,'app')",
+             VALUES (?1,?2,'sortie',?3,?4,'reglement_fournisseur',?9,?5,?6,?7,?8,'app')",
             rusqlite::params![
                 uuid::Uuid::new_v4().to_string(),
-                sid, mode, montant, fournisseur_id, now, now, auteur
+                sid, mode, montant, fournisseur_id, now, now, auteur, libelle_caisse
             ],
         ).ok();
     }
@@ -2378,9 +2402,27 @@ pub fn regler_dette_fournisseur_sur_base(
     note: Option<String>,
     piece_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    regler_dette_fournisseur_datee_sur_base(base, fournisseur_id, montant, mode, note, piece_id, None)
+}
+
+/// Le reglement fournisseur, avec la date de l'AFFAIRE — le jour ou on
+/// a paye, quand ce n'est pas aujourd'hui. Meme regle (`coeur::dates`),
+/// meme permission au serveur, meme partage que la vente : le
+/// `paiement_fournisseur` porte la date de l'affaire, la SORTIE de
+/// caisse garde l'instant present et dit d'ou elle vient.
+pub fn regler_dette_fournisseur_datee_sur_base(
+    base: &mut Base,
+    fournisseur_id: String,
+    montant: i64,
+    mode: String,
+    note: Option<String>,
+    piece_id: Option<String>,
+    date_paiement: Option<String>,
+) -> Result<serde_json::Value, String> {
     let dossier = base.dossier().to_string();
     let auteur = id_utilisateur_courant_sur(base);
     let now = maintenant_iso();
+    let (date_affaire, libelle_caisse) = date_du_reglement(&now, date_paiement.as_deref())?;
     // Un reglement sort de l'argent du tiroir : caisse ouverte (D46).
     let sid = crate::caisses::exiger_sur(base, None)?;
 
@@ -2397,22 +2439,25 @@ pub fn regler_dette_fournisseur_sur_base(
             "INSERT INTO paiement_fournisseur
              (id, fournisseur_id, montant, mode, note, auteur_id,
               date_paiement, cree_le, origine, piece_id, dossier_id)
-             VALUES (?1,?2,?3,?4,CAST(?5 AS TEXT),?6,?7,?7,'app',CAST(?8 AS TEXT),?9)",
+             VALUES (?1,?2,?3,?4,CAST(?5 AS TEXT),?6,?7,?10,'app',CAST(?8 AS TEXT),?9)",
             &parametres![
                 uuid::Uuid::new_v4().to_string(), fournisseur_id.clone(), *part, mode.clone(),
-                note.clone(), auteur.clone(), now.clone(), pid.clone(), dossier.clone()
+                note.clone(), auteur.clone(), date_affaire.clone(), pid.clone(), dossier.clone(),
+                now.clone()
             ],
         )
         .map_err(|e| e.0)?;
     }
     let soldees = imputer_paiements_fournisseur_sur(&mut tx, &fournisseur_id, &now)?;
 
+    // La sortie de caisse reste a l'instant present : l'argent sort du
+    // tiroir maintenant. Le libelle dit de quel jour vient ce reglement.
     tx.executer(
         "INSERT INTO mouvement_caisse
-         (id, session_id, sens, moyen, montant, motif,
+         (id, session_id, sens, moyen, montant, motif, libelle,
           operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
-         VALUES (?1,?2,'sortie',?3,?4,'reglement_fournisseur',?5,?6,?6,?7,'app',?8)",
-        &parametres![uuid::Uuid::new_v4().to_string(), sid, mode.clone(), montant, fournisseur_id.clone(), now.clone(), auteur.clone(), dossier.clone()],
+         VALUES (?1,?2,'sortie',?3,?4,'reglement_fournisseur',CAST(?9 AS TEXT),?5,?6,?6,?7,'app',?8)",
+        &parametres![uuid::Uuid::new_v4().to_string(), sid, mode.clone(), montant, fournisseur_id.clone(), now.clone(), auteur.clone(), dossier.clone(), libelle_caisse.clone()],
     )
     .map_err(|e| e.0)?;
     let _ = tx.executer(

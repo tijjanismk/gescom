@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { peut } from "@/lib/droits";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -601,10 +602,11 @@ function ModalReglementCreance({
 }) {
   const [montant, setMontant] = useState("");
   const [mode, setMode] = useState("especes");
+  const [datePaiement, setDatePaiement] = useState("");
   const [chargement, setChargement] = useState(false);
 
   useEffect(() => {
-    if (creance) setMontant(creance.reste.toString());
+    if (creance) { setMontant(creance.reste.toString()); setDatePaiement(""); }
   }, [creance]);
 
   async function handleRegler() {
@@ -615,6 +617,7 @@ function ModalReglementCreance({
         venteId: creance.vente_id,
         montant: parseMontant(montant),
         mode,
+        datePaiement: datePaiement || null,
       });
       onRegle();
     } catch (e) {
@@ -655,6 +658,24 @@ function ModalReglementCreance({
               </SelectContent>
             </Select>
           </div>
+          {/* La date de l'AFFAIRE : le jour ou le client a paye, quand ce
+              n'est pas aujourd'hui. L'argent, lui, entre dans la caisse
+              d'aujourd'hui. Reserve a qui peut antidater. */}
+          {peut("pieces:antidater") && (
+            <div>
+              <Label>Réglé le</Label>
+              <Input type="date" value={datePaiement}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={e => setDatePaiement(e.target.value)}
+                className={"mt-1" + (datePaiement ? " border-amber-500" : "")} />
+              {datePaiement && (
+                <p className="mt-1 text-[11px] text-amber-700">
+                  Le règlement sera daté du {datePaiement.split("-").reverse().join("/")} ;
+                  l'argent entre dans la caisse d'aujourd'hui.
+                </p>
+              )}
+            </div>
+          )}
           <div className="flex gap-2">
             <Button variant="outline" onClick={onFermer} className="flex-1">Annuler</Button>
             <Button onClick={handleRegler}

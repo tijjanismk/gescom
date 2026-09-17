@@ -577,9 +577,23 @@ pub fn regler_creance(
     mode: String,
     utilisateur_role: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    regler_creance_datee(conn, vente_id, montant, mode, utilisateur_role, None)
+}
+
+/// Meme reglement, avec la date de l'affaire — voir la version `Base`.
+pub fn regler_creance_datee(
+    conn: &rusqlite::Connection,
+    vente_id: String,
+    montant: i64,
+    mode: String,
+    utilisateur_role: Option<String>,
+    date_paiement: Option<String>,
+) -> Result<serde_json::Value, String> {
     let role = utilisateur_role.as_deref().unwrap_or("patron");
     let auteur_id = crate::argent::id_utilisateur_par_role(&conn, role);
     let maintenant = maintenant_iso();
+    let (date_affaire, libelle_caisse) =
+        crate::argent::date_du_reglement(&maintenant, date_paiement.as_deref())?;
 
     if montant <= 0 {
         return Err("Le montant doit être positif".to_string());
@@ -620,7 +634,7 @@ pub fn regler_creance(
         rusqlite::params![
             uuid::Uuid::new_v4().to_string(),
             vente_id, montant_effectif, mode,
-            maintenant, auteur_id, maintenant, auteur_id
+            date_affaire, auteur_id, maintenant, auteur_id
         ],
     ).map_err(|e| e.to_string())?;
 
@@ -664,13 +678,13 @@ pub fn regler_creance(
         if let Some(sid) = session_id {
             conn.execute(
                 "INSERT INTO mouvement_caisse
-                 (id, session_id, sens, moyen, montant, motif,
+                 (id, session_id, sens, moyen, montant, motif, libelle,
                   operation_id, date_mouvement, cree_le, cree_par, origine)
-                 VALUES (?1, ?2, 'entree', ?3, ?4, 'vente', ?5, ?6, ?7, ?8, 'app')",
+                 VALUES (?1, ?2, 'entree', ?3, ?4, 'vente', ?9, ?5, ?6, ?7, ?8, 'app')",
                 rusqlite::params![
                     uuid::Uuid::new_v4().to_string(),
                     sid, mode, montant_effectif, vente_id,
-                    maintenant, maintenant, auteur_id
+                    maintenant, maintenant, auteur_id, libelle_caisse
                 ],
             ).ok();
         }
@@ -1293,6 +1307,22 @@ pub fn regler_creance_sur_base(
     mode: String,
     utilisateur_role: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    regler_creance_datee_sur_base(base, vente_id, montant, mode, utilisateur_role, None)
+}
+
+/// Le reglement, avec la date de l'AFFAIRE — le jour ou le client a
+/// paye, quand ce n'est pas aujourd'hui. Meme regle que la vente
+/// (`coeur::dates`), meme permission au serveur, meme partage : le
+/// `paiement` porte la date de l'affaire, le mouvement de caisse garde
+/// l'instant present et dit d'ou vient l'argent.
+pub fn regler_creance_datee_sur_base(
+    base: &mut Base,
+    vente_id: String,
+    montant: i64,
+    mode: String,
+    utilisateur_role: Option<String>,
+    date_paiement: Option<String>,
+) -> Result<serde_json::Value, String> {
     if montant <= 0 {
         return Err("Le montant doit être positif".to_string());
     }
@@ -1300,6 +1330,8 @@ pub fn regler_creance_sur_base(
     let role = utilisateur_role.as_deref().unwrap_or("patron");
     let auteur_id = crate::argent::id_utilisateur_par_role_sur(base, role);
     let maintenant = maintenant_iso();
+    let (date_affaire, libelle_caisse) =
+        crate::argent::date_du_reglement(&maintenant, date_paiement.as_deref())?;
 
     let (total, total_paye_avant) = total_et_paye(base, &vente_id)?.ok_or_else(|| "Vente introuvable".to_string())?;
     // Encaissement reel : caisse ouverte. Un avoir ne touche pas au tiroir.
@@ -1315,8 +1347,8 @@ pub fn regler_creance_sur_base(
     tx.executer(
         "INSERT INTO paiement
          (id, vente_id, montant, mode, date_paiement, auteur_id, cree_le, cree_par, origine, dossier_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, 'app', ?7)",
-        &parametres![uuid::Uuid::new_v4().to_string(), vente_id.clone(), montant_effectif, mode.clone(), maintenant.clone(), auteur_id.clone(), dossier.clone()],
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?8, ?6, 'app', ?7)",
+        &parametres![uuid::Uuid::new_v4().to_string(), vente_id.clone(), montant_effectif, mode.clone(), date_affaire.clone(), auteur_id.clone(), dossier.clone(), maintenant.clone()],
     )
     .map_err(|e| e.0)?;
 
@@ -1342,10 +1374,10 @@ pub fn regler_creance_sur_base(
     if let Some(sid) = session_id {
         tx.executer(
             "INSERT INTO mouvement_caisse
-             (id, session_id, sens, moyen, montant, motif,
+             (id, session_id, sens, moyen, montant, motif, libelle,
               operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
-             VALUES (?1, ?2, 'entree', ?3, ?4, 'vente', ?5, ?6, ?6, ?7, 'app', ?8)",
-            &parametres![uuid::Uuid::new_v4().to_string(), sid, mode.clone(), montant_effectif, vente_id.clone(), maintenant.clone(), auteur_id.clone(), dossier.clone()],
+             VALUES (?1, ?2, 'entree', ?3, ?4, 'vente', CAST(?9 AS TEXT), ?5, ?6, ?6, ?7, 'app', ?8)",
+            &parametres![uuid::Uuid::new_v4().to_string(), sid, mode.clone(), montant_effectif, vente_id.clone(), maintenant.clone(), auteur_id.clone(), dossier.clone(), libelle_caisse.clone()],
         )
         .map_err(|e| e.0)?;
     }

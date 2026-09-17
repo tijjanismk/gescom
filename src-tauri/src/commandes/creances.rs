@@ -66,9 +66,10 @@ pub fn regler_creance(
     montant: i64,
     mode: String,
     utilisateur_role: Option<String>,
+    date_paiement: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    gescom_noyau::creances::regler_creance(&conn, vente_id, montant, mode, utilisateur_role)
+    gescom_noyau::creances::regler_creance_datee(&conn, vente_id, montant, mode, utilisateur_role, date_paiement)
 }
 #[tauri::command]
 pub fn solder_residus_creances(

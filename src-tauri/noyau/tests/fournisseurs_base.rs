@@ -137,6 +137,48 @@ fn entree_retour_sans_facture_et_ajustement_bougent_le_stock_sans_argent() {
     assert_eq!(compter(&mut base, "SELECT COUNT(*) FROM mouvement_caisse", &[]), 0, "aucun argent n'a bougé");
 }
 
+/// Le reglement fournisseur note sur papier et saisi apres : le
+/// `paiement_fournisseur` porte la date de l'affaire, la SORTIE de
+/// caisse reste au jour, avec son libelle. La dette, elle, est reduite
+/// pareil — la date ne change pas ce qu'on doit.
+#[test]
+fn un_reglement_fournisseur_antidate_sort_de_la_caisse_du_jour() {
+    let mut base = base_avec_demo();
+    let f = fournisseur(&mut base, "Grossiste");
+    let _ = acheter_a_credit(&mut base, &f, 4.0); // 2 000
+    ouvrir_caisse(&mut base);
+    let il_y_a_5_jours = (chrono::Local::now().date_naive() - chrono::Duration::days(5))
+        .format("%Y-%m-%d").to_string();
+    let aujourd_hui = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    argent::regler_dette_fournisseur_datee_sur_base(
+        &mut base, f.clone(), 1_500, "especes".into(), None, None, Some(il_y_a_5_jours.clone()),
+    )
+    .expect("le reglement antidate passe");
+
+    let date_paiement: String = base
+        .lire_une("SELECT date_paiement FROM paiement_fournisseur WHERE fournisseur_id = ?1",
+                  &parametres![f.clone()], |row| row.get::<String>(0))
+        .unwrap().unwrap();
+    assert!(date_paiement.starts_with(&il_y_a_5_jours), "date_paiement = {date_paiement}");
+
+    let (date_caisse, libelle, sens): (String, Option<String>, String) = base
+        .lire_une(
+            "SELECT date_mouvement, libelle, sens FROM mouvement_caisse WHERE operation_id = ?1",
+            &parametres![f.clone()],
+            |row| Ok((row.get::<String>(0)?, row.get::<Option<String>>(1)?, row.get::<String>(2)?)),
+        )
+        .unwrap().unwrap();
+    assert_eq!(sens, "sortie");
+    assert!(date_caisse.starts_with(&aujourd_hui), "la sortie reste au jour : {date_caisse}");
+    assert!(libelle.as_deref().unwrap_or("").starts_with("Règlement du"), "{libelle:?}");
+
+    // La dette ne depend pas de la date : 2 000 - 1 500.
+    let dettes = fournisseurs::lire_fournisseurs_avec_dettes_sur_base(&mut base).unwrap();
+    let d = dettes.iter().find(|x| x["id"] == f.as_str()).expect("le fournisseur");
+    assert_eq!(d["dette"], 500, "{d}");
+}
+
 #[test]
 fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     let mut base = base_avec_demo();

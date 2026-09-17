@@ -236,6 +236,53 @@ fn tva_dettes_irrecouvrable_et_expiration() {
     assert!(chantiers::lire_avoirs_expires_sur_base(&mut base).unwrap().is_empty());
 }
 
+/// Un reglement note sur papier le 3 et saisi aujourd'hui : le
+/// `paiement` porte le 3, l'argent entre dans le tiroir aujourd'hui, et
+/// le mouvement de caisse le dit. Meme regle que la vente antidatee.
+#[test]
+fn un_reglement_antidate_garde_son_argent_dans_la_caisse_du_jour() {
+    let mut base = base_avec_demo();
+    let (vente_id, prix) = vendre_credit(&mut base, 2.0);
+    ouvrir_caisse(&mut base);
+    let il_y_a_3_jours = (chrono::Local::now().date_naive() - chrono::Duration::days(3))
+        .format("%Y-%m-%d").to_string();
+    let aujourd_hui = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    let r = creances::regler_creance_datee_sur_base(
+        &mut base, vente_id.clone(), 300, "especes".into(), None, Some(il_y_a_3_jours.clone()),
+    )
+    .expect("le reglement antidate passe");
+    assert_eq!(r["montant_encaisse"], 300);
+    assert_eq!(statut_vente(&mut base, &vente_id), "partiellement_payee");
+    assert!(prix > 300);
+
+    let date_paiement: String = base
+        .lire_une("SELECT date_paiement FROM paiement WHERE vente_id = ?1",
+                  &parametres![vente_id.clone()], |row| row.get::<String>(0))
+        .unwrap().unwrap();
+    assert!(date_paiement.starts_with(&il_y_a_3_jours), "date_paiement = {date_paiement}");
+
+    let (date_caisse, libelle): (String, Option<String>) = base
+        .lire_une(
+            "SELECT date_mouvement, libelle FROM mouvement_caisse
+             WHERE operation_id = ?1 AND sens = 'entree'",
+            &parametres![vente_id.clone()],
+            |row| Ok((row.get::<String>(0)?, row.get::<Option<String>>(1)?)),
+        )
+        .unwrap().unwrap();
+    assert!(date_caisse.starts_with(&aujourd_hui), "la caisse reste au jour : {date_caisse}");
+    assert!(libelle.as_deref().unwrap_or("").starts_with("Règlement du"), "{libelle:?}");
+
+    // Demain : refuse, rien d'ecrit.
+    let demain = (chrono::Local::now().date_naive() + chrono::Duration::days(1))
+        .format("%Y-%m-%d").to_string();
+    let refus = creances::regler_creance_datee_sur_base(
+        &mut base, vente_id.clone(), 100, "especes".into(), None, Some(demain),
+    ).unwrap_err();
+    assert!(refus.contains("futur"), "{refus}");
+    assert_eq!(statut_vente(&mut base, &vente_id), "partiellement_payee");
+}
+
 #[test]
 fn une_creance_se_regle_en_deux_fois_puis_un_reglement_s_annule() {
     let mut base = base_avec_demo();
