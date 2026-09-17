@@ -46,6 +46,7 @@ function elementNeuf(genre: ElementPied["genre"]): ElementPied {
     taillePt: 8,
     gras: false,
     italique: false,
+    souligne: false,
   };
   switch (genre) {
     case "image":
@@ -229,6 +230,7 @@ export function EditeurPiedPage({ bloc, format, images, onChange }: Props) {
               : el.alignement === "droite" ? "right" : "left",
             fontWeight: el.gras ? 700 : 400,
             fontStyle: el.italique ? "italic" : "normal",
+            textDecoration: el.souligne ? "underline" : "none",
           };
           const src =
             el.image === "pied" ? images.pied
@@ -332,6 +334,12 @@ export function EditeurPiedPage({ bloc, format, images, onChange }: Props) {
                     onChange={(e) =>
                       modifier(selection.id, { italique: e.target.checked })} />
                   Italique
+                </label>
+                <label className="flex items-center gap-1 text-xs">
+                  <input type="checkbox" checked={!!selection.souligne}
+                    onChange={(e) =>
+                      modifier(selection.id, { souligne: e.target.checked })} />
+                  Souligné
                 </label>
               </div>
             </>

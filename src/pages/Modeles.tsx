@@ -8,9 +8,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowUp,
-  Copy, Download, Eye, EyeOff, FileText, GripVertical, Loader2,
-  Minus, Plus, Printer, RotateCcw, Save, Star, Trash2, Upload,
+  AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowUp,
+  Bold, Copy, Download, Eye, EyeOff, FileText, GripVertical,
+  Italic, Loader2,
+  Minus, Plus, Printer, RotateCcw, Save, Star, Trash2, Underline, Upload,
 } from "lucide-react";
 import { message, confirm, open, save } from "@tauri-apps/plugin-dialog";
 
@@ -36,15 +37,62 @@ import type {
 import { rendreModele } from "@/lib/modeles/rendu";
 import { contexteExemple } from "@/lib/modeles/contexte";
 import { modeleDUsine } from "@/lib/modeles/defauts";
-import { assurerModelesParDefaut, chargerImages } from "@/lib/modeles/service";
+import {
+  assurerModelesParDefaut, chargerImages, importerImageSociete,
+} from "@/lib/modeles/service";
 import type { ImagesDocument } from "@/lib/modeles/rendu";
 
 // =====================================================================
 //  La palette
 // =====================================================================
 
+/**
+ * Où tombera le bloc qu'on lâche, d'après le curseur.
+ *
+ * Au-dessus du milieu d'un bloc, il passe devant ; en dessous, derrière.
+ * Hors de tout bloc — la marge du bas — il va à la fin.
+ */
+function placeSousLeCurseur(doc: Document, e: DragEvent): number {
+  const blocs = Array.from(doc.querySelectorAll("[data-bloc]"));
+  for (let i = 0; i < blocs.length; i += 1) {
+    const r = blocs[i].getBoundingClientRect();
+    if (e.clientY < r.top + r.height / 2) return i;
+    if (e.clientY <= r.bottom) return i + 1;
+  }
+  return blocs.length;
+}
+
+/** Le trait qui dit où le bloc va tomber. */
+function montrerPoint(doc: Document, e: DragEvent) {
+  effacerPoint(doc);
+  const blocs = Array.from(doc.querySelectorAll("[data-bloc]"));
+  const place = placeSousLeCurseur(doc, e);
+  const trait = doc.createElement("div");
+  trait.className = "point-depot";
+  trait.setAttribute("style",
+    "height:0;border-top:.6mm solid currentColor;margin:1mm 0;"
+    + "opacity:.75;pointer-events:none;");
+  const apres = blocs[place];
+  if (apres) apres.parentNode?.insertBefore(trait, apres);
+  else (blocs[blocs.length - 1]?.parentNode ?? doc.body).appendChild(trait);
+}
+
+function effacerPoint(doc: Document) {
+  doc.querySelectorAll(".point-depot").forEach((el) => el.remove());
+}
+
+/** Entoure dans l'aperçu le bloc en cours de réglage. */
+function marquerChoisi(doc: Document | null, id: string | null) {
+  if (!doc) return;
+  doc.querySelectorAll("[data-bloc].bloc-choisi")
+    .forEach((el) => el.classList.remove("bloc-choisi"));
+  if (!id) return;
+  doc.querySelector(`[data-bloc="${id}"]`)?.classList.add("bloc-choisi");
+}
+
 const PALETTE: { type: TypeBloc; nom: string; aide: string }[] = [
   { type: "entete", nom: "En-tête", aide: "Logo et coordonnées de la société" },
+  { type: "image", nom: "Image", aide: "Logo, en-tête ou cachet, à la taille voulue" },
   { type: "titre", nom: "Titre", aide: "Le nom du document et son numéro" },
   { type: "champs", nom: "Champs", aide: "Libellé + valeur, sur 1 à 3 colonnes" },
   { type: "tableau", nom: "Tableau", aide: "Les lignes du document" },
@@ -104,6 +152,10 @@ function blocNeuf(type: TypeBloc, genre: GenreDocument): Bloc {
       // mettre, mais on lui donne tout de suite une bande a la bonne
       // taille pour un cachet.
       return { ...base, type, hauteurMm: 20, trait: true, elements: [] };
+    case "image":
+      // 40 mm de large, hauteur libre : le logo garde ses proportions
+      // et le commercant ajuste ensuite en regardant l'apercu.
+      return { ...base, type, image: "logo", largeurMm: 40, hauteurMm: 0, alignement: "gauche" };
     case "espace":
       return { ...base, type, hauteurMm: 5 };
     default:
@@ -121,6 +173,8 @@ function resumeBloc(b: Bloc): string {
     case "texte": return b.contenu.slice(0, 40).replace(/\n/g, " ");
     case "signatures": return [b.gauche, b.droite].filter(Boolean).join(" · ") || "vides";
     case "pied_page": return `${b.hauteurMm} mm, ${b.elements.length} élément(s)`;
+    case "image":
+      return `${NOM_IMAGE[b.image]} — ${b.largeurMm > 0 ? `${b.largeurMm} mm` : "largeur libre"}`;
     case "espace": return `${b.hauteurMm} mm`;
     default: return "";
   }
@@ -133,12 +187,23 @@ const NOM_TYPE: Record<TypeBloc, string> =
 //  Écran
 // =====================================================================
 
-export function Modeles() {
+export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
   const [genre, setGenre] = useState<GenreDocument>("facture");
   const [liste, setListe] = useState<Modele[]>([]);
   const [modele, setModele] = useState<Modele | null>(null);
   const [modifie, setModifie] = useState(false);
   const [blocActif, setBlocActif] = useState<string | null>(null);
+  const apercuRef = useRef<HTMLIFrameElement>(null);
+  const depotApercuRef = useRef<((charge: string, position: number) => void) | null>(null);
+
+  /** Poser une image de la société sans quitter l'atelier. */
+  const importerImage = useCallback(async (genre: "logo" | "entete" | "pied") => {
+    try {
+      if (await importerImageSociete(genre)) setImages(await chargerImages());
+    } catch (e) {
+      console.error("Import d'image :", e);
+    }
+  }, []);
   const [images, setImages] = useState<ImagesDocument>({});
   const [chargement, setChargement] = useState(true);
   // Le semis des modèles d'usine peut échouer sans que la page soit
@@ -455,6 +520,60 @@ export function Modeles() {
   // -------------------------------------------------------------------
 
   const selection = modele?.contenu.blocs.find((b) => b.id === blocActif) ?? null;
+
+  /**
+   * Cliquer DANS le document choisit le bloc.
+   *
+   * L'aperçu est une iframe `allow-same-origin` SANS `allow-scripts` :
+   * la page reste inerte — aucun script du document ne s'exécute — mais
+   * React peut lire son DOM et y poser un écouteur. C'est ce qui permet
+   * de régler un bloc en le désignant du doigt, au lieu de le chercher
+   * dans une liste.
+   */
+  const brancherApercu = useCallback(() => {
+    const doc = apercuRef.current?.contentDocument;
+    if (!doc) return;
+    doc.addEventListener("click", (e) => {
+      const cible = (e.target as Element | null)?.closest?.("[data-bloc]");
+      const id = cible?.getAttribute("data-bloc");
+      if (id) setBlocActif(id);
+    });
+    // Déposer DANS le document, et pas seulement dans la liste : c'est
+    // là qu'on voit où le bloc va tomber. `dragover` doit accepter le
+    // dépôt, sinon le navigateur refuse le `drop` sans rien dire.
+    doc.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      montrerPoint(doc, e);
+    });
+    doc.addEventListener("dragleave", () => effacerPoint(doc));
+    doc.addEventListener("drop", (e) => {
+      e.preventDefault();
+      effacerPoint(doc);
+      const charge = e.dataTransfer?.getData("text/plain") ?? "";
+      // Les poignées vivent dans un ref : l'écouteur est posé une fois
+      // par chargement de l'iframe et survivrait au rendu suivant avec
+      // un `modele` périmé.
+      depotApercuRef.current?.(charge, placeSousLeCurseur(doc, e));
+    });
+    marquerChoisi(doc, blocActif);
+  }, [blocActif]);
+
+  // La poignée de dépôt, réécrite à chaque rendu pour voir le modèle
+  // dans son état courant.
+  depotApercuRef.current = (charge: string, position: number) => {
+    if (charge.startsWith("nouveau:")) {
+      insererBloc(charge.slice(8) as TypeBloc, position);
+    } else if (charge.startsWith("deplacer:")) {
+      deplacerBloc(Number(charge.slice(9)), position);
+    }
+  };
+
+  // Le bloc choisi s'entoure dans l'aperçu, qu'on l'ait pris dans la
+  // structure ou dans le document : les deux désignent la même chose.
+  useEffect(() => {
+    marquerChoisi(apercuRef.current?.contentDocument ?? null, blocActif);
+  }, [blocActif, apercu]);
   const champsDispo: ChampDisponible[] = useMemo(
     () => [...CHAMPS_PIECE, ...CHAMPS_TOTAUX, ...CHAMPS_SOCIETE, ...CHAMPS_PAR_GENRE[genre]],
     [genre],
@@ -485,6 +604,14 @@ export function Modeles() {
 
       {/* ---- Barre du haut ---- */}
       <div className="flex flex-wrap items-end gap-2">
+        {/* L'atelier prend tout l'écran : il faut un chemin de retour
+            visible, sinon on se croit sorti des paramètres. */}
+        {onFermer && (
+          <Button variant="ghost" size="sm" onClick={onFermer}
+            className="mb-0.5 h-9 px-2 text-muted-foreground">
+            <ArrowLeft className="mr-1 h-4 w-4" /> Paramètres
+          </Button>
+        )}
         <div className="min-w-[190px]">
           <Label className="text-xs text-muted-foreground">Type de document</Label>
           <Select value={genre} onValueChange={(v) => setGenre(v as GenreDocument)}>
@@ -673,6 +800,9 @@ export function Modeles() {
                 bloc={selection}
                 champsDispo={champsDispo}
                 colonnesDispo={colonnesDispo}
+                onImporterImage={importerImage}
+                blocs={modele.contenu.blocs}
+                onMajBloc={majBloc}
                 onChange={(patch) => majBloc(selection.id, patch)}
                 format={modele?.format ?? "a4"}
                 images={images}
@@ -695,12 +825,15 @@ export function Modeles() {
               {modifie && <Badge variant="outline" className="text-[10px]">Non enregistré</Badge>}
             </div>
             <iframe
+              ref={apercuRef}
               title="Aperçu du modèle"
               srcDoc={apercu}
-              // `sandbox` vide : l'aperçu n'exécute aucun script. Le HTML
-              // vient d'un modèle éditable, et rien n'oblige à lui donner
-              // les droits d'une page.
-              sandbox=""
+              onLoad={brancherApercu}
+              // PAS de `allow-scripts` : aucun script du document ne
+              // s'exécute, c'est la règle D50. `allow-same-origin` ne
+              // donne rien à la page — il donne à l'ATELIER le droit de
+              // lire ce DOM, donc de savoir sur quel bloc on a cliqué.
+              sandbox="allow-same-origin"
               className="min-h-0 flex-1 border-0 bg-white"
             />
           </div>
@@ -802,6 +935,97 @@ function ChoixAlignement({
   );
 }
 
+/**
+ * Deux blocs qui posent la MÊME image : elle sortira deux fois.
+ *
+ * Le cas arrive tout seul — les modèles d'usine ont un bloc En-tête qui
+ * porte déjà le logo, et poser un bloc Image « Logo » par-dessus le
+ * double sans rien dire. On le dit, et on propose de retirer l'autre.
+ */
+function DoublonImage({
+  image, moi, blocs, onMajBloc,
+}: {
+  image: "logo" | "entete" | "pied";
+  moi: string;
+  blocs: Bloc[];
+  onMajBloc: (id: string, patch: Record<string, unknown>) => void;
+}) {
+  const autres = blocs.filter(
+    (b) =>
+      b.id !== moi &&
+      b.visible &&
+      ((b.type === "entete" && b.image === image) ||
+        (b.type === "image" && b.image === image)),
+  );
+  if (autres.length === 0) return null;
+  const entetes = autres.filter((b) => b.type === "entete");
+  return (
+    <div className="mt-1.5 rounded border border-amber-300 bg-amber-50 p-2
+                    text-[11px] text-amber-900">
+      {entetes.length > 0
+        ? "Le bloc En-tête pose déjà cette image : elle sortira deux fois sur le document."
+        : "Un autre bloc Image pose déjà cette image."}
+      {entetes.length > 0 && (
+        <Button variant="outline" size="sm"
+          className="ml-2 h-6 bg-white text-[11px]"
+          onClick={() => entetes.forEach((b) => onMajBloc(b.id, { image: "aucune" }))}>
+          Retirer l'image de l'en-tête
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** Les trois images de la société, telles qu'on les nomme à l'écran. */
+const NOM_IMAGE: Record<"logo" | "entete" | "pied", string> = {
+  logo: "Logo",
+  entete: "Bandeau d'en-tête",
+  pied: "Bandeau de pied",
+};
+
+const IMAGES_POSABLES: { id: "logo" | "entete" | "pied"; nom: string }[] = [
+  { id: "logo", nom: NOM_IMAGE.logo },
+  { id: "entete", nom: NOM_IMAGE.entete },
+  { id: "pied", nom: NOM_IMAGE.pied },
+];
+
+/**
+ * Gras, italique, souligné — les trois, ensemble.
+ *
+ * Trois cases à cocher séparées prenaient trois lignes du panneau pour
+ * un réglage que tout le monde connaît sous cette forme depuis trente
+ * ans.
+ */
+function ChoixStyle({
+  gras, italique, souligne, grasParDefaut = false, onChange,
+}: {
+  gras?: boolean;
+  italique?: boolean;
+  souligne?: boolean;
+  /** Le titre est gras tant qu'on ne l'a pas décoché. */
+  grasParDefaut?: boolean;
+  onChange: (patch: Record<string, unknown>) => void;
+}) {
+  const etats: { cle: string; actif: boolean; Icone: typeof Bold; titre: string }[] = [
+    { cle: "gras", actif: gras ?? grasParDefaut, Icone: Bold, titre: "Gras" },
+    { cle: "italique", actif: !!italique, Icone: Italic, titre: "Italique" },
+    { cle: "souligne", actif: !!souligne, Icone: Underline, titre: "Souligné" },
+  ];
+  return (
+    <div className="flex gap-1">
+      {etats.map(({ cle, actif, Icone, titre }) => (
+        <Button
+          key={cle} type="button" size="sm" title={titre}
+          variant={actif ? "default" : "outline"}
+          className="h-8 w-8 p-0" onClick={() => onChange({ [cle]: !actif })}
+        >
+          <Icone className="h-3.5 w-3.5" />
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 const FORMATS_VALEUR: { id: FormatValeur; nom: string }[] = [
   { id: "texte", nom: "Texte" },
   { id: "montant", nom: "Montant" },
@@ -849,10 +1073,16 @@ function ChoixChemin({
 }
 
 function ProprietesBloc({
-  bloc, champsDispo, colonnesDispo, onChange, format, images,
+  bloc, champsDispo, colonnesDispo, onChange, format, images, onImporterImage,
+  blocs, onMajBloc,
 }: {
   bloc: Bloc;
+  /** Tous les blocs : de quoi repérer deux blocs qui posent la même image. */
+  blocs: Bloc[];
+  onMajBloc: (id: string, patch: Record<string, unknown>) => void;
   champsDispo: ChampDisponible[];
+  /** Poser une image de la société depuis l'atelier. */
+  onImporterImage: (genre: "logo" | "entete" | "pied") => void;
   /** Les colonnes proposees pour un tableau, selon le genre. */
   colonnesDispo: ChampDisponible[];
   onChange: (patch: Record<string, unknown>) => void;
@@ -883,7 +1113,7 @@ function ProprietesBloc({
               </SelectContent>
             </Select>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Les images se règlent dans Paramètres → Société. Elles ne
+              Le logo se pose par le bloc Image, ci-contre. Les images ne
               voyagent pas dans l'export : ce sont celles de la boutique,
               pas du modèle.
             </p>
@@ -936,6 +1166,13 @@ function ProprietesBloc({
               <ChoixAlignement valeur={bloc.alignement} onChange={(a) => onChange({ alignement: a })} />
             </div>
           </div>
+          <div>
+            <Label className="text-xs">Style</Label>
+            <ChoixStyle
+              gras={bloc.gras} italique={bloc.italique} souligne={bloc.souligne}
+              grasParDefaut onChange={onChange}
+            />
+          </div>
           <label className="flex items-center gap-2 text-xs">
             <input
               type="checkbox" checked={bloc.trait}
@@ -974,16 +1211,80 @@ function ProprietesBloc({
               <ChoixAlignement valeur={bloc.alignement} onChange={(a) => onChange({ alignement: a })} />
             </div>
           </div>
-          <label className="flex items-center gap-2 text-xs">
-            <input type="checkbox" checked={bloc.italique}
-                   onChange={(e) => onChange({ italique: e.target.checked })} />
-            Italique
-          </label>
+          <div>
+            <Label className="text-xs">Style</Label>
+            <ChoixStyle
+              gras={bloc.gras} italique={bloc.italique} souligne={bloc.souligne}
+              onChange={onChange}
+            />
+          </div>
           <label className="flex items-center gap-2 text-xs">
             <input type="checkbox" checked={bloc.cadre}
                    onChange={(e) => onChange({ cadre: e.target.checked })} />
             Encadré
           </label>
+        </div>
+      );
+
+    case "image":
+      return (
+        <div className="space-y-2">
+          {titre}
+          <div>
+            <Label className="text-xs">Quelle image</Label>
+            <select
+              className="h-8 w-full rounded-md border bg-transparent px-2 text-xs"
+              value={bloc.image}
+              onChange={(e) => onChange({ image: e.target.value })}
+            >
+              {IMAGES_POSABLES.map((i) => (
+                <option key={i.id} value={i.id}>{i.nom}</option>
+              ))}
+            </select>
+            <div className="mt-1.5 flex items-center gap-2">
+              <Button variant="outline" size="sm" className="h-7 text-xs"
+                onClick={() => onImporterImage(bloc.image)}>
+                <Upload className="mr-1 h-3 w-3" />
+                {images[bloc.image] ? "Remplacer…" : "Importer…"}
+              </Button>
+              {images[bloc.image] && (
+                <img src={images[bloc.image] as string} alt=""
+                  className="h-7 rounded border bg-white object-contain" />
+              )}
+            </div>
+            <DoublonImage
+              image={bloc.image} moi={bloc.id} blocs={blocs} onMajBloc={onMajBloc}
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              L'image appartient à la société : la remplacer la change
+              partout où elle est posée. Absente, le bloc reste vide à
+              l'impression — pas de cadre vide sur la facture.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs">Largeur (mm)</Label>
+              <Input
+                type="number" step="1" min="0" className="h-8" value={bloc.largeurMm}
+                onChange={(e) => onChange({ largeurMm: Number(e.target.value) || 0 })}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Hauteur (mm)</Label>
+              <Input
+                type="number" step="1" min="0" className="h-8" value={bloc.hauteurMm}
+                onChange={(e) => onChange({ hauteurMm: Number(e.target.value) || 0 })}
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            0 = libre. L'image garde ses proportions et rentre dans la
+            case donnée : elle ne déborde jamais sur le reste.
+          </p>
+          <div>
+            <Label className="text-xs">Alignement</Label>
+            <ChoixAlignement valeur={bloc.alignement} onChange={(a) => onChange({ alignement: a })} />
+          </div>
         </div>
       );
 
@@ -1164,6 +1465,79 @@ function ProprietesBloc({
                    onChange={(e) => onChange({ zebre: e.target.checked })} />
             Lignes alternées
           </label>
+
+          {/* ---- Habillage : filets, couleurs, coins ---- */}
+          <div className="rounded-md border p-2 space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide
+                          text-muted-foreground">Habillage</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">Filets</Label>
+                <select
+                  className="h-8 w-full rounded-md border bg-transparent px-2 text-xs"
+                  value={bloc.bordures ?? "lignes"}
+                  onChange={(e) => onChange({ bordures: e.target.value })}
+                >
+                  <option value="lignes">Sous chaque ligne</option>
+                  <option value="grille">Grille complète</option>
+                  <option value="aucune">Aucun</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs">Couleur des filets</Label>
+                <Input type="color" className="h-8 p-1"
+                  value={bloc.couleurBordure ?? "#dddddd"}
+                  onChange={(e) => onChange({ couleurBordure: e.target.value })} />
+              </div>
+              <div>
+                <Label className="text-xs">Fond de l'en-tête</Label>
+                <Input type="color" className="h-8 p-1"
+                  value={bloc.couleurEntete ?? "#ffffff"}
+                  onChange={(e) => onChange({ couleurEntete: e.target.value })} />
+              </div>
+              <div>
+                <Label className="text-xs">Texte de l'en-tête</Label>
+                <Input type="color" className="h-8 p-1"
+                  value={bloc.couleurTexteEntete ?? "#000000"}
+                  onChange={(e) => onChange({ couleurTexteEntete: e.target.value })} />
+              </div>
+              {bloc.zebre && (
+                <div>
+                  <Label className="text-xs">Ligne alternée</Label>
+                  <Input type="color" className="h-8 p-1"
+                    value={bloc.couleurZebre ?? "#f5f5f5"}
+                    onChange={(e) => onChange({ couleurZebre: e.target.value })} />
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Label className="text-xs">Coins arrondis (mm)</Label>
+              <div className="grid grid-cols-4 gap-1">
+                {([
+                  ["hg", "Haut g."], ["hd", "Haut d."],
+                  ["bg", "Bas g."], ["bd", "Bas d."],
+                ] as const).map(([cle, nom]) => (
+                  <div key={cle}>
+                    <Input type="number" min="0" step="0.5" className="h-7 text-xs"
+                      value={bloc.arrondiMm?.[cle] ?? 0}
+                      onChange={(e) => onChange({
+                        arrondiMm: {
+                          hg: 0, hd: 0, bd: 0, bg: 0,
+                          ...(bloc.arrondiMm ?? {}),
+                          [cle]: Number(e.target.value) || 0,
+                        },
+                      })} />
+                    <p className="text-center text-[10px] text-muted-foreground">{nom}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Chaque coin le sien. Un rayon pose un cadre autour du
+                tableau : sans lui, le navigateur ignore l'arrondi.
+              </p>
+            </div>
+          </div>
 
           <div className={cn(
             "rounded border px-2 py-1 text-[11px]",

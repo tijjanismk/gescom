@@ -147,6 +147,27 @@ function interpoler(texte: string, donnees: unknown, devise: string): string {
   });
 }
 
+/**
+ * Le style d'un texte : gras, italique, souligné.
+ *
+ * `undefined` vaut « non » — un modèle écrit avant que ces réglages
+ * existent ne porte pas les clés, et doit s'imprimer comme avant.
+ * `gras` accepte un défaut : le titre est gras sauf si on le décoche.
+ */
+function styleTexte(
+  o: { gras?: boolean; italique?: boolean; souligne?: boolean },
+  grasParDefaut = false,
+): string {
+  const gras = o.gras ?? grasParDefaut;
+  return [
+    gras ? "font-weight:700" : "",
+    o.italique ? "font-style:italic" : "",
+    o.souligne ? "text-decoration:underline" : "",
+  ]
+    .filter(Boolean)
+    .join(";");
+}
+
 const ALIGN: Record<Alignement, string> = {
   gauche: "left",
   centre: "center",
@@ -203,11 +224,20 @@ function rendreBloc(
       return `<header class="bloc entete" style="text-align:${ALIGN[bloc.alignement]}">${img}${soc}</header>`;
     }
 
-    case "titre":
-      return `<div class="bloc titre${bloc.trait ? " titre-trait" : ""}"
-                   style="text-align:${ALIGN[bloc.alignement]};font-size:${bloc.taillePt}pt">
+    case "titre": {
+      // Gras par defaut : c'est ce que faisait la feuille de style, et
+      // un modele existant doit sortir la meme page qu'hier.
+      const style = [
+        `text-align:${ALIGN[bloc.alignement]}`,
+        `font-size:${bloc.taillePt}pt`,
+        styleTexte(bloc, true),
+      ]
+        .filter(Boolean)
+        .join(";");
+      return `<div class="bloc titre${bloc.trait ? " titre-trait" : ""}" style="${style}">
                 ${esc(interpoler(bloc.texte, donnees, devise))}
               </div>`;
+    }
 
     case "champs": {
       const corps = rendreChamps(bloc.items, donnees, devise);
@@ -226,14 +256,45 @@ function rendreBloc(
           ? `<div class="bloc vide">${esc(bloc.siVide)}</div>`
           : "";
       }
+      // L'habillage. Tout est optionnel : sans réglage on ne pose AUCUN
+      // style en ligne et la feuille de style d'origine s'applique —
+      // un modèle écrit avant garde exactement l'allure qu'il avait.
+      const filet = bloc.couleurBordure ?? "#ddd";
+      const grille = bloc.bordures === "grille";
+      const sansFilet = bloc.bordures === "aucune";
+      const bordCellule = sansFilet
+        ? "border:none;"
+        : grille
+          ? `border:.2mm solid ${filet};`
+          : bloc.couleurBordure
+            ? `border-bottom:.2mm solid ${filet};`
+            : "";
+      const bordEntete = sansFilet
+        ? "border:none;"
+        : grille
+          ? `border:.2mm solid ${filet};`
+          : bloc.couleurBordure
+            ? `border-bottom:.5mm solid ${filet};`
+            : "";
+      const fondEntete = bloc.couleurEntete
+        ? `background:${bloc.couleurEntete};`
+        : "";
+      const texteEntete = bloc.couleurTexteEntete
+        ? `color:${bloc.couleurTexteEntete};`
+        : "";
+
       const entete = bloc.colonnes
         .map(
           (c: Colonne) =>
-            `<th style="width:${c.largeur}%;text-align:${ALIGN[c.alignement]}">${esc(c.libelle)}</th>`,
+            `<th style="width:${c.largeur}%;text-align:${ALIGN[c.alignement]};`
+            + `${bordEntete}${fondEntete}${texteEntete}">${esc(c.libelle)}</th>`,
         )
         .join("");
       const corps = lignes
         .map((ligne, i) => {
+          const zebree = bloc.zebre && i % 2 === 1;
+          const fond =
+            zebree && bloc.couleurZebre ? `background:${bloc.couleurZebre};` : "";
           const cellules = bloc.colonnes
             .map((c) => {
               const v = formater(
@@ -241,14 +302,26 @@ function rendreBloc(
                 c.format,
                 devise,
               );
-              return `<td style="text-align:${ALIGN[c.alignement]}">${esc(v)}</td>`;
+              return `<td style="text-align:${ALIGN[c.alignement]};${bordCellule}${fond}">${esc(v)}</td>`;
             })
             .join("");
-          const cls = bloc.zebre && i % 2 === 1 ? ' class="z"' : "";
+          const cls = zebree ? ' class="z"' : "";
           return `<tr${cls}>${cellules}</tr>`;
         })
         .join("");
-      return `<table class="bloc tab"><thead><tr>${entete}</tr></thead><tbody>${corps}</tbody></table>`;
+
+      const table = `<table class="bloc tab"><thead><tr>${entete}</tr></thead><tbody>${corps}</tbody></table>`;
+
+      // Les coins arrondis ne se posent PAS sur un `border-collapse:
+      // collapse` — le navigateur les ignore. D'où un cadre autour, qui
+      // porte le rayon et rogne ce qui dépasse. Chaque coin a le sien.
+      const a = bloc.arrondiMm;
+      const arrondi = a && (a.hg || a.hd || a.bd || a.bg);
+      const cadre = bloc.bordures && !sansFilet ? `border:.3mm solid ${filet};` : "";
+      if (!arrondi && !cadre) return table;
+      return `<div class="bloc" style="${cadre}`
+        + (arrondi ? `border-radius:${a.hg}mm ${a.hd}mm ${a.bd}mm ${a.bg}mm;overflow:hidden;` : "")
+        + `">${table}</div>`;
     }
 
     case "totaux": {
@@ -272,7 +345,7 @@ function rendreBloc(
       const style = [
         `text-align:${ALIGN[bloc.alignement]}`,
         `font-size:${bloc.taillePt}pt`,
-        bloc.italique ? "font-style:italic" : "",
+        styleTexte(bloc),
       ]
         .filter(Boolean)
         .join(";");
@@ -319,8 +392,7 @@ function rendreBloc(
           }
           const style =
             `${pose}font-size:${e.taillePt}pt;text-align:${ALIGN[e.alignement]};` +
-            `${e.gras ? "font-weight:700;" : ""}${e.italique ? "font-style:italic;" : ""}` +
-            `overflow:hidden;`;
+            `${styleTexte(e)};overflow:hidden;`;
           return `<div style="${style}">${esc(
             interpoler(e.contenu, donnees, devise),
           )}</div>`;
@@ -329,6 +401,35 @@ function rendreBloc(
 
       return `<footer class="pied${bloc.trait ? " pied-trait" : ""}"
                       style="height:${bloc.hauteurMm}mm">${elements}</footer>`;
+    }
+
+    case "image": {
+      const src =
+        bloc.image === "logo"
+          ? images.logo
+          : bloc.image === "entete"
+            ? images.entete
+            : images.pied;
+      // Pas d'image posee : le bloc disparait, il ne laisse pas un
+      // cadre vide au milieu de la facture.
+      if (!src) return "";
+      // La taille vient du modele, en millimetres. `contain` : l'image
+      // rentre dans la case donnee sans jamais la deborder, et garde
+      // ses proportions — un logo etire se voit tout de suite.
+      const taille = [
+        bloc.largeurMm > 0 ? `width:${bloc.largeurMm}mm` : "max-width:100%",
+        bloc.hauteurMm > 0 ? `height:${bloc.hauteurMm}mm` : "",
+        "object-fit:contain",
+      ]
+        .filter(Boolean)
+        .join(";");
+      const pose =
+        bloc.alignement === "centre"
+          ? "margin-left:auto;margin-right:auto"
+          : bloc.alignement === "droite"
+            ? "margin-left:auto"
+            : "";
+      return `<div class="bloc" style="text-align:${ALIGN[bloc.alignement]}"><img src="${src}" alt="" style="display:block;${taille};${pose}"></div>`;
     }
 
     case "trait":
@@ -386,8 +487,21 @@ function styles(modele: Modele, apercu: boolean): string {
       : "A4";
   const marge = thermique ? Math.min(page.margeMm, 4) : page.margeMm;
 
+  // A l'ecran seulement : de quoi voir ce qu'on s'apprete a choisir.
+  // Rien de tout cela ne part a l'imprimante.
+  const designation = apercu
+    ? `
+  [data-bloc] { cursor: pointer; }
+  [data-bloc]:hover { outline: 1px dashed ${page.couleurAccent};
+                      outline-offset: 1.5mm; }
+  [data-bloc].bloc-choisi { outline: 2px solid ${page.couleurAccent};
+                            outline-offset: 1.5mm; }
+  `
+    : "";
+
   return `
   ${apercu ? "" : `@page { size: ${taillePage}; margin: ${marge}mm; }`}
+  ${designation}
   * { box-sizing: border-box; }
   body {
     margin: 0;
@@ -460,6 +574,17 @@ function styles(modele: Modele, apercu: boolean): string {
 //  Entrée publique
 // =====================================================================
 
+/**
+ * Pose `data-bloc` sur la première balise du bloc rendu.
+ *
+ * C'est ce qui permet de cliquer DANS le document pour désigner le bloc
+ * à régler : l'atelier retrouve l'identifiant par `closest`. Un attribut
+ * inerte, que l'impression ignore — le document sorti est le même.
+ */
+function marquerBloc(html: string, id: string): string {
+  return html.replace(/^(\s*<[a-zA-Z][\w-]*)/, `$1 data-bloc="${esc(id)}"`);
+}
+
 /** Le corps du document, sans `<html>` — c'est ce que l'aperçu injecte. */
 export function rendreCorps(
   modele: Modele,
@@ -470,7 +595,10 @@ export function rendreCorps(
     (valeurAuChemin(donnees, "societe.devise") as string) || "FCFA";
   const images = options.images ?? {};
   return modele.contenu.blocs
-    .map((b) => rendreBloc(b, donnees, devise, images))
+    .map((b) => {
+      const html = rendreBloc(b, donnees, devise, images);
+      return html ? marquerBloc(html, b.id) : "";
+    })
     .join("\n");
 }
 

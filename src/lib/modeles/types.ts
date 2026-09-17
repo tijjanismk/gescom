@@ -122,6 +122,8 @@ export interface ElementPied {
   taillePt: number;
   gras: boolean;
   italique: boolean;
+  /** Absent des modèles écrits avant le 16/09/2026 : traité comme faux. */
+  souligne?: boolean;
 }
 
 interface BlocBase {
@@ -145,6 +147,10 @@ export type Bloc =
       texte: string;
       alignement: Alignement;
       taillePt: number;
+      /** Le titre est gras par défaut ; `false` le rend maigre. */
+      gras?: boolean;
+      italique?: boolean;
+      souligne?: boolean;
       trait: boolean;
     })
   | (BlocBase & {
@@ -161,6 +167,20 @@ export type Bloc =
       zebre: boolean;
       /** Texte affiché quand la liste est vide. */
       siVide: string;
+      /**
+       * L'habillage du tableau. Tout est optionnel : un modèle écrit
+       * avant garde exactement l'allure qu'il avait — filets sous les
+       * lignes, en-tête souligné de la couleur d'accent.
+       */
+      bordures?: "aucune" | "lignes" | "grille";
+      couleurBordure?: string;
+      /** Fond et texte de la ligne d'en-tête. */
+      couleurEntete?: string;
+      couleurTexteEntete?: string;
+      /** Fond d'une ligne sur deux, quand `zebre` est vrai. */
+      couleurZebre?: string;
+      /** Rayon de chaque coin, en millimètres — chacun le sien. */
+      arrondiMm?: { hg: number; hd: number; bd: number; bg: number };
     })
   | (BlocBase & {
       type: "totaux";
@@ -174,6 +194,10 @@ export type Bloc =
       alignement: Alignement;
       taillePt: number;
       italique: boolean;
+      /** Gras et souligné sont arrivés après coup : un modèle écrit
+       *  avant ne les porte pas, et `undefined` vaut « non ». */
+      gras?: boolean;
+      souligne?: boolean;
       cadre: boolean;
     })
   | (BlocBase & {
@@ -188,6 +212,16 @@ export type Bloc =
       elements: ElementPied[];
       /** Un filet au-dessus du pied, pour le détacher du corps. */
       trait: boolean;
+    })
+  | (BlocBase & {
+      type: "image";
+      /** Laquelle des trois images de la société poser ici. */
+      image: "logo" | "entete" | "pied";
+      /** La taille SUR LE DOCUMENT, en millimètres — la cible est du
+       *  papier, pas un écran. Largeur nulle = la largeur du texte. */
+      largeurMm: number;
+      hauteurMm: number;
+      alignement: Alignement;
     })
   | (BlocBase & { type: "trait" })
   | (BlocBase & { type: "espace"; hauteurMm: number })
@@ -253,6 +287,7 @@ export const CHAMPS_SOCIETE: ChampDisponible[] = [
 
 export const CHAMPS_PIECE: ChampDisponible[] = [
   { chemin: "piece.numero", libelle: "Numéro", format: "texte" },
+  { chemin: "piece.reference", libelle: "Référence du tiers", format: "texte" },
   { chemin: "piece.type_libelle", libelle: "Type de pièce", format: "texte" },
   { chemin: "piece.date_piece", libelle: "Date", format: "date" },
   { chemin: "piece.date_echeance", libelle: "Échéance", format: "date" },
