@@ -991,3 +991,49 @@ Six commits, 398 tests noyau au vert.
   elle bloque l'usage réel (un cachet, une signature, un QR). Il faut
   des **images propres au modèle**, avec une identité stable ; c'est le
   chantier suivant.
+
+## I3 et I1 sur une branche, pendant que la fenêtre sert — **17/09/2026, suite**
+
+L'utilisateur teste l'application à la main. Le watcher de `tauri dev`
+rebâtit et **redémarre la fenêtre** à chaque fichier Rust touché : on
+ne peut pas développer dans l'arbre qu'il surveille. D'où un second
+répertoire de travail git (`.claude/worktrees/dates-images`, branche
+`travail/dates-images`) avec son propre `target` — un `cargo check`
+à froid, puis tout est incrémental. La fusion dans `main` attend la
+fin des tests manuels, pour la même raison.
+
+Au passage, le serveur d'essai a été **reconstruit et relancé depuis
+`binaires/`** plutôt que depuis `target/debug/` : c'est le sidecar
+que `tauri-build` recopie, et un serveur lancé depuis `target/debug`
+verrouillait le fichier (le piège du 13/09). Lancé depuis `binaires/`,
+le fichier de `target/debug` reste libre, et `tauri dev` recopie un
+sidecar **à jour** — 194 commandes, le code du jour.
+
+**I3 — la date d'un règlement.** `regler_creance_datee*` et
+`regler_dette_fournisseur_datee*`, les fonctions d'origine restant des
+enveloppes (20 appels intacts). Même règle `coeur::dates`, même
+permission, même partage : le paiement porte la date de l'affaire, le
+mouvement de caisse reste au jour — entrée côté client, **sortie** côté
+fournisseur — avec « Règlement du jj/mm ». Un détail qui comptait : les
+deux `INSERT` écrivaient `date_paiement` et `cree_le` avec le même
+paramètre ; ils se séparent, sinon la date de l'affaire aurait aussi
+été la date de création de la ligne.
+
+**I1 — les images posées sur un document.** Table `image_document`,
+`imageId` sur le bloc Image, quatre commandes, l'atelier qui choisit
+entre les images de la société et les images posées. **Supprimer
+refuse tant qu'un modèle pose l'image et nomme lesquels** — la règle
+du modèle d'usine, appliquée aux images. **L'export emporte les
+images** (version d'échange 2) et l'import les repose sous le même
+identifiant, sans doublon ; un lot v1 se lit toujours.
+
+**Trouvé en chemin, non corrigé (I5)** : `exporter_modeles` et
+`importer_modeles` sont des commandes **locales** (elles lisent et
+écrivent un fichier) qui touchent la **base locale de la caisse** —
+vide en mode poste. Depuis une caisse, l'export sort un lot vide et
+l'import écrit dans une base que le serveur ne verra jamais. Le geste
+doit lire/écrire le fichier ici et parler au serveur pour le contenu.
+
+Mesuré sur la branche : **412 tests noyau SQLite**, 0 échec ;
+`gestion_base`, `fournisseurs_base`, `images_base`, `schema_commun`
+au vert sur PostgreSQL ; typecheck et build front au vert.

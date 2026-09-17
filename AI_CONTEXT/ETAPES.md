@@ -8,8 +8,9 @@ décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 Dernière mise à jour : **17 septembre 2026** (la fenêtre Tauri essayée
 pour de vrai sur PostgreSQL ; modèles branchés à l'impression ; dates
 saisissables).
-État : **406 tests noyau SQLite** (`cargo test -p gescom-noyau`,
-mesuré le 17/09, suite complète sans `fail-fast`) ; **414 tests workspace SQLite**
+État : **412 tests noyau SQLite** (`cargo test -p gescom-noyau`,
+mesuré le 17/09 sur la branche `travail/dates-images`, suite complète
+sans `fail-fast`) ; **414 tests workspace SQLite**
 (`--workspace`, mesure du 13/09, non rejouée depuis) ;
 **394 tests noyau sur PostgreSQL** (suite complète sur `gescom_test`,
 0 échec le 13/09 ; `auth_base`, `entretien_base` et `images_base`
@@ -67,9 +68,10 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 
 | # | quoi | où |
 |---|---|---|
-| I1 | **Vingt blocs Image partagent une seule image.** Un bloc désigne l'un des **trois** emplacements de la société ; en remplacer un les change tous. Il faut des images propres au modèle, avec une identité stable — un cachet, une signature, un QR ne sont pas le logo | `noyau/src/images.rs`, `lib/modeles/types.ts` |
+| I1 | ~~**Vingt blocs Image partagent une seule image**~~ **fait le 17/09/2026** : table `image_document` (deux chemins de création, `schema_commun`), `imageId` sur le bloc Image, quatre commandes, **suppression refusée tant qu'un modèle la pose** (le refus nomme lesquels), **l'export emporte les images** (version d'échange 2, un lot v1 se lit toujours). Quatre scénarios | `noyau/src/images.rs`, `noyau/src/modeles.rs`, `lib/modeles/*` |
 | I2 | ~~**La date au POS**~~ **fait le 17/09/2026** : `creer_vente_datee_sur*` (les `creer_vente_sur*` restent des enveloppes, 33 appels intacts), règle pure dans `coeur/dates.rs` (pas de futur, 31 jours de recul max), permission **`pieces:antidater`** vérifiée par le serveur, `libelle` de caisse « Vente du 03/09 ». Deux scénarios + six tests unitaires | `noyau/src/coeur/dates.rs`, `noyau/src/argent.rs` |
-| I3 | **La date d'un règlement** (page client et fournisseur) : même règle `coeur::dates`, même permission `pieces:antidater`, même partage — le `paiement` porte la date de l'affaire, le mouvement de caisse reste au jour | `noyau/src/creances.rs`, `noyau/src/argent.rs` (`regler_dette_fournisseur`) |
+| I3 | ~~**La date d'un règlement**~~ **fait le 17/09/2026** : `regler_creance_datee*` et `regler_dette_fournisseur_datee*` (les fonctions d'origine restent des enveloppes), même règle, même permission, le `paiement` porte la date de l'affaire, la caisse reste au jour avec « Règlement du jj/mm ». Champ « Réglé le » dans les fiches client et fournisseur. Deux scénarios | `noyau/src/creances.rs`, `noyau/src/argent.rs` |
+| I5 | **L'export et l'import des modèles ne marchent pas depuis une caisse.** `exporter_modeles` / `importer_modeles` sont dans la liste `LOCALES` de `pont.ts` (ils lisent et écrivent un fichier) **et** touchent `etat.conn`, la base locale de la caisse — vide en mode poste. Depuis une caisse, l'export sort un lot vide et l'import écrit dans une base que le serveur ne voit pas. Trouvé le 17/09 en branchant les images ; le geste doit lire/écrire le fichier en local et parler au serveur pour le contenu | `src/lib/pont.ts`, `src-tauri/src/commandes/modeles.rs` |
 | I4 | **Le champ de saisie de la référence** fournisseur + la recherche par référence : les listes passent par un mappeur de colonnes partagé entre quatre requêtes, à faire d'un bloc | `noyau/src/pieces.rs`, `src/pages/Pieces.tsx` |
 
 **La règle posée le 17/09, à ne pas défaire** : *deux dates, deux faits*.
