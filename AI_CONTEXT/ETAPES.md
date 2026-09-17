@@ -9,17 +9,18 @@ Dernière mise à jour : **17 septembre 2026** (la fenêtre Tauri essayée
 pour de vrai sur PostgreSQL ; modèles branchés à l'impression ; dates
 saisissables).
 État : **412 tests noyau SQLite** (`cargo test -p gescom-noyau`,
-mesuré le 17/09 sur la branche `travail/dates-images`, suite complète
-sans `fail-fast`) ; **414 tests workspace SQLite**
-(`--workspace`, mesure du 13/09, non rejouée depuis) ;
-**394 tests noyau sur PostgreSQL** (suite complète sur `gescom_test`,
-0 échec le 13/09 ; `auth_base`, `entretien_base` et `images_base`
-rejoués le 16/09, 34 tests, 0 échec) ; **143 scénarios** en seize fichiers `*_base.rs` qui
-tournent sur les deux moteurs (`GESCOM_PG`). Serveur : **193
-commandes**, rejouées **141/141** par HTTP sur base neuve, et
-`POST /entretien` vérifié par HTTP (D9). `cargo check --workspace
---all-targets` au vert le 16/09, sans avertissement. Dernier commit :
-voir `git log`.
+mesuré le 17/09, suite complète sans `fail-fast`) ; **414 tests
+workspace SQLite** (`--workspace`, mesure du 13/09, non rejouée
+depuis) ; sur **PostgreSQL** (`gescom_test`) : suite complète 394/394
+le 13/09, puis rejoués sans échec le 16 et le 17/09 les fichiers
+touchés (`auth_base`, `entretien_base`, `images_base`, `argent_base`,
+`pieces_base`, `gestion_base`, `fournisseurs_base`, `schema_commun`) ;
+**150 scénarios** en seize fichiers `*_base.rs` qui tournent sur les
+deux moteurs (`GESCOM_PG`). Serveur : **198 commandes** (193 le 13/09,
+rejouées 141/141 par HTTP sur base neuve ; +1 référence, +4 images le
+17/09), `POST /entretien` vérifié par HTTP (D9). **27 permissions.**
+`cargo check --workspace --all-targets` au vert le 17/09, sans
+avertissement. Dernier commit : voir `git log`.
 
 ---
 
@@ -43,12 +44,12 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 
 | chantier | fiche |
 |---|---|
-| Serveur HTTP écrit à la main, 193 commandes, canal d'événements, sessions révocables à chaque appel, console | [reseau-v2](modules/reseau-v2.md) |
-| Droits : 23 permissions, rôles en base, permissions par personne (commandes) | [permissions](modules/permissions.md) |
+| Serveur HTTP écrit à la main, **198 commandes**, canal d'événements, sessions révocables à chaque appel, console | [reseau-v2](modules/reseau-v2.md) |
+| Droits : **27 permissions** (dont `pieces:antidater`, vérifiée sur l'argument), rôles en base, permissions par personne, écran | [permissions](modules/permissions.md) |
 | Stock = somme des mouvements ; numérotation transactionnelle (0 doublon sur 100 × 4 connexions) ; le stock bouge au document qui le constate | [livraison-stock](modules/livraison-stock.md), [numerotation](modules/numerotation.md) |
 | Installeur empaqueté, non signé (D5) | [installeur](modules/installeur.md) |
 | Modèles de documents, atelier, import/export | [modeles-documents](modules/modeles-documents.md) |
-| **PostgreSQL : 193/193 commandes servies sur `Base`**, sauvegarde `pg_dump`, filet `schema_commun` | [postgresql](modules/postgresql.md) |
+| **PostgreSQL : 198/198 commandes servies sur `Base`**, sauvegarde `pg_dump`, filet `schema_commun` | [postgresql](modules/postgresql.md) |
 
 ## v2 — ce qui reste
 

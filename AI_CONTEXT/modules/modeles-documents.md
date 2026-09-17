@@ -40,11 +40,10 @@ Douze types : `entete`, `titre`, `champs`, `tableau`, `totaux`, `texte`,
 `signatures`, `image`, `pied_page`, `trait`, `espace`, `saut_page`.
 
 `image` pose une image **dimensionnée en millimètres** — la cible est du
-papier. ⚠️ Il désigne l'un des **trois** emplacements de la société
-(logo, en-tête, pied) : vingt blocs Image pointent donc sur trois
-fichiers, et en remplacer un les change tous. Limite de conception,
-connue et bloquante pour l'usage réel (cachet, signature, QR) — voir
-[ETAPES.md](../ETAPES.md) § I1.
+papier. Deux sources : l'un des trois emplacements de la **société**
+(logo, en-tête, pied — partagés, les remplacer change partout), ou une
+image **posée** par `imageId` (cachet, signature, QR — chacune la
+sienne). Depuis le 17/09/2026 ; voir ci-dessous.
 
 `pied_page` est le seul qui ne s'empile pas : c'est une BANDE de hauteur
 fixe, où les éléments se posent au millimètre (`position: fixed` à
@@ -156,6 +155,33 @@ on imprime.
 - Le modèle **actif est présélectionné** dans l'aperçu comme à la
   caisse : deux écrans qui sortent deux factures différentes pour la
   même boutique, c'est la panne qu'on n'explique pas au client.
+
+## Les images posées sur un document (17/09/2026)
+
+Table `image_document` (id, nom, chemin, taille, cree_le), créée par
+`persistance/v2.rs` **et** `amorcage.rs` — `schema_commun` compare. Le
+fichier vit chez le serveur comme les images de la société (D8), nommé
+`img_<id>.<ext>` : l'identifiant, jamais le nom saisi. Logique dans
+[noyau/src/images.rs](../../src-tauri/noyau/src/images.rs) § « Les
+images POSÉES » ; quatre commandes (`importer_image`, `lister_images`,
+`lire_images_base64`, `supprimer_image`), les écritures sous
+`modeles:gerer`.
+
+- [CONFIRMÉ] **Supprimer refuse tant qu'un modèle pose l'image**, et
+  nomme lesquels — l'empreinte `"imageId":"<id>"` est cherchée dans
+  `contenu` (test `une_image_posee_sur_un_modele_ne_se_supprime_pas`).
+  Même règle que le modèle d'usine.
+- [CONFIRMÉ] **L'export emporte les images posées** (version d'échange
+  **2**) ; l'import les repose sous le même identifiant, n'en pose pas
+  deux fois, et sans dossier d'images le modèle arrive quand même avec
+  un bilan qui le dit. Un lot v1 se lit toujours (test
+  `un_export_emporte_les_images_posees_et_l_import_les_repose`). Les
+  images de la **société** ne voyagent pas.
+- ⚠️ **I5** : `exporter_modeles` / `importer_modeles` sont des commandes
+  LOCALES (`pont.ts`, elles lisent et écrivent un fichier) qui touchent
+  la base locale de la caisse — **vide en mode poste**. Depuis une
+  caisse, l'export sort un lot vide. À corriger : fichier en local,
+  contenu par le serveur.
 
 ## Ce que la revue du 16/09/2026 a trouvé
 

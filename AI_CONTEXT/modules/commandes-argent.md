@@ -24,6 +24,23 @@ clôture et les écarts. **Et le garde-fou qui gouverne tout le reste.**
 | `lire_depenses_du_jour` | **aucun** |
 | `modifier_depense` | **aucun** |
 
+## La date de l'affaire — `*_datee` (17/09/2026)
+
+`creer_vente_datee_sur*`, `regler_creance_datee*`,
+`regler_dette_fournisseur_datee*` prennent une date en plus ; les
+fonctions d'origine sont devenues des **enveloppes** qui passent `None`
+— 53 appels n'ont pas bougé. La règle est dans
+[coeur/dates.rs](../../src-tauri/noyau/src/coeur/dates.rs), l'aide
+`date_saisie` dans `argent.rs` produit la date de l'affaire (le jour
+saisi, l'heure de la saisie) et le libellé de caisse.
+
+**Deux dates, deux faits.** La vente / la pièce / le `paiement` portent
+la date de l'affaire. Le `mouvement_caisse` garde `maintenant` — la
+caisse se lit par session, jamais par date — et son `libelle` dit
+« Vente du 03/09 » ou « Règlement du 03/09 ». Son `motif` reste la
+catégorie technique (`vente`, `reglement_fournisseur`) que les rapports
+filtrent.
+
 ## Le garde-fou `CAISSE_FERMEE`
 
 `utils::exiger_session_caisse(&conn) -> Result<String, String>` renvoie

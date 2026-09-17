@@ -18,7 +18,7 @@ du noyau, **à chaque appel** ; l'écran ne fait que cacher des boutons.
 
 | | où | qui le change |
 |---|---|---|
-| le **catalogue** — 23 permissions, celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`) | code | personne |
+| le **catalogue** — 27 permissions, celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`) | code | personne |
 | les **rôles** — `role.permissions` (JSON), `role.acces_total` | base | le patron |
 | le **sur-mesure** — `utilisateur_permission(utilisateur, permission, accorde)` | base | le patron, par personne |
 
@@ -26,6 +26,19 @@ Rôles livrés : `superadmin` (tout, protégé, compte de secours),
 `patron` (tout), `employe` (l'ancien v1), `caissier`, `magasinier`,
 `comptable`. Points de départ : `creer_role` en fabrique d'autres sans
 recompiler.
+
+## Une permission qui dépend des ARGUMENTS : `pieces:antidater`
+
+Le registre vérifie la permission de base d'une commande avant de
+l'appeler. `pieces:antidater` (17/09/2026) est différente : elle ne
+porte pas sur la commande mais sur **un argument** — une date de vente,
+de pièce ou de règlement antérieure à aujourd'hui. Elle se vérifie donc
+**dans la poignée**, par `exiger_antidatage` / `exiger_antidatage_base`
+([socle.rs](../../src-tauri/serveur/src/socle.rs)), après la permission
+de base. Saisir la date du jour n'antidate pas. La raison n'est pas
+comptable : antidater une vente en espèces masque un trou dans le
+tiroir. Le rôle `patron` (accès total) l'a d'office ; un caissier ne
+l'hérite pas.
 
 ## Règles
 

@@ -14,7 +14,7 @@ l'arrêt (récit : [JOURNAL.md](../JOURNAL.md), [DECISIONS.md](../DECISIONS.md) 
 | [noyau/src/protocole.rs](../../src-tauri/noyau/src/protocole.rs) | le contrat client/serveur, compilé des deux côtés — un champ renommé casse l'autre |
 | [noyau/src/sessions.rs](../../src-tauri/noyau/src/sessions.rs), [postes.rs](../../src-tauri/noyau/src/postes.rs), [caisses.rs](../../src-tauri/noyau/src/caisses.rs) | jeton/expiration/révocation ; les machines ; quel tiroir pour qui |
 | [noyau/src/registre.rs](../../src-tauri/noyau/src/registre.rs) | nom → poignée `Connection` **et** poignée `Base` (`aussi_sur_base`) |
-| [serveur/src/socle.rs](../../src-tauri/serveur/src/socle.rs) | les 193 commandes enregistrées ; le bloc généré vit entre marqueurs (`outils/generer_socle.py`) |
+| [serveur/src/socle.rs](../../src-tauri/serveur/src/socle.rs) | les 198 commandes enregistrées ; le bloc généré vit entre marqueurs (`outils/generer_socle.py`) |
 | [serveur/src/http.rs](../../src-tauri/serveur/src/http.rs), [api.rs](../../src-tauri/serveur/src/api.rs), [canal.rs](../../src-tauri/serveur/src/canal.rs) | HTTP/1.1 minimal sans dépendance (ni TLS ni keep-alive) ; les routes ; la longue attente |
 | [serveur/src/sauvegarde.rs](../../src-tauri/serveur/src/sauvegarde.rs) | toutes les 24 h, 14 copies : `VACUUM INTO` (SQLite) ou `pg_dump` (PostgreSQL) |
 | [serveur/src/console.rs](../../src-tauri/serveur/src/console.rs), [reseau_local.rs](../../src-tauri/serveur/src/reseau_local.rs) | la console (une page HTML dans une constante) ; adresse à saisir et état du pare-feu au démarrage |

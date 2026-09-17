@@ -9,7 +9,7 @@ Une règle qui n'est pas ici est une règle qu'aucun test ne protège.
 ## Fichiers
 
 - [coeur/mod.rs](../../src-tauri/noyau/src/coeur/mod.rs) (6 l.) — déclare les
-  cinq modules. `#![allow(dead_code)]` : certaines fonctions n'ont pas
+  six modules. `#![allow(dead_code)]` : certaines fonctions n'ont pas
   encore d'appelant.
 - [coeur/calcul.rs](../../src-tauri/noyau/src/coeur/calcul.rs) (362 l.) —
   montants, statuts de vente, imputation d'un règlement, effet caisse
@@ -22,6 +22,12 @@ Une règle qui n'est pas ici est une règle qu'aucun test ne protège.
   théorique et écart, espèces seulement.
 - [coeur/codebarre.rs](../../src-tauri/noyau/src/coeur/codebarre.rs) (127 l.) —
   EAN-13 : clé de contrôle, génération interne préfixe `20`.
+- [coeur/dates.rs](../../src-tauri/noyau/src/coeur/dates.rs) (124 l.) — la
+  date d'une affaire saisie après coup : jamais dans le futur, pas plus
+  loin que `RECUL_MAX_JOURS` (31). `est_antidatee` dit si la permission
+  `pieces:antidater` est requise. `aujourd_hui` est passé en paramètre :
+  la règle se teste sans attendre minuit. **Ce module ne touche pas au
+  mouvement de caisse** — deux dates, deux faits (ALERTES.md).
 
 ## Fonctions exposées
 

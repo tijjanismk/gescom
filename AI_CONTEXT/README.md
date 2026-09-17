@@ -14,7 +14,7 @@ de 5 à 8 k.
 |---|---|
 | corriger n'importe quoi | [ALERTES.md](ALERTES.md) — deux arbres du même nom, lequel ouvrir |
 | savoir où en est le projet | [ETAPES.md](ETAPES.md) (une page) ; l'historique daté est dans [JOURNAL.md](JOURNAL.md), à ne pas charger |
-| toucher à l'argent (vente, facture, règlement, caisse) | [modules/coeur.md](modules/coeur.md), [modules/commandes-argent.md](modules/commandes-argent.md), [DOMAINE.md](DOMAINE.md) §Argent — puis **ouvrir `noyau/src/argent.rs`** |
+| toucher à l'argent (vente, facture, règlement, caisse) — **ou à une date** | [modules/coeur.md](modules/coeur.md), [modules/commandes-argent.md](modules/commandes-argent.md), [DOMAINE.md](DOMAINE.md) §Argent — puis **ouvrir `noyau/src/argent.rs`** |
 | toucher aux pièces (devis → facture, avoirs) | [modules/commandes-pieces.md](modules/commandes-pieces.md), [modules/livraison-stock.md](modules/livraison-stock.md), [modules/numerotation.md](modules/numerotation.md) |
 | toucher au stock, aux magasins, aux transferts | [modules/commandes-stock-depots.md](modules/commandes-stock-depots.md), [modules/livraison-stock.md](modules/livraison-stock.md) |
 | toucher aux achats, fournisseurs, dettes | [modules/commandes-achat-fournisseur.md](modules/commandes-achat-fournisseur.md) |
