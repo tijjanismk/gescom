@@ -777,6 +777,50 @@ pub fn registre() -> Registre {
         Ok(Value::Null)
     });
 
+    // Les images POSEES sur un document (I1) : cachet, signature, QR.
+    // Une identite par image, a part des trois emplacements de la
+    // societe. Poser et retirer demandent le droit sur les modeles ;
+    // lire est ouvert, comme les images de la societe.
+    r.ecriture("importer_image", "modeles:gerer", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let contenu: String = arg(&p, "contenu", "contenu")?;
+        let octets = gescom_noyau::images::decoder_base64(&contenu)?;
+        let dossier = dossier_des_images(c.conn).ok_or_else(|| {
+            "Impossible d'écrire l'image : aucun dossier d'images sur ce moteur.".to_string()
+        })?;
+        let id = gescom_noyau::images::importer_libre(c.conn, &nom, &octets, &dossier)?;
+        Ok(json!({ "id": id }))
+    });
+    r.aussi_sur_base("importer_image", |c, p| {
+        let nom: String = arg(&p, "nom", "nom")?;
+        let contenu: String = arg(&p, "contenu", "contenu")?;
+        let octets = gescom_noyau::images::decoder_base64(&contenu)?;
+        let dossier = dossier_des_images_base(c.base);
+        let id = gescom_noyau::images::importer_libre_sur_base(c.base, &nom, &octets, dossier.as_deref())?;
+        Ok(json!({ "id": id }))
+    });
+
+    r.lecture("lister_images", |c, _| {
+        serde_json::to_value(gescom_noyau::images::lister_libres(c.conn)?).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("lister_images", |c, _| {
+        serde_json::to_value(gescom_noyau::images::lister_libres_sur_base(c.base)?).map_err(|e| e.to_string())
+    });
+
+    r.lecture("lire_images_base64", |c, _| gescom_noyau::images::lire_libres_base64(c.conn));
+    r.aussi_sur_base("lire_images_base64", |c, _| gescom_noyau::images::lire_libres_base64_sur_base(c.base));
+
+    r.ecriture("supprimer_image", "modeles:gerer", |c, p| {
+        let id: String = arg(&p, "id", "id")?;
+        gescom_noyau::images::supprimer_libre(c.conn, &id)?;
+        Ok(Value::Null)
+    });
+    r.aussi_sur_base("supprimer_image", |c, p| {
+        let id: String = arg(&p, "id", "id")?;
+        gescom_noyau::images::supprimer_libre_sur_base(c.base, &id)?;
+        Ok(Value::Null)
+    });
+
     r.ecriture("supprimer_logo", "parametres:modifier", |c, _| {
         let dossier = dossier_des_images(c.conn);
         gescom_noyau::images::supprimer(c.conn, "logo", dossier.as_deref())?;

@@ -118,6 +118,69 @@ fn un_modele_sans_nom_est_refuse() {
 //  Transport
 // =====================================================================
 
+/// Un modèle qui pose un cachet voyage AVEC son cachet : à l'arrivée,
+/// l'image existe sous le même identifiant, et le bloc la retrouve.
+/// Une seconde importation ne la pose pas deux fois.
+#[test]
+fn un_export_emporte_les_images_posees_et_l_import_les_repose() {
+    let conn = base();
+    let d_source = std::env::temp_dir().join(format!("gescom-export-src-{}", uuid::Uuid::new_v4()));
+    let d_cible = std::env::temp_dir().join(format!("gescom-export-dst-{}", uuid::Uuid::new_v4()));
+
+    let cachet = gescom_noyau::images::importer_libre(&conn, "cachet.png", b"le cachet", &d_source)
+        .expect("importer le cachet");
+    let mut m = modele("m-cachet", "facture", "Avec cachet", false);
+    m.contenu = json!({
+        "version": 1, "page": {},
+        "blocs": [{ "id": "b1", "type": "image", "visible": true, "image": "logo",
+                    "imageId": cachet, "largeurMm": 30, "hauteurMm": 0, "alignement": "gauche" }]
+    });
+    modeles::enregistrer(&conn, &m, "test").unwrap();
+
+    let lot = modeles::exporter(&conn, None).unwrap();
+    assert_eq!(lot.version, VERSION_ECHANGE);
+    assert_eq!(lot.images.len(), 1, "le cachet doit voyager avec le modèle");
+    assert_eq!(lot.images[0].id, cachet);
+    assert_eq!(lot.images[0].nom, "cachet.png");
+
+    let json_texte = serde_json::to_string(&lot).unwrap();
+    let cible = base();
+    let relu: modeles::Lot = serde_json::from_str(&json_texte).unwrap();
+    let bilan = modeles::importer_avec_images(&cible, &relu, "test", Some(&d_cible)).unwrap();
+    assert_eq!(bilan.ajoutes, 1);
+    assert_eq!(bilan.images_ajoutees, 1);
+    assert!(bilan.ignores.is_empty(), "{:?}", bilan.ignores);
+
+    // Même identifiant, mêmes octets : le bloc du modèle importé la retrouve.
+    let b64 = gescom_noyau::images::lire_libre_base64(&cible, &cachet).unwrap().expect("le cachet est arrivé");
+    assert!(b64.ends_with(&base64_de(b"le cachet")), "les octets doivent traverser intacts");
+
+    // Reimporter : rien de plus, pas de doublon.
+    let bilan2 = modeles::importer_avec_images(&cible, &relu, "test", Some(&d_cible)).unwrap();
+    assert_eq!(bilan2.images_ajoutees, 0);
+    assert_eq!(gescom_noyau::images::lister_libres(&cible).unwrap().len(), 1);
+
+    // Sans dossier d'images, le modèle arrive quand même et le bilan le dit.
+    let cible2 = base();
+    let bilan3 = modeles::importer(&cible2, &relu, "test").unwrap();
+    assert_eq!(bilan3.ajoutes, 1);
+    assert_eq!(bilan3.images_ajoutees, 0);
+    assert!(bilan3.ignores.iter().any(|i| i.contains("image")), "{:?}", bilan3.ignores);
+
+    // Un lot d'AVANT (version 1, sans `images`) se lit toujours.
+    let ancien = json!({ "marqueur": MARQUEUR, "version": 1, "exporte_le": "x", "modeles": [m] });
+    let ancien: modeles::Lot = serde_json::from_value(ancien).unwrap();
+    assert!(ancien.images.is_empty());
+
+    let _ = std::fs::remove_dir_all(&d_source);
+    let _ = std::fs::remove_dir_all(&d_cible);
+}
+
+fn base64_de(octets: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(octets)
+}
+
 #[test]
 fn un_aller_retour_conserve_le_contenu() {
     let conn = base();
@@ -158,6 +221,7 @@ fn importer_ne_change_pas_le_modele_actif_du_poste() {
         exporte_le: "2026-01-01".to_string(),
         societe: Some("Autre boutique".to_string()),
         modeles: vec![venu],
+        images: vec![],
     };
     modeles::importer(&conn, &lot, "test").unwrap();
 
@@ -177,6 +241,7 @@ fn un_fichier_etranger_est_refuse() {
         exporte_le: "2026-01-01".to_string(),
         societe: None,
         modeles: vec![modele("m1", "facture", "A4", false)],
+        images: vec![],
     };
     assert!(modeles::importer(&conn, &lot, "test").is_err());
 }
@@ -190,6 +255,7 @@ fn un_fichier_trop_recent_est_refuse() {
         exporte_le: "2026-01-01".to_string(),
         societe: None,
         modeles: vec![modele("m1", "facture", "A4", false)],
+        images: vec![],
     };
     // Laisser passer ferait lire des champs absents comme des zéros :
     // une mise en page cassée, sans message d'erreur.
@@ -209,6 +275,7 @@ fn un_modele_casse_ne_fait_pas_echouer_le_lot() {
             modele("bon", "facture", "Correct", false),
             modele("mauvais", "facture", "", false),
         ],
+        images: vec![],
     };
     let bilan = modeles::importer(&conn, &lot, "test").unwrap();
     // Un lot de six dont un est mal formé en installe cinq, et dit

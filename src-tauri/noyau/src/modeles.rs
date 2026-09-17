@@ -28,7 +28,10 @@ use crate::utils::maintenant_iso;
 
 /// Version du format d'échange. Incrémentée seulement si un fichier
 /// exporté par une version antérieure cesse d'être lisible.
-pub const VERSION_ECHANGE: u32 = 1;
+/// 2 depuis le 17/09/2026 : le lot emporte les images posées sur ses
+/// modèles. Un fichier de version 1 se lit toujours — `images` vaut
+/// alors une liste vide.
+pub const VERSION_ECHANGE: u32 = 2;
 
 /// Marqueur du fichier d'export. Sans lui, on ouvrirait n'importe quel
 /// JSON en croyant y trouver des modèles, et l'erreur ne se verrait
@@ -61,6 +64,16 @@ pub struct Modele {
     pub modifie_le: String,
 }
 
+/// Une image posée sur un modèle du lot, telle qu'elle voyage : son
+/// identifiant (les blocs la désignent par lui), son nom, et ses octets
+/// en `data:` URL.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageDuLot {
+    pub id: String,
+    pub nom: String,
+    pub contenu: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lot {
     pub marqueur: String,
@@ -69,6 +82,27 @@ pub struct Lot {
     #[serde(default)]
     pub societe: Option<String>,
     pub modeles: Vec<Modele>,
+    /// Les images posées sur ces modèles. Pas celles de la société —
+    /// le logo d'une boutique ne part pas chez une autre.
+    #[serde(default)]
+    pub images: Vec<ImageDuLot>,
+}
+
+/// Les identifiants d'images posées par ces modèles, sans doublon.
+fn images_posees(modeles: &[Modele]) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for m in modeles {
+        if let Some(blocs) = m.contenu.get("blocs").and_then(|b| b.as_array()) {
+            for b in blocs {
+                if let Some(id) = b.get("imageId").and_then(|v| v.as_str()) {
+                    if !id.is_empty() && !ids.iter().any(|x| x == id) {
+                        ids.push(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    ids
 }
 
 // =====================================================================
@@ -280,12 +314,25 @@ pub fn exporter(conn: &Connection, ids: Option<Vec<String>>) -> Result<Lot, Stri
         )
         .ok();
 
+    // Les images que ces modèles posent voyagent avec eux : un modèle
+    // qui arrive sans son cachet imprimerait un blanc à sa place.
+    let mut images = Vec::new();
+    for id in images_posees(&modeles) {
+        let nom: Option<String> = conn
+            .query_row("SELECT nom FROM image_document WHERE id = ?1", params![id], |r| r.get(0))
+            .ok();
+        if let (Some(nom), Ok(Some(contenu))) = (nom, crate::images::lire_libre_base64(conn, &id)) {
+            images.push(ImageDuLot { id, nom, contenu });
+        }
+    }
+
     Ok(Lot {
         marqueur: MARQUEUR.to_string(),
         version: VERSION_ECHANGE,
         exporte_le: maintenant_iso(),
         societe,
         modeles,
+        images,
     })
 }
 
@@ -294,6 +341,41 @@ pub struct Bilan {
     pub ajoutes: usize,
     pub remplaces: usize,
     pub ignores: Vec<String>,
+    /// Les images du lot posées ici — celles déjà présentes ne comptent pas.
+    #[serde(default)]
+    pub images_ajoutees: usize,
+}
+
+/// Pose les images d'un lot, une par une, sans que l'une qui échoue
+/// n'arrête les autres — même règle que pour les modèles.
+///
+/// `poser(id, nom, octets, dossier)` rend `Ok(true)` si l'image a été
+/// posée, `Ok(false)` si elle était déjà là.
+fn poser_images_du_lot(
+    lot: &Lot,
+    dossier: Option<&std::path::Path>,
+    bilan: &mut Bilan,
+    mut poser: impl FnMut(&str, &str, &[u8], &std::path::Path) -> Result<bool, String>,
+) {
+    if lot.images.is_empty() {
+        return;
+    }
+    let Some(dossier) = dossier else {
+        bilan.ignores.push(format!(
+            "{} image(s) laissée(s) de côté : aucun dossier d'images sur ce moteur.",
+            lot.images.len()
+        ));
+        return;
+    };
+    for img in &lot.images {
+        let resultat = crate::images::octets_de_data_url(&img.contenu)
+            .and_then(|octets| poser(&img.id, &img.nom, &octets, dossier));
+        match resultat {
+            Ok(true) => bilan.images_ajoutees += 1,
+            Ok(false) => {}
+            Err(e) => bilan.ignores.push(format!("image {} — {e}", img.nom)),
+        }
+    }
 }
 
 /// Reprend un lot exporté ailleurs.
@@ -304,6 +386,18 @@ pub struct Bilan {
 /// celle qui envoie. Sans quoi importer un lot depuis la boutique du
 /// cousin changerait la facture qui sort de votre imprimante.
 pub fn importer(conn: &Connection, lot: &Lot, auteur: &str) -> Result<Bilan, String> {
+    importer_avec_images(conn, lot, auteur, None)
+}
+
+/// L'import, avec le dossier où poser les images du lot. Sans dossier,
+/// les images sont laissées de côté et le bilan le dit — le modèle
+/// arrive, il imprimera un blanc à la place du cachet.
+pub fn importer_avec_images(
+    conn: &Connection,
+    lot: &Lot,
+    auteur: &str,
+    dossier_images: Option<&std::path::Path>,
+) -> Result<Bilan, String> {
     if lot.marqueur != MARQUEUR {
         return Err(
             "Ce fichier n'est pas un export de modèles Gescom.".to_string(),
@@ -320,7 +414,15 @@ pub fn importer(conn: &Connection, lot: &Lot, auteur: &str) -> Result<Bilan, Str
         return Err("Ce fichier ne contient aucun modèle.".to_string());
     }
 
-    let mut bilan = Bilan { ajoutes: 0, remplaces: 0, ignores: Vec::new() };
+    let mut bilan = Bilan { ajoutes: 0, remplaces: 0, ignores: Vec::new(), images_ajoutees: 0 };
+    poser_images_du_lot(lot, dossier_images, &mut bilan, |id, nom, octets, dossier| {
+        let deja: i64 = conn
+            .query_row("SELECT COUNT(*) FROM image_document WHERE id = ?1", params![id], |r| r.get(0))
+            .unwrap_or(0);
+        if deja > 0 { return Ok(false) }
+        crate::images::poser_libre(conn, id, nom, octets, dossier)?;
+        Ok(true)
+    });
     for m in &lot.modeles {
         let existe: i64 = conn
             .query_row(
@@ -498,10 +600,29 @@ pub fn exporter_sur_base(base: &mut Base, ids: Option<Vec<String>>) -> Result<Lo
         .lire_une("SELECT nom FROM parametres_societe WHERE id = 1", &[], |r| r.get::<String>(0))
         .ok()
         .flatten();
-    Ok(Lot { marqueur: MARQUEUR.to_string(), version: VERSION_ECHANGE, exporte_le: maintenant_iso(), societe, modeles })
+    let mut images = Vec::new();
+    for id in images_posees(&modeles) {
+        let nom: Option<String> = base
+            .lire_une("SELECT nom FROM image_document WHERE id = ?1", &parametres![id.clone()], |r| r.get::<String>(0))
+            .ok()
+            .flatten();
+        if let (Some(nom), Ok(Some(contenu))) = (nom, crate::images::lire_libre_base64_sur_base(base, &id)) {
+            images.push(ImageDuLot { id, nom, contenu });
+        }
+    }
+    Ok(Lot { marqueur: MARQUEUR.to_string(), version: VERSION_ECHANGE, exporte_le: maintenant_iso(), societe, modeles, images })
 }
 
 pub fn importer_sur_base(base: &mut Base, lot: &Lot, auteur: &str) -> Result<Bilan, String> {
+    importer_avec_images_sur_base(base, lot, auteur, None)
+}
+
+pub fn importer_avec_images_sur_base(
+    base: &mut Base,
+    lot: &Lot,
+    auteur: &str,
+    dossier_images: Option<&std::path::Path>,
+) -> Result<Bilan, String> {
     if lot.marqueur != MARQUEUR {
         return Err("Ce fichier n'est pas un export de modèles Gescom.".to_string());
     }
@@ -515,7 +636,17 @@ pub fn importer_sur_base(base: &mut Base, lot: &Lot, auteur: &str) -> Result<Bil
     if lot.modeles.is_empty() {
         return Err("Ce fichier ne contient aucun modèle.".to_string());
     }
-    let mut bilan = Bilan { ajoutes: 0, remplaces: 0, ignores: Vec::new() };
+    let mut bilan = Bilan { ajoutes: 0, remplaces: 0, ignores: Vec::new(), images_ajoutees: 0 };
+    poser_images_du_lot(lot, dossier_images, &mut bilan, |id, nom, octets, dossier| {
+        let deja: i64 = base
+            .lire_une("SELECT COUNT(*) FROM image_document WHERE id = ?1", &parametres![id.to_string()], |r| r.get::<i64>(0))
+            .ok()
+            .flatten()
+            .unwrap_or(0);
+        if deja > 0 { return Ok(false) }
+        crate::images::poser_libre_sur_base(base, id, nom, octets, Some(dossier))?;
+        Ok(true)
+    });
     for m in &lot.modeles {
         let existe: i64 = base
             .lire_une("SELECT COUNT(*) FROM modele_document WHERE id = ?1", &parametres![m.id.clone()], |r| r.get::<i64>(0))

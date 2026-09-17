@@ -39,6 +39,7 @@ import { contexteExemple } from "@/lib/modeles/contexte";
 import { modeleDUsine } from "@/lib/modeles/defauts";
 import {
   assurerModelesParDefaut, chargerImages, importerImageSociete,
+  importerImageLibre, listerImages, supprimerImageLibre, type ImageLibre,
 } from "@/lib/modeles/service";
 import type { ImagesDocument } from "@/lib/modeles/rendu";
 
@@ -204,6 +205,36 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
       console.error("Import d'image :", e);
     }
   }, []);
+
+  // Les images POSEES sur les documents : leur liste (noms) et leurs
+  // octets (dans `images.libres`). Importer une image la selectionne
+  // tout de suite dans le bloc en cours — c'est pour lui qu'on l'importe.
+  const [imagesLibres, setImagesLibres] = useState<ImageLibre[]>([]);
+  useEffect(() => { listerImages().then(setImagesLibres); }, []);
+  const importerLibre = useCallback(async () => {
+    try {
+      const id = await importerImageLibre();
+      if (!id) return;
+      const [liste, imgs] = await Promise.all([listerImages(), chargerImages()]);
+      setImagesLibres(liste);
+      setImages(imgs);
+      if (blocActif) majBloc(blocActif, { imageId: id });
+    } catch (e) {
+      await message(String(e), { title: "Import d'image", kind: "error" });
+    }
+  }, [blocActif]);
+  const supprimerLibre = useCallback(async (id: string) => {
+    try {
+      await supprimerImageLibre(id);
+      const [liste, imgs] = await Promise.all([listerImages(), chargerImages()]);
+      setImagesLibres(liste);
+      setImages(imgs);
+      if (blocActif) majBloc(blocActif, { imageId: undefined });
+    } catch (e) {
+      // Le serveur refuse tant qu'un modele la pose, et nomme lesquels.
+      await message(String(e), { title: "Image utilisée", kind: "warning" });
+    }
+  }, [blocActif]);
   const [images, setImages] = useState<ImagesDocument>({});
   const [chargement, setChargement] = useState(true);
   // Le semis des modèles d'usine peut échouer sans que la page soit
@@ -801,6 +832,9 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
                 champsDispo={champsDispo}
                 colonnesDispo={colonnesDispo}
                 onImporterImage={importerImage}
+                imagesLibres={imagesLibres}
+                onImporterLibre={importerLibre}
+                onSupprimerLibre={supprimerLibre}
                 blocs={modele.contenu.blocs}
                 onMajBloc={majBloc}
                 onChange={(patch) => majBloc(selection.id, patch)}
@@ -1074,7 +1108,7 @@ function ChoixChemin({
 
 function ProprietesBloc({
   bloc, champsDispo, colonnesDispo, onChange, format, images, onImporterImage,
-  blocs, onMajBloc,
+  blocs, onMajBloc, imagesLibres, onImporterLibre, onSupprimerLibre,
 }: {
   bloc: Bloc;
   /** Tous les blocs : de quoi repérer deux blocs qui posent la même image. */
@@ -1083,13 +1117,17 @@ function ProprietesBloc({
   champsDispo: ChampDisponible[];
   /** Poser une image de la société depuis l'atelier. */
   onImporterImage: (genre: "logo" | "entete" | "pied") => void;
+  /** Les images posées sur les documents, et leurs gestes. */
+  imagesLibres: ImageLibre[];
+  onImporterLibre: () => void;
+  onSupprimerLibre: (id: string) => void;
   /** Les colonnes proposees pour un tableau, selon le genre. */
   colonnesDispo: ChampDisponible[];
   onChange: (patch: Record<string, unknown>) => void;
   /** Le format décide de la largeur utile du pied, en millimètres. */
   format: string;
   /** Pour montrer dans l'éditeur ce qui sera réellement imprimé. */
-  images: { logo?: string | null; entete?: string | null; pied?: string | null };
+  images: ImagesDocument;
 }) {
   const titre = (
     <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1232,33 +1270,70 @@ function ProprietesBloc({
           {titre}
           <div>
             <Label className="text-xs">Quelle image</Label>
+            {/* Deux familles. Les trois images de la SOCIÉTÉ sont
+                partagées par tout le monde — les remplacer les change
+                partout. Les images POSÉES ont chacune leur identité :
+                un cachet, une signature, un QR, autant qu'on veut. */}
             <select
               className="h-8 w-full rounded-md border bg-transparent px-2 text-xs"
-              value={bloc.image}
-              onChange={(e) => onChange({ image: e.target.value })}
+              value={bloc.imageId ? `libre:${bloc.imageId}` : `societe:${bloc.image}`}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v.startsWith("libre:")) onChange({ imageId: v.slice(6) });
+                else onChange({ imageId: undefined, image: v.slice(8) });
+              }}
             >
-              {IMAGES_POSABLES.map((i) => (
-                <option key={i.id} value={i.id}>{i.nom}</option>
-              ))}
+              <optgroup label="Images de la société">
+                {IMAGES_POSABLES.map((i) => (
+                  <option key={i.id} value={`societe:${i.id}`}>{i.nom}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Images posées sur les documents">
+                {imagesLibres.length === 0 && (
+                  <option value="libre:" disabled>— aucune, importer ci-dessous —</option>
+                )}
+                {imagesLibres.map((i) => (
+                  <option key={i.id} value={`libre:${i.id}`}>{i.nom}</option>
+                ))}
+              </optgroup>
             </select>
-            <div className="mt-1.5 flex items-center gap-2">
+
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" className="h-7 text-xs"
-                onClick={() => onImporterImage(bloc.image)}>
-                <Upload className="mr-1 h-3 w-3" />
-                {images[bloc.image] ? "Remplacer…" : "Importer…"}
+                onClick={onImporterLibre}
+                title="Une image de plus, avec sa propre identité">
+                <Upload className="mr-1 h-3 w-3" /> Importer une image…
               </Button>
-              {images[bloc.image] && (
-                <img src={images[bloc.image] as string} alt=""
-                  className="h-7 rounded border bg-white object-contain" />
+              {!bloc.imageId && (
+                <Button variant="outline" size="sm" className="h-7 text-xs"
+                  onClick={() => onImporterImage(bloc.image)}
+                  title="Remplace cette image de la société partout où elle est posée">
+                  {images[bloc.image] ? "Remplacer celle de la société…" : "Poser celle de la société…"}
+                </Button>
+              )}
+              {bloc.imageId && (
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive"
+                  onClick={() => onSupprimerLibre(bloc.imageId as string)}
+                  title="Refusé tant qu'un modèle la pose">
+                  <Trash2 className="mr-1 h-3 w-3" /> Supprimer
+                </Button>
+              )}
+              {(bloc.imageId ? images.libres?.[bloc.imageId] : images[bloc.image]) && (
+                <img
+                  src={(bloc.imageId ? images.libres?.[bloc.imageId] : images[bloc.image]) as string}
+                  alt="" className="h-7 rounded border bg-white object-contain" />
               )}
             </div>
-            <DoublonImage
-              image={bloc.image} moi={bloc.id} blocs={blocs} onMajBloc={onMajBloc}
-            />
+            {!bloc.imageId && (
+              <DoublonImage
+                image={bloc.image} moi={bloc.id} blocs={blocs} onMajBloc={onMajBloc}
+              />
+            )}
             <p className="mt-1 text-[11px] text-muted-foreground">
-              L'image appartient à la société : la remplacer la change
-              partout où elle est posée. Absente, le bloc reste vide à
-              l'impression — pas de cadre vide sur la facture.
+              {bloc.imageId
+                ? "Une image posée ne se supprime pas tant qu'un modèle l'utilise : le serveur nomme lesquels."
+                : "Une image de la société est partagée : la remplacer la change partout où elle est posée."}
+              {" "}Absente, le bloc reste vide à l'impression.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2">

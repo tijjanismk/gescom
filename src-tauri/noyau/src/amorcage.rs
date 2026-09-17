@@ -171,6 +171,18 @@ fn tables_v2(base: &mut Base) {
             modifie_le   TEXT NOT NULL,
             modifie_par  TEXT
          )",
+        // Les images POSEES sur un document — cachet, signature, QR — par
+        // opposition aux trois images de la societe (logo, en-tete, pied).
+        // Une identite par image : vingt blocs Image ne pointent plus sur
+        // trois fichiers. Le fichier vit chez le serveur, comme D8 ; la
+        // table ne garde que de quoi le retrouver et le nommer.
+        "CREATE TABLE IF NOT EXISTS image_document (
+            id           TEXT PRIMARY KEY,
+            nom          TEXT NOT NULL,
+            chemin       TEXT NOT NULL,
+            taille       INTEGER NOT NULL DEFAULT 0,
+            cree_le      TEXT NOT NULL
+         )",
         "ALTER TABLE session_caisse ADD COLUMN poste_id TEXT",
         "ALTER TABLE session_caisse ADD COLUMN utilisateur_id TEXT",
         // Le poste qui a saisi le mouvement — pose par v2.rs cote

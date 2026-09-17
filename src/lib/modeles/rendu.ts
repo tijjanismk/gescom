@@ -26,6 +26,8 @@ export interface ImagesDocument {
   logo?: string | null;
   entete?: string | null;
   pied?: string | null;
+  /** Les images posées sur les documents, par identifiant, en `data:` URL. */
+  libres?: Record<string, string>;
 }
 
 export interface OptionsRendu {
@@ -414,8 +416,11 @@ function rendreBloc(
     }
 
     case "image": {
-      const src =
-        bloc.image === "logo"
+      // Une image posée par identifiant l'emporte ; sinon l'un des trois
+      // emplacements de la société.
+      const src = bloc.imageId
+        ? images.libres?.[bloc.imageId]
+        : bloc.image === "logo"
           ? images.logo
           : bloc.image === "entete"
             ? images.entete

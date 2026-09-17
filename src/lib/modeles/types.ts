@@ -215,8 +215,16 @@ export type Bloc =
     })
   | (BlocBase & {
       type: "image";
-      /** Laquelle des trois images de la société poser ici. */
+      /** Laquelle des trois images de la société poser ici — quand
+       *  `imageId` est vide. */
       image: "logo" | "entete" | "pied";
+      /**
+       * Une image POSÉE sur le document — cachet, signature, QR — par
+       * son identifiant. Elle a sa propre identité : vingt blocs ne se
+       * partagent plus trois fichiers. Quand elle est là, elle l'emporte
+       * sur `image`.
+       */
+      imageId?: string;
       /** La taille SUR LE DOCUMENT, en millimètres — la cible est du
        *  papier, pas un écran. Largeur nulle = la largeur du texte. */
       largeurMm: number;

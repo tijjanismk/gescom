@@ -115,6 +115,19 @@ pub fn migrer(conn: &Connection) -> Result<()> {
     )
     .ok();
 
+    // Les images posees sur un document (cachet, signature, QR), a part
+    // des trois images de la societe. Meme DDL que dans amorcage.rs :
+    // `tests/schema_commun.rs` compare les deux chemins.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS image_document (
+            id           TEXT PRIMARY KEY,
+            nom          TEXT NOT NULL,
+            chemin       TEXT NOT NULL,
+            taille       INTEGER NOT NULL DEFAULT 0,
+            cree_le      TEXT NOT NULL
+         );",
+    )?;
+
     // -----------------------------------------------------------------
     //  Le stock devient une consequence de ses mouvements
     // -----------------------------------------------------------------

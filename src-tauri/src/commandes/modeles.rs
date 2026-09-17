@@ -80,7 +80,11 @@ pub fn exporter_modeles(
 }
 
 #[tauri::command]
-pub fn importer_modeles(etat: State<EtatApp>, chemin: String) -> Result<Bilan, String> {
+pub fn importer_modeles(
+    app: tauri::AppHandle,
+    etat: State<EtatApp>,
+    chemin: String,
+) -> Result<Bilan, String> {
     let texte = std::fs::read_to_string(&chemin)
         .map_err(|e| format!("Lecture impossible : {e}"))?;
     let lot: Lot = serde_json::from_str(&texte).map_err(|_| {
@@ -88,5 +92,9 @@ pub fn importer_modeles(etat: State<EtatApp>, chemin: String) -> Result<Bilan, S
     })?;
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let auteur = id_utilisateur_courant_pub(&conn);
-    modeles::importer(&conn, &lot, &auteur)
+    // Les images du lot se posent dans le dossier de donnees de l'app,
+    // la ou vivent deja le logo et les autres images.
+    use tauri::Manager;
+    let dossier = app.path().app_data_dir().ok();
+    modeles::importer_avec_images(&conn, &lot, &auteur, dossier.as_deref())
 }

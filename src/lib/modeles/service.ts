@@ -52,12 +52,61 @@ export async function chargerImages(): Promise<ImagesDocument> {
       return null;
     }
   };
-  const [logo, entete, pied] = await Promise.all([
+  const [logo, entete, pied, libres] = await Promise.all([
     lire("lire_logo_base64"),
     lire("lire_entete_base64"),
     lire("lire_pied_base64"),
+    // Les images posées sur les documents, toutes, par identifiant.
+    // Une base sans la table (serveur d'avant I1) rend une erreur :
+    // on rend alors « aucune », le document s'imprime sans cachet.
+    invoke<Record<string, string>>("lire_images_base64").catch(() => ({})),
   ]);
-  return { logo, entete, pied };
+  return { logo, entete, pied, libres: libres ?? {} };
+}
+
+/** Une image posable sur un document, telle que le serveur la liste. */
+export interface ImageLibre {
+  id: string;
+  nom: string;
+  taille: number;
+  cree_le: string;
+}
+
+export async function listerImages(): Promise<ImageLibre[]> {
+  try {
+    return await invoke<ImageLibre[]>("lister_images");
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Importe une image à poser sur un document. Rend son identifiant, ou
+ * `null` si personne n'a choisi de fichier.
+ */
+export async function importerImageLibre(): Promise<string | null> {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const { readFile } = await import("@tauri-apps/plugin-fs");
+  const fichier = await open({
+    multiple: false,
+    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "svg", "webp"] }],
+  });
+  if (!fichier || typeof fichier !== "string") return null;
+  const octets = await readFile(fichier);
+  let texte = "";
+  for (let i = 0; i < octets.length; i += 0x8000) {
+    texte += String.fromCharCode(...octets.subarray(i, i + 0x8000));
+  }
+  const r = await invoke<{ id: string }>("importer_image", {
+    nom: fichier.split(/[\\/]/).pop() || "image.png",
+    contenu: btoa(texte),
+  });
+  return r.id;
+}
+
+/** Le serveur refuse si un modèle la pose encore : l'erreur dit lesquels. */
+export async function supprimerImageLibre(id: string): Promise<void> {
+  await invoke("supprimer_image", { id });
 }
 
 /**

@@ -189,21 +189,9 @@ pub fn decoder_base64(texte: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "Contenu illisible : base64 attendu.".to_string())
 }
 
-/// Range les octets dans `dossier`, sous le nom fixe du genre, et rend
-/// la colonne cible avec le chemin écrit.
-///
-/// Seule l'extension du nom reçu compte ; le nom sur disque vient du
-/// genre — poser un logo écrase le logo précédent, comme sur la
-/// version à un poste.
-fn poser_fichier(
-    genre: &str,
-    nom: &str,
-    contenu: &[u8],
-    dossier: &std::path::Path,
-) -> Result<(&'static str, std::path::PathBuf), String> {
-    let Some((colonne, base)) = colonne_et_base(genre) else {
-        return Err(format!("Image inconnue : « {genre} »"));
-    };
+/// Ce qu'on accepte, et rien d'autre : une extension connue, un poids
+/// raisonnable. Rend l'extension en minuscules.
+fn valider_image(nom: &str, contenu: &[u8]) -> Result<String, String> {
     let ext = std::path::Path::new(nom)
         .extension()
         .and_then(|e| e.to_str())
@@ -222,6 +210,25 @@ fn poser_fichier(
             TAILLE_MAX_IMAGE
         ));
     }
+    Ok(ext)
+}
+
+/// Range les octets dans `dossier`, sous le nom fixe du genre, et rend
+/// la colonne cible avec le chemin écrit.
+///
+/// Seule l'extension du nom reçu compte ; le nom sur disque vient du
+/// genre — poser un logo écrase le logo précédent, comme sur la
+/// version à un poste.
+fn poser_fichier(
+    genre: &str,
+    nom: &str,
+    contenu: &[u8],
+    dossier: &std::path::Path,
+) -> Result<(&'static str, std::path::PathBuf), String> {
+    let Some((colonne, base)) = colonne_et_base(genre) else {
+        return Err(format!("Image inconnue : « {genre} »"));
+    };
+    let ext = valider_image(nom, contenu)?;
     std::fs::create_dir_all(dossier)
         .map_err(|e| format!("Impossible de créer le dossier d'images : {e}"))?;
     let chemin = dossier.join(format!("{base}.{ext}"));
@@ -336,4 +343,279 @@ pub fn supprimer_sur_base(
         }
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Les images POSÉES sur un document (I1)
+// ---------------------------------------------------------------------------
+//
+// Un cachet, une signature scannée, un QR : ce ne sont pas le logo de la
+// société. Les trois emplacements de la société (logo, en-tête, pied)
+// sont partagés par tout le monde — vingt blocs Image qui les
+// désignaient pointaient sur trois fichiers, et en remplacer un les
+// changeait tous. Ici chaque image a son identité : un bloc la
+// référence par `id`, la renommer ne casse rien, la remplacer ne touche
+// qu'elle.
+//
+// Le fichier vit chez le serveur, comme les images de la société (D8) :
+// la table ne garde que de quoi le retrouver. Une image sert à
+// PLUSIEURS modèles : elle n'appartient à aucun, elle se pose dessus.
+
+/// Le nom du fichier sur le disque : l'identifiant, jamais le nom saisi
+/// — un nom saisi contient ce qu'on veut, y compris `..`.
+fn fichier_libre(dossier: &std::path::Path, id: &str, ext: &str) -> std::path::PathBuf {
+    dossier.join(format!("img_{id}.{ext}"))
+}
+
+/// Le motif que porte un modèle qui pose cette image. `serde_json`
+/// sérialise sans espace : c'est ce qui rend la recherche fiable.
+fn empreinte_usage(id: &str) -> String {
+    format!("\"imageId\":\"{id}\"")
+}
+
+fn ligne_image(id: String, nom: String, taille: i64, cree_le: String) -> serde_json::Value {
+    serde_json::json!({ "id": id, "nom": nom, "taille": taille, "cree_le": cree_le })
+}
+
+/// Pose une nouvelle image et rend son identifiant.
+///
+/// Le fichier d'abord, la ligne ensuite : si la ligne échoue il reste
+/// un fichier orphelin qu'un import suivant n'écrasera pas (le nom
+/// vient de l'id), mais rien en base ne désigne un fichier absent.
+pub fn importer_libre(
+    conn: &rusqlite::Connection,
+    nom: &str,
+    contenu: &[u8],
+    dossier: &std::path::Path,
+) -> Result<String, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    poser_libre(conn, &id, nom, contenu, dossier)?;
+    Ok(id)
+}
+
+/// Pose une image sous un identifiant DONNE — c'est ce qu'exige l'import
+/// d'un lot de modèles : les blocs du modèle importé désignent l'image
+/// par cet identifiant, il doit survivre au voyage.
+pub fn poser_libre(
+    conn: &rusqlite::Connection,
+    id: &str,
+    nom: &str,
+    contenu: &[u8],
+    dossier: &std::path::Path,
+) -> Result<(), String> {
+    let ext = valider_image(nom, contenu)?;
+    let id = id.to_string();
+    std::fs::create_dir_all(dossier)
+        .map_err(|e| format!("Impossible de créer le dossier d'images : {e}"))?;
+    let chemin = fichier_libre(dossier, &id, &ext);
+    std::fs::write(&chemin, contenu).map_err(|e| format!("Impossible d'écrire l'image : {e}"))?;
+    conn.execute(
+        "INSERT INTO image_document (id, nom, chemin, taille, cree_le) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![
+            id,
+            nom_affiche(nom),
+            chemin.to_string_lossy().to_string(),
+            contenu.len() as i64,
+            crate::utils::maintenant_iso()
+        ],
+    )
+    .map_err(|e| format!("Impossible d'enregistrer l'image : {e}"))?;
+    Ok(())
+}
+
+/// Même import, sur `Base`.
+pub fn importer_libre_sur_base(
+    base: &mut crate::base::Base,
+    nom: &str,
+    contenu: &[u8],
+    dossier: Option<&std::path::Path>,
+) -> Result<String, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    poser_libre_sur_base(base, &id, nom, contenu, dossier)?;
+    Ok(id)
+}
+
+pub fn poser_libre_sur_base(
+    base: &mut crate::base::Base,
+    id: &str,
+    nom: &str,
+    contenu: &[u8],
+    dossier: Option<&std::path::Path>,
+) -> Result<(), String> {
+    let Some(dossier) = dossier else {
+        return Err("Impossible d'écrire l'image : aucun dossier d'images sur ce moteur.".to_string());
+    };
+    let ext = valider_image(nom, contenu)?;
+    let id = id.to_string();
+    std::fs::create_dir_all(dossier)
+        .map_err(|e| format!("Impossible de créer le dossier d'images : {e}"))?;
+    let chemin = fichier_libre(dossier, &id, &ext);
+    std::fs::write(&chemin, contenu).map_err(|e| format!("Impossible d'écrire l'image : {e}"))?;
+    base.executer(
+        "INSERT INTO image_document (id, nom, chemin, taille, cree_le) VALUES (?1, ?2, ?3, ?4, ?5)",
+        &crate::parametres![
+            id.clone(),
+            nom_affiche(nom),
+            chemin.to_string_lossy().to_string(),
+            contenu.len() as i64,
+            crate::utils::maintenant_iso()
+        ],
+    )
+    .map_err(|e| format!("Impossible d'enregistrer l'image : {e}"))?;
+    Ok(())
+}
+
+/// Le nom qu'on montre : celui du fichier, sans son chemin.
+fn nom_affiche(nom: &str) -> String {
+    std::path::Path::new(nom)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(nom)
+        .to_string()
+}
+
+pub fn lister_libres(conn: &rusqlite::Connection) -> Result<Vec<serde_json::Value>, String> {
+    let mut st = conn
+        .prepare("SELECT id, nom, taille, cree_le FROM image_document ORDER BY cree_le DESC, id DESC")
+        .map_err(|e| e.to_string())?;
+    let lignes = st
+        .query_map([], |r| Ok(ligne_image(r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(lignes)
+}
+
+pub fn lister_libres_sur_base(base: &mut crate::base::Base) -> Result<Vec<serde_json::Value>, String> {
+    base.lire_plusieurs(
+        "SELECT id, nom, taille, cree_le FROM image_document ORDER BY cree_le DESC, id DESC",
+        &[],
+        |r| Ok(ligne_image(r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<String>(3)?)),
+    )
+    .map_err(|e| e.0)
+}
+
+/// L'image en `data:` URL, ou `None` si elle n'existe pas (en base ou
+/// sur le disque) — un modèle qui la pose imprime alors un blanc, pas
+/// une erreur.
+pub fn lire_libre_base64(conn: &rusqlite::Connection, id: &str) -> Result<Option<String>, String> {
+    let chemin: Option<String> = conn
+        .query_row("SELECT chemin FROM image_document WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
+        .ok();
+    match chemin {
+        Some(c) => lire_fichier_base64(std::path::Path::new(&c)),
+        None => Ok(None),
+    }
+}
+
+pub fn lire_libre_base64_sur_base(base: &mut crate::base::Base, id: &str) -> Result<Option<String>, String> {
+    let chemin: Option<String> = base
+        .lire_une("SELECT chemin FROM image_document WHERE id = ?1", &crate::parametres![id], |r| r.get::<String>(0))
+        .ok()
+        .flatten();
+    match chemin {
+        Some(c) => lire_fichier_base64(std::path::Path::new(&c)),
+        None => Ok(None),
+    }
+}
+
+/// Toutes les images libres, en `data:` URL, par identifiant : ce que
+/// le rendu d'un document a sous la main.
+pub fn lire_libres_base64(conn: &rusqlite::Connection) -> Result<serde_json::Value, String> {
+    let mut out = serde_json::Map::new();
+    for img in lister_libres(conn)? {
+        let id = img["id"].as_str().unwrap_or("").to_string();
+        if let Some(b64) = lire_libre_base64(conn, &id)? {
+            out.insert(id, serde_json::Value::String(b64));
+        }
+    }
+    Ok(serde_json::Value::Object(out))
+}
+
+pub fn lire_libres_base64_sur_base(base: &mut crate::base::Base) -> Result<serde_json::Value, String> {
+    let mut out = serde_json::Map::new();
+    for img in lister_libres_sur_base(base)? {
+        let id = img["id"].as_str().unwrap_or("").to_string();
+        if let Some(b64) = lire_libre_base64_sur_base(base, &id)? {
+            out.insert(id, serde_json::Value::String(b64));
+        }
+    }
+    Ok(serde_json::Value::Object(out))
+}
+
+/// Les modèles qui posent cette image, par leur nom.
+fn modeles_qui_posent(conn: &rusqlite::Connection, id: &str) -> Result<Vec<String>, String> {
+    let mut st = conn
+        .prepare("SELECT nom FROM modele_document WHERE contenu LIKE '%' || ?1 || '%' ORDER BY nom")
+        .map_err(|e| e.to_string())?;
+    let noms = st
+        .query_map(rusqlite::params![empreinte_usage(id)], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(noms)
+}
+
+fn modeles_qui_posent_sur_base(base: &mut crate::base::Base, id: &str) -> Result<Vec<String>, String> {
+    base.lire_plusieurs(
+        "SELECT nom FROM modele_document WHERE contenu LIKE '%' || ?1 || '%' ORDER BY nom",
+        &crate::parametres![empreinte_usage(id)],
+        |r| r.get::<String>(0),
+    )
+    .map_err(|e| e.0)
+}
+
+fn refus_si_posee(noms: &[String]) -> Result<(), String> {
+    if noms.is_empty() {
+        return Ok(());
+    }
+    // On REFUSE plutôt que de retirer l'image des blocs : une facture
+    // qui perd son cachet sans qu'on l'ait demandé, c'est le genre de
+    // surprise qu'on découvre devant le client. Le message dit où.
+    Err(format!(
+        "Cette image est posée sur {} modèle(s) : {}. La retirer de ces modèles d'abord.",
+        noms.len(),
+        noms.join(", ")
+    ))
+}
+
+/// Efface l'image — la ligne ET le fichier — sauf si un modèle la pose.
+pub fn supprimer_libre(conn: &rusqlite::Connection, id: &str) -> Result<(), String> {
+    refus_si_posee(&modeles_qui_posent(conn, id)?)?;
+    let chemin: Option<String> = conn
+        .query_row("SELECT chemin FROM image_document WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
+        .ok();
+    let Some(chemin) = chemin else {
+        return Err("Image introuvable.".to_string());
+    };
+    conn.execute("DELETE FROM image_document WHERE id = ?1", rusqlite::params![id])
+        .map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(chemin);
+    Ok(())
+}
+
+pub fn supprimer_libre_sur_base(base: &mut crate::base::Base, id: &str) -> Result<(), String> {
+    refus_si_posee(&modeles_qui_posent_sur_base(base, id)?)?;
+    let chemin: Option<String> = base
+        .lire_une("SELECT chemin FROM image_document WHERE id = ?1", &crate::parametres![id], |r| r.get::<String>(0))
+        .ok()
+        .flatten();
+    let Some(chemin) = chemin else {
+        return Err("Image introuvable.".to_string());
+    };
+    base.executer("DELETE FROM image_document WHERE id = ?1", &crate::parametres![id])
+        .map_err(|e| e.0)?;
+    let _ = std::fs::remove_file(chemin);
+    Ok(())
+}
+
+/// Les octets d'une `data:` URL telle que `lire_libre_base64` la rend.
+/// C'est la forme que l'export transporte : elle dit son type toute
+/// seule, et le nom garde l'extension.
+pub fn octets_de_data_url(data_url: &str) -> Result<Vec<u8>, String> {
+    let b64 = data_url
+        .split_once("base64,")
+        .map(|(_, c)| c)
+        .ok_or_else(|| "Image illisible dans le lot : data URL attendue.".to_string())?;
+    decoder_base64(b64)
 }

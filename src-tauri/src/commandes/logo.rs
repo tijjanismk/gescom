@@ -130,3 +130,40 @@ pub fn supprimer_entete(
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     gescom_noyau::images::supprimer(&conn, "entete", dossier_donnees(&app).as_deref())
 }
+
+// ---------------------------------------------------------------------
+//  Les images POSEES sur un document (I1)
+// ---------------------------------------------------------------------
+
+#[tauri::command]
+pub fn importer_image(
+    app: tauri::AppHandle,
+    etat: State<EtatApp>,
+    nom: String,
+    contenu: String,
+) -> Result<serde_json::Value, String> {
+    let dossier = dossier_donnees(&app)
+        .ok_or_else(|| "Aucun dossier de donnees pour ranger l'image.".to_string())?;
+    let octets = gescom_noyau::images::decoder_base64(&contenu)?;
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    let id = gescom_noyau::images::importer_libre(&conn, &nom, &octets, &dossier)?;
+    Ok(serde_json::json!({ "id": id }))
+}
+
+#[tauri::command]
+pub fn lister_images(etat: State<EtatApp>) -> Result<Vec<serde_json::Value>, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    gescom_noyau::images::lister_libres(&conn)
+}
+
+#[tauri::command]
+pub fn lire_images_base64(etat: State<EtatApp>) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    gescom_noyau::images::lire_libres_base64(&conn)
+}
+
+#[tauri::command]
+pub fn supprimer_image(etat: State<EtatApp>, id: String) -> Result<(), String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    gescom_noyau::images::supprimer_libre(&conn, &id)
+}

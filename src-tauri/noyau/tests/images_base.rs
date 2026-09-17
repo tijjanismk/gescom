@@ -238,6 +238,93 @@ fn supprimer_efface_la_colonne_et_le_fichier() {
     assert!(relu.is_none(), "l'image supprimee revient par le repli");
 }
 
+// =====================================================================
+//  Les images POSEES sur un document (I1) — une identite par image
+// =====================================================================
+
+/// Deux images importees sont deux images : la deuxieme ne remplace pas
+/// la premiere, chacune se relit par son identifiant.
+#[test]
+fn deux_images_libres_ont_chacune_leur_identite() {
+    let mut base = base_avec_demo();
+    let dossier = DossierEssai::nouveau();
+
+    let cachet = images::importer_libre_sur_base(&mut base, "cachet.png", b"le cachet", Some(dossier.chemin()))
+        .expect("importer le cachet");
+    let signature = images::importer_libre_sur_base(&mut base, "signature.jpg", b"la signature", Some(dossier.chemin()))
+        .expect("importer la signature");
+    assert_ne!(cachet, signature);
+
+    let liste = images::lister_libres_sur_base(&mut base).expect("lister");
+    assert_eq!(liste.len(), 2);
+    assert!(liste.iter().any(|i| i["nom"] == "cachet.png" && i["taille"] == 9));
+
+    let relu = images::lire_libre_base64_sur_base(&mut base, &cachet).expect("relire").expect("le cachet");
+    assert_eq!(corps_data_url(&relu), b"le cachet");
+    let relu = images::lire_libre_base64_sur_base(&mut base, &signature).expect("relire").expect("la signature");
+    assert_eq!(corps_data_url(&relu), b"la signature");
+
+    // Toutes d'un coup, par identifiant : ce que le rendu recoit.
+    let toutes = images::lire_libres_base64_sur_base(&mut base).expect("toutes");
+    assert!(toutes[&cachet].is_string() && toutes[&signature].is_string());
+}
+
+/// Une image posee sur un modele ne se supprime pas : on refuse en
+/// nommant le modele, comme on refuse de supprimer un modele d'usine.
+#[test]
+fn une_image_posee_sur_un_modele_ne_se_supprime_pas() {
+    let mut base = base_avec_demo();
+    let dossier = DossierEssai::nouveau();
+    let id = images::importer_libre_sur_base(&mut base, "cachet.png", b"le cachet", Some(dossier.chemin()))
+        .expect("importer");
+
+    // Un modele qui pose cette image, tel que l'atelier l'enregistre.
+    let modele = gescom_noyau::modeles::Modele {
+        id: "test-avec-cachet".into(),
+        genre: "facture".into(),
+        nom: "Facture avec cachet".into(),
+        format: "a4".into(),
+        contenu: serde_json::json!({
+            "version": 1,
+            "page": { "margeMm": 12, "taillePt": 10, "police": "Arial", "couleurAccent": "#000" },
+            "blocs": [
+                { "id": "b1", "type": "image", "visible": true, "image": "logo",
+                  "imageId": id, "largeurMm": 30, "hauteurMm": 0, "alignement": "gauche" }
+            ]
+        }),
+        est_defaut: false,
+        actif: false,
+        modifie_le: String::new(),
+    };
+    gescom_noyau::modeles::enregistrer_sur_base(&mut base, &modele, "test").expect("enregistrer le modele");
+
+    let refus = images::supprimer_libre_sur_base(&mut base, &id).unwrap_err();
+    assert!(refus.contains("Facture avec cachet"), "le refus doit nommer le modele : {refus}");
+    assert!(images::lire_libre_base64_sur_base(&mut base, &id).unwrap().is_some(), "l'image est toujours la");
+
+    // Le modele parti, l'image se supprime — ligne ET fichier.
+    gescom_noyau::modeles::supprimer_sur_base(&mut base, "test-avec-cachet").expect("supprimer le modele");
+    images::supprimer_libre_sur_base(&mut base, &id).expect("supprimer l'image");
+    assert!(images::lire_libre_base64_sur_base(&mut base, &id).unwrap().is_none());
+    assert!(images::lister_libres_sur_base(&mut base).unwrap().is_empty());
+    let restes: Vec<_> = std::fs::read_dir(dossier.chemin()).unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("img_"))
+        .collect();
+    assert!(restes.is_empty(), "le fichier doit disparaitre avec la ligne");
+}
+
+#[test]
+fn une_image_libre_refuse_les_memes_choses_qu_une_image_de_societe() {
+    let mut base = base_avec_demo();
+    let dossier = DossierEssai::nouveau();
+    assert!(images::importer_libre_sur_base(&mut base, "virus.exe", b"x", Some(dossier.chemin())).is_err());
+    let trop = vec![0u8; images::TAILLE_MAX_IMAGE + 1];
+    assert!(images::importer_libre_sur_base(&mut base, "gros.png", &trop, Some(dossier.chemin())).is_err());
+    assert!(images::importer_libre_sur_base(&mut base, "ok.png", b"x", None).is_err(), "sans dossier : refus");
+    assert!(images::lister_libres_sur_base(&mut base).unwrap().is_empty(), "un refus n'ecrit rien");
+}
+
 #[test]
 fn tout_ce_qui_est_porte_dans_images_passe_le_detecteur() {
     let mut base = base_avec_demo();
