@@ -195,7 +195,11 @@ pub fn registre() -> Registre {
         )
         .map_err(|e| format!("Lignes de vente illisibles : {e}"))?;
 
-        argent::creer_vente_sur(
+        // La date de l'affaire : antidater exige sa permission a part.
+        let date_vente = option_texte(&p, "dateVente").or_else(|| option_texte(&p, "date_vente"));
+        exiger_antidatage(c.conn, c.appelant, date_vente.as_deref())?;
+
+        argent::creer_vente_datee_sur(
             c.conn,
             texte(&p, "clientId").or_else(|_| texte(&p, "client_id"))?,
             texte(&p, "depotId").or_else(|_| texte(&p, "depot_id"))?,
@@ -205,6 +209,7 @@ pub fn registre() -> Registre {
             entier(&p, "montantPaye").or_else(|| entier(&p, "montant_paye")),
             option_texte(&p, "modePaiement").or_else(|| option_texte(&p, "mode_paiement")),
             entier(&p, "avoirMontant").or_else(|| entier(&p, "avoir_montant")),
+            date_vente,
         )
     });
     // Meme commande, sur PostgreSQL (D11) : `creer_vente_sur_base`
@@ -217,7 +222,10 @@ pub fn registre() -> Registre {
         )
         .map_err(|e| format!("Lignes de vente illisibles : {e}"))?;
 
-        argent::creer_vente_sur_base(
+        let date_vente = option_texte(&p, "dateVente").or_else(|| option_texte(&p, "date_vente"));
+        exiger_antidatage_base(c.base, c.appelant, date_vente.as_deref())?;
+
+        argent::creer_vente_datee_sur_base(
             c.base,
             texte(&p, "clientId").or_else(|_| texte(&p, "client_id"))?,
             texte(&p, "depotId").or_else(|_| texte(&p, "depot_id"))?,
@@ -227,6 +235,7 @@ pub fn registre() -> Registre {
             entier(&p, "montantPaye").or_else(|| entier(&p, "montant_paye")),
             option_texte(&p, "modePaiement").or_else(|| option_texte(&p, "mode_paiement")),
             entier(&p, "avoirMontant").or_else(|| entier(&p, "avoir_montant")),
+            date_vente,
         )
     });
 
@@ -2248,6 +2257,7 @@ pub fn registre() -> Registre {
         // La date de l'affaire, saisissable : on note sur papier et on
         // saisit le soir. Absente, celle de la piece ne bouge pas.
         let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
+        exiger_antidatage(c.conn, c.appelant, date_piece.as_deref())?;
         let v = pieces::modifier_piece(c.conn, piece_id, note, date_echeance, remise_globale, lignes, date_piece)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
@@ -2379,6 +2389,8 @@ pub fn registre() -> Registre {
         )
     });
     r.aussi_sur_base("modifier_piece", |c, p| {
+        let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
+        exiger_antidatage_base(c.base, c.appelant, date_piece.as_deref())?;
         pieces::modifier_piece_sur_base(
             c.base,
             arg(&p, "pieceId", "piece_id")?,
@@ -2386,7 +2398,7 @@ pub fn registre() -> Registre {
             arg(&p, "dateEcheance", "date_echeance")?,
             arg(&p, "remiseGlobale", "remise_globale")?,
             arg(&p, "lignes", "lignes")?,
-            arg(&p, "datePiece", "date_piece")?,
+            date_piece,
         )?;
         Ok(Value::Null)
     });
@@ -2784,6 +2796,48 @@ fn _muet(_: &Contexte) {}
 /// la base sans que son chemin ait ete enregistre. Le noyau ne connait
 /// pas Tauri et ne peut pas demander `app_data_dir` ; cote serveur il
 /// n'y a de toute facon pas d'application.
+/// Antidater exige une permission A PART.
+///
+/// La commande porte deja sa permission de base (`pieces:creer`,
+/// `ventes:creer`…). Mais saisir une date PASSEE est un autre geste :
+/// c'est ainsi qu'on masque un trou dans le tiroir — on pousse la vente
+/// en especes sur un autre jour, et le comptage du soir tombe juste.
+/// Saisir la date du jour n'antidate pas : chaque vente le fait deja.
+fn exiger_antidatage(
+    conn: &rusqlite::Connection,
+    appelant: &gescom_noyau::registre::Appelant,
+    date: Option<&str>,
+) -> Result<(), String> {
+    let Some(d) = date.filter(|d| !d.trim().is_empty()) else { return Ok(()) };
+    if !gescom_noyau::coeur::dates::est_antidatee(d, chrono::Local::now().date_naive()) {
+        return Ok(());
+    }
+    let ctx = gescom_noyau::portes::ContexteUtilisateur {
+        id: appelant.utilisateur_id.clone(),
+        role: appelant.role.clone(),
+    };
+    gescom_noyau::portes::verifier_permission(conn, &ctx, "pieces:antidater")
+        .map_err(|e| e.to_string())
+}
+
+/// Meme garde, sur `Base`.
+fn exiger_antidatage_base(
+    base: &mut gescom_noyau::base::Base,
+    appelant: &gescom_noyau::registre::Appelant,
+    date: Option<&str>,
+) -> Result<(), String> {
+    let Some(d) = date.filter(|d| !d.trim().is_empty()) else { return Ok(()) };
+    if !gescom_noyau::coeur::dates::est_antidatee(d, chrono::Local::now().date_naive()) {
+        return Ok(());
+    }
+    let ctx = gescom_noyau::portes::ContexteUtilisateur {
+        id: appelant.utilisateur_id.clone(),
+        role: appelant.role.clone(),
+    };
+    gescom_noyau::portes::verifier_permission_sur(base, &ctx, "pieces:antidater")
+        .map_err(|e| e.to_string())
+}
+
 fn dossier_des_images(conn: &rusqlite::Connection) -> Option<std::path::PathBuf> {
     let chemin = conn.path()?;
     std::path::Path::new(chemin)

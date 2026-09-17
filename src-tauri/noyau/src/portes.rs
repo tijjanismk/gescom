@@ -74,6 +74,10 @@ pub const CATALOGUE: &[Permission] = &[
     Permission { code: "avoirs:gerer", libelle: "Gérer les avoirs", groupe: "Pièces" },
     Permission { code: "livraisons:enregistrer", libelle: "Enregistrer livraisons et réceptions", groupe: "Pièces" },
     Permission { code: "modeles:gerer", libelle: "Modifier les modèles de documents", groupe: "Pièces" },
+    // Antidater une vente en especes est la facon de masquer un trou
+    // dans le tiroir : ce droit se donne, il ne s'herite pas du role
+    // « caissier ».
+    Permission { code: "pieces:antidater", libelle: "Saisir une date passée (ventes, pièces, règlements)", groupe: "Pièces" },
     // --- Caisse ---
     Permission { code: "caisse:mouvementer", libelle: "Ouvrir la caisse et saisir des mouvements", groupe: "Caisse" },
     Permission { code: "caisse:configurer", libelle: "Configurer le mode de caisse", groupe: "Caisse" },

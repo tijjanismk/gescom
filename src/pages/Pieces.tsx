@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { peut } from "@/lib/droits";
 import { appeler as invoke } from "@/lib/pont";
 import {
   Plus, Printer, Loader2, Search, X, Wallet, PackageCheck, MoreHorizontal, Eye,
@@ -605,7 +606,12 @@ function ModalModifierPiece({
           </div>
           <div>
             <Label className="text-xs mb-1.5 block">Date de la pièce</Label>
+            {/* Sans la permission d'antidater, la date se lit mais ne se
+                change pas : le serveur refuserait, autant ne pas
+                proposer le geste. */}
             <Input type="date" value={datePiece}
+              max={new Date().toISOString().slice(0, 10)}
+              disabled={!peut("pieces:antidater")}
               onChange={e => setDatePiece(e.target.value)} className="h-9" />
             <p className="mt-1 text-[11px] text-muted-foreground">
               La date de l'affaire, pas celle de la saisie. Le mouvement

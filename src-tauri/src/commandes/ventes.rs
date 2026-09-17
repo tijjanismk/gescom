@@ -159,10 +159,15 @@ pub fn creer_vente(
     montant_paye: Option<i64>,
     mode_paiement: Option<String>,
     avoir_montant: Option<i64>,
+    // La date de l'affaire, quand ce n'est pas aujourd'hui. En
+    // monoposte (v1) il n'y a pas de serveur pour verifier la
+    // permission : le poste EST le patron.
+    date_vente: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    creer_vente_sur(
-        &mut conn, client_id, depot_id, mode_reglement, lignes, utilisateur_role, montant_paye, mode_paiement, avoir_montant,
+    gescom_noyau::argent::creer_vente_datee_sur(
+        &mut conn, client_id, depot_id, mode_reglement, lignes, utilisateur_role,
+        montant_paye, mode_paiement, avoir_montant, date_vente,
     )
 }
 
@@ -173,6 +178,7 @@ pub fn creer_vente(
 /// reellement a la base, ce qu'aucun test de formule ne montre.
 /// Conserve pour `tests_multi_depot`. Le corps a demenage dans
 /// `noyau::argent`, d'ou le serveur le sert aussi aux postes caisse.
+#[allow(unused_imports)] // utilise par tests_multi_depot seulement
 pub(crate) use gescom_noyau::argent::creer_vente_sur;
 
 // =====================================================================

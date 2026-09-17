@@ -117,6 +117,27 @@ pub struct ParamsLigneInput {
     pub a_decouvert: Option<bool>,
 }
 
+/// La date que porteront la vente et son paiement, et le libelle du
+/// mouvement de caisse quand la vente est antidatee.
+///
+/// Seul le JOUR se saisit ; on garde l'heure de la saisie pour que deux
+/// ventes du meme jour restent dans leur ordre. Sans date : aujourd'hui,
+/// et pas de libelle — la caisse n'a rien de special a dire.
+fn date_de_l_affaire(now: &str, date_vente: Option<&str>) -> Result<(String, Option<String>), String> {
+    let Some(d) = date_vente.filter(|d| !d.trim().is_empty()) else {
+        return Ok((now.to_string(), None));
+    };
+    let jour = crate::coeur::dates::verifier_date_saisie_maintenant(d)?;
+    let heure = now.get(10..).unwrap_or("T00:00:00");
+    let date_affaire = format!("{}{}", jour.format("%Y-%m-%d"), heure);
+    let libelle = if crate::coeur::dates::est_antidatee(d, chrono::Local::now().date_naive()) {
+        Some(format!("Vente du {}", jour.format("%d/%m")))
+    } else {
+        None
+    };
+    Ok((date_affaire, libelle))
+}
+
 pub fn creer_vente_sur(
     conn: &mut rusqlite::Connection,
     client_id: String,
@@ -128,9 +149,31 @@ pub fn creer_vente_sur(
     mode_paiement: Option<String>,
     avoir_montant: Option<i64>,
 ) -> Result<serde_json::Value, String> {
+    creer_vente_datee_sur(
+        conn, client_id, depot_id, mode_reglement, lignes, utilisateur_role,
+        montant_paye, mode_paiement, avoir_montant, None,
+    )
+}
+
+/// Meme vente, avec la date de l'affaire — voir `creer_vente_datee_sur_base`
+/// pour la regle des deux dates.
+#[allow(clippy::too_many_arguments)]
+pub fn creer_vente_datee_sur(
+    conn: &mut rusqlite::Connection,
+    client_id: String,
+    depot_id: String,
+    mode_reglement: String,
+    lignes: Vec<ParamsLigneInput>,
+    utilisateur_role: Option<String>,
+    montant_paye: Option<i64>,
+    mode_paiement: Option<String>,
+    avoir_montant: Option<i64>,
+    date_vente: Option<String>,
+) -> Result<serde_json::Value, String> {
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur_id = id_utilisateur_par_role(&conn, role);
     let now = maintenant_iso();
+    let (date_affaire, libelle_caisse) = date_de_l_affaire(&now, date_vente.as_deref())?;
     let vente_id = uuid::Uuid::new_v4().to_string();
 
     let client_generique = crate::utils::est_client_generique(&conn, &client_id);
@@ -157,7 +200,7 @@ pub fn creer_vente_sur(
           date_vente, cree_le, modifie_le, cree_par, modifie_par, origine)
          VALUES (?1,?2,?3,?4,?5,'creance_ouverte',?6,?7,?8,?9,?10,'app')",
         rusqlite::params![vente_id, client_id, depot_id, mode_reglement,
-                          auteur_id, now, now, now, auteur_id, auteur_id],
+                          auteur_id, date_affaire, now, now, auteur_id, auteur_id],
     ).map_err(|e| e.to_string())?;
 
     let mut total: i64 = 0;
@@ -336,7 +379,7 @@ pub fn creer_vente_sur(
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'app')",
             rusqlite::params![
                 uuid::Uuid::new_v4().to_string(),
-                vente_id, a_encaisser, mode_p, now, auteur_id, now, auteur_id
+                vente_id, a_encaisser, mode_p, date_affaire, auteur_id, now, auteur_id
             ],
         ).map_err(|e| e.to_string())?;
         total_regle += a_encaisser;
@@ -348,13 +391,16 @@ pub fn creer_vente_sur(
         ).ok();
         if let Some(sid) = session {
             tx.execute(
+                // `date_mouvement` = maintenant, jamais la date de la
+                // vente : l'argent entre dans le tiroir a cet instant.
                 "INSERT INTO mouvement_caisse
-                 (id, session_id, sens, moyen, montant, motif,
+                 (id, session_id, sens, moyen, montant, motif, libelle,
                   operation_id, date_mouvement, cree_le, cree_par, origine)
-                 VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?7,?8,'app')",
+                 VALUES (?1,?2,'entree',?3,?4,'vente',?9,?5,?6,?7,?8,'app')",
                 rusqlite::params![
                     uuid::Uuid::new_v4().to_string(),
-                    sid, mode_p, a_encaisser, vente_id, now, now, auteur_id
+                    sid, mode_p, a_encaisser, vente_id, now, now, auteur_id,
+                    libelle_caisse
                 ],
             ).map_err(|e| e.to_string())?;
         }
@@ -1321,10 +1367,42 @@ pub fn creer_vente_sur_base(
     mode_paiement: Option<String>,
     avoir_montant: Option<i64>,
 ) -> Result<serde_json::Value, String> {
+    creer_vente_datee_sur_base(
+        base, client_id, depot_id, mode_reglement, lignes, utilisateur_role,
+        montant_paye, mode_paiement, avoir_montant, None,
+    )
+}
+
+/// La vente, avec la date de l'AFFAIRE.
+///
+/// `date_vente` : le jour ou la vente a eu lieu, quand ce n'est pas
+/// aujourd'hui — on note sur papier et on saisit le soir. Passe par la
+/// regle pure de `coeur::dates` (pas de futur, pas de recul au-dela de
+/// la fenetre). QUI a le droit d'antidater est une permission, verifiee
+/// par le serveur.
+///
+/// Deux dates, deux faits : la vente et son paiement portent la date de
+/// l'affaire ; le MOUVEMENT DE CAISSE garde l'instant present, parce
+/// que l'argent entre dans le tiroir maintenant, et la caisse se lit par
+/// session, jamais par date. Son libelle dit d'ou il vient.
+#[allow(clippy::too_many_arguments)]
+pub fn creer_vente_datee_sur_base(
+    base: &mut Base,
+    client_id: String,
+    depot_id: String,
+    mode_reglement: String,
+    lignes: Vec<ParamsLigneInput>,
+    utilisateur_role: Option<String>,
+    montant_paye: Option<i64>,
+    mode_paiement: Option<String>,
+    avoir_montant: Option<i64>,
+    date_vente: Option<String>,
+) -> Result<serde_json::Value, String> {
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let dossier = base.dossier().to_string();
     let auteur_id = id_utilisateur_par_role_sur(base, role);
     let now = maintenant_iso();
+    let (date_affaire, libelle_caisse) = date_de_l_affaire(&now, date_vente.as_deref())?;
     let vente_id = uuid::Uuid::new_v4().to_string();
 
     let client_generique = est_client_generique_sur(base, &dossier, &client_id);
@@ -1359,7 +1437,7 @@ pub fn creer_vente_sur_base(
             depot_id.clone(),
             mode_reglement.clone(),
             auteur_id.clone(),
-            now.clone(),
+            date_affaire.clone(),
             now.clone(),
             now.clone(),
             auteur_id.clone(),
@@ -1575,7 +1653,7 @@ pub fn creer_vente_sur_base(
                 vente_id.clone(),
                 a_encaisser,
                 mode_p,
-                now.clone(),
+                date_affaire.clone(),
                 auteur_id.clone(),
                 now.clone(),
                 auteur_id.clone(),
@@ -1595,11 +1673,14 @@ pub fn creer_vente_sur_base(
             .ok()
             .flatten();
         if let Some(sid) = session {
+            // `date_mouvement` = maintenant, JAMAIS la date de la vente :
+            // l'argent entre dans le tiroir a cet instant. Le libelle,
+            // lui, dit de quel jour vient cette vente.
             let _ = tx.executer(
                 "INSERT INTO mouvement_caisse
-                 (id, session_id, sens, moyen, montant, motif,
+                 (id, session_id, sens, moyen, montant, motif, libelle,
                   operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
-                 VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?7,?8,'app',?9)",
+                 VALUES (?1,?2,'entree',?3,?4,'vente',CAST(?10 AS TEXT),?5,?6,?7,?8,'app',?9)",
                 &parametres![
                     uuid::Uuid::new_v4().to_string(),
                     sid,
@@ -1609,7 +1690,8 @@ pub fn creer_vente_sur_base(
                     now.clone(),
                     now.clone(),
                     auteur_id.clone(),
-                    dossier.clone()
+                    dossier.clone(),
+                    libelle_caisse.clone()
                 ],
             );
         }

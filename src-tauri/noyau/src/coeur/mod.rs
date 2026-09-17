@@ -4,3 +4,4 @@ pub mod stock;
 pub mod caisse;
 pub mod pieces;
 pub mod codebarre;
+pub mod dates;

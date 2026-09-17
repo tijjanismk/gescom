@@ -6,6 +6,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { peut } from "@/lib/droits";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -586,6 +587,12 @@ export function Ventes() {
   // Panier
   const [panier, setPanier] = useState<LignePanier[]>([]);
   const [modeReglement, setModeReglement] = useState<"comptant" | "credit">("comptant");
+  // La date de l'AFFAIRE, quand ce n'est pas aujourd'hui : on note sur
+  // papier et on saisit le soir. Vide = aujourd'hui. Le champ n'apparait
+  // qu'avec la permission d'antidater — c'est le serveur qui refuse,
+  // l'ecran ne fait que ne pas proposer un geste qu'il refuserait.
+  const [dateVente, setDateVente] = useState("");
+  const peutAntidater = peut("pieces:antidater");
   const [acompte, setAcompte] = useState("");
   const [modeAcompte, setModeAcompte] = useState("especes");
 
@@ -945,7 +952,7 @@ export function Ventes() {
 
   function viderPanier() {
     setPanier([]); setClient(clientGenerique);
-    setModeReglement("comptant"); setAcompte("");
+    setModeReglement("comptant"); setAcompte(""); setDateVente("");
     setAvoirAAppliquer(0);
   }
 
@@ -995,6 +1002,7 @@ export function Ventes() {
         montantPaye: modeReglement === "comptant" ? totalApresAvoir : acompteNum,
         modePaiement: modeReglement === "comptant" ? modePaiementComptant : modeAcompte,
         avoirMontant: avoirAAppliquer > 0 ? avoirAAppliquer : null,
+        dateVente: dateVente || null,
       });
 
       // Cheque : le tracer pour pouvoir suivre son encaissement.
@@ -1164,6 +1172,21 @@ export function Ventes() {
             onClick={() => setModeReglement("credit")}>
             Crédit
           </Button>
+          {peutAntidater && (
+            <div className="flex items-center gap-1.5 ml-2"
+              title="La date de l'affaire, pas celle de la saisie. L'argent entre dans la caisse d'aujourd'hui.">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Vente du</Label>
+              <Input type="date" value={dateVente}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={e => setDateVente(e.target.value)}
+                className={cn("h-8 w-36 text-xs", dateVente && "border-amber-500")} />
+              {dateVente && (
+                <span className="text-[11px] text-amber-700 whitespace-nowrap">
+                  caisse d'aujourd'hui
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

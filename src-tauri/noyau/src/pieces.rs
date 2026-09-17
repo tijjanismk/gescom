@@ -1442,6 +1442,14 @@ pub fn modifier_piece(
 
     crate::coeur::pieces::peut_modifier(&type_piece, &statut)?;
 
+    // Une date saisie passe par la regle pure : pas de futur, pas de
+    // recul au-dela de la fenetre. QUI a le droit d'antidater est une
+    // permission, verifiee par le serveur — pas ici.
+    let date_piece = date_piece.filter(|d| !d.trim().is_empty());
+    if let Some(d) = date_piece.as_deref() {
+        crate::coeur::dates::verifier_date_saisie_maintenant(d)?;
+    }
+
     let now = maintenant_iso();
 
     // Mettre à jour les champs
@@ -1452,8 +1460,7 @@ pub fn modifier_piece(
              date_piece = COALESCE(?6, date_piece),
              modifie_le = ?4
          WHERE id = ?5",
-        rusqlite::params![note, date_echeance, remise_globale, now, piece_id,
-                          date_piece.filter(|d| !d.trim().is_empty())],
+        rusqlite::params![note, date_echeance, remise_globale, now, piece_id, date_piece],
     ).map_err(|e| e.to_string())?;
 
     // Si nouvelles lignes fournies → remplacer
@@ -2851,6 +2858,13 @@ pub fn modifier_piece_sur_base(
     // Immuabilite : une piece engageante est figee des son emission.
     crate::coeur::pieces::peut_modifier(&en_tete.type_piece, &en_tete.statut)?;
 
+    // Meme regle pure que cote fenetre : pas de futur, pas de recul
+    // au-dela de la fenetre. La permission, elle, est au serveur.
+    let date_piece = date_piece.filter(|d| !d.trim().is_empty());
+    if let Some(d) = date_piece.as_deref() {
+        crate::coeur::dates::verifier_date_saisie_maintenant(d)?;
+    }
+
     let now = maintenant_iso();
     let mut tx = base.transaction().map_err(|e| e.0)?;
 
@@ -2862,7 +2876,7 @@ pub fn modifier_piece_sur_base(
              modifie_le = ?4
          WHERE id = ?5 AND dossier_id = ?6",
         &parametres![note, date_echeance, remise_globale, now.clone(), piece_id.clone(), dossier.clone(),
-                     date_piece.filter(|d| !d.trim().is_empty())],
+                     date_piece],
     )
     .map_err(|e| e.0)?;
 

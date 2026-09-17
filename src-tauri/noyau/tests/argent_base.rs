@@ -113,6 +113,116 @@ fn ligne(art: &(String, String, f64, i64), depot_id: &str, quantite: f64) -> Par
 }
 
 // =====================================================================
+//  creer_vente_datee_sur_base — deux dates, deux faits
+// =====================================================================
+
+/// Une vente notee sur papier le 3 et saisie aujourd'hui : la vente et
+/// son paiement portent le 3 ; l'ARGENT entre dans le tiroir aujourd'hui,
+/// et le mouvement de caisse le dit. La caisse se lit par session, jamais
+/// par date — antidater l'entree changerait une session close et comptee.
+#[test]
+fn une_vente_antidatee_garde_son_argent_dans_la_caisse_du_jour() {
+    let mut base = base_avec_demo();
+    ouvrir_caisse(&mut base);
+    let depot = depot_defaut(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let client = client_generique(&mut base);
+
+    // Il y a trois jours : dans la fenetre de recul, et pas aujourd'hui.
+    let il_y_a_3_jours = (chrono::Local::now().date_naive() - chrono::Duration::days(3))
+        .format("%Y-%m-%d")
+        .to_string();
+    let aujourd_hui = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    let r = argent::creer_vente_datee_sur_base(
+        &mut base,
+        client,
+        depot.clone(),
+        "comptant".into(),
+        vec![ligne(&sucre, &depot, 5.0)],
+        None,
+        Some(4_000),
+        Some("especes".into()),
+        None,
+        Some(il_y_a_3_jours.clone()),
+    )
+    .expect("la vente antidatee doit s'enregistrer");
+    let vente_id = r["vente_id"].as_str().unwrap().to_string();
+
+    // La vente porte la date de l'affaire, avec une heure (on garde
+    // l'ordre du jour).
+    let date_vente: String = base
+        .lire_une("SELECT date_vente FROM vente WHERE id = ?1", &parametres![vente_id.clone()],
+                  |row| row.get::<String>(0))
+        .unwrap().unwrap();
+    assert!(date_vente.starts_with(&il_y_a_3_jours), "date_vente = {date_vente}");
+    assert!(date_vente.len() > 10, "la date doit garder une heure : {date_vente}");
+
+    // Le paiement aussi : le client a paye le 3.
+    let date_paiement: String = base
+        .lire_une("SELECT date_paiement FROM paiement WHERE vente_id = ?1",
+                  &parametres![vente_id.clone()], |row| row.get::<String>(0))
+        .unwrap().unwrap();
+    assert!(date_paiement.starts_with(&il_y_a_3_jours), "date_paiement = {date_paiement}");
+
+    // Mais le TIROIR, lui, est d'aujourd'hui — et il dit d'ou vient l'argent.
+    let (date_caisse, libelle): (String, Option<String>) = base
+        .lire_une(
+            "SELECT date_mouvement, libelle FROM mouvement_caisse WHERE operation_id = ?1",
+            &parametres![vente_id.clone()],
+            |row| Ok((row.get::<String>(0)?, row.get::<Option<String>>(1)?)),
+        )
+        .unwrap().unwrap();
+    assert!(date_caisse.starts_with(&aujourd_hui),
+        "le mouvement de caisse doit rester a aujourd'hui, pas {date_caisse}");
+    let attendu = format!("Vente du {}", &il_y_a_3_jours[8..10]);
+    assert!(libelle.as_deref().unwrap_or("").starts_with(&attendu),
+        "le libelle doit dire de quel jour vient la vente : {libelle:?}");
+}
+
+#[test]
+fn une_vente_du_jour_n_est_pas_antidatee_et_le_futur_est_refuse() {
+    let mut base = base_avec_demo();
+    ouvrir_caisse(&mut base);
+    let depot = depot_defaut(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let client = client_generique(&mut base);
+    let aujourd_hui = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    // La date du jour, saisie explicitement : pas de libelle special.
+    let r = argent::creer_vente_datee_sur_base(
+        &mut base, client.clone(), depot.clone(), "comptant".into(),
+        vec![ligne(&sucre, &depot, 1.0)], None, Some(800), Some("especes".into()), None,
+        Some(aujourd_hui.clone()),
+    )
+    .expect("la date du jour passe");
+    let libelle: Option<String> = base
+        .lire_une("SELECT libelle FROM mouvement_caisse WHERE operation_id = ?1",
+                  &parametres![r["vente_id"].as_str().unwrap()],
+                  |row| row.get::<Option<String>>(0))
+        .unwrap().unwrap();
+    assert!(libelle.is_none(), "aujourd'hui n'est pas antidate : {libelle:?}");
+
+    // Demain : refuse AVANT d'ecrire quoi que ce soit.
+    let demain = (chrono::Local::now().date_naive() + chrono::Duration::days(1))
+        .format("%Y-%m-%d").to_string();
+    let avant: i64 = base
+        .lire_une("SELECT COUNT(*) FROM vente", &[], |row| row.get::<i64>(0))
+        .unwrap().unwrap();
+    let refus = argent::creer_vente_datee_sur_base(
+        &mut base, client, depot.clone(), "comptant".into(),
+        vec![ligne(&sucre, &depot, 1.0)], None, Some(800), Some("especes".into()), None,
+        Some(demain),
+    )
+    .unwrap_err();
+    assert!(refus.contains("futur"), "{refus}");
+    let apres: i64 = base
+        .lire_une("SELECT COUNT(*) FROM vente", &[], |row| row.get::<i64>(0))
+        .unwrap().unwrap();
+    assert_eq!(avant, apres, "un refus n'ecrit rien");
+}
+
+// =====================================================================
 //  creer_vente_sur_base
 // =====================================================================
 
