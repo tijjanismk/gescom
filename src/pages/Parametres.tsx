@@ -6,6 +6,7 @@ import {
   Plus, Loader2, Eye, EyeOff, ShoppingCart,
   FolderOpen, ChevronDown, ChevronRight,
   Percent, Banknote, XCircle, Clock, Warehouse, Barcode, Pencil,
+  LayoutTemplate,
   FileSpreadsheet, Network, Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ import { OngletRoles } from "@/components/OngletRoles";
 import {
   ModalPermissionsUtilisateur,
 } from "@/components/ModalPermissionsUtilisateur";
+import { Modeles } from "@/pages/Modeles";
 import { peut } from "@/lib/droits";
 import { UTILISATEUR_ACTIF } from "@/App";
 
@@ -98,6 +100,10 @@ const ONGLETS = [
   { key: "dettes",        label: "Dettes fourn.", icone: Banknote,        droit: "fournisseurs:regler" },
   { key: "irrecouvrable", label: "Irrécouvrable", icone: XCircle,         droit: "chantiers:gerer" },
   { key: "avoirs",        label: "Avoirs",        icone: Clock,           droit: "avoirs:gerer" },
+  // Les modèles ouvrent l'atelier EN PLEIN ÉCRAN : il lui faut les
+  // trois colonnes et l'aperçu à taille réelle. L'onglet n'est donc
+  // qu'une porte — les autres onglets s'effacent derrière.
+  { key: "modeles",       label: "Modèles de documents", icone: LayoutTemplate, droit: "modeles:gerer" },
 ];
 
 // =====================================================================
@@ -1013,6 +1019,13 @@ function OngletCategories() {
 export function Parametres() {
   const onglets = ONGLETS.filter(o => peut(o.droit));
   const [onglet, setOnglet] = useState(onglets[0]?.key ?? "");
+
+  // L'atelier des modèles prend TOUT l'écran : on rend avant la barre
+  // d'onglets, qui disparaît donc le temps qu'on y est. Le bouton
+  // « Paramètres » de l'atelier ramène ici.
+  if (onglet === "modeles") {
+    return <Modeles onFermer={() => setOnglet(onglets[0]?.key ?? "")} />;
+  }
 
   // Aucun onglet : dire POURQUOI, pas seulement « non ».
   //

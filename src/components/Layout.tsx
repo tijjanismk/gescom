@@ -7,7 +7,7 @@ import {
   ShoppingBag, Truck, RotateCcw, LogOut,
   Lock, ChevronDown, FileText,
   MessageCircle, BarChart2, BookOpen, ArrowLeftRight, Warehouse,
-  FileCheck, LayoutTemplate, Network,
+  FileCheck, Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UtilisateurConnecte } from "@/pages/PageLogin";
@@ -38,7 +38,6 @@ const NAV = [
   { nom: "Relances",        icone: MessageCircle,  href: "relances",     droit: "creances:gerer"     },
   { nom: "Journal",         icone: BookOpen,       href: "journal"                                  },
   { nom: "Rapports",        icone: BarChart2,      href: "rapports"                                 },
-  { nom: "Modèles",         icone: LayoutTemplate, href: "modeles",      droit: "modeles:gerer"      },
   { nom: "Paramètres",      icone: Settings,       href: "parametres"                               },
 ];
 
