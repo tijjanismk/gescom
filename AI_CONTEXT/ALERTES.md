@@ -19,11 +19,18 @@ suite : **ce qui écrit plusieurs lignes ouvre une transaction, même dans
 un outil d'entretien**, et **une copie de sécurité se prend avant ce
 qu'elle protège, pas après**.
 
-⚠️ **Un scénario instable**, sans rapport avec ces écarts :
-`gestion_base::une_creance_se_regle_en_deux_fois…` échoue environ une
-fois sur trois — deux règlements dans la même seconde, un `ORDER BY
-p.date_paiement DESC` sans départage. Un échec de CE test n'accuse pas
-la modification en cours ; le relancer.
+⚠️ **Deux dates, deux faits** (17/09/2026) : la date d'une vente, d'une
+pièce ou d'un règlement se saisit — le mouvement de caisse, jamais.
+L'argent est entré dans le tiroir quand il y est entré, et la caisse se
+lit par session. La règle est dans `coeur/dates.rs`, le droit
+d'antidater est la permission `pieces:antidater`, vérifiée par le
+serveur. Antidater une vente en espèces est la façon de masquer un trou
+dans le tiroir : ne pas « simplifier » ça.
+
+⚠️ **L'horloge Windows tique par 15 ms** : deux écritures du même tic
+portent le même `maintenant_iso()`. Un `ORDER BY` sur une date seule
+n'a pas d'ordre entre elles — départager par `cree_le, id`, et un test
+ne lit jamais une ligne par sa position.
 
 ⚠️ **Un helper du serveur qui prend le verrou de la base ne s'appelle
 pas verrou en main** : `sauvegarde::dossier` relit son réglage par

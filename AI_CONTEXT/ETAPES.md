@@ -8,8 +8,8 @@ décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 Dernière mise à jour : **17 septembre 2026** (la fenêtre Tauri essayée
 pour de vrai sur PostgreSQL ; modèles branchés à l'impression ; dates
 saisissables).
-État : **398 tests noyau SQLite** (`cargo test -p gescom-noyau`,
-mesuré le 17/09) ; **414 tests workspace SQLite**
+État : **406 tests noyau SQLite** (`cargo test -p gescom-noyau`,
+mesuré le 17/09, suite complète sans `fail-fast`) ; **414 tests workspace SQLite**
 (`--workspace`, mesure du 13/09, non rejouée depuis) ;
 **394 tests noyau sur PostgreSQL** (suite complète sur `gescom_test`,
 0 échec le 13/09 ; `auth_base`, `entretien_base` et `images_base`
@@ -68,11 +68,13 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | # | quoi | où |
 |---|---|---|
 | I1 | **Vingt blocs Image partagent une seule image.** Un bloc désigne l'un des **trois** emplacements de la société ; en remplacer un les change tous. Il faut des images propres au modèle, avec une identité stable — un cachet, une signature, un QR ne sont pas le logo | `noyau/src/images.rs`, `lib/modeles/types.ts` |
-| I2 | **La date au POS** : `creer_vente` écrit `date_vente = maintenant` en dur. À rendre saisissable **avec permission** et garde-fous (pas de date future, limite de recul, motif de caisse portant la date de la vente, trace au journal) | `noyau/src/argent.rs` |
-| I3 | **La date d'un règlement** (page client et fournisseur), même traitement et même permission | `noyau/src/creances.rs`, `noyau/src/chantiers.rs` |
+| I2 | ~~**La date au POS**~~ **fait le 17/09/2026** : `creer_vente_datee_sur*` (les `creer_vente_sur*` restent des enveloppes, 33 appels intacts), règle pure dans `coeur/dates.rs` (pas de futur, 31 jours de recul max), permission **`pieces:antidater`** vérifiée par le serveur, `libelle` de caisse « Vente du 03/09 ». Deux scénarios + six tests unitaires | `noyau/src/coeur/dates.rs`, `noyau/src/argent.rs` |
+| I3 | **La date d'un règlement** (page client et fournisseur) : même règle `coeur::dates`, même permission `pieces:antidater`, même partage — le `paiement` porte la date de l'affaire, le mouvement de caisse reste au jour | `noyau/src/creances.rs`, `noyau/src/argent.rs` (`regler_dette_fournisseur`) |
 | I4 | **Le champ de saisie de la référence** fournisseur + la recherche par référence : les listes passent par un mappeur de colonnes partagé entre quatre requêtes, à faire d'un bloc | `noyau/src/pieces.rs`, `src/pages/Pieces.tsx` |
 
 **La règle posée le 17/09, à ne pas défaire** : *deux dates, deux faits*.
+Elle est écrite dans [coeur/dates.rs](../src-tauri/noyau/src/coeur/dates.rs)
+et gardée par la permission `pieces:antidater` (27 permissions au catalogue).
 La pièce dit quand l'affaire a eu lieu et se saisit ; le mouvement de
 caisse ne bouge pas. La caisse se lit **par session**, jamais par date —
 et on ne peut pas ouvrir la session d'un jour passé. Antidater une
@@ -123,12 +125,11 @@ Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
 - `lire_fournisseurs_pagines` construit son `WHERE` par `format!()`.
 - `ModalImpression` fait doublon avec `ApercuPiece` ; codes-barres non
   dessinés ; pièces historiques restées en `validee`.
-- **Un scénario instable** : `gestion_base::une_creance_se_regle_en_deux_fois_puis_un_reglement_s_annule`
-  échoue environ une fois sur trois. Deux règlements écrits dans la même
-  seconde et `lire_reglements_client_sur_base` trie `ORDER BY
-  p.date_paiement DESC` **sans départage** : l'ordre des deux lignes est
-  alors celui que le moteur veut. Vu le 16/09/2026, antérieur aux
-  corrections R1/R2 (le chemin des créances n'a pas été touché).
+- ~~Un scénario instable (`gestion_base`, une fois sur trois)~~ **réglé
+  le 17/09/2026** : l'horloge Windows tique par 15 ms, deux règlements
+  du même tic ont le même horodatage. Départage `cree_le, id` dans les
+  deux requêtes, et le scénario cherche chaque règlement par son
+  montant, pas par sa position.
 - Hors code : signature de l'installeur (D5), impression papier réelle.
 
 ## v3 — fondation posée, pas commencée
