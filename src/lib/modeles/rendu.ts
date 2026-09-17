@@ -29,8 +29,18 @@ export interface ImagesDocument {
 }
 
 export interface OptionsRendu {
-  /** Aperçu : pas de script d'impression, pas de @page. */
+  /**
+   * À l'écran : la page se dessine elle-même (largeur et marge posées
+   * sur le corps), pas de `@page` — qui ne fait rien dans une iframe —
+   * et pas de script d'impression.
+   */
   apercu?: boolean;
+  /**
+   * L'atelier SEUL : on peut désigner un bloc du doigt, donc on montre
+   * ce qu'on s'apprête à attraper. Un aperçu avant impression ne se
+   * modifie pas — y faire clignoter des cadres ferait croire l'inverse.
+   */
+  designable?: boolean;
   images?: ImagesDocument;
 }
 
@@ -472,7 +482,7 @@ const LARGEUR_MM: Record<string, number> = {
   thermique_58: 58,
 };
 
-function styles(modele: Modele, apercu: boolean): string {
+function styles(modele: Modele, apercu: boolean, designable: boolean): string {
   const { page } = modele.contenu;
   const thermique = modele.format.startsWith("thermique");
   const largeur = LARGEUR_MM[modele.format] ?? 210;
@@ -489,7 +499,7 @@ function styles(modele: Modele, apercu: boolean): string {
 
   // A l'ecran seulement : de quoi voir ce qu'on s'apprete a choisir.
   // Rien de tout cela ne part a l'imprimante.
-  const designation = apercu
+  const designation = designable
     ? `
   [data-bloc] { cursor: pointer; }
   [data-bloc]:hover { outline: 1px dashed ${page.couleurAccent};
@@ -614,7 +624,7 @@ export function rendreModele(
   return `<!DOCTYPE html>
 <html lang="fr"><head><meta charset="utf-8">
 <title>${esc(titre)}</title>
-<style>${styles(modele, apercu)}</style>
+<style>${styles(modele, apercu, options.designable ?? false)}</style>
 </head><body>
 ${rendreCorps(modele, donnees, options)}
 ${apercu ? "" : SCRIPT_IMPRESSION}

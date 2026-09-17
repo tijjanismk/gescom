@@ -5,10 +5,11 @@ Le récit daté de chaque avancée vit dans [JOURNAL.md](JOURNAL.md), les
 décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md).
 
-Dernière mise à jour : **16 septembre 2026** (revue du code de la séance
-du 13/09 ; `deepseek-context/` replié ici et supprimé).
-État : **397 tests noyau SQLite** (`cargo test -p gescom-noyau`,
-mesuré le 16/09 après les cinq correctifs R1…R5) ; **414 tests workspace SQLite**
+Dernière mise à jour : **17 septembre 2026** (la fenêtre Tauri essayée
+pour de vrai sur PostgreSQL ; modèles branchés à l'impression ; dates
+saisissables).
+État : **398 tests noyau SQLite** (`cargo test -p gescom-noyau`,
+mesuré le 17/09) ; **414 tests workspace SQLite**
 (`--workspace`, mesure du 13/09, non rejouée depuis) ;
 **394 tests noyau sur PostgreSQL** (suite complète sur `gescom_test`,
 0 échec le 13/09 ; `auth_base`, `entretien_base` et `images_base`
@@ -59,8 +60,24 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | 5 | ~~`entretenir_base` reste locale~~ **fait le 13/09/2026** : la route `POST /entretien` du serveur (permission `sauvegarde:lancer`) vérifie l'intégrité, réaffecte les règlements fournisseur globaux, copie avant (VACUUM INTO / pg_dump), compacte (REINDEX+VACUUM / VACUUM ANALYZE) — bouton « Entretien » dans la console ; la caisse garde le diagnostic, perd le bouton | c'est un travail de serveur (D9) |
 | 6 | ~~La restauration `pg_restore` jamais jouée~~ **jouée le 13/09/2026** : dump de `gescom_essai` → `gescom_restaure`, serveur redémarré dessus | D4 le demande ; la commande est dans [postgresql.md](modules/postgresql.md) |
 | 7 | Une **vraie impression papier**, le glisser-déposer du pied | jamais vérifiés à la main |
-| 8 | La fenêtre en **mode caisse**, pour de bon | tous les essais passent par HTTP — `outils/caisse_pg.py` rejoué le 13/09 : 141/141 ok sur PostgreSQL, base neuve ; la fenêtre Tauri elle-même n'a pas été utilisée |
+| 8 | ~~La fenêtre en **mode caisse**~~ **essayée le 16/09/2026** : `gescom.exe` branché au serveur PostgreSQL (`gescom_essai`), tableau de bord, POS et atelier vus à l'écran avec de vraies données. Elle a révélé le glisser-déposer cassé (`dragDropEnabled`), invisible depuis un navigateur. Reste l'impression papier (item 7) | tous les essais passaient par HTTP ; **un essai par navigateur ne remplace pas la fenêtre** |
 | 9 | Le déclencheur de stock sur SQLite multi-dossier | un mouvement de `dossier-b` crée sa ligne de stock dans `defaut` ; sans effet tant qu'une base SQLite n'a qu'un dossier — à régler avec la v3 |
+
+## Séance du 17/09/2026 — ce qui reste ouvert
+
+| # | quoi | où |
+|---|---|---|
+| I1 | **Vingt blocs Image partagent une seule image.** Un bloc désigne l'un des **trois** emplacements de la société ; en remplacer un les change tous. Il faut des images propres au modèle, avec une identité stable — un cachet, une signature, un QR ne sont pas le logo | `noyau/src/images.rs`, `lib/modeles/types.ts` |
+| I2 | **La date au POS** : `creer_vente` écrit `date_vente = maintenant` en dur. À rendre saisissable **avec permission** et garde-fous (pas de date future, limite de recul, motif de caisse portant la date de la vente, trace au journal) | `noyau/src/argent.rs` |
+| I3 | **La date d'un règlement** (page client et fournisseur), même traitement et même permission | `noyau/src/creances.rs`, `noyau/src/chantiers.rs` |
+| I4 | **Le champ de saisie de la référence** fournisseur + la recherche par référence : les listes passent par un mappeur de colonnes partagé entre quatre requêtes, à faire d'un bloc | `noyau/src/pieces.rs`, `src/pages/Pieces.tsx` |
+
+**La règle posée le 17/09, à ne pas défaire** : *deux dates, deux faits*.
+La pièce dit quand l'affaire a eu lieu et se saisit ; le mouvement de
+caisse ne bouge pas. La caisse se lit **par session**, jamais par date —
+et on ne peut pas ouvrir la session d'un jour passé. Antidater une
+entrée changerait après coup une session close et comptée, et c'est
+aussi ainsi qu'on masque un trou dans le tiroir.
 
 ## Revue du 16/09/2026 — les cinq écarts, tous corrigés
 

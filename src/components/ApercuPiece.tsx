@@ -130,20 +130,28 @@ export function ApercuPiece({
     [modeles, modeleChoisi],
   );
 
-  // Le même HTML que l'impression : ce qui est affiché EST ce qui sort.
-  // Un modèle rendu ici et re-rendu au moment d'imprimer finirait par
-  // ne plus donner la même page — c'est la panne qu'on ne veut pas.
-  const html = useMemo(() => {
-    if (!donnees) return "";
+  // Le document, rendu en DEUX geometries à partir du même modèle et
+  // des mêmes données : à l'écran la page se dessine elle-même (largeur
+  // et marge posées sur le corps), à l'impression c'est `@page` qui les
+  // porte. `@page` ne fait RIEN dans une iframe — sans ce partage, le
+  // modèle s'affichait collé aux bords, sans aucune marge.
+  //
+  // Deux géométries, pas deux rendus : le contenu vient d'un seul
+  // passage de la même fonction, c'est ce qui compte.
+  const rendu = useMemo(() => {
+    if (!donnees) return { ecran: "", papier: "" };
     if (modele) {
-      return rendreModele(
-        modele,
-        contextePiece(donnees as never),
-        { images: { logo, entete, pied } },
-      );
+      const ctx = contextePiece(donnees as never);
+      const opts = { images: { logo, entete, pied } };
+      return {
+        ecran: rendreModele(modele, ctx, { ...opts, apercu: true }),
+        papier: rendreModele(modele, ctx, opts),
+      };
     }
-    return genererImpression(donnees, format, logo, entete, pied, signatures);
+    const h = genererImpression(donnees, format, logo, entete, pied, signatures);
+    return { ecran: h, papier: h };
   }, [donnees, modele, format, logo, entete, pied, signatures]);
+  const html = rendu.ecran;
 
   /** La largeur du papier : celle du modèle quand il y en a un. */
   const largeurPapier = modele
@@ -167,7 +175,7 @@ export function ApercuPiece({
     setImpression(true);
     try {
       await invoke("imprimer_facture", {
-        html,
+        html: rendu.papier,
         nomFichier: `${(numero ?? "piece").replace(/[\\/:*?"<>|]/g, "-")}`
           + `${!modele && format === "bon_sortie" ? "-BS" : ""}.html`,
       });

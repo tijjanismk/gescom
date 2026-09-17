@@ -278,7 +278,7 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
   const apercu = useMemo(() => {
     if (!modele) return "";
     try {
-      return rendreModele(modele, contexteExemple(genre), { apercu: true, images });
+      return rendreModele(modele, contexteExemple(genre), { apercu: true, designable: true, images });
     } catch (e) {
       // Un modèle en cours d'édition peut être momentanément incohérent.
       // L'aperçu doit le dire, pas disparaître : un cadre blanc laisse

@@ -918,3 +918,76 @@ Ce que R3 n'a pas : un test. Le registre du serveur (`socle.rs`) n'en a
 aucun, comme les routes — la correction s'est faite en lisant les neuf
 poignées côte à côte, et rien n'aurait signalé l'écart. C'est la même
 dette que le 13/09.
+
+## La fenêtre contre le navigateur, et les modèles qui servent — **17/09/2026**
+
+Séance ouverte par un essai réel dans la **fenêtre Tauri** (item 8
+d'ETAPES, jamais fait). Elle a rendu visible ce qu'aucun essai HTTP ne
+pouvait montrer.
+
+**Le glisser-déposer ne marchait pas — et ce n'était pas le code.** Sur
+Windows, `dragDropEnabled` vaut vrai par défaut : WebView2 installe son
+propre récepteur, celui qui sert à lâcher des *fichiers* sur la fenêtre,
+et il avale `dragstart`/`dragover`/`drop` avant la page. React ne
+recevait jamais rien. Tous les essais passant par un navigateur, où rien
+n'intercepte, personne ne l'avait vu. Un mot dans `tauri.conf.json`.
+**Leçon générale : un essai par HTTP ne remplace pas la fenêtre.**
+
+**L'atelier se pilote maintenant dans le document.** Cliquer dans
+l'aperçu choisit le bloc, et on peut y **lâcher** un bloc avec un trait
+qui montre où il tombe. L'aperçu passe de `sandbox=""` à
+`sandbox="allow-same-origin"` — toujours **pas** de `allow-scripts`,
+D50 tient : la page reste inerte, c'est l'atelier qui gagne le droit de
+lire ce DOM. Ajoutés au passage : gras/souligné, un bloc Image
+dimensionné en millimètres, et l'habillage des tableaux (filets,
+couleurs, un rayon par coin — un `border-collapse: collapse` ignorant le
+`border-radius`, un cadre porte l'arrondi).
+
+**Les modèles servent enfin.** `imprimerParModele` était juste — vérifié
+par sonde HTTP contre PostgreSQL, les 7 modèles répondent — mais
+**personne ne l'appelait**, et son contrat (imprimer sans rien montrer)
+ne correspondait à aucun écran. `ApercuPiece` liste désormais les
+modèles, rend celui qu'on choisit **avec les vraies données**, et
+imprime ce qu'on a vu. L'atelier devient un onglet de Paramètres qui
+prend tout l'écran ; en-tête et pied quittent l'écran Société pour
+devenir des blocs Image.
+
+**Deux corrections de dates, venues du terrain.** Une boutique note sur
+papier et saisit le soir : imposer la date de saisie fait tomber la
+pièce dans le mauvais mois. `modifier_piece` prend `date_piece` (deux
+versions, façade, serveur), et la règle d'immuabilité de `coeur` décide
+seule de quand c'est permis. **La règle posée : deux dates, deux faits.**
+La pièce dit quand l'affaire a eu lieu ; le mouvement de caisse ne bouge
+pas — l'argent est entré dans le tiroir quand il y est entré, et la
+caisse se lit **par session, jamais par date** (vérifié : toutes les
+requêtes filtrent sur `session_id`, et `ouvrir_session_caisse` refuse
+d'ouvrir une session passée). Antidater l'entrée changerait après coup
+une session close et comptée.
+
+**Les filtres de stock existaient déjà** dans le noyau — dates, article,
+dépôt, type — et l'écran n'en passait aucun : 300 derniers mouvements,
+recherche en mémoire. Un article sorti le mois dernier restait
+introuvable **sans que rien ne le dise**, sur l'écran même où l'on va
+justifier un écart d'inventaire.
+
+Ajoutée aussi : la colonne `reference` sur `piece_commerciale` (le
+numéro que le fournisseur porte sur *sa* facture), posée sur les trois
+chemins de création et vérifiée par `schema_commun`.
+
+Six commits, 398 tests noyau au vert.
+
+### Deux défauts trouvés en fin de séance
+
+- **La marge manquait dans l'aperçu d'un modèle** : rendu sans
+  `apercu: true`, il ne portait que `@page`, qui ne fait **rien** dans
+  une iframe. Le document s'affichait collé aux bords. L'aperçu rend
+  maintenant deux géométries du même passage — écran et papier — et
+  `designable` sépare le surlignage des blocs (atelier seul) de la
+  géométrie de page.
+- **Vingt blocs Image partagent une seule image.** Un bloc Image désigne
+  l'un des **trois** emplacements de la société (logo, en-tête, pied) :
+  vingt blocs pointent donc sur trois fichiers, et en remplacer un les
+  change tous. C'est la limite de conception, pas un accident — mais
+  elle bloque l'usage réel (un cachet, une signature, un QR). Il faut
+  des **images propres au modèle**, avec une identité stable ; c'est le
+  chantier suivant.
