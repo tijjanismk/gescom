@@ -183,7 +183,7 @@ pub fn lire_reglements_client(
          LEFT JOIN piece_commerciale pc ON pc.id = v.piece_id
          LEFT JOIN utilisateur u ON u.id = p.auteur_id
          WHERE v.client_id = ?1
-         ORDER BY p.date_paiement DESC"
+         ORDER BY p.date_paiement DESC, p.cree_le DESC, p.id DESC"
     ).map_err(|e| e.to_string())?;
 
     let x = st.query_map(rusqlite::params![client_id], |r| {
@@ -1004,7 +1004,7 @@ pub fn lire_reglements_client_sur_base(base: &mut Base, client_id: String) -> Re
          LEFT JOIN piece_commerciale pc ON pc.id = v.piece_id
          LEFT JOIN utilisateur u ON u.id = p.auteur_id
          WHERE v.client_id = ?1 AND p.dossier_id = ?2
-         ORDER BY p.date_paiement DESC",
+         ORDER BY p.date_paiement DESC, p.cree_le DESC, p.id DESC",
         &parametres![client_id, dossier],
         |r| {
             let total_facture: i64 = r.get::<i64>(10)?;

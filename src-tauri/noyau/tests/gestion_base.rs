@@ -269,16 +269,22 @@ fn une_creance_se_regle_en_deux_fois_puis_un_reglement_s_annule() {
 
     let reglements = creances::lire_reglements_client_sur_base(&mut base, client.clone()).unwrap();
     assert_eq!(reglements.len(), 2);
-    assert_eq!(reglements[0]["reste_apres"], 0);
-    assert_eq!(reglements[1]["reste_apres"], prix - 300);
-    assert_eq!(reglements[1]["deja_annule"], false);
+    // Par le MONTANT, pas par la position : les deux règlements tombent
+    // dans le même tic d'horloge (15 ms sous Windows), leur horodatage
+    // est identique, et l'ordre entre eux n'appartient à personne. Ce
+    // que le métier garantit, c'est le reste APRÈS chacun.
+    let acompte = reglements.iter().find(|r| r["montant"] == 300).expect("le règlement de 300");
+    let solde = reglements.iter().find(|r| r["montant"] == prix - 300).expect("le solde");
+    assert_eq!(acompte["reste_apres"], prix - 300);
+    assert_eq!(solde["reste_apres"], 0);
+    assert_eq!(acompte["deja_annule"], false);
 
-    let recu = creances::lire_donnees_recu_sur_base(&mut base, reglements[1]["id"].as_str().unwrap().to_string(), "client".into()).unwrap();
+    let recu = creances::lire_donnees_recu_sur_base(&mut base, acompte["id"].as_str().unwrap().to_string(), "client".into()).unwrap();
     assert_eq!(recu["montant"], 300);
     assert_eq!(recu["reste_du"], 0, "le reste du reçu est celui d'aujourd'hui");
 
     // Annulation du premier règlement, argent rendu : contre-passation + sortie.
-    let premier = reglements[1]["id"].as_str().unwrap().to_string();
+    let premier = acompte["id"].as_str().unwrap().to_string();
     let r = creances::annuler_reglement_sur_base(&mut base, premier.clone(), "erreur".into(), true, None).unwrap();
     assert_eq!(r["montant_annule"], 300);
     assert_eq!(r["sortie_de_caisse"], true);
