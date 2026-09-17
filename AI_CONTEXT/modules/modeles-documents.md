@@ -36,8 +36,15 @@ Une suite de **blocs** empilés, pas un canevas libre en x/y : sur un
 document commercial, ce qui doit bouger c'est l'ordre et le contenu.
 Un canevas libre laisserait poser un total à cheval sur le pied de page.
 
-Onze types : `entete`, `titre`, `champs`, `tableau`, `totaux`, `texte`,
-`signatures`, `pied_page`, `trait`, `espace`, `saut_page`.
+Douze types : `entete`, `titre`, `champs`, `tableau`, `totaux`, `texte`,
+`signatures`, `image`, `pied_page`, `trait`, `espace`, `saut_page`.
+
+`image` pose une image **dimensionnée en millimètres** — la cible est du
+papier. ⚠️ Il désigne l'un des **trois** emplacements de la société
+(logo, en-tête, pied) : vingt blocs Image pointent donc sur trois
+fichiers, et en remplacer un les change tous. Limite de conception,
+connue et bloquante pour l'usage réel (cachet, signature, QR) — voir
+[ETAPES.md](../ETAPES.md) § I1.
 
 `pied_page` est le seul qui ne s'empile pas : c'est une BANDE de hauteur
 fixe, où les éléments se posent au millimètre (`position: fixed` à
@@ -108,6 +115,48 @@ déjà en pour-cent (5 pour 5 %), reste un `nombre`.
    *installation* à une autre — clé USB, nouvelle boutique — pas d'un
    poste à l'autre du même magasin.
 
+## L'atelier depuis le 17/09/2026
+
+- **On règle le document en cliquant dedans.** Chaque bloc rendu porte
+  un `data-bloc` inerte ; l'aperçu de l'atelier est une iframe
+  `sandbox="allow-same-origin"` — **pas** de `allow-scripts`, D50 tient :
+  la page reste inerte, c'est l'atelier qui gagne le droit de lire son
+  DOM. On peut aussi y **lâcher** un bloc, avec un trait qui montre où
+  il tombe.
+- **Deux options de rendu, à ne pas confondre** : `apercu` pose la
+  géométrie d'écran (largeur et marge sur le corps, pas de `@page` — qui
+  ne fait rien dans une iframe) ; `designable` ajoute le surlignage des
+  blocs et n'a de sens que dans l'atelier. Un aperçu avant impression
+  prend `apercu` **sans** `designable`.
+- **Texte** : gras, italique, souligné — blocs Texte et Titre, et les
+  éléments du pied.
+- **Tableaux** : filets (sous chaque ligne / grille / aucun), couleurs
+  des filets, de l'en-tête et de la ligne alternée, et **un rayon par
+  coin**. Un `border-collapse: collapse` ignore le `border-radius` : dès
+  qu'un rayon est posé, un cadre autour le porte et rogne ce qui dépasse.
+- **L'atelier est un onglet de Paramètres** qui prend tout l'écran ;
+  l'entrée du menu latéral a disparu. **En-tête et pied ont quitté
+  Paramètres → Société** : ce sont des morceaux de document, ils se
+  posent en bloc Image. Le logo reste dans Société — c'est l'identité de
+  la maison, pas la mise en page d'un document.
+
+## Les modèles servent enfin (17/09/2026)
+
+`imprimerParModele` était juste — les 7 modèles répondent sur
+PostgreSQL — mais **personne ne l'appelait**, et son contrat (imprimer
+sans rien montrer) ne correspondait à aucun écran : ici on montre puis
+on imprime.
+
+- `ApercuPiece` (Pièces, Fiche client, Fiche fournisseur) liste les
+  modèles à côté des formats d'origine, ★ sur l'actif, et rend celui
+  qu'on choisit **avec les vraies données de la pièce**.
+- **Une seule génération**, `htmlParModele` : rendre deux fois le même
+  document, c'est ainsi qu'on finit par imprimer autre chose que ce qui
+  était à l'écran.
+- Le modèle **actif est présélectionné** dans l'aperçu comme à la
+  caisse : deux écrans qui sortent deux factures différentes pour la
+  même boutique, c'est la panne qu'on n'explique pas au client.
+
 ## Ce que la revue du 16/09/2026 a trouvé
 
 Corrigé dans la foulée :
@@ -154,8 +203,9 @@ utilisés que si le commerçant les choisit. Bascule volontaire — le
 générateur historique imprime la même facture depuis des mois, et le
 jour du changement doit être choisi après avoir vu son modèle à l'écran.
 
-`genererRecu.ts`, `genererReleve.ts` et l'écran Journal ne sont **pas**
-encore branchés sur le moteur : les contextes existent
+Le genre `facture` EST branché depuis le 17/09/2026 (voir ci-dessus).
+`genererRecu.ts`, `genererReleve.ts` et l'écran Journal ne le sont
+**pas** : les contextes existent
 (`contexteRecu`, `contexteReleve`, `contexteJournal`), les modèles
 d'usine aussi, mais aucun écran n'appelle `imprimerParModele` pour ces
 trois genres. C'est le raccordement suivant, et il est mécanique.
