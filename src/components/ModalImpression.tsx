@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { message } from "@tauri-apps/plugin-dialog";
 import { genererImpression } from "@/lib/genererPDF";
 import type { FormatImpression, DonneesPiece } from "@/lib/genererPDF";
-import { rendreModele } from "@/lib/modeles/rendu";
+import { htmlParModele, modeleUtilisable } from "@/lib/modeles/service";
 import { contextePiece } from "@/lib/modeles/contexte";
 import type { Modele } from "@/lib/modeles/types";
 
@@ -46,8 +46,15 @@ export function ModalImpression({ ouvert, venteId, onFermer }: ModalImpressionPr
     invoke<boolean>("lire_config_bon_sortie")
       .then(setBonSortieActif)
       .catch(() => setBonSortieActif(false));
+    // Le modèle ACTIF d'emblée : l'écran Pièces fait pareil, et deux
+    // écrans qui sortent deux factures différentes pour la même
+    // boutique, c'est la panne qu'on ne peut pas expliquer au client.
     invoke<Modele[]>("lire_modeles", { genre: "facture" })
-      .then(setModeles)
+      .then((mods) => {
+        const utilisables = mods.filter(modeleUtilisable);
+        setModeles(utilisables);
+        setModeleChoisi(utilisables.find((m) => m.actif)?.id ?? null);
+      })
       .catch(() => setModeles([]));
   }, []);
 
@@ -97,8 +104,8 @@ export function ModalImpression({ ouvert, venteId, onFermer }: ModalImpressionPr
         : null;
 
       const html = modele
-        ? rendreModele(modele, contextePiece(donnees as any), {
-            images: { logo, entete, pied },
+        ? await htmlParModele(modele, contextePiece(donnees as never), {
+            logo, entete, pied,
           })
         : genererImpression(
             donnees, formatFinal, logo, entete, pied, signatures);

@@ -15,7 +15,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import {
-  Printer, Loader2, Eye, PackageCheck, AlertTriangle,
+  Printer, Loader2, Eye, PackageCheck, AlertTriangle, LayoutTemplate,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -25,6 +25,10 @@ import { genererImpression } from "@/lib/genererPDF";
 import type {
   FormatImpression, DonneesPiece, Signatures,
 } from "@/lib/genererPDF";
+import { modelesDuGenre, modeleUtilisable } from "@/lib/modeles/service";
+import { rendreModele } from "@/lib/modeles/rendu";
+import { contextePiece } from "@/lib/modeles/contexte";
+import type { Modele } from "@/lib/modeles/types";
 
 interface ApercuPieceProps {
   /** `null` ferme l'aperçu. */
@@ -51,6 +55,11 @@ const HAUTEUR_DEFAUT: Record<FormatImpression, number> = {
   thermique_58: 700, thermique_80: 700,
 };
 
+/** Largeur en pixels CSS d'un format de MODÈLE — il a le sien. */
+const LARGEUR_MODELE: Record<string, number> = {
+  a4: 794, a5: 559, thermique_80: 302, thermique_58: 220,
+};
+
 const FORMATS: { value: FormatImpression; label: string }[] = [
   { value: "a4",           label: "A4" },
   { value: "a5",           label: "A5" },
@@ -72,6 +81,12 @@ export function ApercuPiece({
   const [erreur, setErreur] = useState<string | null>(null);
   const [impression, setImpression] = useState(false);
   const [hauteur, setHauteur] = useState(HAUTEUR_DEFAUT.a4);
+  // Les modèles de l'atelier, à côté des formats d'origine. Celui qui
+  // est ACTIF est proposé d'emblée : c'est ce que « actif » veut dire.
+  // On le voit avant d'imprimer — c'est tout l'intérêt d'être ici et
+  // pas dans une boîte de dialogue aveugle.
+  const [modeles, setModeles] = useState<Modele[]>([]);
+  const [modeleChoisi, setModeleChoisi] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const ouvert = pieceId !== null;
@@ -83,6 +98,7 @@ export function ApercuPiece({
     setChargement(true);
     setErreur(null);
     setFormat("a4");
+    setModeleChoisi(null);
 
     Promise.all([
       invoke<DonneesPiece>("lire_donnees_piece", { pieceId }),
@@ -91,11 +107,15 @@ export function ApercuPiece({
       invoke<string | null>("lire_pied_base64").catch(() => null),
       invoke<boolean>("lire_config_bon_sortie").catch(() => false),
       invoke<Signatures>("lire_config_signatures").catch(() => null),
+      modelesDuGenre("facture"),
     ])
-      .then(([d, l, e, p, bs, sig]) => {
+      .then(([d, l, e, p, bs, sig, mods]) => {
         if (annule) return;
         setDonnees(d); setLogo(l); setEntete(e); setPied(p);
         setBonSortieActif(bs); setSignatures(sig);
+        const utilisables = mods.filter(modeleUtilisable);
+        setModeles(utilisables);
+        setModeleChoisi(utilisables.find((m) => m.actif)?.id ?? null);
       })
       .catch(e => {
         if (!annule) setErreur(typeof e === "string" ? e : JSON.stringify(e));
@@ -105,13 +125,30 @@ export function ApercuPiece({
     return () => { annule = true; };
   }, [pieceId, ouvert]);
 
-  // Le même appel que l'impression : ce qui est affiché EST ce qui sort.
-  const html = useMemo(
-    () => (donnees
-      ? genererImpression(donnees, format, logo, entete, pied, signatures)
-      : ""),
-    [donnees, format, logo, entete, pied, signatures],
+  const modele = useMemo(
+    () => modeles.find((m) => m.id === modeleChoisi) ?? null,
+    [modeles, modeleChoisi],
   );
+
+  // Le même HTML que l'impression : ce qui est affiché EST ce qui sort.
+  // Un modèle rendu ici et re-rendu au moment d'imprimer finirait par
+  // ne plus donner la même page — c'est la panne qu'on ne veut pas.
+  const html = useMemo(() => {
+    if (!donnees) return "";
+    if (modele) {
+      return rendreModele(
+        modele,
+        contextePiece(donnees as never),
+        { images: { logo, entete, pied } },
+      );
+    }
+    return genererImpression(donnees, format, logo, entete, pied, signatures);
+  }, [donnees, modele, format, logo, entete, pied, signatures]);
+
+  /** La largeur du papier : celle du modèle quand il y en a un. */
+  const largeurPapier = modele
+    ? LARGEUR_MODELE[modele.format] ?? 794
+    : LARGEUR_PAPIER[format];
 
   // Hauteur réelle du contenu. Sans mesure, un document de deux pages
   // (facture + bon) serait coupé au milieu.
@@ -121,6 +158,8 @@ export function ApercuPiece({
     // refuser selon le contexte : repli sur la hauteur théorique.
     const h = doc?.body?.scrollHeight;
     setHauteur(h && h > 50 ? h : HAUTEUR_DEFAUT[format]);
+    // `format` reste la clé du repli : un modèle mesure sa vraie
+    // hauteur dès que l'iframe a chargé, et le repli ne sert qu'avant.
   }, [format]);
 
   async function handleImprimer() {
@@ -130,7 +169,7 @@ export function ApercuPiece({
       await invoke("imprimer_facture", {
         html,
         nomFichier: `${(numero ?? "piece").replace(/[\\/:*?"<>|]/g, "-")}`
-          + `${format === "bon_sortie" ? "-BS" : ""}.html`,
+          + `${!modele && format === "bon_sortie" ? "-BS" : ""}.html`,
       });
       onFermer();
     } catch (e) {
@@ -166,10 +205,11 @@ export function ApercuPiece({
         <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border
                         shrink-0 flex-wrap">
           {formats.map(f => (
-            <button key={f.value} onClick={() => setFormat(f.value)}
+            <button key={f.value}
+              onClick={() => { setFormat(f.value); setModeleChoisi(null); }}
               className={`px-3 py-1.5 rounded-md border text-xs font-medium
                           transition-colors ${
-                format === f.value
+                format === f.value && !modele
                   ? "border-primary bg-primary/5 text-primary"
                   : "border-border text-muted-foreground hover:bg-muted"
               }`}>
@@ -179,6 +219,27 @@ export function ApercuPiece({
               {f.label}
             </button>
           ))}
+
+          {/* Les modèles de l'atelier. L'étoile marque celui que la
+              boutique a choisi comme actif — c'est lui qui s'ouvre. */}
+          {modeles.length > 0 && (
+            <>
+              <span className="mx-1 h-4 w-px bg-border" />
+              {modeles.map(m => (
+                <button key={m.id} onClick={() => setModeleChoisi(m.id)}
+                  title={`Modèle de l'atelier — ${m.format.replace("_", " ")}`}
+                  className={`px-3 py-1.5 rounded-md border text-xs font-medium
+                              transition-colors ${
+                    modeleChoisi === m.id
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-border text-muted-foreground hover:bg-muted"
+                  }`}>
+                  <LayoutTemplate className="h-3 w-3 mr-1 inline-block" />
+                  {m.nom}{m.actif ? " ★" : ""}
+                </button>
+              ))}
+            </>
+          )}
         </div>
 
         <div className="flex-1 overflow-auto bg-muted/40 p-4">
@@ -203,7 +264,7 @@ export function ApercuPiece({
               // document ne doit jamais s'exécuter ici.
               sandbox="allow-same-origin"
               style={{
-                width: LARGEUR_PAPIER[format],
+                width: largeurPapier,
                 height: hauteur,
                 border: "none",
                 background: "#fff",
