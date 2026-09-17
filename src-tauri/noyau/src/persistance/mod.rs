@@ -138,6 +138,11 @@ pub fn initialiser_tables(conn: &Connection) -> Result<()> {
     conn.execute(
         "ALTER TABLE parametres_societe ADD COLUMN pied_chemin TEXT", []
     ).ok();
+    // La reference du tiers : le numero que le fournisseur porte sur sa
+    // propre facture. Le notre ne lui dit rien au telephone.
+    conn.execute(
+        "ALTER TABLE piece_commerciale ADD COLUMN reference TEXT", []
+    ).ok();
     conn.execute(
         "ALTER TABLE article ADD COLUMN taux_tva_defaut REAL NOT NULL DEFAULT 0.0", []
     ).ok();

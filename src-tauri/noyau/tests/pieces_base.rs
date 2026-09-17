@@ -229,7 +229,7 @@ fn modifier_remplace_les_lignes_d_un_brouillon_et_refuse_une_facture_emise() {
 
     pieces::modifier_piece_sur_base(
         &mut base, id(&d), Some("modifié".into()), None, Some(10.0),
-        Some(vec![ligne(&riz, 7.0), ligne(&sucre, 2.0)]),
+        Some(vec![ligne(&riz, 7.0), ligne(&sucre, 2.0)]), None,
     )
     .unwrap();
     let lignes = pieces::lire_lignes_piece_sur_base(&mut base, id(&d)).unwrap();
@@ -240,7 +240,7 @@ fn modifier_remplace_les_lignes_d_un_brouillon_et_refuse_une_facture_emise() {
     assert_eq!(liste[0]["note"], "modifié");
 
     // Sans remise transmise, l'ancienne est conservée (COALESCE).
-    pieces::modifier_piece_sur_base(&mut base, id(&d), None, None, None, None).unwrap();
+    pieces::modifier_piece_sur_base(&mut base, id(&d), None, None, None, None, None).unwrap();
     let client = client_reel(&mut base);
     let liste = pieces::lire_pieces_client_sur_base(&mut base, client, None).unwrap();
     assert_eq!(liste[0]["remise_globale"], 10.0);
@@ -248,9 +248,47 @@ fn modifier_remplace_les_lignes_d_un_brouillon_et_refuse_une_facture_emise() {
     // Une facture émise est figée.
     let fac = pieces::convertir_piece_sur_base(&mut base, id(&d), "facture".into()).unwrap();
     pieces::changer_statut_piece_sur_base(&mut base, id(&fac), "emis".into()).unwrap();
-    let refus = pieces::modifier_piece_sur_base(&mut base, id(&fac), Some("x".into()), None, None, None)
+    let refus = pieces::modifier_piece_sur_base(&mut base, id(&fac), Some("x".into()), None, None, None, None)
         .unwrap_err();
     assert!(!refus.is_empty());
+}
+
+/// La date de l'AFFAIRE se saisit : on note sur papier et on saisit le
+/// soir, parfois le samedi pour la semaine. Imposer le jour de la
+/// saisie ferait tomber la pièce dans le mauvais mois, et le rapport ne
+/// vaudrait plus rien.
+#[test]
+fn la_date_d_une_piece_se_saisit_et_ne_bouge_pas_toute_seule() {
+    let mut base = base_avec_demo();
+    let d = devis(&mut base, 1.0);
+    let client = client_reel(&mut base);
+
+    let avant = pieces::lire_pieces_client_sur_base(&mut base, client.clone(), None).unwrap();
+    let date_origine = avant[0]["date_piece"].as_str().unwrap().to_string();
+
+    // Antidater : la vente du 3, saisie aujourd'hui.
+    pieces::modifier_piece_sur_base(
+        &mut base, id(&d), None, None, None, None,
+        Some("2026-09-03T10:30:00".into()),
+    )
+    .unwrap();
+    let apres = pieces::lire_pieces_client_sur_base(&mut base, client.clone(), None).unwrap();
+    assert!(
+        apres[0]["date_piece"].as_str().unwrap().starts_with("2026-09-03"),
+        "la date saisie n'a pas été posée : {}", apres[0]["date_piece"],
+    );
+    assert_ne!(date_origine, apres[0]["date_piece"].as_str().unwrap());
+
+    // Sans date transmise, celle en place ne bouge pas (COALESCE).
+    pieces::modifier_piece_sur_base(
+        &mut base, id(&d), Some("note".into()), None, None, None, None,
+    )
+    .unwrap();
+    let encore = pieces::lire_pieces_client_sur_base(&mut base, client, None).unwrap();
+    assert!(
+        encore[0]["date_piece"].as_str().unwrap().starts_with("2026-09-03"),
+        "une modification sans date a écrasé la date saisie",
+    );
 }
 
 #[test]
@@ -454,7 +492,7 @@ fn tout_ce_qui_est_porte_dans_pieces_passe_le_detecteur() {
     pieces::lire_donnees_piece_sur_base(&mut base, id(&d)).expect("impression");
     pieces::lire_fiche_client_sur_base(&mut base, client.clone()).expect("fiche");
     let copie = pieces::dupliquer_piece_sur_base(&mut base, id(&d)).expect("dupliquer");
-    pieces::modifier_piece_sur_base(&mut base, id(&copie), None, None, None, Some(vec![ligne(&sucre, 1.0)]))
+    pieces::modifier_piece_sur_base(&mut base, id(&copie), None, None, None, Some(vec![ligne(&sucre, 1.0)]), None)
         .expect("modifier");
     pieces::annuler_piece_sur_base(&mut base, id(&copie), None).expect("annuler");
     pieces::changer_statut_piece_sur_base(&mut base, id(&copie), "annule".into()).expect("statut");

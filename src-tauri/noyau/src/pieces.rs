@@ -482,6 +482,55 @@ pub fn stock_confie_a_un_bon(conn: &rusqlite::Connection, piece_id: &str) -> boo
 /// le filtre de dossier compte ici comme ailleurs — remonter la chaine
 /// des pieces d'une autre societe rendrait un verdict sur des pieces
 /// qui n'existent pas pour ce dossier.
+/// La reference du TIERS sur une piece : le numero que le fournisseur
+/// porte sur sa propre facture.
+///
+/// Notre `numero` est a nous — il ne dit rien au fournisseur quand on
+/// l'appelle pour contester une ligne. La reference se pose a tout
+/// moment, y compris apres validation : le papier arrive souvent apres
+/// la marchandise.
+///
+/// Vide = on retire la reference. On n'ecrit pas une chaine vide, qui
+/// se lirait comme « une reference existe, elle est vide ».
+pub fn definir_reference_piece(
+    conn: &rusqlite::Connection,
+    piece_id: String,
+    reference: Option<String>,
+) -> Result<(), String> {
+    let valeur = reference.map(|r| r.trim().to_string()).filter(|r| !r.is_empty());
+    let n = conn
+        .execute(
+            "UPDATE piece_commerciale SET reference = ?1, modifie_le = ?2 WHERE id = ?3",
+            rusqlite::params![valeur, maintenant_iso(), piece_id],
+        )
+        .map_err(|e| e.to_string())?;
+    if n == 0 {
+        return Err("Pièce introuvable".to_string());
+    }
+    Ok(())
+}
+
+/// Meme geste, sur `Base`.
+pub fn definir_reference_piece_sur_base(
+    base: &mut crate::base::Base,
+    piece_id: String,
+    reference: Option<String>,
+) -> Result<(), String> {
+    let valeur = reference.map(|r| r.trim().to_string()).filter(|r| !r.is_empty());
+    let dossier = base.dossier().to_string();
+    let n = base
+        .executer(
+            "UPDATE piece_commerciale SET reference = CAST(?1 AS TEXT), modifie_le = ?2
+             WHERE id = ?3 AND dossier_id = ?4",
+            &crate::parametres![valeur, maintenant_iso(), piece_id, dossier],
+        )
+        .map_err(|e| e.0)?;
+    if n == 0 {
+        return Err("Pièce introuvable".to_string());
+    }
+    Ok(())
+}
+
 pub fn stock_confie_a_un_bon_sur(base: &mut impl crate::base::Acces, dossier: &str, piece_id: &str) -> bool {
     const BONS: [&str; 2] = ["bon_livraison", "bon_reception"];
     let mut courant = piece_id.to_string();
@@ -952,10 +1001,22 @@ pub fn lire_donnees_piece(
     // Clés conservées `client_*` pour ne pas casser le générateur HTML
     // frontend (genererPieceHTML/genererTicketThermique), qui ne
     // distingue pas encore client/fournisseur dans son template.
+    // La reference du tiers, lue a part : ajouter une 12e colonne au
+    // tuple ci-dessus obligerait a retoucher toutes ses lectures.
+    let reference: Option<String> = conn
+        .query_row(
+            "SELECT reference FROM piece_commerciale WHERE id = ?1",
+            rusqlite::params![piece_id],
+            |r| r.get(0),
+        )
+        .ok()
+        .flatten();
+
     let piece = serde_json::json!({
         "id":             pc_id,
         "type_piece":     type_piece,
         "numero":         numero,
+        "reference":      reference,
         "statut":         statut,
         "date_piece":     date_piece,
         "date_echeance":  date_echeance,
@@ -1351,6 +1412,16 @@ pub fn creer_piece_fournisseur(
 //  Modifier une pièce (seulement si statut != validee/transfere/annule)
 // =====================================================================
 
+/// `date_piece` : la date de l'AFFAIRE, pas celle de la saisie.
+///
+/// Une boutique note sur papier et saisit le soir, parfois le samedi
+/// pour la semaine — une coupure de courant suffit. Imposer la date du
+/// jour ferait tomber la vente dans le mauvais mois, et le rapport ne
+/// vaudrait plus rien. `None` garde la date en place.
+///
+/// Ce qui ne bouge PAS avec elle : le mouvement de caisse. L'argent est
+/// entre dans le tiroir quand il y est entre, et c'est ce que le
+/// comptage du soir verifie.
 pub fn modifier_piece(
     conn: &rusqlite::Connection,
     piece_id: String,
@@ -1358,6 +1429,7 @@ pub fn modifier_piece(
     date_echeance: Option<String>,
     remise_globale: Option<f64>,
     lignes: Option<Vec<LignePieceInput>>,
+    date_piece: Option<String>,
 ) -> Result<(), String> {
 
     // Immuabilite : voir coeur::pieces. Une piece engageante (facture,
@@ -1377,9 +1449,11 @@ pub fn modifier_piece(
         "UPDATE piece_commerciale
          SET note = ?1, date_echeance = ?2,
              remise_globale = COALESCE(?3, remise_globale),
+             date_piece = COALESCE(?6, date_piece),
              modifie_le = ?4
          WHERE id = ?5",
-        rusqlite::params![note, date_echeance, remise_globale, now, piece_id],
+        rusqlite::params![note, date_echeance, remise_globale, now, piece_id,
+                          date_piece.filter(|d| !d.trim().is_empty())],
     ).map_err(|e| e.to_string())?;
 
     // Si nouvelles lignes fournies → remplacer
@@ -2760,6 +2834,8 @@ pub fn changer_statut_piece_sur_base(
     Ok(())
 }
 
+/// Meme geste, sur `Base`. Voir `modifier_piece` pour la regle des
+/// deux dates : celle de l'affaire bouge, celle du tiroir non.
 pub fn modifier_piece_sur_base(
     base: &mut Base,
     piece_id: String,
@@ -2767,6 +2843,7 @@ pub fn modifier_piece_sur_base(
     date_echeance: Option<String>,
     remise_globale: Option<f64>,
     lignes: Option<Vec<LignePieceInput>>,
+    date_piece: Option<String>,
 ) -> Result<(), String> {
     let dossier = base.dossier().to_string();
     let en_tete = lire_en_tete(base, &piece_id)?;
@@ -2781,9 +2858,11 @@ pub fn modifier_piece_sur_base(
         "UPDATE piece_commerciale
          SET note = ?1, date_echeance = ?2,
              remise_globale = COALESCE(CAST(?3 AS DOUBLE PRECISION), remise_globale),
+             date_piece = COALESCE(CAST(?7 AS TEXT), date_piece),
              modifie_le = ?4
          WHERE id = ?5 AND dossier_id = ?6",
-        &parametres![note, date_echeance, remise_globale, now.clone(), piece_id.clone(), dossier.clone()],
+        &parametres![note, date_echeance, remise_globale, now.clone(), piece_id.clone(), dossier.clone(),
+                     date_piece.filter(|d| !d.trim().is_empty())],
     )
     .map_err(|e| e.0)?;
 
@@ -3053,12 +3132,24 @@ pub fn lire_donnees_piece_sur_base(
             .ok_or_else(|| "Fournisseur introuvable".to_string())?
         };
 
+    // La reference du tiers, lue a part — meme raison que cote fenetre.
+    let reference: Option<String> = base
+        .lire_une(
+            "SELECT reference FROM piece_commerciale WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![piece_id.clone(), dossier.clone()],
+            |r| r.get::<Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+        .flatten();
+
     // Cles `client_*` conservees : le generateur HTML ne distingue pas
     // encore client et fournisseur.
     let piece = serde_json::json!({
         "id":             pc_id,
         "type_piece":     type_piece,
         "numero":         numero,
+        "reference":      reference,
         "statut":         statut,
         "date_piece":     date_piece,
         "date_echeance":  date_echeance,

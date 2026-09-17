@@ -109,6 +109,15 @@ pub fn changer_statut_piece(
     gescom_noyau::pieces::changer_statut_piece(&conn, piece_id, nouveau_statut)
 }
 #[tauri::command]
+pub fn definir_reference_piece(
+    etat: State<EtatApp>,
+    piece_id: String,
+    reference: Option<String>,
+) -> Result<(), String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    gescom_noyau::pieces::definir_reference_piece(&conn, piece_id, reference)
+}
+#[tauri::command]
 pub fn lire_donnees_piece(
     etat: State<EtatApp>,
     piece_id: String,
@@ -157,9 +166,12 @@ pub fn modifier_piece(
     date_echeance: Option<String>,
     remise_globale: Option<f64>,
     lignes: Option<Vec<LignePieceInput>>,
+    date_piece: Option<String>,
 ) -> Result<(), String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    gescom_noyau::pieces::modifier_piece(&conn, piece_id, note, date_echeance, remise_globale, lignes)
+    gescom_noyau::pieces::modifier_piece(
+        &conn, piece_id, note, date_echeance, remise_globale, lignes, date_piece,
+    )
 }
 #[tauri::command]
 pub fn annuler_piece(

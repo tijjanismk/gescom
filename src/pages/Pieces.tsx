@@ -490,6 +490,10 @@ function ModalModifierPiece({
 }) {
   const [note, setNote] = useState(piece?.note ?? "");
   const [dateEcheance, setDateEcheance] = useState(piece?.date_echeance ?? "");
+  // La date de l'AFFAIRE. On note sur papier et on saisit le soir —
+  // parfois le samedi pour la semaine, une coupure suffit. Imposer le
+  // jour de la saisie ferait tomber la pièce dans le mauvais mois.
+  const [datePiece, setDatePiece] = useState("");
   const [chargement, setChargement] = useState(false);
   const [lignes, setLignes] = useState<LigneEdit[]>([]);
   const [chargeLignes, setChargeLignes] = useState(false);
@@ -503,6 +507,7 @@ function ModalModifierPiece({
     if (ouvert && piece) {
       setNote(piece.note ?? "");
       setDateEcheance(piece.date_echeance ?? "");
+      setDatePiece((piece.date_piece ?? "").slice(0, 10));
       setLignes([]);
       if (piece.statut === "brouillon" || piece.statut === "emis") {
         setChargeLignes(true);
@@ -555,12 +560,21 @@ function ModalModifierPiece({
         return;
       }
 
+      // On garde l'HEURE d'origine : seul le jour se saisit, et deux
+      // pièces du même jour doivent rester dans leur ordre.
+      const heure = (piece.date_piece ?? "").slice(10) || "T00:00:00";
+      const dateEnvoi =
+        datePiece && datePiece !== (piece.date_piece ?? "").slice(0, 10)
+          ? datePiece + heure
+          : null;
+
       await invoke("modifier_piece", {
         pieceId: piece.id,
         note: note || null,
         dateEcheance: dateEcheance || null,
         remiseGlobale: null,
         lignes: lignesEnvoi,
+        datePiece: dateEnvoi,
       });
       onModifie();
     } catch (e) {
@@ -588,6 +602,16 @@ function ModalModifierPiece({
           <div className="bg-muted rounded-md px-3 py-2 text-sm">
             <span className="text-muted-foreground">{piece.numero}</span>
             <span className="ml-2 font-medium">{piece.tiers_nom}</span>
+          </div>
+          <div>
+            <Label className="text-xs mb-1.5 block">Date de la pièce</Label>
+            <Input type="date" value={datePiece}
+              onChange={e => setDatePiece(e.target.value)} className="h-9" />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              La date de l'affaire, pas celle de la saisie. Le mouvement
+              de caisse, lui, ne bouge pas : l'argent est entré dans le
+              tiroir quand il y est entré.
+            </p>
           </div>
           <div>
             <Label className="text-xs mb-1.5 block">Date d'échéance</Label>

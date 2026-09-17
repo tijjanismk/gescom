@@ -276,6 +276,10 @@ CREATE TABLE IF NOT EXISTS piece_commerciale (
     date_echeance    TEXT,
     remise_globale   REAL NOT NULL DEFAULT 0,
     note             TEXT,
+    -- La reference du TIERS : le numero que le fournisseur a mis sur sa
+    -- propre facture. Le notre (`numero`) est a nous et ne dit rien au
+    -- fournisseur quand on l'appelle pour contester une ligne.
+    reference        TEXT,
     cree_le          TEXT NOT NULL,
     modifie_le       TEXT NOT NULL,
     origine          TEXT NOT NULL DEFAULT 'app'

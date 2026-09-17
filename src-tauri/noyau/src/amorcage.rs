@@ -188,6 +188,9 @@ fn tables_v2(base: &mut Base) {
         "ALTER TABLE paiement_fournisseur ADD COLUMN annule_paiement_id TEXT",
         "ALTER TABLE parametres_societe ADD COLUMN entete_chemin TEXT",
         "ALTER TABLE parametres_societe ADD COLUMN pied_chemin TEXT",
+        // La reference du tiers sur une piece : le numero de la
+        // facture du fournisseur, qui n'est pas le notre.
+        "ALTER TABLE piece_commerciale ADD COLUMN reference TEXT",
     ] {
         let _ = base.executer(&adapter(sql), &[]);
     }

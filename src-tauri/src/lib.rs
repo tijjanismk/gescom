@@ -243,6 +243,7 @@ pub fn run() {
             commandes::pieces::convertir_piece,
             commandes::pieces::convertir_commande_en_livraison_et_facture,
             commandes::pieces::changer_statut_piece,
+            commandes::pieces::definir_reference_piece,
             commandes::pieces::lire_donnees_piece,
             commandes::pieces::lire_piece_de_vente,
             commandes::pieces::lire_vente_de_piece,

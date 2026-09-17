@@ -2183,6 +2183,22 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
+    // La reference du tiers : le numero que le fournisseur porte sur sa
+    // propre facture. Se pose a tout moment — le papier arrive souvent
+    // apres la marchandise.
+    r.ecriture("definir_reference_piece", "pieces:creer", |c, p| {
+        let piece_id: String = arg(&p, "pieceId", "piece_id")?;
+        let reference = p.get("reference").and_then(Value::as_str).map(str::to_string);
+        pieces::definir_reference_piece(c.conn, piece_id, reference)?;
+        Ok(Value::Null)
+    });
+    r.aussi_sur_base("definir_reference_piece", |c, p| {
+        let piece_id: String = arg(&p, "pieceId", "piece_id")?;
+        let reference = p.get("reference").and_then(Value::as_str).map(str::to_string);
+        pieces::definir_reference_piece_sur_base(c.base, piece_id, reference)?;
+        Ok(Value::Null)
+    });
+
     r.ecriture("changer_statut_piece", "pieces:creer", |c, p| {
         let piece_id: String = arg(&p, "pieceId", "piece_id")?;
         let nouveau_statut: String = arg(&p, "nouveauStatut", "nouveau_statut")?;
@@ -2229,7 +2245,10 @@ pub fn registre() -> Registre {
         let date_echeance: Option<String> = arg(&p, "dateEcheance", "date_echeance")?;
         let remise_globale: Option<f64> = arg(&p, "remiseGlobale", "remise_globale")?;
         let lignes: Option<Vec<pieces::LignePieceInput>> = arg(&p, "lignes", "lignes")?;
-        let v = pieces::modifier_piece(c.conn, piece_id, note, date_echeance, remise_globale, lignes)?;
+        // La date de l'affaire, saisissable : on note sur papier et on
+        // saisit le soir. Absente, celle de la piece ne bouge pas.
+        let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
+        let v = pieces::modifier_piece(c.conn, piece_id, note, date_echeance, remise_globale, lignes, date_piece)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -2367,6 +2386,7 @@ pub fn registre() -> Registre {
             arg(&p, "dateEcheance", "date_echeance")?,
             arg(&p, "remiseGlobale", "remise_globale")?,
             arg(&p, "lignes", "lignes")?,
+            arg(&p, "datePiece", "date_piece")?,
         )?;
         Ok(Value::Null)
     });
