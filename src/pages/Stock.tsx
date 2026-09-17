@@ -336,17 +336,24 @@ function OngletMouvements() {
   const [chargement, setChargement] = useState(true);
   const [type, setType] = useState("tous");
   const [recherche, setRecherche] = useState("");
+  // Les bornes de date partent au SERVEUR. Sans elles on ramenait les
+  // 300 derniers mouvements et on cherchait dedans : un article sorti
+  // le mois dernier restait introuvable, sans que rien ne le dise.
+  const [debut, setDebut] = useState("");
+  const [fin, setFin] = useState("");
 
   useEffect(() => {
     setChargement(true);
     invoke<MouvementStock[]>("lire_mouvements_stock", {
       typeMouvement: type === "tous" ? null : type,
+      dateDebut: debut || null,
+      dateFin: fin || null,
       limite: 300,
     })
       .then(setLignes)
       .catch(e => console.error("Erreur mouvements :", e))
       .finally(() => setChargement(false));
-  }, [type]);
+  }, [type, debut, fin]);
 
   const filtrees = lignes.filter(m =>
     !recherche || m.article.toLowerCase().includes(recherche.toLowerCase()));
@@ -369,7 +376,7 @@ function OngletMouvements() {
           onClick={() => invoke("imprimer_facture", {
             // On imprime CE QUI EST AFFICHÉ, filtres compris : la liste
             // sert à justifier un écart sur un article précis.
-            html: genererMouvementsHTML(filtrees, { type, recherche }),
+            html: genererMouvementsHTML(filtrees, { type, recherche, debut, fin }),
             nomFichier: `mouvements_${new Date().toISOString().slice(0,10)}.html`,
           }).catch(e => message(`Erreur : ${e}`,
             { title: "Impression", kind: "error" }))}>
@@ -389,8 +396,23 @@ function OngletMouvements() {
             <SelectItem value="transfert">Transfert</SelectItem>
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-1">
+          <Label className="text-xs text-muted-foreground">Du</Label>
+          <Input type="date" value={debut} className="h-8 w-36 text-sm"
+            onChange={e => setDebut(e.target.value)} />
+          <Label className="text-xs text-muted-foreground">au</Label>
+          <Input type="date" value={fin} className="h-8 w-36 text-sm"
+            onChange={e => setFin(e.target.value)} />
+          {(debut || fin) && (
+            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs"
+              onClick={() => { setDebut(""); setFin(""); }}>
+              Effacer
+            </Button>
+          )}
+        </div>
         <span className="text-xs text-muted-foreground ml-auto">
-          {filtrees.length} mouvement(s) · 300 plus récents
+          {filtrees.length} mouvement(s)
+          {debut || fin ? " sur la période" : " · 300 plus récents"}
         </span>
       </div>
 
@@ -761,7 +783,7 @@ function genererEtatStockHTML(d: any): string {
  */
 function genererMouvementsHTML(
   lignes: MouvementStock[],
-  filtre: { type: string; recherche: string },
+  filtre: { type: string; recherche: string; debut?: string; fin?: string },
 ): string {
   const fmtQ = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(2));
   const fmtD = (iso: string) =>
@@ -792,6 +814,11 @@ function genererMouvementsHTML(
   const criteres = [
     filtre.type !== "tous" ? `type : ${filtre.type}` : null,
     filtre.recherche ? `article : « ${filtre.recherche} »` : null,
+    // La période sur le papier : c'est elle qui rend la liste
+    // opposable quand on justifie un écart d'inventaire.
+    filtre.debut || filtre.fin
+      ? `période : ${filtre.debut || "origine"} → ${filtre.fin || "aujourd'hui"}`
+      : null,
   ].filter(Boolean).join(" · ");
 
   return `<!DOCTYPE html>
