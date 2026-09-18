@@ -2,13 +2,11 @@ import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
-  Package, Tag, Building2, Users, HardDrive,
-  Plus, Loader2, Eye, EyeOff, ShoppingCart,
+  HardDrive, Plus, Loader2, Eye, EyeOff,
   FolderOpen, ChevronDown, ChevronRight,
-  Percent, Banknote, XCircle, Clock, Warehouse, Barcode, Pencil,
-  LayoutTemplate,
-  FileSpreadsheet, Network, Shield,
+  XCircle, Barcode, Pencil, Shield,
 } from "lucide-react";
+import { ONGLETS_PARAMETRES } from "@/lib/onglets-parametres";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -84,27 +82,7 @@ function fmt(n: number): string {
 //
 // L'onglet s'affiche si la personne a la permission. Rien de plus :
 // c'est la meme liste blanche que le noyau, vue de l'ecran.
-const ONGLETS = [
-  { key: "societe",       label: "Société",       icone: Building2,       droit: "parametres:modifier" },
-  { key: "depots",        label: "Magasins",        icone: Warehouse,       droit: "depots:gerer" },
-  { key: "articles",      label: "Articles",      icone: Package,         droit: "articles:creer" },
-  { key: "codesbarres",   label: "Codes-barres",  icone: Barcode,         droit: "articles:creer" },
-  { key: "importexport",  label: "Import/Export", icone: FileSpreadsheet, droit: "parametres:modifier" },
-  { key: "categories",    label: "Catégories",    icone: Tag,             droit: "articles:creer" },
-  { key: "ventes",        label: "Ventes",        icone: ShoppingCart,    droit: "parametres:modifier" },
-  { key: "utilisateurs",  label: "Utilisateurs",  icone: Users,           droit: "utilisateurs:gerer" },
-  { key: "roles",         label: "Rôles",         icone: Shield,          droit: "utilisateurs:gerer" },
-  { key: "sauvegarde",    label: "Sauvegarde",    icone: HardDrive,       droit: "sauvegarde:lancer" },
-  { key: "reseau",        label: "Réseau",        icone: Network,         droit: "postes:gerer" },
-  { key: "tva",           label: "TVA",           icone: Percent,         droit: "chantiers:gerer" },
-  { key: "dettes",        label: "Dettes fourn.", icone: Banknote,        droit: "fournisseurs:regler" },
-  { key: "irrecouvrable", label: "Irrécouvrable", icone: XCircle,         droit: "chantiers:gerer" },
-  { key: "avoirs",        label: "Avoirs",        icone: Clock,           droit: "avoirs:gerer" },
-  // Les modèles ouvrent l'atelier EN PLEIN ÉCRAN : il lui faut les
-  // trois colonnes et l'aperçu à taille réelle. L'onglet n'est donc
-  // qu'une porte — les autres onglets s'effacent derrière.
-  { key: "modeles",       label: "Modèles de documents", icone: LayoutTemplate, droit: "modeles:gerer" },
-];
+const ONGLETS = ONGLETS_PARAMETRES;
 
 // =====================================================================
 //  Modal : Nouvel utilisateur
@@ -1016,9 +994,16 @@ function OngletCategories() {
 //  Page Paramètres
 // =====================================================================
 
-export function Parametres() {
+export function Parametres({ ongletInitial }: { ongletInitial?: string } = {}) {
   const onglets = ONGLETS.filter(o => peut(o.droit));
-  const [onglet, setOnglet] = useState(onglets[0]?.key ?? "");
+  const [onglet, setOnglet] = useState(
+    ongletInitial && onglets.some(o => o.key === ongletInitial) ? ongletInitial : (onglets[0]?.key ?? ""),
+  );
+  // Arriver par la palette sur un autre onglet alors qu'on est deja ici.
+  useEffect(() => {
+    if (ongletInitial && onglets.some(o => o.key === ongletInitial)) setOnglet(ongletInitial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ongletInitial]);
 
   // L'atelier des modèles prend TOUT l'écran : on rend avant la barre
   // d'onglets, qui disparaît donc le temps qu'on y est. Le bouton

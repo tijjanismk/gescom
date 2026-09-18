@@ -15,6 +15,8 @@ helpers. Un tiers du dossier est mort (cf. [ALERTES.md](../ALERTES.md)).
 | [unites.ts](../../src/lib/unites.ts) | 89 | `TOUTES_UNITES`, `UNITES_COURANTES`, `normaliserUnite` | 1 |
 | [useScanner.ts](../../src/lib/useScanner.ts) | 81 | hook de scan douchette | 1 |
 | [utils.ts](../../src/lib/utils.ts) | 7 | `cn()` (clsx + tailwind-merge) | 18 |
+| [palette.ts](../../src/lib/palette.ts) | 110 | la palette de commandes (18/09) : `ActionPalette {id, libelle, groupe, droit?, executer}`, `useActionsPalette(cle, actions, deps)` pour qu'un écran déclare les siennes tant qu'il est monté, `filtrer` sans accents | Layout, PaletteCommandes, Clients, Fournisseurs, Pieces, Caisse |
+| [onglets-parametres.ts](../../src/lib/onglets-parametres.ts) | 40 | les onglets de Paramètres et leur droit — hors du composant pour la palette **et** pour le Fast Refresh (un fichier de composant qui exporte une constante ne se recharge plus à chaud) | Parametres, Layout |
 
 ## Fichiers morts
 

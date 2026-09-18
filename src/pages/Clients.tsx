@@ -24,6 +24,7 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { Pagination } from "@/components/Pagination";
 import { UTILISATEUR_ACTIF } from "@/App";
+import { useActionsPalette } from "@/lib/palette";
 
 const LIMITE = 30;
 
@@ -347,6 +348,10 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
   const [modalRegler, setModalRegler] = useState(false);
   const [modalNouveauClient, setModalNouveauClient] = useState(false);
   const [expandeId, setExpandeId] = useState<string | null>(null);
+  useActionsPalette("clients", [
+    { id: "clients:nouveau", libelle: "Nouveau client", groupe: "Sur cette page",
+      droit: "clients:creer", executer: () => setModalNouveauClient(true) },
+  ]);
 
   const chargerClients = useCallback(async (p: number) => {
     setChargement(true);

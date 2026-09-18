@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { peut } from "@/lib/droits";
 import { appeler as invoke } from "@/lib/pont";
 import {
@@ -7,10 +7,13 @@ import {
   ShoppingBag, Truck, RotateCcw, LogOut,
   Lock, ChevronDown, FileText,
   MessageCircle, BarChart2, BookOpen, ArrowLeftRight, Warehouse,
-  FileCheck, Network,
+  FileCheck, Network, Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UtilisateurConnecte } from "@/pages/PageLogin";
+import { PaletteCommandes } from "@/components/PaletteCommandes";
+import type { ActionPalette } from "@/lib/palette";
+import { ONGLETS_PARAMETRES } from "@/lib/onglets-parametres";
 
 // Chaque entree dit DE QUOI elle a besoin.
 //
@@ -46,7 +49,7 @@ interface Depot { id: string; nom: string; est_defaut?: boolean; }
 interface LayoutProps {
   children: React.ReactNode;
   pageActive: string;
-  onNaviguer: (page: string) => void;
+  onNaviguer: (page: string, params?: unknown) => void;
   /** null = vue consolidée, tous les dépôts. */
   depotActif: string | null;
   onChangerDepot: (id: string | null) => void;
@@ -83,6 +86,45 @@ export function Layout({
 
   const [menuUtilisateur, setMenuUtilisateur] = useState(false);
   const [depots, setDepots] = useState<Depot[]>([]);
+
+  // La palette de commandes : Ctrl+K partout, sur toutes les pages.
+  // Les actions globales sont celles du menu (memes droits), les
+  // onglets de Parametres, et le compte ; chaque ecran ajoute les
+  // siennes tant qu'il est monte.
+  const [paletteOuverte, setPaletteOuverte] = useState(false);
+  useEffect(() => {
+    function surTouche(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOuverte(o => !o);
+      }
+    }
+    window.addEventListener("keydown", surTouche);
+    return () => window.removeEventListener("keydown", surTouche);
+  }, []);
+  const actionsGlobales = useMemo<ActionPalette[]>(() => {
+    const nav: ActionPalette[] = NAV
+      .filter(n => !n.droit || peut(n.droit))
+      .map(n => ({
+        id: `aller:${n.href}`, libelle: n.nom, groupe: "Aller à",
+        detail: n.href === pageActive ? "page actuelle" : undefined,
+        executer: () => onNaviguer(n.href),
+      }));
+    const parametres: ActionPalette[] = ONGLETS_PARAMETRES
+      .filter(o => peut(o.droit))
+      .map(o => ({
+        id: `parametres:${o.key}`, libelle: o.label, groupe: "Paramètres",
+        detail: `Paramètres › ${o.label}`, motsCles: "parametres reglages",
+        executer: () => onNaviguer("parametres", { onglet: o.key }),
+      }));
+    const compte: ActionPalette[] = [
+      { id: "compte:mdp", libelle: "Changer mon mot de passe", groupe: "Compte", executer: onChangerMdp },
+      { id: "compte:sortir", libelle: "Se déconnecter", groupe: "Compte", detail: utilisateur.nom,
+        executer: onDeconnecter },
+    ];
+    return [...nav, ...parametres, ...compte];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageActive, utilisateur]);
 
   useEffect(() => {
     invoke<Depot[]>("lire_depots").then(liste => {
@@ -147,6 +189,26 @@ export function Layout({
             onClick={() => setSidebarOuverte(!sidebarOuverte)}
             className="p-1.5 rounded-md hover:bg-accent transition-colors">
             {sidebarOuverte ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          </button>
+        </div>
+
+        {/* La palette : le bouton dit qu'elle existe, Ctrl+K la sort. */}
+        <div className="px-2 pt-2">
+          <button
+            onClick={() => setPaletteOuverte(true)}
+            title="Palette de commandes (Ctrl+K)"
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md border border-border text-xs",
+              "text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors",
+              sidebarOuverte ? "h-8 px-2" : "h-8 justify-center",
+            )}>
+            <Search className="h-3.5 w-3.5 shrink-0" />
+            {sidebarOuverte && (
+              <>
+                <span className="flex-1 text-left truncate">Aller à… faire…</span>
+                <kbd className="rounded border bg-muted px-1 text-[10px]">Ctrl K</kbd>
+              </>
+            )}
           </button>
         </div>
 
@@ -251,6 +313,12 @@ export function Layout({
         onClick={() => setMenuUtilisateur(false)}>
         {children}
       </main>
+      <PaletteCommandes
+        ouverte={paletteOuverte}
+        onFermer={() => setPaletteOuverte(false)}
+        globales={actionsGlobales}
+        onNaviguer={onNaviguer}
+      />
     </div>
   );
 }

@@ -341,7 +341,7 @@ function App() {
       case "cheques":    return <Cheques />;
       case "rapports":   return <Rapports />;
       case "modeles":    return <Modeles />;
-      case "parametres": return <Parametres />;
+      case "parametres": return <Parametres ongletInitial={navParams?.onglet} />;
       default:           return <Dashboard />;
     }
   }

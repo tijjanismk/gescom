@@ -19,6 +19,7 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { UTILISATEUR_ACTIF } from "@/App";
 import { OngletHistoriqueCaisse } from "@/components/OngletHistoriqueCaisse";
+import { useActionsPalette } from "@/lib/palette";
 
 // =====================================================================
 //  Types
@@ -432,6 +433,18 @@ export function Caisse() {
     await message("Caisse clôturée ✓", { title: "Succès", kind: "info" });
   }
 
+  const sessionOuverte = resume?.statut === "ouverte";
+  // Ouvrir ou fermer, jamais les deux : la palette suit l'etat du tiroir.
+  // AVANT le retour anticipe du chargement : un hook derriere un `return`
+  // change le nombre de hooks d'un rendu a l'autre, et React jette
+  // l'ecran (« Rendered more hooks than during the previous render »).
+  useActionsPalette("caisse", sessionOuverte
+    ? [{ id: "caisse:fermer", libelle: "Fermer la caisse", groupe: "Sur cette page",
+         droit: "caisse:mouvementer", executer: () => setModalFermeture(true) }]
+    : [{ id: "caisse:ouvrir", libelle: "Ouvrir la caisse", groupe: "Sur cette page",
+         droit: "caisse:mouvementer", executer: () => setModalOuverture(true) }],
+    [sessionOuverte]);
+
   if (chargement) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -439,8 +452,6 @@ export function Caisse() {
       </div>
     );
   }
-
-  const sessionOuverte = resume?.statut === "ouverte";
 
   return (
     // Voir FicheClient : les halos en `inset:-10%` débordent à droite et

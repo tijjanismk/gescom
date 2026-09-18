@@ -24,6 +24,7 @@ import {
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { Pagination } from "@/components/Pagination";
+import { useActionsPalette } from "@/lib/palette";
 
 const LIMITE = 30;
 
@@ -244,6 +245,10 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
   const [modalNouv, setModalNouv] = useState(false);
   const [modalRegler, setModalRegler] = useState(false);
   const [fournisseurActif, setFournisseurActif] = useState<Fournisseur | null>(null);
+  useActionsPalette("fournisseurs", [
+    { id: "fournisseurs:nouveau", libelle: "Nouveau fournisseur", groupe: "Sur cette page",
+      droit: "achats:creer", executer: () => setModalNouv(true) },
+  ]);
   const [releveEnCours, setReleveEnCours] = useState<string | null>(null);
 
   /**
