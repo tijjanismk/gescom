@@ -167,6 +167,56 @@ pub fn statut_vente_depuis_reste(total: i64, reste: i64) -> StatutVente {
     statut_vente(total, total - reste)
 }
 
+/// Un règlement ORDINAIRE peut-il se poser sur cette vente ?
+///
+/// Une créance passée en irrécouvrable a été SORTIE des comptes, motif à
+/// l'appui. La régler comme si de rien n'était recalculait le statut et
+/// la faisait revenir « partiellement payée » en silence, la ligne
+/// d'irrécouvrable restant en place : deux vérités. L'argent qui
+/// revient malgré tout passe par un règlement EXCEPTIONNEL, qui laisse
+/// la trace de ce qu'il est. Une vente annulée ne se règle pas non plus.
+pub fn peut_regler(statut_vente: &str) -> Result<(), String> {
+    match statut_vente {
+        "irrecouvrable" => Err(
+            "Créance passée en irrécouvrable — elle ne se règle pas comme \
+             une autre. Passer par un règlement exceptionnel."
+                .to_string(),
+        ),
+        "annulee" => Err("Vente annulée — rien à régler.".to_string()),
+        _ => Ok(()),
+    }
+}
+
+/// Le statut d'une vente irrécouvrable après un règlement exceptionnel :
+/// `payee` si tout est rentré, sinon elle RESTE irrécouvrable — le
+/// reste est toujours sorti des comptes, et un autre règlement
+/// exceptionnel pourra le rattraper.
+pub fn statut_apres_recouvrement(total: i64, montant_paye: i64) -> &'static str {
+    if reste_exigible(total, montant_paye) == 0 { "payee" } else { "irrecouvrable" }
+}
+
+#[cfg(test)]
+mod tests_recouvrement {
+    use super::*;
+
+    #[test]
+    fn une_creance_ordinaire_se_regle_une_irrecouvrable_non() {
+        assert!(peut_regler("creance_ouverte").is_ok());
+        assert!(peut_regler("partiellement_payee").is_ok());
+        let e = peut_regler("irrecouvrable").unwrap_err();
+        assert!(e.contains("exceptionnel"), "{e}");
+        assert!(peut_regler("annulee").is_err());
+    }
+
+    #[test]
+    fn un_recouvrement_partiel_laisse_la_creance_irrecouvrable() {
+        assert_eq!(statut_apres_recouvrement(10_000, 4_000), "irrecouvrable");
+        assert_eq!(statut_apres_recouvrement(10_000, 10_000), "payee");
+        // Le seuil de D41 vaut aussi ici : a 5 F pres, c'est paye.
+        assert_eq!(statut_apres_recouvrement(10_000, 9_996), "payee");
+    }
+}
+
 /// Écart entre prix de référence et prix pratiqué.
 /// Positif = remise accordée. Négatif = hausse (ignorée, cf. §7).
 pub fn ecart_prix(prix_reference: i64, prix_pratique: i64) -> i64 {

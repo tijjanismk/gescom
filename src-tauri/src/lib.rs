@@ -217,6 +217,7 @@ pub fn run() {
             // ---- Créances ----
             commandes::creances::lire_creances_ouvertes,
             commandes::creances::regler_creance,
+            commandes::creances::regler_creance_exceptionnel,
             commandes::creances::solder_residus_creances,
             commandes::creances::lire_etat_creances_client,
             commandes::creances::lire_etat_creances_global,

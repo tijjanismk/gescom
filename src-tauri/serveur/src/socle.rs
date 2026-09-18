@@ -1318,6 +1318,24 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
+    // Le REGLEMENT EXCEPTIONNEL : l'argent d'une creance irrecouvrable
+    // qui revient malgre tout. Meme droit que la mise en irrecouvrable —
+    // c'est le meme geste de gestion, dans l'autre sens.
+    r.ecriture("regler_creance_exceptionnel", "chantiers:gerer", |c, p| {
+        let vente_id: String = arg(&p, "venteId", "vente_id")?;
+        let montant: i64 = arg(&p, "montant", "montant")?;
+        let mode: String = arg(&p, "mode", "mode")?;
+        let motif: Option<String> = arg(&p, "motif", "motif")?;
+        creances::regler_creance_exceptionnel(c.conn, vente_id, montant, mode, motif, Some(c.appelant.role.clone()))
+    });
+    r.aussi_sur_base("regler_creance_exceptionnel", |c, p| {
+        let vente_id: String = arg(&p, "venteId", "vente_id")?;
+        let montant: i64 = arg(&p, "montant", "montant")?;
+        let mode: String = arg(&p, "mode", "mode")?;
+        let motif: Option<String> = arg(&p, "motif", "motif")?;
+        creances::regler_creance_exceptionnel_sur_base(c.base, vente_id, montant, mode, motif, Some(c.appelant.role.clone()))
+    });
+
     r.lecture("lire_irrecouvrable", |c, _p| {
         let v = chantiers::lire_irrecouvrable(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())

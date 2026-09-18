@@ -72,6 +72,18 @@ pub fn regler_creance(
     gescom_noyau::creances::regler_creance_datee(&conn, vente_id, montant, mode, utilisateur_role, date_paiement)
 }
 #[tauri::command]
+pub fn regler_creance_exceptionnel(
+    etat: State<EtatApp>,
+    vente_id: String,
+    montant: i64,
+    mode: String,
+    motif: Option<String>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    gescom_noyau::creances::regler_creance_exceptionnel(&conn, vente_id, montant, mode, motif, utilisateur_role)
+}
+#[tauri::command]
 pub fn solder_residus_creances(
     etat: State<EtatApp>,
     utilisateur_role: Option<String>,

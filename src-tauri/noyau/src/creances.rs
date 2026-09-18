@@ -176,7 +176,10 @@ pub fn lire_reglements_client(
                      AS INTEGER),
                 CAST(COALESCE((SELECT SUM(p2.montant) FROM paiement p2
                                WHERE p2.vente_id = v.id
-                                 AND p2.date_paiement <= p.date_paiement), 0)
+                                 AND (p2.date_paiement < p.date_paiement
+                                      OR (p2.date_paiement = p.date_paiement
+                                          AND (p2.cree_le < p.cree_le
+                                               OR (p2.cree_le = p.cree_le AND p2.id <= p.id))))), 0)
                      AS INTEGER)
          FROM paiement p
          JOIN vente v ON v.id = p.vente_id
@@ -612,6 +615,14 @@ pub fn regler_creance_datee(
         |row| Ok((row.get(0)?, row.get(1)?)),
     ).map_err(|_| "Vente introuvable".to_string())?;
 
+    // Une creance irrecouvrable ne se regle pas comme une autre : la
+    // regler ici recalculerait son statut et la ferait revenir en
+    // silence. Regle pure dans coeur/calcul.rs.
+    let statut_actuel: String = conn
+        .query_row("SELECT statut FROM vente WHERE id = ?1", rusqlite::params![vente_id], |r| r.get(0))
+        .map_err(|_| "Vente introuvable".to_string())?;
+    crate::coeur::calcul::peut_regler(&statut_actuel)?;
+
     // Encaissement reel : la caisse doit etre ouverte. Un avoir ne
     // touche pas au tiroir et reste autorise.
     if mode != "avoir" {
@@ -850,6 +861,218 @@ pub fn societe_sur(acces: &mut impl Acces) -> serde_json::Value {
 }
 
 /// (total, paye) d'une vente, tous paiements confondus.
+fn statut_vente_de(acces: &mut impl Acces, vente_id: &str) -> Result<String, String> {
+    let dossier = acces.dossier().to_string();
+    acces
+        .lire_une(
+            "SELECT statut FROM vente WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![vente_id, dossier],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Vente introuvable".to_string())
+}
+
+/// Le REGLEMENT EXCEPTIONNEL : l'argent d'une creance passee en
+/// irrecouvrable qui revient malgre tout, des mois plus tard.
+///
+/// Il n'emprunte pas le chemin ordinaire, parce qu'il n'est pas
+/// ordinaire : la creance avait ete sortie des comptes, motif a
+/// l'appui. Ici on encaisse (caisse ouverte exigee), on l'ecrit dans le
+/// tiroir sous son propre motif — `recouvrement`, que la cloture du
+/// jour montre a part — et la vente ne redevient `payee` que si tout
+/// est rentre ; sinon elle RESTE irrecouvrable, le reste est toujours
+/// sorti des comptes. Le journal garde la trace, append-only.
+pub fn regler_creance_exceptionnel_sur_base(
+    base: &mut Base,
+    vente_id: String,
+    montant: i64,
+    mode: String,
+    motif: Option<String>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if montant <= 0 {
+        return Err("Le montant doit être positif".to_string());
+    }
+    if mode == "avoir" {
+        return Err("Un recouvrement se fait en argent, pas par un avoir.".to_string());
+    }
+    let dossier = base.dossier().to_string();
+    let role = utilisateur_role.as_deref().unwrap_or("patron");
+    let auteur_id = crate::argent::id_utilisateur_par_role_sur(base, role);
+    let maintenant = maintenant_iso();
+
+    let statut = statut_vente_de(base, &vente_id)?;
+    if statut != "irrecouvrable" {
+        return Err(format!(
+            "Cette vente n'est pas irrécouvrable (statut « {statut} ») : la régler normalement."
+        ));
+    }
+    let (total, paye_avant) = total_et_paye(base, &vente_id)?.ok_or_else(|| "Vente introuvable".to_string())?;
+    let reste_avant = crate::coeur::calcul::reste_exigible(total, paye_avant);
+    if reste_avant <= 0 {
+        return Err("Rien ne reste à recouvrer sur cette vente.".to_string());
+    }
+    let montant_effectif = montant.min(reste_avant);
+    // L'argent entre dans le tiroir : caisse ouverte, comme tout encaissement.
+    let sid = crate::caisses::exiger_sur(base, None)?;
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO paiement
+         (id, vente_id, montant, mode, date_paiement, auteur_id, cree_le, cree_par, origine, dossier_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, 'app', ?7)",
+        &parametres![uuid::Uuid::new_v4().to_string(), vente_id.clone(), montant_effectif, mode.clone(), maintenant.clone(), auteur_id.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+    let paye_apres = paye_avant + montant_effectif;
+    let nouveau_statut = crate::coeur::calcul::statut_apres_recouvrement(total, paye_apres);
+    tx.executer(
+        "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
+        &parametres![nouveau_statut, maintenant.clone(), vente_id.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+    if nouveau_statut == "payee" {
+        let _ = tx.executer(
+            "UPDATE piece_commerciale SET statut = 'paye', modifie_le = ?1
+             WHERE id = (SELECT piece_id FROM vente WHERE id = ?2)
+               AND statut IN ('emis','accepte','brouillon') AND dossier_id = ?3",
+            &parametres![maintenant.clone(), vente_id.clone(), dossier.clone()],
+        );
+    }
+    tx.executer(
+        "INSERT INTO mouvement_caisse
+         (id, session_id, sens, moyen, montant, motif, libelle,
+          operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+         VALUES (?1, ?2, 'entree', ?3, ?4, 'recouvrement', CAST(?8 AS TEXT), ?5, ?6, ?6, ?7, 'app', ?9)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(), sid, mode.clone(), montant_effectif, vente_id.clone(),
+            maintenant.clone(), auteur_id.clone(),
+            Some(format!("Recouvrement exceptionnel{}", motif.as_deref().map(|m| format!(" — {m}")).unwrap_or_default())),
+            dossier.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+    let _ = tx.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'recouvrement_exceptionnel', 'vente', ?2, ?3, ?4, 'app', ?5, ?6)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(), vente_id.clone(), auteur_id,
+            serde_json::json!({ "montant": montant_effectif, "mode": mode, "motif": motif, "statut": nouveau_statut }).to_string(),
+            maintenant, dossier
+        ],
+    );
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({
+        "vente_id": vente_id,
+        "montant_encaisse": montant_effectif,
+        "reste": crate::coeur::calcul::reste_exigible(total, paye_apres),
+        "statut": nouveau_statut,
+    }))
+}
+
+/// Meme geste cote fenetre.
+pub fn regler_creance_exceptionnel(
+    conn: &rusqlite::Connection,
+    vente_id: String,
+    montant: i64,
+    mode: String,
+    motif: Option<String>,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if montant <= 0 {
+        return Err("Le montant doit être positif".to_string());
+    }
+    if mode == "avoir" {
+        return Err("Un recouvrement se fait en argent, pas par un avoir.".to_string());
+    }
+    let role = utilisateur_role.as_deref().unwrap_or("patron");
+    let auteur_id = crate::argent::id_utilisateur_par_role(conn, role);
+    let maintenant = maintenant_iso();
+
+    let statut: String = conn
+        .query_row("SELECT statut FROM vente WHERE id = ?1", rusqlite::params![vente_id], |r| r.get(0))
+        .map_err(|_| "Vente introuvable".to_string())?;
+    if statut != "irrecouvrable" {
+        return Err(format!(
+            "Cette vente n'est pas irrécouvrable (statut « {statut} ») : la régler normalement."
+        ));
+    }
+    let (total, paye_avant): (i64, i64) = conn
+        .query_row(
+            "SELECT
+                CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
+                               FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS INTEGER),
+                CAST(COALESCE((SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0) AS INTEGER)
+             FROM vente v WHERE v.id = ?1",
+            rusqlite::params![vente_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|_| "Vente introuvable".to_string())?;
+    let reste_avant = crate::coeur::calcul::reste_exigible(total, paye_avant);
+    if reste_avant <= 0 {
+        return Err("Rien ne reste à recouvrer sur cette vente.".to_string());
+    }
+    let montant_effectif = montant.min(reste_avant);
+    let sid = crate::utils::exiger_session_caisse(conn)?;
+
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT INTO paiement
+         (id, vente_id, montant, mode, date_paiement, auteur_id, cree_le, cree_par, origine)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, 'app')",
+        rusqlite::params![uuid::Uuid::new_v4().to_string(), vente_id, montant_effectif, mode, maintenant, auteur_id],
+    )
+    .map_err(|e| e.to_string())?;
+    let paye_apres = paye_avant + montant_effectif;
+    let nouveau_statut = crate::coeur::calcul::statut_apres_recouvrement(total, paye_apres);
+    tx.execute(
+        "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
+        rusqlite::params![nouveau_statut, maintenant, vente_id],
+    )
+    .map_err(|e| e.to_string())?;
+    if nouveau_statut == "payee" {
+        let _ = tx.execute(
+            "UPDATE piece_commerciale SET statut = 'paye', modifie_le = ?1
+             WHERE id = (SELECT piece_id FROM vente WHERE id = ?2)
+               AND statut IN ('emis','accepte','brouillon')",
+            rusqlite::params![maintenant, vente_id],
+        );
+    }
+    let libelle = format!(
+        "Recouvrement exceptionnel{}",
+        motif.as_deref().map(|m| format!(" — {m}")).unwrap_or_default()
+    );
+    tx.execute(
+        "INSERT INTO mouvement_caisse
+         (id, session_id, sens, moyen, montant, motif, libelle,
+          operation_id, date_mouvement, cree_le, cree_par, origine)
+         VALUES (?1, ?2, 'entree', ?3, ?4, 'recouvrement', ?8, ?5, ?6, ?6, ?7, 'app')",
+        rusqlite::params![uuid::Uuid::new_v4().to_string(), sid, mode, montant_effectif, vente_id, maintenant, auteur_id, libelle],
+    )
+    .map_err(|e| e.to_string())?;
+    let _ = tx.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1, 'recouvrement_exceptionnel', 'vente', ?2, ?3, ?4, 'app', ?5)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), vente_id, auteur_id,
+            serde_json::json!({ "montant": montant_effectif, "mode": mode, "motif": motif, "statut": nouveau_statut }).to_string(),
+            maintenant
+        ],
+    );
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "vente_id": vente_id,
+        "montant_encaisse": montant_effectif,
+        "reste": crate::coeur::calcul::reste_exigible(total, paye_apres),
+        "statut": nouveau_statut,
+    }))
+}
+
 fn total_et_paye(acces: &mut impl Acces, vente_id: &str) -> Result<Option<(i64, i64)>, String> {
     let dossier = acces.dossier().to_string();
     acces
@@ -1012,7 +1235,10 @@ pub fn lire_reglements_client_sur_base(base: &mut Base, client_id: String) -> Re
                                FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS BIGINT),
                 CAST(COALESCE((SELECT SUM(p2.montant) FROM paiement p2
                                WHERE p2.vente_id = v.id
-                                 AND p2.date_paiement <= p.date_paiement), 0) AS BIGINT)
+                                 AND (p2.date_paiement < p.date_paiement
+                                      OR (p2.date_paiement = p.date_paiement
+                                          AND (p2.cree_le < p.cree_le
+                                               OR (p2.cree_le = p.cree_le AND p2.id <= p.id))))), 0) AS BIGINT)
          FROM paiement p
          JOIN vente v ON v.id = p.vente_id
          LEFT JOIN piece_commerciale pc ON pc.id = v.piece_id
@@ -1334,6 +1560,7 @@ pub fn regler_creance_datee_sur_base(
         crate::argent::date_du_reglement(&maintenant, date_paiement.as_deref())?;
 
     let (total, total_paye_avant) = total_et_paye(base, &vente_id)?.ok_or_else(|| "Vente introuvable".to_string())?;
+    crate::coeur::calcul::peut_regler(&statut_vente_de(base, &vente_id)?)?;
     // Encaissement reel : caisse ouverte. Un avoir ne touche pas au tiroir.
     let session_id = if mode != "avoir" { Some(crate::caisses::exiger_sur(base, None)?) } else { None };
 

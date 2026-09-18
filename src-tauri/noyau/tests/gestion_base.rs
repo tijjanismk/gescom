@@ -283,6 +283,67 @@ fn un_reglement_antidate_garde_son_argent_dans_la_caisse_du_jour() {
     assert_eq!(statut_vente(&mut base, &vente_id), "partiellement_payee");
 }
 
+/// Une creance passee en irrecouvrable ne se regle plus comme une autre
+/// — elle revenait « partiellement payee » en silence — et l'argent qui
+/// revient malgre tout passe par le REGLEMENT EXCEPTIONNEL : dans le
+/// tiroir sous son propre motif, la vente ne redevenant `payee` que si
+/// tout est rentre.
+#[test]
+fn une_creance_irrecouvrable_refuse_le_reglement_ordinaire_et_accepte_l_exceptionnel() {
+    let mut base = base_avec_demo();
+    let (vente_id, prix) = vendre_credit(&mut base, 2.0);
+    ouvrir_caisse(&mut base);
+    chantiers::marquer_irrecouvrable_sur_base(&mut base, vente_id.clone(), "parti sans adresse".into())
+        .expect("marquer irrecouvrable");
+    assert_eq!(statut_vente(&mut base, &vente_id), "irrecouvrable");
+
+    // Le chemin ordinaire refuse, et ne touche a rien.
+    let refus = creances::regler_creance_sur_base(&mut base, vente_id.clone(), 300, "especes".into(), None)
+        .unwrap_err();
+    assert!(refus.contains("exceptionnel"), "{refus}");
+    assert_eq!(statut_vente(&mut base, &vente_id), "irrecouvrable", "le refus n'a rien recalcule");
+    let paye: i64 = compter(&mut base,
+        "SELECT CAST(COALESCE(SUM(montant),0) AS BIGINT) FROM paiement WHERE vente_id = ?1",
+        &parametres![vente_id.clone()]);
+    assert_eq!(paye, 0);
+
+    // Le recouvrement partiel : l'argent entre, sous son motif, et la
+    // creance RESTE irrecouvrable — le reste est toujours sorti des comptes.
+    let r = creances::regler_creance_exceptionnel_sur_base(
+        &mut base, vente_id.clone(), 300, "especes".into(), Some("revenu payer".into()), None,
+    )
+    .expect("recouvrement partiel");
+    assert_eq!(r["montant_encaisse"], 300);
+    assert_eq!(r["statut"], "irrecouvrable");
+    assert_eq!(statut_vente(&mut base, &vente_id), "irrecouvrable");
+    let (motif, libelle): (String, Option<String>) = base
+        .lire_une(
+            "SELECT motif, libelle FROM mouvement_caisse WHERE operation_id = ?1",
+            &parametres![vente_id.clone()],
+            |row| Ok((row.get::<String>(0)?, row.get::<Option<String>>(1)?)),
+        )
+        .unwrap().unwrap();
+    assert_eq!(motif, "recouvrement", "le tiroir dit ce que c'est");
+    assert!(libelle.unwrap_or_default().contains("revenu payer"));
+
+    // Le solde : tout est rentre, la vente est payee, plafonnee au reste.
+    let r = creances::regler_creance_exceptionnel_sur_base(
+        &mut base, vente_id.clone(), 1_000_000, "especes".into(), None, None,
+    )
+    .expect("recouvrement du solde");
+    assert_eq!(r["montant_encaisse"], prix - 300, "plafonne au reste");
+    assert_eq!(r["statut"], "payee");
+    assert_eq!(statut_vente(&mut base, &vente_id), "payee");
+
+    // Plus rien a recouvrer ; et une vente ordinaire n'a rien a faire ici.
+    assert!(creances::regler_creance_exceptionnel_sur_base(
+        &mut base, vente_id, 1, "especes".into(), None, None).is_err());
+    let (autre, _) = vendre_credit(&mut base, 1.0);
+    let refus = creances::regler_creance_exceptionnel_sur_base(
+        &mut base, autre, 100, "especes".into(), None, None).unwrap_err();
+    assert!(refus.contains("normalement"), "{refus}");
+}
+
 #[test]
 fn une_creance_se_regle_en_deux_fois_puis_un_reglement_s_annule() {
     let mut base = base_avec_demo();
@@ -307,6 +368,10 @@ fn une_creance_se_regle_en_deux_fois_puis_un_reglement_s_annule() {
     assert_eq!(r["montant_encaisse"], 300);
     assert_eq!(r["soldee"], false);
     assert_eq!(statut_vente(&mut base, &vente_id), "partiellement_payee");
+    // Deux reglements sont deux INSTANTS. L'horloge Windows tique par
+    // 15 ms : sans cette pause, les deux portent le meme horodatage et
+    // le « reste apres » du premier n'a plus de sens.
+    std::thread::sleep(std::time::Duration::from_millis(20));
     let r = creances::regler_creance_sur_base(&mut base, vente_id.clone(), 1_000_000, "especes".into(), None).unwrap();
     assert_eq!(r["montant_encaisse"], prix - 300, "plafonné au reste dû");
     assert_eq!(r["soldee"], true);

@@ -443,6 +443,41 @@ export function OngletIrrecouvrable() {
   const [venteActif, setVenteActif] = useState<CreanceOuverte | null>(null);
   const [motif, setMotif] = useState("");
   const [enCours, setEnCours] = useState(false);
+  // Le REGLEMENT EXCEPTIONNEL : l'argent d'une creance sortie des
+  // comptes qui revient malgre tout. Il n'emprunte pas le chemin
+  // ordinaire — celui-ci refuse — et laisse sa propre trace en caisse.
+  const [recouvrement, setRecouvrement] = useState<Irrecouvrable | null>(null);
+  const [montantRec, setMontantRec] = useState("");
+  const [modeRec, setModeRec] = useState("especes");
+  const [motifRec, setMotifRec] = useState("");
+
+  async function handleRecouvrer() {
+    if (!recouvrement) return;
+    const montant = Number(String(montantRec).replace(/\s/g, "")) || 0;
+    if (montant <= 0) {
+      await message("Saisir le montant reçu.", { title: "Règlement exceptionnel", kind: "warning" });
+      return;
+    }
+    setEnCours(true);
+    try {
+      const r = await invoke<{ montant_encaisse: number; reste: number; statut: string }>(
+        "regler_creance_exceptionnel",
+        { venteId: recouvrement.vente_id, montant, mode: modeRec, motif: motifRec || null,
+          utilisateurRole: UTILISATEUR_ACTIF?.role ?? "employe" },
+      );
+      await message(
+        `${fmt(r.montant_encaisse)} encaissés en recouvrement exceptionnel.\n` +
+        (r.statut === "payee"
+          ? "La créance est entièrement recouvrée : la vente passe à « payée »."
+          : `Il reste ${fmt(r.reste)}, toujours en irrécouvrable.`),
+        { title: "Règlement exceptionnel", kind: "info" },
+      );
+      setRecouvrement(null); setMontantRec(""); setMotifRec("");
+      charger();
+    } catch (e) {
+      await message(`${e}`, { title: "Règlement exceptionnel", kind: "error" });
+    } finally { setEnCours(false); }
+  }
 
   async function charger() {
     setChargement(true);
@@ -550,12 +585,71 @@ export function OngletIrrecouvrable() {
                     {i.facture_num ?? ""} · {fmtDate(i.date_marque)}
                   </p>
                   <p className="text-xs text-muted-foreground italic">{i.motif}</p>
+                  <Button variant="outline" size="sm" className="mt-1.5 h-7 text-xs"
+                    onClick={() => { setRecouvrement(i); setMontantRec(String(i.montant_perdu)); }}
+                    title="Le client revient payer : l'argent entre en caisse sous son propre motif">
+                    Règlement exceptionnel
+                  </Button>
                 </div>
               ))}
             </div>
           )
         }
       </div>
+
+      {/* Règlement exceptionnel */}
+      <Dialog open={!!recouvrement} onOpenChange={() => setRecouvrement(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Règlement exceptionnel</DialogTitle>
+          </DialogHeader>
+          {recouvrement && (
+            <div className="space-y-3 pt-2">
+              <div className="bg-muted rounded-md px-3 py-2 text-sm">
+                <p className="font-medium">{recouvrement.client_nom}</p>
+                <p className="text-xs text-muted-foreground">
+                  {recouvrement.facture_num ?? ""} · sortie des comptes le {fmtDate(recouvrement.date_marque)}
+                  {" "}· perdu : {fmt(recouvrement.montant_perdu)}
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs mb-1.5 block">Montant reçu (F)</Label>
+                <Input value={montantRec} onChange={e => setMontantRec(e.target.value)}
+                  inputMode="numeric" className="h-9" autoFocus />
+              </div>
+              <div>
+                <Label className="text-xs mb-1.5 block">Mode</Label>
+                <select className="h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+                  value={modeRec} onChange={e => setModeRec(e.target.value)}>
+                  <option value="especes">Espèces</option>
+                  <option value="orange_money">Orange Money</option>
+                  <option value="moov_money">Moov Money</option>
+                  <option value="cheque">Chèque</option>
+                  <option value="virement">Virement</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs mb-1.5 block">Motif (optionnel)</Label>
+                <Input value={motifRec} onChange={e => setMotifRec(e.target.value)}
+                  placeholder="Ex : revenu payer après relance" className="h-9" />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                L'argent entre dans la caisse d'aujourd'hui, sous le motif
+                « recouvrement ». La vente ne redevient « payée » que si tout
+                est rentré ; sinon elle reste irrécouvrable pour le reste.
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => setRecouvrement(null)}>
+                  Annuler
+                </Button>
+                <Button className="flex-1" onClick={handleRecouvrer} disabled={enCours}>
+                  Encaisser
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Modal confirmation irrécouvrable */}
       <Dialog open={!!venteActif} onOpenChange={() => setVenteActif(null)}>

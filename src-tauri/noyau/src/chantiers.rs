@@ -243,7 +243,7 @@ pub fn marquer_irrecouvrable(
         rusqlite::params![
             uuid::Uuid::new_v4().to_string(),
             vente_id, auteur,
-            format!(r#"{{"motif":"{}"}}"#, motif),
+            serde_json::json!({ "motif": motif }).to_string(),
             now
         ],
     ).ok();
@@ -647,7 +647,7 @@ pub fn marquer_irrecouvrable_sur_base(base: &mut Base, vente_id: String, motif: 
          (id, type_evenement, entite_type, entite_id, auteur_id,
           nouveau_valeur, origine, date_evenement, dossier_id)
          VALUES (?1,'creance_irrecouvrable','vente',?2,?3,?4,'app',?5,?6)",
-        &parametres![uuid::Uuid::new_v4().to_string(), vente_id, auteur, format!(r#"{{"motif":"{}"}}"#, motif), now, dossier],
+        &parametres![uuid::Uuid::new_v4().to_string(), vente_id, auteur, serde_json::json!({ "motif": motif }).to_string(), now, dossier],
     );
     tx.valider().map_err(|e| e.0)
 }
