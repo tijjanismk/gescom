@@ -53,7 +53,8 @@ pub fn lire_toutes_pieces_client(
     if let Some(ref r) = recherche {
         let r = r.replace('\'', "''");
         conditions.push(format!(
-            "(pc.numero LIKE '%{r}%' OR c.nom LIKE '%{r}%' OR c.code LIKE '%{r}%')"
+            "(pc.numero LIKE '%{r}%' OR c.nom LIKE '%{r}%' OR c.code LIKE '%{r}%' \
+              OR COALESCE(pc.reference, '') LIKE '%{r}%')"
         ));
     }
     if let Some(ref dd) = date_debut {
@@ -113,7 +114,11 @@ pub fn lire_toutes_pieces_client(
                 COALESCE((SELECT SUM(lp.quantite_livree)
                           FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0),
                 COALESCE((SELECT SUM(lp.quantite)
-                          FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0)
+                          FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0),
+                -- 19 : la reference du tiers (le numero du fournisseur sur
+                -- SA facture). Ajoutee EN DERNIER : les indices 0..18 que
+                -- les quatre lectures attendent ne bougent pas.
+                pc.reference
          FROM piece_commerciale pc
          JOIN client c ON c.id = pc.tiers_id
          LEFT JOIN utilisateur u ON u.id = pc.auteur_id
@@ -167,6 +172,7 @@ pub fn lire_toutes_pieces_client(
             "etat_livraison":   crate::livraisons::etat(
                                   row.get::<_,f64>(17).unwrap_or(0.0),
                                   row.get::<_,f64>(18).unwrap_or(0.0)),
+            "reference":        row.get::<_,Option<String>>(19)?,
         }))
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
@@ -1266,7 +1272,8 @@ pub fn lire_toutes_pieces_fournisseur(
     if let Some(ref r) = recherche {
         let r = r.replace('\'', "''");
         conditions.push(format!(
-            "(pc.numero LIKE '%{r}%' OR f.nom LIKE '%{r}%')"
+            "(pc.numero LIKE '%{r}%' OR f.nom LIKE '%{r}%' \
+              OR COALESCE(pc.reference, '') LIKE '%{r}%')"
         ));
     }
     if let Some(ref fid) = fournisseur_id {
@@ -1303,7 +1310,11 @@ pub fn lire_toutes_pieces_fournisseur(
                 COALESCE((SELECT SUM(lp.quantite_livree)
                           FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0),
                 COALESCE((SELECT SUM(lp.quantite)
-                          FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0)
+                          FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0),
+                -- 19 : la reference du tiers (le numero du fournisseur sur
+                -- SA facture). Ajoutee EN DERNIER : les indices 0..18 que
+                -- les quatre lectures attendent ne bougent pas.
+                pc.reference
          FROM piece_commerciale pc
          JOIN fournisseur f ON f.id = pc.tiers_id
          LEFT JOIN utilisateur u ON u.id = pc.auteur_id
@@ -1350,6 +1361,9 @@ pub fn lire_toutes_pieces_fournisseur(
             "etat_livraison":   crate::livraisons::etat(
                                   row.get::<_,f64>(16).unwrap_or(0.0),
                                   row.get::<_,f64>(17).unwrap_or(0.0)),
+            // 18 ici, 19 cote client : pas de credit_ouvert dans cette
+            // requete. Voir le commentaire juste au-dessus.
+            "reference":        row.get::<_,Option<String>>(18)?,
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
     Ok(x)
@@ -2220,12 +2234,14 @@ fn ligne_de_liste(r: &crate::base::Ligne<'_>) -> crate::base::Resultat<serde_jso
         "etat_livraison":   crate::livraisons::etat(
                               r.get::<f64>(17).unwrap_or(0.0),
                               r.get::<f64>(18).unwrap_or(0.0)),
+        "reference":        r.get::<Option<String>>(19)?,
     }))
 }
 
 /// Les colonnes calculees communes aux deux listes. Meme ordre que
 /// `ligne_de_liste` attend : 11 total_ht, 12 total_tva, 13 total_paye,
-/// 14 auteur, 15 origine, 16 credit ouvert, 17 livre, 18 commande.
+/// 14 auteur, 15 origine, 16 credit ouvert, 17 livre, 18 commande,
+/// 19 reference du tiers.
 const COLONNES_CALCULEES: &str = "
     CAST(COALESCE((SELECT SUM(lp.montant_ht)
                    FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0) AS BIGINT),
@@ -2243,7 +2259,8 @@ const COLONNES_CALCULEES: &str = "
     CAST(COALESCE((SELECT SUM(lp.quantite_livree)
                    FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0) AS DOUBLE PRECISION),
     CAST(COALESCE((SELECT SUM(lp.quantite)
-                   FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0) AS DOUBLE PRECISION)";
+                   FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0) AS DOUBLE PRECISION),
+    pc.reference";
 
 #[allow(clippy::too_many_arguments)]
 pub fn lire_toutes_pieces_client_sur_base(
@@ -2279,6 +2296,7 @@ pub fn lire_toutes_pieces_client_sur_base(
            AND (CAST(?2 AS TEXT) IS NULL OR pc.statut = ?2)
            AND (CAST(?3 AS TEXT) IS NULL
                 OR LOWER(pc.numero) LIKE LOWER('%' || ?3 || '%')
+                OR LOWER(COALESCE(pc.reference, '')) LIKE LOWER('%' || ?3 || '%')
                 OR LOWER(c.nom)     LIKE LOWER('%' || ?3 || '%')
                 OR LOWER(c.code)    LIKE LOWER('%' || ?3 || '%'))
            AND (CAST(?4 AS TEXT) IS NULL OR pc.date_piece >= ?4)
@@ -2358,6 +2376,7 @@ pub fn lire_toutes_pieces_fournisseur_sur_base(
            AND (CAST(?2 AS TEXT) IS NULL OR pc.statut = ?2)
            AND (CAST(?3 AS TEXT) IS NULL
                 OR LOWER(pc.numero) LIKE LOWER('%' || ?3 || '%')
+                OR LOWER(COALESCE(pc.reference, '')) LIKE LOWER('%' || ?3 || '%')
                 OR LOWER(f.nom)     LIKE LOWER('%' || ?3 || '%'))
            AND (CAST(?4 AS TEXT) IS NULL OR pc.tiers_id = ?4)
          ORDER BY pc.date_piece DESC, pc.cree_le DESC"

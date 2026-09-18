@@ -49,6 +49,9 @@ interface Piece {
   total_paye: number; reste: number;
   remise_globale: number; remise_montant: number;
   note?: string; auteur_nom?: string; piece_origine_id?: string;
+  /** Le numéro que le TIERS porte sur sa propre pièce — celui qu'on lui
+   *  cite au téléphone. Notre `numero` ne lui dit rien. */
+  reference?: string | null;
   /** Axe livraison, indépendant du paiement. Voir livraisons.rs. */
   etat_livraison?: "sans_objet" | "non_livre" | "partiel" | "livre";
 }
@@ -495,6 +498,11 @@ function ModalModifierPiece({
   // parfois le samedi pour la semaine, une coupure suffit. Imposer le
   // jour de la saisie ferait tomber la pièce dans le mauvais mois.
   const [datePiece, setDatePiece] = useState("");
+  // La référence du tiers se pose à TOUT moment, même sur une pièce
+  // figée : le papier du fournisseur arrive souvent après la
+  // marchandise. Elle passe par sa propre commande, pas par
+  // `modifier_piece`, que l'immuabilité refuse une fois la pièce émise.
+  const [reference, setReference] = useState("");
   const [chargement, setChargement] = useState(false);
   const [lignes, setLignes] = useState<LigneEdit[]>([]);
   const [chargeLignes, setChargeLignes] = useState(false);
@@ -509,6 +517,7 @@ function ModalModifierPiece({
       setNote(piece.note ?? "");
       setDateEcheance(piece.date_echeance ?? "");
       setDatePiece((piece.date_piece ?? "").slice(0, 10));
+      setReference(piece.reference ?? "");
       setLignes([]);
       if (piece.statut === "brouillon" || piece.statut === "emis") {
         setChargeLignes(true);
@@ -559,6 +568,15 @@ function ModalModifierPiece({
         );
         setChargement(false);
         return;
+      }
+
+      // La référence d'abord, et à part : elle est légitime sur une
+      // pièce figée, là où `modifier_piece` va refuser.
+      if (reference.trim() !== (piece.reference ?? "").trim()) {
+        await invoke("definir_reference_piece", {
+          pieceId: piece.id,
+          reference: reference.trim() || null,
+        });
       }
 
       // On garde l'HEURE d'origine : seul le jour se saisit, et deux
@@ -623,6 +641,21 @@ function ModalModifierPiece({
             <Label className="text-xs mb-1.5 block">Date d'échéance</Label>
             <Input type="date" value={dateEcheance}
               onChange={e => setDateEcheance(e.target.value)} className="h-9" />
+          </div>
+          <div>
+            <Label className="text-xs mb-1.5 block">
+              {piece.type_piece.endsWith("fournisseur") || piece.type_piece === "bon_reception"
+                ? "Numéro de la facture du fournisseur"
+                : "Référence du client"}
+            </Label>
+            <Input value={reference} onChange={e => setReference(e.target.value)}
+              placeholder={piece.type_piece.endsWith("fournisseur") || piece.type_piece === "bon_reception"
+                ? "Le numéro sur SON papier"
+                : "Son bon de commande, sa référence"}
+              className="h-9 font-mono" />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Se pose même sur une pièce figée, et se retrouve dans la recherche.
+            </p>
           </div>
           <div>
             <Label className="text-xs mb-1.5 block">Note</Label>
@@ -1265,6 +1298,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                       {p.numero}
                       {p.piece_origine_id && (
                         <span className="ml-1 text-[10px] text-muted-foreground">↗</span>
+                      )}
+                      {p.reference && (
+                        <span className="block text-[10px] font-normal text-muted-foreground"
+                          title="Référence du tiers">
+                          réf. {p.reference}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">

@@ -99,6 +99,55 @@ fn la_liste_des_pieces_filtre_par_type_recherche_et_client() {
     assert!(trop_cher.is_empty());
 }
 
+/// La reference du tiers traverse la liste et se cherche — cote
+/// client ET cote fournisseur, dont les requetes n'ont pas les memes
+/// indices. C'est ce test qui attrape un decalage de colonne.
+#[test]
+fn la_reference_du_tiers_se_lit_dans_les_listes_et_se_cherche() {
+    let mut base = base_avec_demo();
+    // Client.
+    let d = devis(&mut base, 1.0);
+    pieces::definir_reference_piece_sur_base(&mut base, id(&d), Some("BC-CLIENT-7781".into()))
+        .expect("poser la reference");
+    let liste = pieces::lire_toutes_pieces_client_sur_base(
+        &mut base, None, None, None, None, None, None, None, None, None, None,
+    ).unwrap();
+    assert_eq!(liste[0]["reference"], "BC-CLIENT-7781", "{}", liste[0]);
+    let cherche = pieces::lire_toutes_pieces_client_sur_base(
+        &mut base, None, None, Some("client-778".into()), None, None, None, None, None, None, None,
+    ).unwrap();
+    assert_eq!(cherche.len(), 1, "on retrouve la piece par sa reference, sans la casse");
+
+    // Fournisseur : la facture d'achat porte le numero que le fournisseur
+    // a mis sur SON papier.
+    let f = fournisseur(&mut base, "Grossiste");
+    let sucre = article_unite(&mut base, "Sucre");
+    let achat = gescom_noyau::achats::enregistrer_achat_sur_base(
+        &mut base, Some(f.clone()), None,
+        vec![gescom_noyau::achats::LigneAchat {
+            article_id: sucre.0.clone(), unite_vente_id: sucre.1.clone(),
+            quantite: 2.0, facteur: 1.0, prix_achat: 500,
+        }],
+        Some("credit".into()), None, None, None, None, None,
+    ).expect("achat a credit");
+    let faf = achat["piece_id"].as_str().unwrap().to_string();
+    pieces::definir_reference_piece_sur_base(&mut base, faf, Some("FAC-GROSSISTE-2026-091".into()))
+        .expect("poser la reference fournisseur");
+    let liste = pieces::lire_toutes_pieces_fournisseur_sur_base(&mut base, None, None, None, None).unwrap();
+    assert_eq!(liste[0]["reference"], "FAC-GROSSISTE-2026-091", "{}", liste[0]);
+    let cherche = pieces::lire_toutes_pieces_fournisseur_sur_base(
+        &mut base, None, None, Some("grossiste-2026".into()), None,
+    ).unwrap();
+    assert_eq!(cherche.len(), 1);
+
+    // Retirer : vide -> NULL, pas une chaine vide.
+    pieces::definir_reference_piece_sur_base(&mut base, id(&d), Some("   ".into())).unwrap();
+    let liste = pieces::lire_toutes_pieces_client_sur_base(
+        &mut base, None, None, None, None, None, None, None, None, None, None,
+    ).unwrap();
+    assert!(liste[0]["reference"].is_null(), "{}", liste[0]);
+}
+
 #[test]
 fn un_avoir_client_cree_a_la_main_porte_son_credit() {
     let mut base = base_avec_demo();
