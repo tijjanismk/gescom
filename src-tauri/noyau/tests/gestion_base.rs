@@ -118,7 +118,7 @@ fn un_avoir_s_applique_a_une_vente_puis_se_rembourse() {
     ouvrir_caisse(&mut base);
     let client = client_reel(&mut base);
     let sucre = article_unite(&mut base, "Sucre");
-    let avc = pieces::creer_piece_sur_base(&mut base, client.clone(), "avoir_client".into(), vec![ligne(&sucre, 5.0)], None, None, None, None, None).unwrap();
+    let avc = pieces::creer_piece_sur_base(&mut base, client.clone(), "avoir_client".into(), vec![ligne(&sucre, 5.0)], None, None, None, None, None, None).unwrap();
     let avc_id = avc["id"].as_str().unwrap().to_string();
     let credit = 5 * sucre.3;
     assert_eq!(avoirs::total_avoirs_client_sur_base(&mut base, client.clone()).unwrap(), credit);
@@ -344,6 +344,70 @@ fn une_creance_irrecouvrable_refuse_le_reglement_ordinaire_et_accepte_l_exceptio
     assert!(refus.contains("normalement"), "{refus}");
 }
 
+/// L'AVOIR ACCORDE : un credit sans marchandise en face, qui entre dans
+/// le credit ouvert du client comme un avoir sur retour, avec sa piece
+/// AVC numerotee — et qui refuse le client de passage, le montant nul
+/// et l'absence de motif.
+#[test]
+fn un_avoir_s_accorde_sans_marchandise_et_entre_dans_le_credit_du_client() {
+    let mut base = base_avec_demo();
+    let client = client_reel(&mut base);
+    let avant = avoirs::total_avoirs_client_sur_base(&mut base, client.clone()).unwrap();
+
+    let r = avoirs::accorder_avoir_client_sur_base(
+        &mut base, client.clone(), 2_500, "retard de livraison".into(), None,
+    )
+    .expect("avoir accorde");
+    let numero = r["numero"].as_str().unwrap().to_string();
+    assert!(numero.starts_with("AVC-"), "{numero}");
+    let piece_id = r["piece_id"].as_str().unwrap().to_string();
+
+    let apres = avoirs::total_avoirs_client_sur_base(&mut base, client.clone()).unwrap();
+    assert_eq!(apres - avant, 2_500, "le credit ouvert du client a grandi du montant");
+    let (retour, statut, montant): (Option<String>, String, i64) = base
+        .lire_une(
+            "SELECT retour_id, statut, montant FROM avoir WHERE piece_id = ?1",
+            &parametres![piece_id.clone()],
+            |r| Ok((r.get::<Option<String>>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?)),
+        )
+        .unwrap()
+        .expect("l'avoir porte sa piece");
+    assert!(retour.is_none(), "aucun retour derriere");
+    assert_eq!((statut.as_str(), montant), ("ouvert", 2_500));
+    let (type_piece, statut_piece, note): (String, String, Option<String>) = base
+        .lire_une(
+            "SELECT type_piece, statut, note FROM piece_commerciale WHERE id = ?1",
+            &parametres![piece_id.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<Option<String>>(2)?)),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!((type_piece.as_str(), statut_piece.as_str()), ("avoir_client", "emis"));
+    assert!(note.unwrap_or_default().contains("retard de livraison"));
+    let lignes = compter(&mut base, "SELECT COUNT(*) FROM ligne_piece WHERE piece_id = ?1", &parametres![piece_id.clone()]);
+    assert_eq!(lignes, 0, "pas de marchandise, pas de ligne");
+    // Le document imprime porte quand meme le montant, sur une ligne
+    // d'affichage — sinon un AVC a zero.
+    let doc = pieces::lire_donnees_piece_sur_base(&mut base, piece_id.clone()).expect("document");
+    assert_eq!(doc["totaux"]["total_ttc"], 2_500, "{doc}");
+    assert_eq!(doc["lignes"].as_array().map(|l| l.len()), Some(1));
+    assert!(doc["lignes"][0]["article_nom"].as_str().unwrap().contains("retard de livraison"));
+    let journal = compter(&mut base,
+        "SELECT COUNT(*) FROM journal WHERE type_evenement = 'avoir_accorde' AND entite_id = ?1",
+        &parametres![client.clone()]);
+    assert_eq!(journal, 1);
+
+    // Les refus : le client de passage, le montant nul, le motif vide.
+    let passage = client_generique(&mut base);
+    assert!(avoirs::accorder_avoir_client_sur_base(&mut base, passage, 100, "x".into(), None).is_err());
+    assert!(avoirs::accorder_avoir_client_sur_base(&mut base, client.clone(), 0, "x".into(), None).is_err());
+    assert!(avoirs::accorder_avoir_client_sur_base(&mut base, client.clone(), 100, "  ".into(), None).is_err());
+    assert_eq!(
+        avoirs::total_avoirs_client_sur_base(&mut base, client).unwrap() - avant, 2_500,
+        "les refus n'ont rien ecrit"
+    );
+}
+
 #[test]
 fn une_creance_se_regle_en_deux_fois_puis_un_reglement_s_annule() {
     let mut base = base_avec_demo();
@@ -438,7 +502,7 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
 
     avoirs::lire_avoirs_client_sur_base(&mut base, client.clone()).expect("avoirs");
     avoirs::total_avoirs_client_sur_base(&mut base, client.clone()).expect("total");
-    let avc = pieces::creer_piece_sur_base(&mut base, client.clone(), "avoir_client".into(), vec![ligne(&sucre, 1.0)], None, None, None, None, None).unwrap();
+    let avc = pieces::creer_piece_sur_base(&mut base, client.clone(), "avoir_client".into(), vec![ligne(&sucre, 1.0)], None, None, None, None, None, None).unwrap();
     avoirs::appliquer_avoir_vente_sur_base(&mut base, vente_id.clone(), client.clone(), 100).expect("appliquer");
     avoirs::rembourser_avoir_sur_base(&mut base, avc["id"].as_str().unwrap().to_string(), 100, "especes".into(), None).expect("rembourser");
     avoirs::chercher_article_par_code_barre_sur_base(&mut base, "x".into()).expect("scanner");

@@ -880,3 +880,148 @@ pub fn rembourser_avoir_sur_base(
         "solde":             credit_restant <= 0,
     }))
 }
+
+// =====================================================================
+//  L'AVOIR ACCORDE — sans marchandise en face
+// =====================================================================
+//
+// Un geste commercial, un dedommagement, une remise apres coup : le
+// client n'a rien rendu, on lui doit quand meme. L'avoir existant nait
+// d'un RETOUR et porte une ligne d'article ; celui-ci n'en a pas. Il
+// entre dans le credit ouvert du client exactement comme les autres
+// (table `avoir`, statut 'ouvert') et porte sa piece `avoir_client`,
+// numerotee, pour le journal des pieces.
+//
+// Pas de ligne_piece : la table exige un article. La piece porte donc
+// le montant dans sa note et le credit vit dans `avoir.montant`. Ce
+// qu'il faut savoir : dans la liste des pieces, le « reste » d'un AVC
+// est le credit ouvert (D44), pas la somme des lignes — c'est ce qui
+// rend cet avoir lisible malgre l'absence de ligne.
+
+fn valider_avoir_accorde(montant: i64, motif: &str) -> Result<(), String> {
+    if montant <= 0 {
+        return Err("Le montant doit être positif".to_string());
+    }
+    if motif.trim().is_empty() {
+        return Err("Un avoir accordé porte un motif : c'est ce qui le justifie au journal.".to_string());
+    }
+    Ok(())
+}
+
+/// Accorde un avoir sans marchandise. Rend `{ numero, avoir_id, piece_id }`.
+pub fn accorder_avoir_client(
+    conn: &rusqlite::Connection,
+    client_id: String,
+    montant: i64,
+    motif: String,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    valider_avoir_accorde(montant, &motif)?;
+    // D40 : pas de credit au client de passage — il n'a pas d'identite.
+    if crate::utils::est_client_generique(conn, &client_id) {
+        return Err("Pas d'avoir pour un client comptant. Créer ou sélectionner le client d'abord.".to_string());
+    }
+    let role = utilisateur_role.as_deref().unwrap_or("patron");
+    let auteur_id = crate::argent::id_utilisateur_par_role(conn, role);
+    let maintenant = maintenant_iso();
+
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let numero = crate::argent::reserver_numero(&tx, "avoir_client")?;
+    let piece_id = uuid::Uuid::new_v4().to_string();
+    let avoir_id = uuid::Uuid::new_v4().to_string();
+    tx.execute(
+        "INSERT INTO piece_commerciale
+         (id, type_piece, numero, statut, tiers_type, tiers_id,
+          auteur_id, date_piece, remise_globale, note,
+          cree_le, modifie_le, origine)
+         VALUES (?1,'avoir_client',?2,'emis','client',?3,?4,?5,0.0,?6,?5,?5,'geste')",
+        rusqlite::params![
+            piece_id, numero, client_id, auteur_id, maintenant,
+            format!("Avoir accordé — {} — {} F", motif.trim(), montant)
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT INTO avoir
+         (id, client_id, retour_id, piece_id, montant, statut, cree_le, origine)
+         VALUES (?1, ?2, NULL, ?3, ?4, 'ouvert', ?5, 'app')",
+        rusqlite::params![avoir_id, client_id, piece_id, montant, maintenant],
+    )
+    .map_err(|e| e.to_string())?;
+    let _ = tx.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1, 'avoir_accorde', 'client', ?2, ?3, ?4, 'app', ?5)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), client_id, auteur_id,
+            serde_json::json!({ "montant": montant, "motif": motif.trim(), "numero": numero }).to_string(),
+            maintenant
+        ],
+    );
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "numero": numero, "avoir_id": avoir_id, "piece_id": piece_id }))
+}
+
+/// Meme geste, sur `Base`.
+pub fn accorder_avoir_client_sur_base(
+    base: &mut crate::base::Base,
+    client_id: String,
+    montant: i64,
+    motif: String,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    valider_avoir_accorde(montant, &motif)?;
+    let dossier = base.dossier().to_string();
+    let generique: i64 = base
+        .lire_une(
+            "SELECT est_generique FROM client WHERE id = ?1 AND dossier_id = ?2",
+            &crate::parametres![client_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Client introuvable".to_string())?;
+    if generique != 0 {
+        return Err("Pas d'avoir pour un client comptant. Créer ou sélectionner le client d'abord.".to_string());
+    }
+    let role = utilisateur_role.as_deref().unwrap_or("patron");
+    let auteur_id = crate::argent::id_utilisateur_par_role_sur(base, role);
+    let maintenant = maintenant_iso();
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    let numero = crate::argent::reserver_numero_sur(&mut tx, "avoir_client")?;
+    let piece_id = uuid::Uuid::new_v4().to_string();
+    let avoir_id = uuid::Uuid::new_v4().to_string();
+    tx.executer(
+        "INSERT INTO piece_commerciale
+         (id, type_piece, numero, statut, tiers_type, tiers_id,
+          auteur_id, date_piece, remise_globale, note,
+          cree_le, modifie_le, origine, dossier_id)
+         VALUES (?1,'avoir_client',?2,'emis','client',?3,?4,?5,0.0,?6,?5,?5,'geste',?7)",
+        &crate::parametres![
+            piece_id.clone(), numero.clone(), client_id.clone(), auteur_id.clone(), maintenant.clone(),
+            format!("Avoir accordé — {} — {} F", motif.trim(), montant), dossier.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO avoir
+         (id, client_id, retour_id, piece_id, montant, statut, cree_le, origine, dossier_id)
+         VALUES (?1, ?2, NULL, ?3, ?4, 'ouvert', ?5, 'app', ?6)",
+        &crate::parametres![avoir_id.clone(), client_id.clone(), piece_id.clone(), montant, maintenant.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+    let _ = tx.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'avoir_accorde', 'client', ?2, ?3, ?4, 'app', ?5, ?6)",
+        &crate::parametres![
+            uuid::Uuid::new_v4().to_string(), client_id, auteur_id,
+            serde_json::json!({ "montant": montant, "motif": motif.trim(), "numero": numero }).to_string(),
+            maintenant, dossier
+        ],
+    );
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({ "numero": numero, "avoir_id": avoir_id, "piece_id": piece_id }))
+}

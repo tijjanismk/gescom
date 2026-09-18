@@ -216,6 +216,18 @@ fn un_retour_fournisseur_sort_le_stock_et_refuse_le_decouvert() {
         &[],
     );
     assert_eq!(entrees, 500);
+
+    // Dans la liste des pièces : l'AVF remboursé ne « reste » rien, l'AVF
+    // en avoir reste son crédit — jamais un impayé en rouge.
+    let avoirs = pieces::lire_toutes_pieces_fournisseur_sur_base(
+        &mut base, Some("avoir_fournisseur".into()), None, None, None, None, None,
+    )
+    .unwrap();
+    assert_eq!(avoirs.len(), 2);
+    let rembourse = avoirs.iter().find(|p| p["statut"] == "paye").expect("l'AVF remboursé");
+    let en_avoir = avoirs.iter().find(|p| p["statut"] == "emis").expect("l'AVF en avoir");
+    assert_eq!(rembourse["reste"], 0, "{rembourse}");
+    assert_eq!(en_avoir["reste"], 2_000, "{en_avoir}");
 }
 
 #[test]
@@ -229,7 +241,7 @@ fn valider_une_facture_fournisseur_brouillon_fait_entrer_le_stock_une_fois() {
 
     // FAF directe, sans bon : la validation entre le stock elle-même.
     let faf = pieces::creer_piece_fournisseur_sur_base(
-        &mut base, f.clone(), "facture_fournisseur".into(), vec![ligne(&sucre, 6.0)], None, None, None, None,
+        &mut base, f.clone(), "facture_fournisseur".into(), vec![ligne(&sucre, 6.0)], None, None, None, None, None,
     )
     .unwrap();
     assert_eq!(faf["statut"], "brouillon");
@@ -253,7 +265,7 @@ fn valider_une_facture_fournisseur_brouillon_fait_entrer_le_stock_une_fois() {
     // facture ne le fait pas entrer une seconde fois.
     let avant = stock(&mut base, &sucre.0, &depot);
     let bcf = pieces::creer_piece_fournisseur_sur_base(
-        &mut base, f, "bon_commande_fournisseur".into(), vec![ligne(&sucre, 8.0)], None, None, None, None,
+        &mut base, f, "bon_commande_fournisseur".into(), vec![ligne(&sucre, 8.0)], None, None, None, None, None,
     )
     .unwrap();
     let brf = pieces::convertir_piece_sur_base(&mut base, bcf["id"].as_str().unwrap().to_string(), "bon_reception".into()).unwrap();
@@ -292,7 +304,7 @@ fn annuler_une_facture_fournisseur_par_avoir_rend_tout() {
 
     // Un brouillon n'a rien à annuler.
     let brouillon = pieces::creer_piece_fournisseur_sur_base(
-        &mut base, f, "facture_fournisseur".into(), vec![ligne(&sucre, 1.0)], None, None, None, None,
+        &mut base, f, "facture_fournisseur".into(), vec![ligne(&sucre, 1.0)], None, None, None, None, None,
     )
     .unwrap();
     let refus = achats::annuler_facture_fournisseur_par_avoir_sur_base(
@@ -331,7 +343,7 @@ fn tout_ce_qui_est_porte_dans_achats_passe_le_detecteur() {
     )
     .expect("retour");
     let brouillon = pieces::creer_piece_fournisseur_sur_base(
-        &mut base, f, "facture_fournisseur".into(), vec![ligne(&sucre, 2.0)], None, None, None, None,
+        &mut base, f, "facture_fournisseur".into(), vec![ligne(&sucre, 2.0)], None, None, None, None, None,
     )
     .unwrap();
     let id = brouillon["id"].as_str().unwrap().to_string();

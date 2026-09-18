@@ -103,6 +103,7 @@ pub fn run() {
             commandes::avoirs::lire_avoirs_client,
             commandes::avoirs::total_avoirs_client,
             commandes::avoirs::appliquer_avoir_vente,
+            commandes::avoirs::accorder_avoir_client,
             commandes::avoirs::rembourser_avoir,
             commandes::avoirs::chercher_article_par_code_barre,
             commandes::avoirs::lire_config_scanner,

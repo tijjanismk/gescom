@@ -202,7 +202,7 @@ pub fn lire_etat_dette_fournisseur(
             // Une AVF remboursee en especes est close : elle ne reduit
             // plus la dette, l'argent est deja revenu.
             let du = if avoir {
-                if statut == "paye" { 0 } else { -montant }
+                -crate::coeur::calcul::credit_avoir_fournisseur(&statut, montant)
             } else {
                 crate::coeur::calcul::reste_exigible(montant, paye)
             };
@@ -273,7 +273,7 @@ pub fn lire_etat_dettes_global(
         // Une AVF deja remboursee en especes est close : elle ne reduit
         // plus la dette, l'argent est revenu.
         let du = if type_piece == "avoir_fournisseur" {
-            if statut == "paye" { 0 } else { -montant }
+            -crate::coeur::calcul::credit_avoir_fournisseur(&statut, montant)
         } else {
             crate::coeur::calcul::reste_exigible(montant, paye)
         };
@@ -1027,7 +1027,7 @@ pub fn modifier_fournisseur_sur_base(
 /// non rembourse son montant en negatif, un AVF rembourse rien.
 fn du_de(type_piece: &str, statut: &str, montant: i64, paye: i64) -> i64 {
     if type_piece == "avoir_fournisseur" {
-        if statut == "paye" { 0 } else { -montant }
+        -crate::coeur::calcul::credit_avoir_fournisseur(&statut, montant)
     } else {
         crate::coeur::calcul::reste_exigible(montant, paye)
     }

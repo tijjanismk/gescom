@@ -179,6 +179,71 @@ fn un_reglement_fournisseur_antidate_sort_de_la_caisse_du_jour() {
     assert_eq!(d["dette"], 500, "{d}");
 }
 
+/// La reception saisie apres coup : la facture fournisseur et son
+/// reglement portent le jour de l'affaire ; le stock et la caisse, eux,
+/// bougent au jour de la saisie (deux dates, deux faits). Et la borne
+/// tient : plus de RECUL_MAX_JOURS, refus.
+#[test]
+fn une_reception_antidatee_date_la_facture_mais_pas_le_stock_ni_la_caisse() {
+    let mut base = base_avec_demo();
+    let f = fournisseur(&mut base, "Grossiste");
+    let sucre = article_unite(&mut base, "Sucre");
+    ouvrir_caisse(&mut base);
+    let il_y_a_3_jours = (chrono::Local::now().date_naive() - chrono::Duration::days(3))
+        .format("%Y-%m-%d").to_string();
+    let aujourd_hui = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let ligne = || vec![achats::LigneAchat {
+        article_id: sucre.0.clone(), unite_vente_id: sucre.1.clone(),
+        quantite: 2.0, facteur: 1.0, prix_achat: 500,
+    }];
+
+    let r = achats::enregistrer_achat_date_sur_base(
+        &mut base, Some(f.clone()), None, ligne(),
+        Some("comptant".into()), Some("especes".into()), None, None, None, None,
+        Some(il_y_a_3_jours.clone()),
+    )
+    .expect("la reception antidatee passe");
+    let piece_id = r["piece_id"].as_str().unwrap().to_string();
+
+    let date_piece: String = base
+        .lire_une("SELECT date_piece FROM piece_commerciale WHERE id = ?1",
+                  &parametres![piece_id.clone()], |row| row.get::<String>(0))
+        .unwrap().unwrap();
+    assert!(date_piece.starts_with(&il_y_a_3_jours), "date_piece = {date_piece}");
+    let date_paiement: String = base
+        .lire_une("SELECT date_paiement FROM paiement_fournisseur WHERE piece_id = ?1",
+                  &parametres![piece_id.clone()], |row| row.get::<String>(0))
+        .unwrap().unwrap();
+    assert!(date_paiement.starts_with(&il_y_a_3_jours), "date_paiement = {date_paiement}");
+
+    let date_stock: String = base
+        .lire_une(
+            "SELECT date_mouvement FROM mouvement_stock WHERE type_mouvement = 'achat' AND article_id = ?1
+             ORDER BY cree_le DESC",
+            &parametres![sucre.0.clone()], |row| row.get::<String>(0))
+        .unwrap().unwrap();
+    assert!(date_stock.starts_with(&aujourd_hui), "le stock entre au jour de la saisie : {date_stock}");
+    let (date_caisse, libelle): (String, Option<String>) = base
+        .lire_une(
+            "SELECT date_mouvement, libelle FROM mouvement_caisse WHERE motif = 'achat' ORDER BY cree_le DESC",
+            &parametres![],
+            |row| Ok((row.get::<String>(0)?, row.get::<Option<String>>(1)?)),
+        )
+        .unwrap().unwrap();
+    assert!(date_caisse.starts_with(&aujourd_hui), "la sortie reste au jour : {date_caisse}");
+    assert!(libelle.as_deref().unwrap_or("").starts_with("Réception du"), "{libelle:?}");
+
+    // Trop loin dans le passe : refus, et rien d'ecrit.
+    let trop_loin = (chrono::Local::now().date_naive() - chrono::Duration::days(60))
+        .format("%Y-%m-%d").to_string();
+    let avant = compter(&mut base, "SELECT COUNT(*) FROM piece_commerciale", &parametres![]);
+    assert!(achats::enregistrer_achat_date_sur_base(
+        &mut base, Some(f), None, ligne(), Some("credit".into()), None, None, None, None, None,
+        Some(trop_loin),
+    ).is_err());
+    assert_eq!(compter(&mut base, "SELECT COUNT(*) FROM piece_commerciale", &parametres![]), avant);
+}
+
 #[test]
 fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     let mut base = base_avec_demo();

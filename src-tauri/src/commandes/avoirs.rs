@@ -72,6 +72,17 @@ pub fn lire_articles_avec_codes_barres(
     gescom_noyau::avoirs::lire_articles_avec_codes_barres(&conn, )
 }
 #[tauri::command]
+pub fn accorder_avoir_client(
+    etat: State<EtatApp>,
+    client_id: String,
+    montant: i64,
+    motif: String,
+    utilisateur_role: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let conn = etat.conn.lock().map_err(|e| e.to_string())?;
+    gescom_noyau::avoirs::accorder_avoir_client(&conn, client_id, montant, motif, utilisateur_role)
+}
+#[tauri::command]
 pub fn rembourser_avoir(
     etat: State<EtatApp>,
     piece_id: String,

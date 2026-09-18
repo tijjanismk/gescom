@@ -18,7 +18,7 @@ du noyau, **à chaque appel** ; l'écran ne fait que cacher des boutons.
 
 | | où | qui le change |
 |---|---|---|
-| le **catalogue** — 27 permissions, celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`) | code | personne |
+| le **catalogue** — 28 permissions, celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`) | code | personne |
 | les **rôles** — `role.permissions` (JSON), `role.acces_total` | base | le patron |
 | le **sur-mesure** — `utilisateur_permission(utilisateur, permission, accorde)` | base | le patron, par personne |
 
@@ -26,6 +26,15 @@ Rôles livrés : `superadmin` (tout, protégé, compte de secours),
 `patron` (tout), `employe` (l'ancien v1), `caissier`, `magasinier`,
 `comptable`. Points de départ : `creer_role` en fabrique d'autres sans
 recompiler.
+
+## Une permission que seul le patron porte : `avoirs:accorder` (18/09/2026)
+
+Un avoir **sans marchandise en face** (`accorder_avoir_client`) est un
+crédit qui sort de nulle part — le geste le plus facile à détourner.
+La permission est au catalogue mais **dans aucun rôle livré** : elle
+vient avec `acces_total` (patron, superadmin), ou se donne à la main
+par le sur-mesure. `avoirs:gerer` (le comptable) applique et rembourse
+les avoirs existants ; il n'en crée pas.
 
 ## Une permission qui dépend des ARGUMENTS : `pieces:antidater`
 

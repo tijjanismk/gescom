@@ -72,6 +72,11 @@ pub const CATALOGUE: &[Permission] = &[
     // --- Pieces ---
     Permission { code: "pieces:creer", libelle: "Créer et convertir des pièces", groupe: "Pièces" },
     Permission { code: "avoirs:gerer", libelle: "Gérer les avoirs", groupe: "Pièces" },
+    // Un avoir SANS marchandise en face — geste commercial, dedommagement
+    // — est aussi une facon de vider une creance. Le patron seul : la
+    // permission n'entre dans aucun role livre, elle vient avec
+    // `acces_total` ou se donne a la main.
+    Permission { code: "avoirs:accorder", libelle: "Accorder un avoir sans marchandise (geste commercial)", groupe: "Pièces" },
     Permission { code: "livraisons:enregistrer", libelle: "Enregistrer livraisons et réceptions", groupe: "Pièces" },
     Permission { code: "modeles:gerer", libelle: "Modifier les modèles de documents", groupe: "Pièces" },
     // Antidater une vente en especes est la facon de masquer un trou

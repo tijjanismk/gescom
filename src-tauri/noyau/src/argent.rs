@@ -133,6 +133,19 @@ pub(crate) fn date_du_reglement(now: &str, date: Option<&str>) -> Result<(String
     date_saisie(now, date, "Règlement")
 }
 
+/// Et pour une reception de marchandise : « Reception du 03/09 ».
+pub(crate) fn date_de_la_reception(now: &str, date: Option<&str>) -> Result<(String, Option<String>), String> {
+    date_saisie(now, date, "Réception")
+}
+
+/// Et pour une piece creee a la main (devis, commande, BL, facture,
+/// avoir, BC, BR, FAF) : aucun mouvement de caisse ou de stock ne part
+/// d'ici (ils suivent leur propre geste, plus tard), seule la date de
+/// la piece elle-meme peut reculer.
+pub(crate) fn date_de_la_piece(now: &str, date: Option<&str>) -> Result<(String, Option<String>), String> {
+    date_saisie(now, date, "Pièce")
+}
+
 fn date_saisie(now: &str, date: Option<&str>, geste: &str) -> Result<(String, Option<String>), String> {
     let Some(d) = date.filter(|d| !d.trim().is_empty()) else {
         return Ok((now.to_string(), None));

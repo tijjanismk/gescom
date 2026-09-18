@@ -103,7 +103,7 @@ fn une_livraison_se_saisit_ligne_a_ligne_et_bouge_le_stock_de_l_ecart() {
     let avant = stock(&mut base, &sucre.0, &depot);
     // Une commande convertie en BL par le raccourci sort tout ; ici on
     // veut un bon saisi ligne à ligne : on le crée directement.
-    let bl = pieces::creer_piece_sur_base(&mut base, client, "bon_livraison".into(), vec![ligne(&sucre, 10.0)], None, None, None, None, None).unwrap();
+    let bl = pieces::creer_piece_sur_base(&mut base, client, "bon_livraison".into(), vec![ligne(&sucre, 10.0)], None, None, None, None, None, None).unwrap();
     let bl_id = bl["id"].as_str().unwrap().to_string();
 
     let l = livraisons::lire_livraison_piece_sur_base(&mut base, bl_id.clone()).unwrap();
@@ -200,7 +200,7 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     vendre(&mut base, 1.0, true);
     let sucre = article_unite(&mut base, "Sucre");
     let client = client_reel(&mut base);
-    let bl = pieces::creer_piece_sur_base(&mut base, client, "bon_livraison".into(), vec![ligne(&sucre, 2.0)], None, None, None, None, None).unwrap();
+    let bl = pieces::creer_piece_sur_base(&mut base, client, "bon_livraison".into(), vec![ligne(&sucre, 2.0)], None, None, None, None, None, None).unwrap();
     let bl_id = bl["id"].as_str().unwrap().to_string();
     base.auditer(true);
 

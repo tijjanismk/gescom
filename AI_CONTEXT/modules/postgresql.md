@@ -123,7 +123,7 @@ schéma, les rôles, les comptes, le dépôt, le client « Comptant », les
 tables du réseau v2, le cloisonnement par dossier et le déclencheur de
 stock — sur les deux moteurs.
 
-**Les 198 commandes du serveur ont leur poignée `Base`** (193 le 13/09 ; +1 référence, +4 images le 17/09)
+**Les 202 commandes du serveur ont leur poignée `Base`** (193 le 13/09 ; +1 référence, +4 images le 17/09 ; +recouvrement exceptionnel, +avoir accordé, +export/import des modèles le 18/09)
 (`*_sur_base`, branchée par `Registre::aussi_sur_base` — y compris
 `lire_catalogue_permissions`, qui ne lit pas la base mais que le registre
 refusait sans poignée). Vendre, facturer,

@@ -436,6 +436,7 @@ fn facture_validee_sort_du_depot_de_la_piece() {
         None, None, None, None,
         // La piece est etablie a l'annexe.
         Some(b.annexe.clone()),
+        None,
     ).unwrap();
     // creer_piece renvoie la cle `id`, pas `piece_id` comme le POS.
     let piece_id = piece["id"].as_str().unwrap().to_string();

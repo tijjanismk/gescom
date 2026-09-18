@@ -1037,3 +1037,166 @@ doit lire/écrire le fichier ici et parler au serveur pour le contenu.
 Mesuré sur la branche : **412 tests noyau SQLite**, 0 échec ;
 `gestion_base`, `fournisseurs_base`, `images_base`, `schema_commun`
 au vert sur PostgreSQL ; typecheck et build front au vert.
+
+## 17/09/2026 (suite) et 18/09/2026 — l'irrécouvrable, l'avoir accordé, les flottants, la palette
+
+**I4 — la référence du tiers.** `definir_reference_piece`, la colonne
+en fin de liste. Le script de vérification a attrapé un décalage : la
+liste fournisseur de la fenêtre n'a pas `credit_ouvert`, la référence
+y est à l'indice 18 et non 19. Les listes de la fenêtre construisent
+toujours leur `WHERE` par `format!` sur des *conditions* (pas des
+valeurs) — dette notée, pas réglée.
+
+**L'irrécouvrable qui se réglait quand même.** Une créance sortie des
+comptes acceptait un règlement ordinaire et revenait
+« partiellement payée » en silence. Deux règles pures :
+`peut_regler(statut)` refuse `irrecouvrable` et `annulee`, et
+`statut_apres_recouvrement(total, paye)` ne rend `payee` que si tout
+est rentré. Le **règlement exceptionnel** est son propre geste, avec
+son propre motif de caisse (`recouvrement`) — le tiroir dit ce que
+c'est. Au passage, un test bégayait : deux paiements écrits dans la
+même tranche de 15 ms (l'horloge Windows) avaient la même
+`date_paiement`, et la somme cumulée (`p2.date <= p.date`) comptait
+les deux pour chacun. Le sous-requête départage maintenant par
+`(date_paiement, cree_le, id)`.
+
+**L'avoir accordé.** « Des avoirs liés à un client sans articles » :
+un geste commercial, un dédommagement. Il fallait une permission que
+**le patron seul** porte : `avoirs:accorder` n'entre dans aucun rôle
+livré, elle vient avec `acces_total` ou se donne à la main. L'avoir
+naît sans retour et sans `ligne_piece` — la table exige un article.
+Le document imprimé sortait donc à zéro : `lire_donnees_piece` pose
+une **ligne d'affichage** tirée de `avoir.montant` quand un AVC n'a
+aucune ligne. Rien n'est écrit, c'est le rendu qui complète.
+
+**Les blocs flottants.** « Un rectangle peut être sur un rectangle et
+on doit pouvoir redimensionner sur l'aperçu. » Un cadre `flottant`
+sur n'importe quel bloc, posé en absolu dans une `.feuille` dont le
+coin haut-gauche est celui de la zone imprimable — la même origine à
+l'écran (le corps porte la marge en `padding`) et sur le papier
+(`@page` porte la marge). Deux flottants se recouvrent librement ; le
+`z-index` est le rang dans la structure, donc réordonner la structure
+change qui passe devant. Dans l'aperçu, l'atelier pose des écouteurs
+`pointer*` sur le DOM de l'iframe (toujours sans `allow-scripts`,
+D50) : on tire le bloc, ou son coin bas-droit ; le style bouge en
+direct, le modèle n'est écrit qu'au relâcher. Le dépôt dans l'aperçu
+passait par un *rang* parmi les blocs rendus — un bloc caché ou
+flottant décalait la cible ; il passe par l'*identifiant* du bloc
+devant lequel on lâche. Vérifié par un rendu hors application
+(esbuild + Edge sans fenêtre) : image sur le tableau, « PAYÉ »
+par-dessus les deux.
+
+**La date de la réception.** Même règle, même permission, même partage
+que la vente : la facture fournisseur et le règlement portent le jour
+de l'affaire, le stock et la caisse bougent au jour de la saisie —
+« Réception du jj/mm » en libellé de caisse. `enregistrer_achat_date`
+dans les deux versions, l'original en enveloppe.
+
+**La palette de commandes.** Ctrl+K partout. Les actions globales sont
+celles du menu, avec les mêmes droits ; les onglets de Paramètres, et
+le compte. Chaque écran déclare les siennes tant qu'il est monté
+(`useActionsPalette`) — la caisse propose *ouvrir* ou *fermer* selon
+l'état du tiroir. Une leçon de rechargement à chaud : exporter une
+constante depuis un fichier de composant casse le Fast Refresh de ce
+fichier ; la liste des onglets vit dans `lib/onglets-parametres.ts`.
+
+Un accident en chemin : un `gescom_noyau:   :creances` dans
+`commandes/creances.rs` — une frappe dans l'éditeur, pas un lot —
+faisait échouer la façade Tauri ; remis d'aplomb.
+
+Mesuré : **438 tests workspace SQLite**, 0 échec, 0 avertissement ;
+`gestion_base`, `pieces_base`, `achats_base`, `fournisseurs_base`,
+`postgres_amorcage` au vert sur PostgreSQL ; typecheck front au vert ;
+serveur d'essai relancé depuis `binaires/` avec **200 commandes**.
+
+## 18/09/2026 (suite) — I5, la palette qui cherche, Pièces, et la v2 close
+
+**I5.** L'export et l'import des modèles étaient des commandes
+*locales* qui lisaient et écrivaient un fichier **et** touchaient la
+base de la caisse — vide en mode poste. Le découpage : le **serveur**
+rend le lot (`exporter_modeles`, lecture) et reçoit le lot
+(`importer_modeles`, `modeles:gerer`), sur les deux poignées ; le
+**poste** lit et écrit le fichier avec `plugin-fs` (nouvelle capacité
+`fs:allow-write-text-file`). Les façades Tauri gardent la même forme
+(lot en entrée / en sortie), sans fichier. Vérifié par HTTP sur un
+serveur jetable (SQLite, port 7399) : import d'un lot de deux, export
+qui les rend.
+
+**La palette cherche les tiers.** Deux lettres suffisent : cinq
+clients, cinq fournisseurs, par les commandes paginées déjà là, avec
+les droits du menu ; choisir ouvre la fiche. La réponse d'une frappe
+dépassée est jetée. La fenêtre s'élargit.
+
+**Pièces.** Du → au dans la barre, pour les deux côtés — la liste
+fournisseur n'avait pas de bornes de date, elle en a (deux versions,
+paramètres liés côté `Base`, scénario). Et le filtre dit le type :
+sur « Commandes », le bouton crée une commande sans redemander ; sur
+« Tout », le sélecteur revient. Un type qu'on ne crée pas à la main
+(avoir fournisseur) retombe sur le choix.
+
+**La v2 est close**, sur décision du propriétaire. Restent notés
+l'installeur non signé (D5), l'impression papier jamais vérifiée à la
+main, et le déclencheur de stock multi-dossier (v3).
+
+Mesuré : **438 tests workspace SQLite**, 0 échec ; `pieces_base` au
+vert sur PostgreSQL ; typecheck front au vert ; serveur d'essai relancé
+avec **202 commandes**.
+
+## 18/09/2026 (suite 2) — palette plus large, la date à la création
+
+Deux retouches après la clôture. La palette passe à `max-w-3xl` — trop
+étroite pour lire confortablement le détail d'un client trouvé.
+
+Et **la date se saisit aussi à la création d'une pièce**, pas
+seulement à son échéance de paiement : `creer_piece[_sur_base]` et
+`creer_piece_fournisseur[_sur_base]` prennent `date_piece`, validée
+par la même règle que la réception et le règlement
+(`argent::date_de_la_piece`, fenêtre de 31 jours) et gardée par
+`pieces:antidater` côté serveur — même geste que `modifier_piece`.
+Rien d'autre ne bouge avec elle : `creer_piece*` ne touche ni le stock
+ni la caisse, ça n'est pas son rôle. Champ « Date de la pièce » dans
+`ModalNouvellePiece.tsx`, visible seulement à qui a le droit ; scénario
+`une_piece_peut_naitre_deja_datee` (sans date, avec date dans la
+fenêtre, trop loin dans le passé → refusée, rien n'est créé).
+
+Mesuré : **439 tests workspace SQLite**, 0 échec ; `pieces_base`
+18/18 sur PostgreSQL ; typecheck front au vert.
+
+## 18/09/2026 (suite 3) — six retouches d'après capture
+
+**L'avoir fournisseur remboursé n'est pas un impayé.** La liste des
+pièces calculait `reste = total − payé` pour un AVF comme pour une
+facture : un retour remboursé en espèces (statut `paye`, argent déjà
+rentré) affichait 5 000 F de reste en rouge. Ce n'était pas la
+démonstration, c'était la liste. La règle existait déjà, recopiée trois
+fois dans `fournisseurs.rs` ; elle est maintenant dans `coeur`
+(`credit_avoir_fournisseur` : remboursé ou annulé → 0, sinon le crédit)
+et sert partout. Le reste d'un avoir se lit en ambre, et le pied de
+tableau n'additionne que les factures. Scénario dans `achats_base`.
+
+**La caisse plantait** depuis la palette : `useActionsPalette` était
+appelé après le `return` du chargement — un rendu avec un hook de
+moins, React jette l'écran. Remonté avant le retour anticipé. Les
+autres pages déclarent leurs actions avant tout `return`, vérifié.
+
+**La palette ne s'élargissait pas** : `DialogContent` porte
+`sm:max-w-sm`, qui l'emporte sur `max-w-3xl` sans préfixe. `sm:max-w-3xl`.
+
+**Chaque bloc se redimensionne dans l'aperçu.** Un bloc du flux prend
+100 % de la largeur, c'est le flux ; tirer son coin bas-droit le
+DÉTACHE (flottant, au cadre qu'il occupait) et le redimensionne dans le
+même geste — plus besoin de trouver la case à cocher. La case garde
+aussi le cadre à l'écran au lieu de sauter en (0,0). Le pied de page ne
+se détache pas.
+
+**« Client » devient « Fournisseur »** sur une pièce fournisseur, pour
+tout champ posé sur `tiers.*` — sans retoucher les modèles enregistrés.
+
+**Paramètres → Société** perd la section « Signatures » : les noms
+vivent dans le bloc Signatures de chaque modèle ; les commandes
+`*_config_signatures` restent pour le rendu de secours sans modèle.
+
+Mesuré : **440 tests workspace SQLite**, 0 échec ; `achats_base`
+9/9 sur PostgreSQL ; typecheck front au vert ; serveur d'essai
+relancé, la liste des AVF vérifiée par HTTP (remboursé → reste 0).
+

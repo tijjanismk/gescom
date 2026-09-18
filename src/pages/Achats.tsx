@@ -18,6 +18,7 @@ import type {
   CreerFournisseurResultat, EnregistrerAchatResultat,
 } from "@/lib/types-api";
 import { cn } from "@/lib/utils";
+import { peut } from "@/lib/droits";
 import { appeler as invoke } from "@/lib/pont";
 import { SelectUnite } from "@/components/SelectUnite";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
@@ -257,6 +258,11 @@ export function Achats() {
   // Panier
   const [panier, setPanier] = useState<LignePanierAchat[]>([]);
   const [modeReglement, setModeReglement] = useState<"comptant" | "credit">("comptant");
+  // La date de la RECEPTION, quand le cahier se recopie apres coup.
+  // Vide = aujourd'hui. Reservee a qui peut antidater — le serveur
+  // refuse de toute facon, l'ecran ne propose pas ce qu'il refuserait.
+  const [dateReception, setDateReception] = useState("");
+  const peutAntidater = peut("pieces:antidater");
   // N'a de sens que si modeReglement === "credit" — ignoré côté serveur sinon.
   const [acompte, setAcompte] = useState("");
   const [modeAcompte, setModeAcompte] = useState("especes");
@@ -404,6 +410,7 @@ export function Achats() {
     setModeReglement("comptant");
     setAcompte("");
     setModeAcompte("especes");
+    setDateReception("");
   }
 
   // ---- Confirmation achat ----
@@ -425,6 +432,7 @@ export function Achats() {
             ? (parseMontant(acompte) || null)
             : null,
           note: null,
+          dateReception: dateReception || null,
           lignes: panier.map(l => ({
             article_id:     l.article.id,
             unite_vente_id: l.unite.id,
@@ -764,6 +772,37 @@ export function Achats() {
                   ? "Stock mis à jour, acompte réglé — sort de la caisse, reste dû conservé"
                   : "Stock mis à jour — aucun règlement immédiat, dette conservée"}
             </p>
+
+            {/* La date de l'AFFAIRE, juste avant d'enregistrer. Vide =
+                aujourd'hui. Reservee a qui peut antidater. */}
+            {peutAntidater && (
+              <div className={cn(
+                "flex items-center gap-2 rounded-md border px-3 py-2",
+                dateReception ? "border-amber-400 bg-amber-50" : "border-border",
+              )}>
+                <Label className="text-xs text-muted-foreground whitespace-nowrap">
+                  Réception du
+                </Label>
+                <Input type="date" value={dateReception}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={e => setDateReception(e.target.value)}
+                  className="h-8 flex-1 text-xs" />
+                {dateReception ? (
+                  <button type="button" className="text-[11px] text-amber-800 underline"
+                    onClick={() => setDateReception("")} title="Revenir a aujourd'hui">
+                    aujourd'hui
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">aujourd'hui</span>
+                )}
+              </div>
+            )}
+            {dateReception && (
+              <p className="text-[11px] text-amber-800 -mt-1">
+                La facture fournisseur sera datée du {dateReception.split("-").reverse().join("/")} ;
+                le stock entre et l'argent sort aujourd'hui.
+              </p>
+            )}
 
             <Button className="w-full" size="lg"
               disabled={panier.length === 0 || chargementAchat}

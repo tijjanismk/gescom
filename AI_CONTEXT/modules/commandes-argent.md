@@ -39,7 +39,31 @@ la date de l'affaire. Le `mouvement_caisse` garde `maintenant` — la
 caisse se lit par session, jamais par date — et son `libelle` dit
 « Vente du 03/09 » ou « Règlement du 03/09 ». Son `motif` reste la
 catégorie technique (`vente`, `reglement_fournisseur`) que les rapports
-filtrent.
+filtrent. Depuis le 18/09, la **réception** aussi :
+`achats::enregistrer_achat_date*` (« Réception du 03/09 »), le stock
+et la caisse au jour de la saisie.
+
+## L'irrécouvrable et le règlement exceptionnel (18/09/2026)
+
+`regler_creance*` refuse une vente `irrecouvrable` ou `annulee`
+(`coeur::calcul::peut_regler`). L'argent qui revient malgré tout passe
+par `regler_creance_exceptionnel[_sur_base]` (permission
+`chantiers:gerer`) : plafonné au reste, caisse exigée, motif de caisse
+**`recouvrement`**, libellé « Recouvrement exceptionnel — motif », et
+la vente ne redevient `payee` que si tout est rentré
+(`statut_apres_recouvrement`) ; sinon elle reste irrécouvrable pour le
+reste. Journal `recouvrement_exceptionnel`.
+
+## L'avoir accordé (18/09/2026)
+
+`avoirs::accorder_avoir_client[_sur_base](client, montant, motif,
+role)` — permission `avoirs:accorder`, **patron seul**. Avoir
+`retour_id NULL`, pièce AVC `origine 'geste'` avec le motif et le
+montant en note, **aucune `ligne_piece`** ; le crédit ouvert du client
+grandit du montant et se consomme comme les autres. Client de passage
+(D40), montant nul, motif vide : refusés. Le document imprimé porte une
+ligne d'affichage (`pieces::ligne_d_avoir_accorde`) pour ne pas sortir
+à zéro.
 
 ## Le garde-fou `CAISSE_FERMEE`
 

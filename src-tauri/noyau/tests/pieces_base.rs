@@ -26,6 +26,7 @@ fn devis(base: &mut Base, quantite: f64) -> serde_json::Value {
         Some("Devis de test".into()),
         None,
         None,
+        None,
     )
     .expect("créer un devis")
 }
@@ -133,12 +134,23 @@ fn la_reference_du_tiers_se_lit_dans_les_listes_et_se_cherche() {
     let faf = achat["piece_id"].as_str().unwrap().to_string();
     pieces::definir_reference_piece_sur_base(&mut base, faf, Some("FAC-GROSSISTE-2026-091".into()))
         .expect("poser la reference fournisseur");
-    let liste = pieces::lire_toutes_pieces_fournisseur_sur_base(&mut base, None, None, None, None).unwrap();
+    let liste = pieces::lire_toutes_pieces_fournisseur_sur_base(&mut base, None, None, None, None, None, None).unwrap();
     assert_eq!(liste[0]["reference"], "FAC-GROSSISTE-2026-091", "{}", liste[0]);
     let cherche = pieces::lire_toutes_pieces_fournisseur_sur_base(
-        &mut base, None, None, Some("grossiste-2026".into()), None,
+        &mut base, None, None, Some("grossiste-2026".into()), None, None, None,
     ).unwrap();
     assert_eq!(cherche.len(), 1);
+    // Les bornes de date : la piece est d'aujourd'hui, hier la cache.
+    let aujourd_hui = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let hier = (chrono::Local::now().date_naive() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+    let du_jour = pieces::lire_toutes_pieces_fournisseur_sur_base(
+        &mut base, None, None, None, None, Some(format!("{aujourd_hui}T00:00:00")), Some(format!("{aujourd_hui}T23:59:59")),
+    ).unwrap();
+    assert_eq!(du_jour.len(), liste.len(), "toutes les pieces sont du jour");
+    let d_hier = pieces::lire_toutes_pieces_fournisseur_sur_base(
+        &mut base, None, None, None, None, None, Some(format!("{hier}T23:59:59")),
+    ).unwrap();
+    assert!(d_hier.is_empty(), "rien avant aujourd'hui");
 
     // Retirer : vide -> NULL, pas une chaine vide.
     pieces::definir_reference_piece_sur_base(&mut base, id(&d), Some("   ".into())).unwrap();
@@ -155,7 +167,7 @@ fn un_avoir_client_cree_a_la_main_porte_son_credit() {
     let sucre = article_unite(&mut base, "Sucre");
     let avc = pieces::creer_piece_sur_base(
         &mut base, client, "avoir_client".into(), vec![ligne(&sucre, 2.0)],
-        None, None, None, None, None,
+        None, None, None, None, None, None,
     )
     .unwrap();
     assert_eq!(avc["statut"], "emis");
@@ -340,6 +352,49 @@ fn la_date_d_une_piece_se_saisit_et_ne_bouge_pas_toute_seule() {
     );
 }
 
+/// La date se saisit aussi a la CREATION, pas seulement en modification
+/// — le meme papier du samedi qu'on rattrape le soir. Rien de la piece
+/// ne bouge avec elle : ni le stock ni la caisse ne partent d'ici.
+#[test]
+fn une_piece_peut_naitre_deja_datee() {
+    let mut base = base_avec_demo();
+    let client = client_reel(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let hier = (chrono::Local::now().date_naive() - chrono::Duration::days(1))
+        .format("%Y-%m-%d").to_string();
+    let trop_loin = (chrono::Local::now().date_naive() - chrono::Duration::days(40))
+        .format("%Y-%m-%d").to_string();
+
+    // Sans date : la piece nait d'aujourd'hui, comme avant.
+    let sans_date = pieces::creer_piece_sur_base(
+        &mut base, client.clone(), "devis".into(), vec![ligne(&sucre, 1.0)],
+        None, None, None, None, None, None,
+    ).unwrap();
+    let liste = pieces::lire_pieces_client_sur_base(&mut base, client.clone(), None).unwrap();
+    let l = liste.iter().find(|l| l["id"] == sans_date["id"]).unwrap();
+    let aujourd_hui = chrono::Local::now().format("%Y-%m-%d").to_string();
+    assert!(l["date_piece"].as_str().unwrap().starts_with(&aujourd_hui), "{}", l["date_piece"]);
+
+    // Antidatee, dans la fenetre : la piece nait a la date saisie.
+    let datee = pieces::creer_piece_sur_base(
+        &mut base, client.clone(), "devis".into(), vec![ligne(&sucre, 1.0)],
+        None, None, None, None, None, Some(hier.clone()),
+    ).unwrap();
+    let liste = pieces::lire_pieces_client_sur_base(&mut base, client.clone(), None).unwrap();
+    let l = liste.iter().find(|l| l["id"] == datee["id"]).unwrap();
+    assert!(l["date_piece"].as_str().unwrap().starts_with(&hier), "{}", l["date_piece"]);
+
+    // Trop loin dans le passe : refusee, rien n'est cree.
+    let avant = pieces::lire_pieces_client_sur_base(&mut base, client.clone(), None).unwrap().len();
+    let refus = pieces::creer_piece_sur_base(
+        &mut base, client.clone(), "devis".into(), vec![ligne(&sucre, 1.0)],
+        None, None, None, None, None, Some(trop_loin),
+    ).unwrap_err();
+    assert!(refus.contains("annee"), "{refus}");
+    let apres = pieces::lire_pieces_client_sur_base(&mut base, client, None).unwrap().len();
+    assert_eq!(avant, apres, "la piece refusee n'a rien laisse derriere elle");
+}
+
 #[test]
 fn annuler_un_brouillon_passe_et_une_facture_validee_est_refusee() {
     let mut base = base_avec_demo();
@@ -472,7 +527,7 @@ fn les_donnees_d_impression_tiennent_pour_un_client_et_un_fournisseur() {
     let f = fournisseur(&mut base, "Grossiste Sikasso");
     let bcf = pieces::creer_piece_fournisseur_sur_base(
         &mut base, f, "bon_commande_fournisseur".into(), vec![ligne(&sucre, 10.0)],
-        None, None, None, None,
+        None, None, None, None, None,
     )
     .unwrap();
     assert_eq!(bcf["statut"], "emis");
@@ -481,7 +536,7 @@ fn les_donnees_d_impression_tiennent_pour_un_client_et_un_fournisseur() {
     assert_eq!(donnees["piece"]["client_nom"], "Grossiste Sikasso");
     assert!(donnees["piece"]["client_code"].is_null(), "un fournisseur n'a pas de code");
 
-    let liste = pieces::lire_toutes_pieces_fournisseur_sur_base(&mut base, None, None, Some("sikasso".into()), None).unwrap();
+    let liste = pieces::lire_toutes_pieces_fournisseur_sur_base(&mut base, None, None, Some("sikasso".into()), None, None, None).unwrap();
     assert_eq!(liste.len(), 1, "recherche fournisseur insensible à la casse");
     assert_eq!(liste[0]["total_ht"], 10 * sucre.3);
 }
@@ -557,10 +612,10 @@ fn tout_ce_qui_est_porte_dans_pieces_passe_le_detecteur() {
 
     let f = fournisseur(&mut base, "F");
     let bcf = pieces::creer_piece_fournisseur_sur_base(
-        &mut base, f.clone(), "bon_commande_fournisseur".into(), vec![ligne(&sucre, 1.0)], None, None, None, None,
+        &mut base, f.clone(), "bon_commande_fournisseur".into(), vec![ligne(&sucre, 1.0)], None, None, None, None, None,
     )
     .expect("BCF");
-    pieces::lire_toutes_pieces_fournisseur_sur_base(&mut base, Some("bon_commande_fournisseur".into()), Some("emis".into()), Some("f".into()), Some(f))
+    pieces::lire_toutes_pieces_fournisseur_sur_base(&mut base, Some("bon_commande_fournisseur".into()), Some("emis".into()), Some("f".into()), Some(f), None, None)
         .expect("liste fournisseur");
     pieces::convertir_piece_sur_base(&mut base, id(&bcf), "bon_reception".into()).expect("BCF → BRF");
 }

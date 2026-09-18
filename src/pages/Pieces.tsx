@@ -36,6 +36,7 @@ import { ModalNouvellePiece } from "@/components/ModalNouvellePiece";
 import { ApercuPiece } from "@/components/ApercuPiece";
 import { ModalLivraison } from "@/components/ModalLivraison";
 import { UTILISATEUR_ACTIF } from "@/App";
+import { useActionsPalette } from "@/lib/palette";
 
 // =====================================================================
 //  Types
@@ -760,6 +761,11 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
 
   // Modals
   const [modalNouv, setModalNouv] = useState(false);
+  useActionsPalette("pieces", [
+    { id: "pieces:nouvelle", libelle: "Nouvelle pièce", groupe: "Sur cette page",
+      detail: "Devis, commande, bon de livraison, facture…",
+      droit: "pieces:creer", executer: () => setModalNouv(true) },
+  ]);
   const [factureAValider, setFactureAValider] = useState<Piece | null>(null);
   const [pieceAModifier, setPieceAModifier] = useState<Piece | null>(null);
   const [pieceAEncaisser, setPieceAEncaisser] = useState<Piece | null>(null);
@@ -794,6 +800,20 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
   // Type effectif
   const filtreTypeEffectif = filtresAvances.type_piece !== "tous"
     ? filtresAvances.type_piece : filtreTypeRapide;
+  // Le filtre « Commandes » cree une commande, « Factures » une facture :
+  // le type n'est redemande que sur « Tout ». Un type qu'on ne cree pas
+  // a la main (avoir fournisseur) retombe sur le choix.
+  const TYPES_CREABLES: Record<string, string> = {
+    devis: "Nouveau devis", commande_client: "Nouvelle commande",
+    bon_livraison: "Nouveau bon de livraison", facture: "Nouvelle facture",
+    avoir_client: "Nouvel avoir",
+    bon_commande_fournisseur: "Nouveau bon de commande",
+    bon_reception: "Nouveau bon de réception", facture_fournisseur: "Nouvelle facture fournisseur",
+  };
+  const typeImpose = TYPES_CREABLES[filtreTypeEffectif] ? filtreTypeEffectif : undefined;
+  const libelleCreation = typeImpose
+    ? TYPES_CREABLES[typeImpose]
+    : onglet === "client" ? "Nouvelle pièce client" : "Nouvelle pièce fournisseur";
 
   const charger = useCallback(async () => {
     setChargement(true);
@@ -818,6 +838,8 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
           statut:     filtresAvances.statut === "tous" ? null : filtresAvances.statut,
           recherche:  recherche || null,
           fournisseurId: filtresAvances.client_id !== "tous" ? filtresAvances.client_id : null,
+          dateDebut:  filtresAvances.date_debut ? filtresAvances.date_debut + "T00:00:00" : null,
+          dateFin:    filtresAvances.date_fin   ? filtresAvances.date_fin   + "T23:59:59" : null,
         });
       }
       setPieces(data);
@@ -1101,10 +1123,13 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
 
   const totalNet  = comptable.reduce((s, p) => s + p.total_net, 0);
   const totalTTC  = comptable.reduce((s, p) => s + p.total_ttc, 0);
+  // Le pied de tableau additionne les IMPAYÉS : le crédit d'un avoir n'en
+  // est pas un, il ne s'y ajoute pas.
+  const estImpayable = (p: Piece) => p.type_piece.startsWith("facture");
   const totalPaye = comptable
-    .filter(estFacture).reduce((s, p) => s + (p.total_paye ?? 0), 0);
+    .filter(estImpayable).reduce((s, p) => s + (p.total_paye ?? 0), 0);
   const totalReste = comptable
-    .filter(estFacture).reduce((s, p) => s + (p.reste ?? 0), 0);
+    .filter(estImpayable).reduce((s, p) => s + (p.reste ?? 0), 0);
   const nbAnnulees = piecesTri.length - comptable.length;
   const pillsActuels = onglet === "client" ? TYPES_PILLS_CLIENT : TYPES_PILLS_FOURNISSEUR;
   const labelTiers = onglet === "client" ? "Client" : "Fournisseur";
@@ -1184,11 +1209,29 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
           )}
         </div>
 
-        {/* ← BOUTON CRÉER contextuel */}
+        {/* Du → au : la même paire que les filtres avancés, à portée
+            de main. Vide = tout. */}
+        <div className="flex items-center gap-1">
+          <Input type="date" value={filtresAvances.date_debut}
+            onChange={e => setFiltresAvances(prev => ({ ...prev, date_debut: e.target.value }))}
+            className="h-8 text-xs w-[8.5rem] bg-background" title="Du" />
+          <span className="text-xs text-muted-foreground">→</span>
+          <Input type="date" value={filtresAvances.date_fin}
+            onChange={e => setFiltresAvances(prev => ({ ...prev, date_fin: e.target.value }))}
+            className="h-8 text-xs w-[8.5rem] bg-background" title="Au" />
+          {(filtresAvances.date_debut || filtresAvances.date_fin) && (
+            <button className="text-muted-foreground" title="Toutes les dates"
+              onClick={() => setFiltresAvances(prev => ({ ...prev, date_debut: "", date_fin: "" }))}>
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* ← BOUTON CRÉER contextuel : le filtre dit déjà le type */}
         <Button size="sm" onClick={() => setModalNouv(true)}
           className="gap-1.5">
           <Plus className="h-3.5 w-3.5" />
-          {onglet === "client" ? "Nouvelle pièce client" : "Nouvelle pièce fournisseur"}
+          {libelleCreation}
         </Button>
 
         {/* Compteur */}
@@ -1358,8 +1401,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                         ? fmt(p.total_paye) : "—"}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap text-sm">
+                      {/* Le reste d'un avoir est un CRÉDIT (à consommer, à
+                          déduire), pas un impayé : il ne se lit pas en rouge. */}
                       {estFacture(p) && p.reste > 0
-                        ? <span className="font-semibold text-red-600">
+                        ? <span className={p.type_piece.startsWith("avoir")
+                              ? "font-semibold text-amber-700" : "font-semibold text-red-600"}
+                            title={p.type_piece.startsWith("avoir") ? "Crédit non consommé" : "Reste dû"}>
                             {fmt(p.reste)}
                           </span>
                         : <span className="text-muted-foreground">—</span>}
@@ -1644,6 +1691,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
       <ModalNouvellePiece
         ouvert={modalNouv}
         cote={onglet}
+        typeImpose={typeImpose}
         onFermer={() => setModalNouv(false)}
         onCree={() => { setModalNouv(false); charger(); }}
       />

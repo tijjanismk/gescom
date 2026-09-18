@@ -715,6 +715,38 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
   const [reglements, setReglements] = useState<Reglement[]>([]);
   const [reglementAAnnuler, setReglementAAnnuler] = useState<Reglement | null>(null);
   const [recuApercu, setRecuApercu] = useState<string | null>(null);
+  // L'AVOIR ACCORDÉ : un crédit sans marchandise en face (geste
+  // commercial, dédommagement). Le patron seul — la permission n'entre
+  // dans aucun rôle livré.
+  const [modalAvoir, setModalAvoir] = useState(false);
+  const [montantAvoir, setMontantAvoir] = useState("");
+  const [motifAvoir, setMotifAvoir] = useState("");
+  const [avoirEnCours, setAvoirEnCours] = useState(false);
+
+  async function handleAccorderAvoir() {
+    const montant = parseMontant(montantAvoir);
+    if (montant <= 0) {
+      await message("Saisir le montant de l'avoir.", { title: "Avoir", kind: "warning" });
+      return;
+    }
+    if (!motifAvoir.trim()) {
+      await message("Un avoir accordé porte un motif.", { title: "Avoir", kind: "warning" });
+      return;
+    }
+    setAvoirEnCours(true);
+    try {
+      const r = await invoke<{ numero: string }>("accorder_avoir_client", {
+        clientId, montant, motif: motifAvoir.trim(),
+        utilisateurRole: UTILISATEUR_ACTIF?.role ?? "patron",
+      });
+      await message(`Avoir ${r.numero} accordé : ${fmt(montant)} au crédit du client.`,
+        { title: "Avoir", kind: "info" });
+      setModalAvoir(false); setMontantAvoir(""); setMotifAvoir("");
+      charger();
+    } catch (e) {
+      await message(`${e}`, { title: "Avoir", kind: "error" });
+    } finally { setAvoirEnCours(false); }
+  }
   // Filtre de l'onglet Règlements. Appliqué à l'écran ET à l'impression :
   // un document qui ne correspondrait pas à l'écran d'où il sort ferait
   // douter des deux.
@@ -1355,6 +1387,14 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
         {/* ---- Avoirs ---- */}
         {onglet === "avoirs" && (
           <div className="space-y-3">
+            {peut("avoirs:accorder") && (
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" onClick={() => setModalAvoir(true)}
+                  title="Un crédit sans marchandise rendue : geste commercial, dédommagement">
+                  <Gift className="h-4 w-4 mr-1" /> Accorder un avoir
+                </Button>
+              </div>
+            )}
             {avoirs.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
                 Aucun avoir
@@ -1403,6 +1443,38 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
         ouvert={modalNouv} clientId={clientId}
         onFermer={() => setModalNouv(false)}
         onCree={() => { setModalNouv(false); charger(); }} />
+
+      <Dialog open={modalAvoir} onOpenChange={o => { if (!o) setModalAvoir(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Accorder un avoir</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <div>
+              <Label className="text-xs mb-1.5 block">Montant (F)</Label>
+              <MoneyInput value={montantAvoir} onChange={setMontantAvoir} autoFocus />
+            </div>
+            <div>
+              <Label className="text-xs mb-1.5 block">Motif</Label>
+              <Input value={motifAvoir} onChange={e => setMotifAvoir(e.target.value)}
+                placeholder="Ex : retard de livraison, article abîmé" className="h-9" />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Aucune marchandise ne revient : le montant entre au crédit du
+              client, avec une pièce AVC numérotée et une trace au journal.
+              Il se consomme sur une prochaine vente ou se rembourse.
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setModalAvoir(false)}>
+                Annuler
+              </Button>
+              <Button className="flex-1" onClick={handleAccorderAvoir} disabled={avoirEnCours}>
+                Accorder
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <ModalReglementCreance
         ouvert={!!creanceActive} creance={creanceActive}

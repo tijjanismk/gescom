@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
 import { UTILISATEUR_ACTIF, DEPOT_ACTIF } from "@/App";
+import { peut } from "@/lib/droits";
+import { cn } from "@/lib/utils";
 
 // =====================================================================
 //  Types
@@ -72,6 +74,12 @@ interface ModalNouvellePieceProps {
   onFermer: () => void;
   onCree: () => void;
   tiersIdInitial?: string; // pré-sélectionner un tiers
+  /**
+   * Le type déjà choisi par l'écran — le filtre « Commandes » ouvre une
+   * commande, sans redemander. Ignoré s'il n'est pas un type qu'on peut
+   * créer (un avoir fournisseur naît d'un retour, pas d'ici).
+   */
+  typeImpose?: string;
 }
 
 // =====================================================================
@@ -79,10 +87,11 @@ interface ModalNouvellePieceProps {
 // =====================================================================
 
 export function ModalNouvellePiece({
-  ouvert, cote, onFermer, onCree, tiersIdInitial,
+  ouvert, cote, onFermer, onCree, tiersIdInitial, typeImpose,
 }: ModalNouvellePieceProps) {
   const typesDisponibles = cote === "client" ? TYPES_CLIENT : TYPES_FOURNISSEUR;
-  const defaultType = cote === "client" ? "devis" : "bon_commande_fournisseur";
+  const typeFixe = typeImpose && typesDisponibles[typeImpose] ? typeImpose : undefined;
+  const defaultType = typeFixe ?? (cote === "client" ? "devis" : "bon_commande_fournisseur");
 
   const [typePiece, setTypePiece] = useState(defaultType);
   const [tiersId, setTiersId] = useState(tiersIdInitial ?? "");
@@ -94,6 +103,11 @@ export function ModalNouvellePiece({
   const [lignes, setLignes] = useState<Ligne[]>([]);
   const [remiseGlobale, setRemiseGlobale] = useState("0");
   const [dateEcheance, setDateEcheance] = useState("");
+  // La date de la piece elle-meme (l'affaire), pas l'echeance de
+  // paiement. Vide = aujourd'hui. Reservee a qui peut antidater — sans
+  // le droit, la piece nait toujours datee du jour.
+  const [datePiece, setDatePiece] = useState("");
+  const peutAntidater = peut("pieces:antidater");
   const [note, setNote] = useState("");
   const [rechercheArticle, setRechercheArticle] = useState("");
   const [articlesFiltres, setArticlesFiltres] = useState<Article[]>([]);
@@ -113,7 +127,7 @@ export function ModalNouvellePiece({
     if (!ouvert) return;
     setTypePiece(defaultType);
     setLignes([]); setRemiseGlobale("0");
-    setDateEcheance(""); setNote("");
+    setDateEcheance(""); setDatePiece(""); setNote("");
     setRechercheArticle(""); setArticlesFiltres([]);
     if (!tiersIdInitial) { setTiersId(""); setTiersNom(""); }
 
@@ -137,7 +151,7 @@ export function ModalNouvellePiece({
 
   function handleFermer() {
     setLignes([]); setRemiseGlobale("0");
-    setDateEcheance(""); setNote("");
+    setDateEcheance(""); setDatePiece(""); setNote("");
     if (!tiersIdInitial) { setTiersId(""); setTiersNom(""); }
     onFermer();
   }
@@ -272,6 +286,7 @@ export function ModalNouvellePiece({
         })),
         remiseGlobale: parseFloat(remiseGlobale) || 0,
         dateEcheance: dateEcheance || null,
+        datePiece: datePiece || null,
         note: note || null,
         pieceOrigineId: null,
         // Cote client seulement : le depot ou la piece est etablie,
@@ -299,20 +314,28 @@ export function ModalNouvellePiece({
 
         <div className="flex-1 overflow-auto px-6 py-4 space-y-4">
 
-          {/* Ligne 1 — Type + Tiers + Date + Note */}
-          <div className="grid grid-cols-4 gap-3">
+          {/* Ligne 1 — Type + Tiers + Date + Échéance + Note */}
+          <div className={cn("grid gap-3", peutAntidater ? "grid-cols-5" : "grid-cols-4")}>
 
-            {/* Type */}
+            {/* Type — fixé par le filtre de l'écran, ou à choisir */}
             <div>
               <Label className="text-xs">Type de pièce</Label>
-              <Select value={typePiece} onValueChange={v => { if (v) setTypePiece(v); }}>
-                <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(typesDisponibles).map(([v, l]) => (
-                    <SelectItem key={v} value={v}>{l}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {typeFixe ? (
+                <div className="mt-1 h-9 px-3 flex items-center border border-border
+                                rounded-md text-sm bg-muted/40"
+                  title="Le type suit le filtre de l'écran ; revenir à « Tout » pour choisir">
+                  {typesDisponibles[typeFixe]}
+                </div>
+              ) : (
+                <Select value={typePiece} onValueChange={v => { if (v) setTypePiece(v); }}>
+                  <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(typesDisponibles).map(([v, l]) => (
+                      <SelectItem key={v} value={v}>{l}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {/* Tiers */}
@@ -403,6 +426,20 @@ export function ModalNouvellePiece({
               )}
             </div>
 
+            {/* Date de la piece — l'affaire, pas l'echeance de paiement.
+                Reservee a qui peut antidater ; sans le droit, la piece
+                nait datee du jour et le champ ne s'affiche pas. */}
+            {peutAntidater && (
+              <div>
+                <Label className="text-xs">Date de la pièce</Label>
+                <Input type="date" value={datePiece}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={e => setDatePiece(e.target.value)}
+                  className={cn("mt-1 h-9", datePiece && "border-amber-400 bg-amber-50")}
+                  title="Vide = aujourd'hui" />
+              </div>
+            )}
+
             {/* Date échéance */}
             <div>
               <Label className="text-xs">Échéance (optionnel)</Label>
@@ -418,6 +455,11 @@ export function ModalNouvellePiece({
                 placeholder="Conditions, délais..." className="mt-1 h-9" />
             </div>
           </div>
+          {datePiece && (
+            <p className="text-[11px] text-amber-800 -mt-2">
+              La pièce sera datée du {datePiece.split("-").reverse().join("/")}.
+            </p>
+          )}
 
           {/* Recherche article */}
           <div className="relative">

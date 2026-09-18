@@ -519,7 +519,10 @@ pub fn registre() -> Registre {
         let acompte: Option<i64> = arg(&p, "acompte", "acompte")?;
         let note: Option<String> = arg(&p, "note", "note")?;
         let piece_origine_id: Option<String> = arg(&p, "pieceOrigineId", "piece_origine_id")?;
-        let v = achats::enregistrer_achat(c.conn, fournisseur_id, depot_id, lignes, mode_reglement, mode_paiement, acompte, note, Some(c.appelant.role.clone()), piece_origine_id)?;
+        // La date de la reception : antidater exige sa permission a part.
+        let date_reception = option_texte(&p, "dateReception").or_else(|| option_texte(&p, "date_reception"));
+        exiger_antidatage(c.conn, &c.appelant, date_reception.as_deref())?;
+        let v = achats::enregistrer_achat_date(c.conn, fournisseur_id, depot_id, lignes, mode_reglement, mode_paiement, acompte, note, Some(c.appelant.role.clone()), piece_origine_id, date_reception)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -555,7 +558,9 @@ pub fn registre() -> Registre {
 
     // ---- Les memes six, sur `Base` ----
     r.aussi_sur_base("enregistrer_achat", |c, p| {
-        let v = achats::enregistrer_achat_sur_base(
+        let date_reception = option_texte(&p, "dateReception").or_else(|| option_texte(&p, "date_reception"));
+        exiger_antidatage_base(c.base, &c.appelant, date_reception.as_deref())?;
+        let v = achats::enregistrer_achat_date_sur_base(
             c.base,
             arg(&p, "fournisseurId", "fournisseur_id")?,
             arg(&p, "depotId", "depot_id")?,
@@ -566,6 +571,7 @@ pub fn registre() -> Registre {
             arg(&p, "note", "note")?,
             Some(c.appelant.role.clone()),
             arg(&p, "pieceOrigineId", "piece_origine_id")?,
+            date_reception,
         )?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
@@ -781,6 +787,33 @@ pub fn registre() -> Registre {
     // Une identite par image, a part des trois emplacements de la
     // societe. Poser et retirer demandent le droit sur les modeles ;
     // lire est ouvert, comme les images de la societe.
+    // I5 : l'export et l'import des modeles PARLENT AU SERVEUR pour le
+    // contenu ; le fichier, lui, se lit et s'ecrit sur le poste (plugin
+    // fs). Avant, les deux etaient des commandes locales qui touchaient
+    // la base vide de la caisse.
+    r.lecture("exporter_modeles", |c, p| {
+        let ids: Option<Vec<String>> = arg(&p, "ids", "ids")?;
+        let lot = modeles::exporter(c.conn, ids)?;
+        serde_json::to_value(lot).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("exporter_modeles", |c, p| {
+        let ids: Option<Vec<String>> = arg(&p, "ids", "ids")?;
+        let lot = modeles::exporter_sur_base(c.base, ids)?;
+        serde_json::to_value(lot).map_err(|e| e.to_string())
+    });
+    r.ecriture("importer_modeles", "modeles:gerer", |c, p| {
+        let lot: modeles::Lot = arg(&p, "lot", "lot")?;
+        let dossier = dossier_des_images(c.conn);
+        let bilan = modeles::importer_avec_images(c.conn, &lot, &c.appelant.utilisateur_id, dossier.as_deref())?;
+        serde_json::to_value(bilan).map_err(|e| e.to_string())
+    });
+    r.aussi_sur_base("importer_modeles", |c, p| {
+        let lot: modeles::Lot = arg(&p, "lot", "lot")?;
+        let dossier = dossier_des_images_base(c.base);
+        let bilan = modeles::importer_avec_images_sur_base(c.base, &lot, &c.appelant.utilisateur_id, dossier.as_deref())?;
+        serde_json::to_value(bilan).map_err(|e| e.to_string())
+    });
+
     r.ecriture("importer_image", "modeles:gerer", |c, p| {
         let nom: String = arg(&p, "nom", "nom")?;
         let contenu: String = arg(&p, "contenu", "contenu")?;
@@ -1106,6 +1139,22 @@ pub fn registre() -> Registre {
         let mode: String = arg(&p, "mode", "mode")?;
         let v = avoirs::rembourser_avoir_sur_base(c.base, piece_id, montant, mode, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    // L'AVOIR ACCORDE — sans marchandise en face. Un credit qui sort de
+    // nulle part est le geste le plus facile a detourner : la permission
+    // n'entre dans aucun role livre, seul l'acces total la porte.
+    r.ecriture("accorder_avoir_client", "avoirs:accorder", |c, p| {
+        let client_id: String = arg(&p, "clientId", "client_id")?;
+        let montant: i64 = arg(&p, "montant", "montant")?;
+        let motif: String = arg(&p, "motif", "motif")?;
+        avoirs::accorder_avoir_client(c.conn, client_id, montant, motif, Some(c.appelant.role.clone()))
+    });
+    r.aussi_sur_base("accorder_avoir_client", |c, p| {
+        let client_id: String = arg(&p, "clientId", "client_id")?;
+        let montant: i64 = arg(&p, "montant", "montant")?;
+        let motif: String = arg(&p, "motif", "motif")?;
+        avoirs::accorder_avoir_client_sur_base(c.base, client_id, montant, motif, Some(c.appelant.role.clone()))
     });
 
     r.lecture("lire_resume_caisse", |c, _p| {
@@ -2248,7 +2297,11 @@ pub fn registre() -> Registre {
         let note: Option<String> = arg(&p, "note", "note")?;
         let piece_origine_id: Option<String> = arg(&p, "pieceOrigineId", "piece_origine_id")?;
         let depot_id: Option<String> = arg(&p, "depotId", "depot_id")?;
-        let v = pieces::creer_piece(c.conn, client_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id, depot_id)?;
+        // La date de l'affaire, saisissable : on note sur papier et on
+        // saisit le soir. Absente, c'est la date du jour.
+        let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
+        exiger_antidatage(c.conn, c.appelant, date_piece.as_deref())?;
+        let v = pieces::creer_piece(c.conn, client_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id, depot_id, date_piece)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -2305,7 +2358,9 @@ pub fn registre() -> Registre {
         let statut: Option<String> = arg(&p, "statut", "statut")?;
         let recherche: Option<String> = arg(&p, "recherche", "recherche")?;
         let fournisseur_id: Option<String> = arg(&p, "fournisseurId", "fournisseur_id")?;
-        let v = pieces::lire_toutes_pieces_fournisseur(c.conn, type_filtre, statut, recherche, fournisseur_id)?;
+        let date_debut: Option<String> = arg(&p, "dateDebut", "date_debut")?;
+        let date_fin: Option<String> = arg(&p, "dateFin", "date_fin")?;
+        let v = pieces::lire_toutes_pieces_fournisseur(c.conn, type_filtre, statut, recherche, fournisseur_id, date_debut, date_fin)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -2317,7 +2372,9 @@ pub fn registre() -> Registre {
         let date_echeance: Option<String> = arg(&p, "dateEcheance", "date_echeance")?;
         let note: Option<String> = arg(&p, "note", "note")?;
         let piece_origine_id: Option<String> = arg(&p, "pieceOrigineId", "piece_origine_id")?;
-        let v = pieces::creer_piece_fournisseur(c.conn, fournisseur_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id)?;
+        let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
+        exiger_antidatage(c.conn, c.appelant, date_piece.as_deref())?;
+        let v = pieces::creer_piece_fournisseur(c.conn, fournisseur_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id, date_piece)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -2400,6 +2457,8 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
     r.aussi_sur_base("creer_piece", |c, p| {
+        let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
+        exiger_antidatage_base(c.base, c.appelant, date_piece.as_deref())?;
         pieces::creer_piece_sur_base(
             c.base,
             arg(&p, "clientId", "client_id")?,
@@ -2410,6 +2469,7 @@ pub fn registre() -> Registre {
             arg(&p, "note", "note")?,
             arg(&p, "pieceOrigineId", "piece_origine_id")?,
             arg(&p, "depotId", "depot_id")?,
+            date_piece,
         )
     });
     r.aussi_sur_base("convertir_piece", |c, p| {
@@ -2446,10 +2506,14 @@ pub fn registre() -> Registre {
             arg(&p, "statut", "statut")?,
             arg(&p, "recherche", "recherche")?,
             arg(&p, "fournisseurId", "fournisseur_id")?,
+            arg(&p, "dateDebut", "date_debut")?,
+            arg(&p, "dateFin", "date_fin")?,
         )?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
     r.aussi_sur_base("creer_piece_fournisseur", |c, p| {
+        let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
+        exiger_antidatage_base(c.base, c.appelant, date_piece.as_deref())?;
         pieces::creer_piece_fournisseur_sur_base(
             c.base,
             arg(&p, "fournisseurId", "fournisseur_id")?,
@@ -2459,6 +2523,7 @@ pub fn registre() -> Registre {
             arg(&p, "dateEcheance", "date_echeance")?,
             arg(&p, "note", "note")?,
             arg(&p, "pieceOrigineId", "piece_origine_id")?,
+            date_piece,
         )
     });
     r.aussi_sur_base("modifier_piece", |c, p| {

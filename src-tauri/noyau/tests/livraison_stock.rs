@@ -86,6 +86,7 @@ fn creer(conn: &Connection, type_piece: &str, quantite: f64) -> String {
         None,
         None,
         Some("d1".to_string()),
+        None,
     )
     .expect("pièce créée");
     v["id"].as_str().unwrap().to_string()
@@ -193,6 +194,7 @@ fn le_bon_de_reception_fait_entrer_la_marchandise() {
         "f1".to_string(),
         "bon_reception".to_string(),
         vec![ligne(15.0)],
+        None,
         None,
         None,
         None,
@@ -417,6 +419,7 @@ fn une_reception_porte_son_numero_et_entre() {
         "f1".to_string(),
         "bon_reception".to_string(),
         vec![ligne(15.0)],
+        None,
         None,
         None,
         None,

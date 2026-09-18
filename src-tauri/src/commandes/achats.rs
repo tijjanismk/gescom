@@ -20,9 +20,10 @@ pub fn enregistrer_achat(
     note: Option<String>,
     utilisateur_role: Option<String>,
     piece_origine_id: Option<String>,
+    date_reception: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let mut conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    gescom_noyau::achats::enregistrer_achat(&mut conn, fournisseur_id, depot_id, lignes, mode_reglement, mode_paiement, acompte, note, utilisateur_role, piece_origine_id)
+    gescom_noyau::achats::enregistrer_achat_date(&mut conn, fournisseur_id, depot_id, lignes, mode_reglement, mode_paiement, acompte, note, utilisateur_role, piece_origine_id, date_reception)
 }
 #[allow(unused_imports)]
 pub use gescom_noyau::achats::LigneRetourFournisseur;

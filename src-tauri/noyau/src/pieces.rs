@@ -281,6 +281,7 @@ pub struct LignePieceInput {
     pub taux_tva: f64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn creer_piece(
     conn: &rusqlite::Connection,
     client_id: String,
@@ -292,9 +293,10 @@ pub fn creer_piece(
     piece_origine_id: Option<String>,
     // Depot ou la piece est etablie. Absent -> depot par defaut.
     depot_id: Option<String>,
+    date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
     creer_piece_sur(
-        &conn, client_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id, depot_id,
+        &conn, client_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id, depot_id, date_piece,
     )
 }
 
@@ -303,6 +305,7 @@ pub fn creer_piece(
 /// Separee de la commande pour etre jouable sur une base de test :
 /// les scenarios de `tests_multi_depot` verifient ce que le SQL fait
 /// reellement a la base, ce qu'aucun test de formule ne montre.
+#[allow(clippy::too_many_arguments)]
 pub fn creer_piece_sur(
     conn: &rusqlite::Connection,
     client_id: String,
@@ -313,10 +316,12 @@ pub fn creer_piece_sur(
     note: Option<String>,
     piece_origine_id: Option<String>,
     depot_id: Option<String>,
+    date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let auteur = crate::argent::id_utilisateur_courant_pub(&conn);
     let depot = depot_de_piece(&conn, depot_id);
     let now = maintenant_iso();
+    let (date_piece, _) = crate::argent::date_de_la_piece(&now, date_piece.as_deref())?;
     let piece_id = uuid::Uuid::new_v4().to_string();
     let numero = reserver_numero(&conn, &type_piece)?;
     let remise_g = remise_globale.unwrap_or(0.0);
@@ -340,7 +345,7 @@ pub fn creer_piece_sur(
         rusqlite::params![
             piece_id, type_piece, numero, statut,
             client_id, piece_origine_id, auteur,
-            now, date_echeance, remise_g, note, now, now, depot
+            date_piece, date_echeance, remise_g, note, now, now, depot
         ],
     ).map_err(|e| e.to_string())?;
 
@@ -957,6 +962,28 @@ pub fn changer_statut_piece(
 //  Données complètes d'une pièce (pour impression)
 // =====================================================================
 
+/// La ligne imprimee d'un AVOIR ACCORDE (avoirs::accorder_avoir_client) :
+/// sans marchandise, la piece n'a aucune `ligne_piece` et son document
+/// sortirait a zero. Le montant vient de `avoir.montant`, le libelle de
+/// la note — c'est une ligne d'affichage, rien n'est ecrit.
+fn ligne_d_avoir_accorde(montant: i64, note: Option<&str>) -> serde_json::Value {
+    let libelle = note
+        .map(|n| n.rsplit_once(" — ").map(|(avant, _)| avant.to_string()).unwrap_or_else(|| n.to_string()))
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "Avoir accordé".to_string());
+    serde_json::json!({
+        "article_nom":    libelle,
+        "unite_libelle":  "",
+        "quantite":       1.0,
+        "prix_unitaire":  montant,
+        "remise_pct":     0.0,
+        "remise_montant": 0,
+        "taux_tva":       0.0,
+        "montant_tva":    0,
+        "montant_ht":     montant,
+    })
+}
+
 pub fn lire_donnees_piece(
     conn: &rusqlite::Connection,
     piece_id: String,
@@ -1048,7 +1075,7 @@ pub fn lire_donnees_piece(
          WHERE lp.piece_id = ?1 ORDER BY lp.cree_le"
     ).map_err(|e| e.to_string())?;
 
-    let lignes: Vec<serde_json::Value> = stmt.query_map(
+    let mut lignes: Vec<serde_json::Value> = stmt.query_map(
         rusqlite::params![piece_id], |row| {
             let taux_tva: f64 = row.get(6)?;
             let montant_ht: i64 = row.get(8)?;
@@ -1073,6 +1100,16 @@ pub fn lire_donnees_piece(
             }))
         }
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+    if lignes.is_empty() && piece["type_piece"] == "avoir_client" {
+        let montant: i64 = conn
+            .query_row(
+                "SELECT montant FROM avoir WHERE piece_id = ?1",
+                rusqlite::params![piece_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        lignes.push(ligne_d_avoir_accorde(montant, piece["note"].as_str()));
+    }
 
     let total_ht: i64 = lignes.iter()
         .filter_map(|l| l["montant_ht"].as_i64()).sum();
@@ -1259,9 +1296,20 @@ pub fn lire_toutes_pieces_fournisseur(
     statut: Option<String>,
     recherche: Option<String>,
     fournisseur_id: Option<String>,
+    date_debut: Option<String>,
+    date_fin: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
 
     let mut conditions = vec!["pc.tiers_type = 'fournisseur'".to_string()];
+    // Les bornes de date, comme cote client : la liste fournisseur ne
+    // les avait pas, et « les receptions de la semaine » se cherchaient
+    // a l'oeil.
+    if let Some(ref dd) = date_debut.as_ref().filter(|d| !d.is_empty()) {
+        conditions.push(format!("pc.date_piece >= '{}'", dd.replace('\'', "''")));
+    }
+    if let Some(ref df) = date_fin.as_ref().filter(|d| !d.is_empty()) {
+        conditions.push(format!("pc.date_piece <= '{}'", df.replace('\'', "''")));
+    }
 
     if let Some(ref tf) = type_filtre {
         conditions.push(format!("pc.type_piece = '{}'", tf.replace('\'', "''")));
@@ -1333,12 +1381,20 @@ pub fn lire_toutes_pieces_fournisseur(
         let remise_mt = (total_ht as f64 * remise_g / 100.0).round() as i64;
         let total_net = total_ht - remise_mt;
         let total_ttc_calc = total_net + total_tva;
-        let reste = crate::coeur::calcul::reste_exigible(total_ttc_calc, total_paye);
+        let type_piece: String = row.get(1)?;
+        let statut: String = row.get(3)?;
+        // Un AVF n'est jamais un impaye : c'est un credit, ou rien s'il
+        // a ete rembourse en especes (coeur).
+        let reste = if type_piece == "avoir_fournisseur" {
+            crate::coeur::calcul::credit_avoir_fournisseur(&statut, total_ttc_calc)
+        } else {
+            crate::coeur::calcul::reste_exigible(total_ttc_calc, total_paye)
+        };
         Ok(serde_json::json!({
             "id":               row.get::<_,String>(0)?,
-            "type_piece":       row.get::<_,String>(1)?,
+            "type_piece":       type_piece,
             "numero":           row.get::<_,String>(2)?,
-            "statut":           row.get::<_,String>(3)?,
+            "statut":           statut,
             "date_piece":       row.get::<_,String>(4)?,
             "date_echeance":    row.get::<_,Option<String>>(5)?,
             "remise_globale":   remise_g,
@@ -1373,6 +1429,7 @@ pub fn lire_toutes_pieces_fournisseur(
 //  Créer une pièce fournisseur
 // =====================================================================
 
+#[allow(clippy::too_many_arguments)]
 pub fn creer_piece_fournisseur(
     conn: &rusqlite::Connection,
     fournisseur_id: String,
@@ -1382,9 +1439,11 @@ pub fn creer_piece_fournisseur(
     date_echeance: Option<String>,
     note: Option<String>,
     piece_origine_id: Option<String>,
+    date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let auteur = crate::argent::id_utilisateur_courant_pub(&conn);
     let now = crate::utils::maintenant_iso();
+    let (date_piece, _) = crate::argent::date_de_la_piece(&now, date_piece.as_deref())?;
     let piece_id = uuid::Uuid::new_v4().to_string();
     let numero = reserver_numero(&conn, &type_piece)?;
     let remise_g = remise_globale.unwrap_or(0.0);
@@ -1410,7 +1469,7 @@ pub fn creer_piece_fournisseur(
         rusqlite::params![
             piece_id, type_piece, numero, statut,
             fournisseur_id, piece_origine_id, auteur,
-            now, date_echeance, remise_g, note, now, now
+            date_piece, date_echeance, remise_g, note, now, now
         ],
     ).map_err(|e| e.to_string())?;
 
@@ -2203,10 +2262,14 @@ fn ligne_de_liste(r: &crate::base::Ligne<'_>) -> crate::base::Resultat<serde_jso
     let remise_mt = (total_ht as f64 * remise_g / 100.0).round() as i64;
     let total_net = total_ht - remise_mt;
     let total_ttc = total_net + total_tva;
+    let statut: String = r.get::<String>(3)?;
     // Le reste d'un AVC est le credit non consomme (D44), jamais un
-    // impaye.
+    // impaye ; celui d'un AVF, son credit tant qu'il n'est pas rembourse
+    // (coeur).
     let reste = if type_piece == "avoir_client" {
         r.get::<i64>(16).unwrap_or(0)
+    } else if type_piece == "avoir_fournisseur" {
+        crate::coeur::calcul::credit_avoir_fournisseur(&statut, total_ttc)
     } else {
         crate::coeur::calcul::reste_exigible(total_ttc, total_paye)
     };
@@ -2214,7 +2277,7 @@ fn ligne_de_liste(r: &crate::base::Ligne<'_>) -> crate::base::Resultat<serde_jso
         "id":               r.get::<String>(0)?,
         "type_piece":       type_piece,
         "numero":           r.get::<String>(2)?,
-        "statut":           r.get::<String>(3)?,
+        "statut":           statut,
         "date_piece":       r.get::<String>(4)?,
         "date_echeance":    r.get::<Option<String>>(5)?,
         "remise_globale":   remise_g,
@@ -2358,6 +2421,8 @@ pub fn lire_toutes_pieces_fournisseur_sur_base(
     statut: Option<String>,
     recherche: Option<String>,
     fournisseur_id: Option<String>,
+    date_debut: Option<String>,
+    date_fin: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let dossier = base.dossier().to_string();
     let vide = |s: Option<String>| s.filter(|v| !v.is_empty());
@@ -2379,6 +2444,8 @@ pub fn lire_toutes_pieces_fournisseur_sur_base(
                 OR LOWER(COALESCE(pc.reference, '')) LIKE LOWER('%' || ?3 || '%')
                 OR LOWER(f.nom)     LIKE LOWER('%' || ?3 || '%'))
            AND (CAST(?4 AS TEXT) IS NULL OR pc.tiers_id = ?4)
+           AND (CAST(?6 AS TEXT) IS NULL OR pc.date_piece >= ?6)
+           AND (CAST(?7 AS TEXT) IS NULL OR pc.date_piece <= ?7)
          ORDER BY pc.date_piece DESC, pc.cree_le DESC"
     );
 
@@ -2389,7 +2456,9 @@ pub fn lire_toutes_pieces_fournisseur_sur_base(
             vide(statut),
             vide(recherche),
             vide(fournisseur_id),
-            dossier
+            dossier,
+            vide(date_debut),
+            vide(date_fin)
         ],
         ligne_de_liste,
     )
@@ -2448,11 +2517,13 @@ pub fn creer_piece_sur_base(
     note: Option<String>,
     piece_origine_id: Option<String>,
     depot_id: Option<String>,
+    date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let dossier = base.dossier().to_string();
     let auteur = id_utilisateur_courant_sur(base);
     let depot = depot_de_piece_sur(base, depot_id);
     let now = maintenant_iso();
+    let (date_piece, _) = crate::argent::date_de_la_piece(&now, date_piece.as_deref())?;
     let piece_id = uuid::Uuid::new_v4().to_string();
     let remise_g = remise_globale.unwrap_or(0.0);
     let statut = statut_initial(&type_piece, false);
@@ -2475,7 +2546,7 @@ pub fn creer_piece_sur_base(
             depot,
             piece_origine_id,
             auteur,
-            now.clone(),
+            date_piece,
             date_echeance,
             remise_g,
             note,
@@ -2535,10 +2606,12 @@ pub fn creer_piece_fournisseur_sur_base(
     date_echeance: Option<String>,
     note: Option<String>,
     piece_origine_id: Option<String>,
+    date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let dossier = base.dossier().to_string();
     let auteur = id_utilisateur_courant_sur(base);
     let now = maintenant_iso();
+    let (date_piece, _) = crate::argent::date_de_la_piece(&now, date_piece.as_deref())?;
     let piece_id = uuid::Uuid::new_v4().to_string();
     let remise_g = remise_globale.unwrap_or(0.0);
     let statut = statut_initial(&type_piece, false);
@@ -2560,7 +2633,7 @@ pub fn creer_piece_fournisseur_sur_base(
             fournisseur_id,
             piece_origine_id,
             auteur,
-            now.clone(),
+            date_piece,
             date_echeance,
             remise_g,
             note,
@@ -3198,7 +3271,7 @@ pub fn lire_donnees_piece_sur_base(
         "auteur_nom":     auteur_nom,
     });
 
-    let lignes: Vec<serde_json::Value> = base
+    let mut lignes: Vec<serde_json::Value> = base
         .lire_plusieurs(
             "SELECT a.nom, uv.libelle, lp.quantite, lp.prix_unitaire,
                     lp.remise_pct, lp.remise_montant,
@@ -3232,6 +3305,18 @@ pub fn lire_donnees_piece_sur_base(
             },
         )
         .map_err(|e| e.0)?;
+    if lignes.is_empty() && piece["type_piece"] == "avoir_client" {
+        let montant: i64 = base
+            .lire_une(
+                "SELECT montant FROM avoir WHERE piece_id = ?1 AND dossier_id = ?2",
+                &parametres![piece_id.clone(), dossier.clone()],
+                |r| r.get::<i64>(0),
+            )
+            .ok()
+            .flatten()
+            .unwrap_or(0);
+        lignes.push(ligne_d_avoir_accorde(montant, piece["note"].as_str()));
+    }
 
     let total_ht: i64 = lignes.iter().filter_map(|l| l["montant_ht"].as_i64()).sum();
     let remise_g = piece["remise_globale"].as_f64().unwrap_or(0.0);

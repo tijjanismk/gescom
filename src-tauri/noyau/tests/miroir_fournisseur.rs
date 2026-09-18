@@ -82,6 +82,7 @@ fn creer_fournisseur(conn: &Connection, type_piece: &str, quantite: f64) -> Stri
         None,
         None,
         None,
+        None,
     )
     .expect("pièce fournisseur créée");
     v["id"].as_str().unwrap().to_string()
@@ -394,6 +395,7 @@ fn une_facture_client_ne_se_valide_pas_par_le_chemin_fournisseur() {
         None,
         None,
         Some("d1".to_string()),
+        None,
     )
     .unwrap();
 

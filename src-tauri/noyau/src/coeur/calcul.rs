@@ -217,6 +217,30 @@ mod tests_recouvrement {
     }
 }
 
+/// Ce qu'un avoir fournisseur vaut encore.
+///
+/// Un AVF naît d'un retour de marchandise. Réglé en espèces sur-le-champ
+/// (statut `paye`), l'argent est déjà revenu dans le tiroir : il ne
+/// vaut plus rien. Sinon (`emis`), c'est un crédit à déduire de la
+/// prochaine facture du fournisseur — jamais un impayé. `total_paye` n'y
+/// est d'aucune aide : aucun `paiement_fournisseur` ne s'impute sur un
+/// avoir, c'est le statut qui dit s'il est clos.
+pub fn credit_avoir_fournisseur(statut: &str, montant: i64) -> i64 {
+    if statut == "paye" || statut == "annule" { 0 } else { montant }
+}
+
+#[cfg(test)]
+mod tests_avoir_fournisseur {
+    use super::*;
+
+    #[test]
+    fn un_avf_rembourse_ne_vaut_plus_rien_un_avf_emis_est_un_credit() {
+        assert_eq!(credit_avoir_fournisseur("paye", 5_000), 0);
+        assert_eq!(credit_avoir_fournisseur("annule", 5_000), 0);
+        assert_eq!(credit_avoir_fournisseur("emis", 5_000), 5_000);
+    }
+}
+
 /// Écart entre prix de référence et prix pratiqué.
 /// Positif = remise accordée. Négatif = hausse (ignorée, cf. §7).
 pub fn ecart_prix(prix_reference: i64, prix_pratique: i64) -> i64 {

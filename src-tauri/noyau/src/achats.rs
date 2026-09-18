@@ -49,10 +49,40 @@ pub fn enregistrer_achat(
     // Optionnel : un achat direct (sans BCF/BRF prealable) n'en a pas.
     piece_origine_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    enregistrer_achat_date(
+        conn, fournisseur_id, depot_id, lignes, mode_reglement, mode_paiement,
+        acompte, note, utilisateur_role, piece_origine_id, None,
+    )
+}
+
+/// La reception SAISIE APRES COUP : la marchandise est entree — et
+/// payee — un autre jour, le cahier se recopie ce soir. La date donnee
+/// devient celle de la facture et du reglement fournisseur (c'est la
+/// date de l'affaire) ; le stock et la caisse, eux, bougent MAINTENANT :
+/// c'est a cet instant que la marchandise se compte et que l'argent
+/// quitte le tiroir. Deux dates, deux faits (voir ALERTES.md). Sans
+/// date : aujourd'hui, comme avant. `pieces:antidater` se verifie a
+/// l'entree (serveur), pas ici.
+#[allow(clippy::too_many_arguments)]
+pub fn enregistrer_achat_date(
+    conn: &mut rusqlite::Connection,
+    fournisseur_id: Option<String>,
+    depot_id: Option<String>,
+    lignes: Vec<LigneAchat>,
+    mode_reglement: Option<String>,
+    mode_paiement: Option<String>,
+    acompte: Option<i64>,
+    note: Option<String>,
+    utilisateur_role: Option<String>,
+    piece_origine_id: Option<String>,
+    date_reception: Option<String>,
+) -> Result<serde_json::Value, String> {
     if lignes.is_empty() {
         return Err("Aucune ligne à enregistrer".to_string());
     }
     let now = maintenant_iso();
+    let (date_affaire, libelle_caisse) =
+        crate::argent::date_de_la_reception(&now, date_reception.as_deref())?;
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur = crate::argent::id_utilisateur_par_role(&conn, role);
 
@@ -199,7 +229,7 @@ pub fn enregistrer_achat(
                      ?6,?7,?8,0.0,?9,?10,?11,'achat')",
             rusqlite::params![
                 piece_id, num, statut_piece, f_id, depot_id,
-                piece_origine_id, auteur, now, note, now, now
+                piece_origine_id, auteur, date_affaire, note, now, now
             ],
         ).map_err(|e| e.to_string())?;
 
@@ -237,7 +267,7 @@ pub fn enregistrer_achat(
                     f_id, piece_id, montant_regle,
                     mode_paiement.as_deref().unwrap_or("especes"),
                     format!("Achat {}", num),
-                    auteur, now, now
+                    auteur, date_affaire, now
                 ],
             ).map_err(|e| e.to_string())?;
         }
@@ -274,12 +304,13 @@ pub fn enregistrer_achat(
         {
             tx.execute(
                 "INSERT INTO mouvement_caisse
-                 (id, session_id, sens, moyen, montant, motif,
+                 (id, session_id, sens, moyen, montant, motif, libelle,
                   operation_id, date_mouvement, cree_le, cree_par, origine)
-                 VALUES (?1,?2,'sortie',?3,?4,'achat',?5,?6,?7,?8,'app')",
+                 VALUES (?1,?2,'sortie',?3,?4,'achat',?9,?5,?6,?7,?8,'app')",
                 rusqlite::params![
                     uuid::Uuid::new_v4().to_string(),
-                    sid, mode_p, montant_regle, op_id, now, now, auteur
+                    sid, mode_p, montant_regle, op_id, now, now, auteur,
+                    libelle_caisse
                 ],
             ).map_err(|e| e.to_string())?;
         }
@@ -1200,11 +1231,34 @@ pub fn enregistrer_achat_sur_base(
     utilisateur_role: Option<String>,
     piece_origine_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    enregistrer_achat_date_sur_base(
+        base, fournisseur_id, depot_id, lignes, mode_reglement, mode_paiement,
+        acompte, note, utilisateur_role, piece_origine_id, None,
+    )
+}
+
+/// Meme geste que `enregistrer_achat_date`, sur `Base`.
+#[allow(clippy::too_many_arguments)]
+pub fn enregistrer_achat_date_sur_base(
+    base: &mut Base,
+    fournisseur_id: Option<String>,
+    depot_id: Option<String>,
+    lignes: Vec<LigneAchat>,
+    mode_reglement: Option<String>,
+    mode_paiement: Option<String>,
+    acompte: Option<i64>,
+    note: Option<String>,
+    utilisateur_role: Option<String>,
+    piece_origine_id: Option<String>,
+    date_reception: Option<String>,
+) -> Result<serde_json::Value, String> {
     if lignes.is_empty() {
         return Err("Aucune ligne à enregistrer".to_string());
     }
     let dossier = base.dossier().to_string();
     let now = maintenant_iso();
+    let (date_affaire, libelle_caisse) =
+        crate::argent::date_de_la_reception(&now, date_reception.as_deref())?;
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur = id_utilisateur_par_role_sur(base, role);
 
@@ -1305,7 +1359,7 @@ pub fn enregistrer_achat_sur_base(
               piece_origine_id, auteur_id, date_piece, remise_globale, note,
               cree_le, modifie_le, origine, dossier_id)
              VALUES (?1,'facture_fournisseur',?2,?3,'fournisseur',?4,?5,
-                     ?6,?7,?8,0.0,?9,?8,?8,'achat',?10)",
+                     ?6,?7,?8,0.0,?9,?11,?11,'achat',?10)",
             &parametres![
                 pid.clone(),
                 num.clone(),
@@ -1314,9 +1368,10 @@ pub fn enregistrer_achat_sur_base(
                 depot_id.clone(),
                 piece_origine_id.clone(),
                 auteur.clone(),
-                now.clone(),
+                date_affaire.clone(),
                 note.clone(),
-                dossier.clone()
+                dossier.clone(),
+                now.clone()
             ],
         )
         .map_err(|e| e.0)?;
@@ -1335,7 +1390,7 @@ pub fn enregistrer_achat_sur_base(
                 "INSERT INTO paiement_fournisseur
                  (id, fournisseur_id, piece_id, montant, mode, note,
                   auteur_id, date_paiement, cree_le, origine, dossier_id)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?8,'achat',?9)",
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?10,'achat',?9)",
                 &parametres![
                     uuid::Uuid::new_v4().to_string(),
                     f_id.clone(),
@@ -1344,8 +1399,9 @@ pub fn enregistrer_achat_sur_base(
                     mode_paiement.as_deref().unwrap_or("especes"),
                     format!("Achat {}", num),
                     auteur.clone(),
-                    now.clone(),
-                    dossier.clone()
+                    date_affaire.clone(),
+                    dossier.clone(),
+                    now.clone()
                 ],
             )
             .map_err(|e| e.0)?;
@@ -1378,6 +1434,14 @@ pub fn enregistrer_achat_sur_base(
             &now,
             &auteur,
         )?;
+        if let Some(libelle) = libelle_caisse.as_deref() {
+            tx.executer(
+                "UPDATE mouvement_caisse SET libelle = ?1
+                 WHERE operation_id = ?2 AND motif = 'achat' AND dossier_id = ?3",
+                &parametres![libelle, op_id.clone(), dossier.clone()],
+            )
+            .map_err(|e| e.0)?;
+        }
     }
 
     journaliser(

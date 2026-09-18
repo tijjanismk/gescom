@@ -58,9 +58,10 @@ pub fn creer_piece(
     note: Option<String>,
     piece_origine_id: Option<String>,
     depot_id: Option<String>,
+    date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    gescom_noyau::pieces::creer_piece(&conn, client_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id, depot_id)
+    gescom_noyau::pieces::creer_piece(&conn, client_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id, depot_id, date_piece)
 }
 #[allow(unused_imports)]
 pub use gescom_noyau::pieces::creer_piece_sur;
@@ -140,9 +141,11 @@ pub fn lire_toutes_pieces_fournisseur(
     statut: Option<String>,
     recherche: Option<String>,
     fournisseur_id: Option<String>,
+    date_debut: Option<String>,
+    date_fin: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    gescom_noyau::pieces::lire_toutes_pieces_fournisseur(&conn, type_filtre, statut, recherche, fournisseur_id)
+    gescom_noyau::pieces::lire_toutes_pieces_fournisseur(&conn, type_filtre, statut, recherche, fournisseur_id, date_debut, date_fin)
 }
 #[tauri::command]
 pub fn creer_piece_fournisseur(
@@ -154,9 +157,10 @@ pub fn creer_piece_fournisseur(
     date_echeance: Option<String>,
     note: Option<String>,
     piece_origine_id: Option<String>,
+    date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    gescom_noyau::pieces::creer_piece_fournisseur(&conn, fournisseur_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id)
+    gescom_noyau::pieces::creer_piece_fournisseur(&conn, fournisseur_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id, date_piece)
 }
 #[tauri::command]
 pub fn modifier_piece(

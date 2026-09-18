@@ -36,6 +36,35 @@ variante `_sur` prend une transaction déjà ouverte, pour composer
 plusieurs écritures atomiquement. Ajouter une écriture composée impose
 d'écrire la variante `_sur`, pas d'appeler la commande publique.
 
+## Les bornes de date côté fournisseur (18/09/2026)
+
+`lire_toutes_pieces_fournisseur[_sur_base]` prend `date_debut` /
+`date_fin` (ISO, `>=` / `<=` sur `pc.date_piece`), comme la liste
+client ; l'écran envoie `T00:00:00` / `T23:59:59`. Le filtre « Du → au »
+est dans la barre de Pièces pour les deux côtés, et c'est la même paire
+que les filtres avancés.
+
+## La date se saisit aussi à la création (18/09/2026)
+
+`creer_piece[_sur_base]` et `creer_piece_fournisseur[_sur_base]` prennent
+maintenant `date_piece: Option<String>` — la date de l'AFFAIRE, pas
+l'échéance de paiement. `None` → aujourd'hui. Validée par
+`argent::date_de_la_piece` (même `date_saisie` que la réception et le
+règlement, fenêtre de 31 jours) et gardée par `pieces:antidater` côté
+serveur (`exiger_antidatage[_base]`, même geste que `modifier_piece`).
+Rien d'autre ne bouge avec elle : `creer_piece*` ne touche ni le stock
+ni la caisse (ça, c'est `valider_facture` / `enregistrer_achat`). La
+façade Tauri (mono-poste) ne vérifie pas le droit — un seul poste, un
+seul patron. Écran : `ModalNouvellePiece.tsx`, champ « Date de la
+pièce », visible seulement à qui a `pieces:antidater`.
+
+## Le reste d'un avoir fournisseur (18/09/2026)
+
+`coeur::calcul::credit_avoir_fournisseur(statut, montant)` : remboursé
+(`paye`) ou annulé → 0, sinon le crédit. Les deux listes fournisseur et
+les états de dette (`fournisseurs.rs`) passent par elle — un AVF n'est
+jamais un impayé. L'écran lit le reste d'un avoir en ambre (« crédit »).
+
 ## Commandes exposées
 
 **pieces.rs** (19) — `lire_toutes_pieces_client`,
