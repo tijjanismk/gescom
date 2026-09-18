@@ -1172,21 +1172,6 @@ export function Ventes() {
             onClick={() => setModeReglement("credit")}>
             Crédit
           </Button>
-          {peutAntidater && (
-            <div className="flex items-center gap-1.5 ml-2"
-              title="La date de l'affaire, pas celle de la saisie. L'argent entre dans la caisse d'aujourd'hui.">
-              <Label className="text-xs text-muted-foreground whitespace-nowrap">Vente du</Label>
-              <Input type="date" value={dateVente}
-                max={new Date().toISOString().slice(0, 10)}
-                onChange={e => setDateVente(e.target.value)}
-                className={cn("h-8 w-36 text-xs", dateVente && "border-amber-500")} />
-              {dateVente && (
-                <span className="text-[11px] text-amber-700 whitespace-nowrap">
-                  caisse d'aujourd'hui
-                </span>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
@@ -1587,6 +1572,38 @@ export function Ventes() {
                 <span className="text-xl font-bold">{fmt(totalApresAvoir)}</span>
               </div>
             </div>
+
+            {/* La date de l'AFFAIRE, juste avant d'encaisser : c'est le
+                dernier regard avant que la vente parte. Vide = aujourd'hui.
+                Reserve a qui peut antidater. */}
+            {peutAntidater && (
+              <div className={cn(
+                "flex items-center gap-2 rounded-md border px-3 py-2",
+                dateVente ? "border-amber-400 bg-amber-50" : "border-border",
+              )}>
+                <Label className="text-xs text-muted-foreground whitespace-nowrap">
+                  Vente du
+                </Label>
+                <Input type="date" value={dateVente}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={e => setDateVente(e.target.value)}
+                  className="h-8 flex-1 text-xs" />
+                {dateVente ? (
+                  <button type="button" className="text-[11px] text-amber-800 underline"
+                    onClick={() => setDateVente("")} title="Revenir a aujourd'hui">
+                    aujourd'hui
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">aujourd'hui</span>
+                )}
+              </div>
+            )}
+            {dateVente && (
+              <p className="text-[11px] text-amber-800 -mt-1">
+                La vente sera datée du {dateVente.split("-").reverse().join("/")} ;
+                l'argent entre dans la caisse d'aujourd'hui.
+              </p>
+            )}
 
             <Button className="w-full" size="lg"
               disabled={panier.length === 0 || chargementVente}
