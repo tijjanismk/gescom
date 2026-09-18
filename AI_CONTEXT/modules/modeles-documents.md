@@ -139,6 +139,52 @@ déjà en pour-cent (5 pour 5 %), reste un `nombre`.
   posent en bloc Image. Le logo reste dans Société — c'est l'identité de
   la maison, pas la mise en page d'un document.
 
+## Export / import depuis une caisse (I5, 18/09/2026)
+
+`exporter_modeles` (lecture) rend le `Lot` ; `importer_modeles`
+(`modeles:gerer`) le reçoit — deux commandes du serveur, deux
+poignées. Le fichier `.json` se lit et s'écrit **sur le poste**
+(`@tauri-apps/plugin-fs`, capacité `fs:allow-write-text-file`) ; les
+images du lot se posent dans le dossier d'images du serveur
+(`dossier_des_images[_base]`). Elles ne sont plus dans `LOCALES`.
+
+## Les blocs flottants (18/09/2026)
+
+**Dans l'aperçu, chaque bloc porte une poignée au coin bas-droit.** Sur
+un bloc flottant elle redimensionne ; sur un bloc du flux elle le
+**détache** : `cadreDansLaFeuille` lit le cadre qu'il occupe (mm depuis
+le coin de `.feuille`), l'élément passe en absolu sur-le-champ et le
+geste continue ; le modèle n'est écrit qu'au relâcher. Cocher
+« flottant » dans les réglages garde le même cadre. Le pied de page ne
+se détache pas.
+
+Un champ « Client » posé sur `tiers.*` s'imprime « Fournisseur » quand
+`tiers.type` l'est (`libelleChamp`, rendu) — les modèles enregistrés
+n'ont pas à changer.
+
+- `flottant?: { xMm, yMm, largeurMm, hauteurMm }` sur **tout** bloc.
+  Absent, le bloc suit le flux comme avant.
+- Le corps est enveloppé d'une `.feuille` en `position: relative` :
+  son coin haut-gauche est celui de la **zone imprimable**, à l'écran
+  (le corps porte la marge en `padding`) comme sur le papier (`@page`
+  porte la marge). Les coordonnées sont donc les mêmes des deux côtés.
+- Un bloc flottant est rendu dans un cadre `.flottant` absolu, qui
+  porte le `data-bloc` (c'est lui qu'on attrape), `overflow: hidden`,
+  et un `z-index` **égal à son rang dans la structure** : deux flottants
+  se recouvrent librement, celui qui vient plus bas passe devant. Une
+  image flottante remplit son cadre (`object-fit: contain`).
+- La feuille se réserve `min-height` = le bas du flottant le plus bas :
+  sorti du flux, il ne la ferait pas grandir et serait coupé.
+- **Dans l'aperçu** (`designable`) : tirer le bloc pour le déplacer, son
+  coin bas-droit (poignée `::after`, 3 mm) pour le redimensionner.
+  L'atelier pose `pointerdown/move/up` sur le DOM de l'iframe — toujours
+  sans `allow-scripts` — et n'écrit le modèle qu'au relâcher, au
+  demi-millimètre ; entre-temps seul le style de l'élément bouge. Les
+  mêmes valeurs se règlent au clavier dans la section « Bloc flottant ».
+- Le dépôt dans l'aperçu (`placeSousLeCurseur`) rend l'**identifiant**
+  du bloc devant lequel on lâche, plus un rang : un bloc caché ou
+  flottant n'est pas dans le flux et décalait la cible.
+
 ## Les modèles servent enfin (17/09/2026)
 
 `imprimerParModele` était juste — les 7 modèles répondent sur

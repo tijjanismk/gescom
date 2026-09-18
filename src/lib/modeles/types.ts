@@ -126,11 +126,32 @@ export interface ElementPied {
   souligne?: boolean;
 }
 
+/**
+ * Un cadre posé au millimètre depuis le coin haut-gauche de la zone
+ * imprimable (à l'intérieur des marges). C'est la même origine à
+ * l'écran et sur le papier.
+ */
+export interface CadreFlottant {
+  xMm: number;
+  yMm: number;
+  largeurMm: number;
+  hauteurMm: number;
+}
+
 interface BlocBase {
   id: string;
   /** Décoché, le bloc reste dans le modèle mais ne s'imprime pas. On
    *  éteint une mention légale le temps d'une saison sans la perdre. */
   visible: boolean;
+  /**
+   * FLOTTANT : le bloc sort du flux et se pose au millimètre, par-dessus
+   * le reste — un cachet sur le tableau, une signature dans un coin, un
+   * « PAYÉ » en travers. Deux blocs flottants peuvent se recouvrir :
+   * celui qui vient plus bas dans la structure passe devant (l'ordre de
+   * la structure est l'ordre de superposition). Absent : le bloc suit
+   * le flux, l'un sous l'autre, comme avant.
+   */
+  flottant?: CadreFlottant;
 }
 
 export type Bloc =

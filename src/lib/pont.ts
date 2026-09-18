@@ -254,8 +254,6 @@ const LOCALES = new Set([
   "lire_config_reseau",
   "definir_config_reseau",
   "tester_serveur",
-  "exporter_modeles",
-  "importer_modeles",
 ]);
 
 /**

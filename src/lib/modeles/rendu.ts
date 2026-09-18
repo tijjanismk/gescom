@@ -190,13 +190,30 @@ const ALIGN: Record<Alignement, string> = {
 //  Rendu des blocs
 // =====================================================================
 
+/**
+ * Le libellé d'un champ, tel qu'il s'imprime. Un même modèle sert aux
+ * pièces client ET fournisseur ; le champ « Client » posé sur `tiers.*`
+ * dit « Fournisseur » quand la pièce en a un — sans obliger chaque
+ * modèle déjà enregistré à être retouché.
+ */
+function libelleChamp(c: Champ, donnees: unknown): string {
+  if (
+    c.chemin.startsWith("tiers.") &&
+    c.libelle.trim().toLowerCase() === "client" &&
+    valeurAuChemin(donnees, "tiers.type") === "fournisseur"
+  ) {
+    return "Fournisseur";
+  }
+  return c.libelle;
+}
+
 function rendreChamps(items: Champ[], donnees: unknown, devise: string): string {
   return items
     .map((c) => {
       const brute = valeurAuChemin(donnees, c.chemin);
       const v = formater(brute, c.format, devise);
       if (c.masquerSiVide && !v) return "";
-      return `<div class="ch"><span class="ch-l">${esc(c.libelle)}</span><span class="ch-v">${esc(v)}</span></div>`;
+      return `<div class="ch"><span class="ch-l">${esc(libelleChamp(c, donnees))}</span><span class="ch-v">${esc(v)}</span></div>`;
     })
     .join("");
 }
@@ -503,14 +520,24 @@ function styles(modele: Modele, apercu: boolean, designable: boolean): string {
   const marge = thermique ? Math.min(page.margeMm, 4) : page.margeMm;
 
   // A l'ecran seulement : de quoi voir ce qu'on s'apprete a choisir.
-  // Rien de tout cela ne part a l'imprimante.
+  // Rien de tout cela ne part a l'imprimante. Chaque bloc porte une
+  // poignee au coin bas-droit : la tirer redimensionne un bloc flottant,
+  // et DETACHE un bloc du flux (il devient flottant, a sa place). La
+  // poignee est dessinee ici, l'atelier fait le geste.
   const designation = designable
     ? `
-  [data-bloc] { cursor: pointer; }
+  [data-bloc] { cursor: pointer; position: relative; }
   [data-bloc]:hover { outline: 1px dashed ${page.couleurAccent};
                       outline-offset: 1.5mm; }
   [data-bloc].bloc-choisi { outline: 2px solid ${page.couleurAccent};
                             outline-offset: 1.5mm; }
+  [data-bloc]:not(.pied)::after {
+    content: ""; position: absolute; right: 0; bottom: 0;
+    width: 3mm; height: 3mm; background: ${page.couleurAccent};
+    opacity: 0; cursor: nwse-resize; z-index: 1;
+  }
+  [data-bloc]:hover::after, [data-bloc].bloc-choisi::after { opacity: .9; }
+  .flottant { cursor: move; outline-offset: 0 !important; }
   `
     : "";
 
@@ -527,6 +554,15 @@ function styles(modele: Modele, apercu: boolean, designable: boolean): string {
     ${apercu ? `width:${largeur}mm;padding:${marge}mm;background:#fff;margin:0 auto;` : ""}
   }
   .bloc { margin-bottom: 3mm; }
+  /* La feuille est le repere des blocs flottants : son coin haut-gauche
+     est celui de la zone imprimable, a l'ecran comme sur le papier. */
+  .feuille { position: relative; }
+  .flottant { position: absolute; overflow: hidden; }
+  .flottant > .bloc { margin: 0; }
+  /* Une image flottante remplit son cadre, sans deformation : la taille
+     est celle du cadre, pas celle du bloc. */
+  .flottant img { width: 100% !important; height: 100% !important;
+                  max-width: none; object-fit: contain; display: block; }
   /* Le pied occupe sa bande, et rien d'autre : les elements y sont
      places au millimetre depuis son coin haut-gauche. */
   .pied { position: relative; width: 100%; }
@@ -609,12 +645,30 @@ export function rendreCorps(
   const devise =
     (valeurAuChemin(donnees, "societe.devise") as string) || "FCFA";
   const images = options.images ?? {};
-  return modele.contenu.blocs
-    .map((b) => {
+  const blocs = modele.contenu.blocs;
+  // Un bloc flottant est sorti du flux : la feuille ne grandit pas pour
+  // lui. On lui reserve la hauteur qu'il atteint, sinon un cachet pose
+  // sous le dernier bloc serait coupe.
+  const hauteurMin = blocs.reduce(
+    (h, b) => (b.visible && b.flottant ? Math.max(h, b.flottant.yMm + b.flottant.hauteurMm) : h),
+    0,
+  );
+  const corps = blocs
+    .map((b, i) => {
       const html = rendreBloc(b, donnees, devise, images);
-      return html ? marquerBloc(html, b.id) : "";
+      if (!html) return "";
+      const f = b.flottant;
+      if (!f) return marquerBloc(html, b.id);
+      // `z-index` = rang dans la structure : ce qui vient apres passe
+      // devant. Le cadre porte `data-bloc`, c'est lui qu'on attrape.
+      return (
+        `<div class="flottant" data-bloc="${esc(b.id)}" style="left:${f.xMm}mm;top:${f.yMm}mm;` +
+        `width:${f.largeurMm}mm;height:${f.hauteurMm}mm;z-index:${i + 1}">${html}</div>`
+      );
     })
     .join("\n");
+  const reserve = hauteurMin > 0 ? ` style="min-height:${hauteurMin}mm"` : "";
+  return `<div class="feuille"${reserve}>\n${corps}\n</div>`;
 }
 
 /** Le document complet, prêt à imprimer. */

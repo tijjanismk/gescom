@@ -65,31 +65,20 @@ pub fn supprimer_modele(etat: State<EtatApp>, id: String) -> Result<(), String> 
 #[tauri::command]
 pub fn exporter_modeles(
     etat: State<EtatApp>,
-    chemin: String,
     ids: Option<Vec<String>>,
-) -> Result<String, String> {
+) -> Result<Lot, String> {
+    // Le lot seulement : c'est l'ecran qui ecrit le fichier (plugin fs),
+    // et sur une caisse c'est le serveur qui repond a cette commande.
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
-    let lot = modeles::exporter(&conn, ids)?;
-    // Indenté : le fichier doit rester lisible et comparable. Un
-    // export minifié rend impossible de voir, dans un éditeur de
-    // texte, ce qui a changé entre deux boutiques.
-    let texte = serde_json::to_string_pretty(&lot).map_err(|e| e.to_string())?;
-    std::fs::write(&chemin, texte)
-        .map_err(|e| format!("Écriture impossible : {e}"))?;
-    Ok(chemin)
+    modeles::exporter(&conn, ids)
 }
 
 #[tauri::command]
 pub fn importer_modeles(
     app: tauri::AppHandle,
     etat: State<EtatApp>,
-    chemin: String,
+    lot: Lot,
 ) -> Result<Bilan, String> {
-    let texte = std::fs::read_to_string(&chemin)
-        .map_err(|e| format!("Lecture impossible : {e}"))?;
-    let lot: Lot = serde_json::from_str(&texte).map_err(|_| {
-        "Ce fichier n'est pas un export de modèles Gescom lisible.".to_string()
-    })?;
     let conn = etat.conn.lock().map_err(|e| e.to_string())?;
     let auteur = id_utilisateur_courant_pub(&conn);
     // Les images du lot se posent dans le dossier de donnees de l'app,

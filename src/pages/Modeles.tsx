@@ -31,7 +31,7 @@ import {
   COLONNES_PAR_GENRE, FORMATS, GENRES, SOURCE_PAR_GENRE,
 } from "@/lib/modeles/types";
 import type {
-  Alignement, Bloc, Champ, ChampDisponible, Colonne, FormatPapier,
+  Alignement, Bloc, CadreFlottant, Champ, ChampDisponible, Colonne, FormatPapier,
   FormatValeur, GenreDocument, Modele, TypeBloc,
 } from "@/lib/modeles/types";
 import { rendreModele } from "@/lib/modeles/rendu";
@@ -47,35 +47,154 @@ import type { ImagesDocument } from "@/lib/modeles/rendu";
 //  La palette
 // =====================================================================
 
+/** Les blocs du flux, dans l'ordre du document — pas les flottants,
+ *  qui sont posés au millimètre et n'ont pas de « avant / après ». */
+function blocsDuFlux(doc: Document): Element[] {
+  return Array.from(doc.querySelectorAll("[data-bloc]:not(.flottant)"));
+}
+
 /**
- * Où tombera le bloc qu'on lâche, d'après le curseur.
+ * Où tombera le bloc qu'on lâche, d'après le curseur : l'identifiant du
+ * bloc DEVANT lequel il passe, ou `null` pour la fin.
  *
  * Au-dessus du milieu d'un bloc, il passe devant ; en dessous, derrière.
- * Hors de tout bloc — la marge du bas — il va à la fin.
+ * Hors de tout bloc — la marge du bas — il va à la fin. Un identifiant
+ * et non un rang : un bloc caché ou flottant n'est pas dans le document,
+ * et le rang dans l'aperçu ne serait plus celui de la structure.
  */
-function placeSousLeCurseur(doc: Document, e: DragEvent): number {
-  const blocs = Array.from(doc.querySelectorAll("[data-bloc]"));
+function placeSousLeCurseur(doc: Document, e: DragEvent): string | null {
+  const blocs = blocsDuFlux(doc);
   for (let i = 0; i < blocs.length; i += 1) {
     const r = blocs[i].getBoundingClientRect();
-    if (e.clientY < r.top + r.height / 2) return i;
-    if (e.clientY <= r.bottom) return i + 1;
+    if (e.clientY < r.top + r.height / 2) return blocs[i].getAttribute("data-bloc");
+    if (e.clientY <= r.bottom) return blocs[i + 1]?.getAttribute("data-bloc") ?? null;
   }
-  return blocs.length;
+  return null;
 }
 
 /** Le trait qui dit où le bloc va tomber. */
 function montrerPoint(doc: Document, e: DragEvent) {
   effacerPoint(doc);
-  const blocs = Array.from(doc.querySelectorAll("[data-bloc]"));
-  const place = placeSousLeCurseur(doc, e);
+  const blocs = blocsDuFlux(doc);
+  const avant = placeSousLeCurseur(doc, e);
   const trait = doc.createElement("div");
   trait.className = "point-depot";
   trait.setAttribute("style",
     "height:0;border-top:.6mm solid currentColor;margin:1mm 0;"
     + "opacity:.75;pointer-events:none;");
-  const apres = blocs[place];
+  const apres = avant ? doc.querySelector(`[data-bloc="${avant}"]`) : null;
   if (apres) apres.parentNode?.insertBefore(trait, apres);
   else (blocs[blocs.length - 1]?.parentNode ?? doc.body).appendChild(trait);
+}
+
+/** Le cadre d'un bloc flottant, lu sur l'élément lui-même (en mm). */
+function cadreDe(el: HTMLElement): CadreFlottant {
+  const mm = (v: string) => parseFloat(v) || 0;
+  return {
+    xMm: mm(el.style.left), yMm: mm(el.style.top),
+    largeurMm: mm(el.style.width), hauteurMm: mm(el.style.height),
+  };
+}
+
+/** Combien de pixels vaut un millimètre dans ce document. */
+function pxParMm(doc: Document): number {
+  const sonde = doc.createElement("div");
+  sonde.setAttribute("style", "position:absolute;width:100mm;height:0;visibility:hidden");
+  doc.body.appendChild(sonde);
+  const px = sonde.getBoundingClientRect().width / 100;
+  sonde.remove();
+  return px || 3.78;
+}
+
+/** Au demi-millimètre : assez fin pour l'œil, lisible dans les réglages. */
+const demi = (v: number) => Math.round(v * 2) / 2;
+
+/**
+ * Le cadre qu'un bloc DU FLUX occupe à l'écran, en mm depuis le coin
+ * haut-gauche de la feuille : c'est le cadre qu'il garde quand on le
+ * détache pour le poser à la main — il ne bouge pas d'un millimètre au
+ * moment où il devient flottant.
+ */
+function cadreDansLaFeuille(doc: Document, el: HTMLElement): CadreFlottant | null {
+  const feuille = doc.querySelector<HTMLElement>(".feuille");
+  if (!feuille) return null;
+  const px = pxParMm(doc);
+  const f = feuille.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  return {
+    xMm: demi(Math.max(0, (r.left - f.left) / px)),
+    yMm: demi(Math.max(0, (r.top - f.top) / px)),
+    largeurMm: demi(Math.max(3, r.width / px)),
+    hauteurMm: demi(Math.max(3, r.height / px)),
+  };
+}
+
+/** Le pointeur est-il sur le coin bas-droit (la poignée) de l'élément ? */
+function surLaPoignee(doc: Document, el: HTMLElement, e: PointerEvent): boolean {
+  const px = pxParMm(doc);
+  const r = el.getBoundingClientRect();
+  return e.clientX > r.right - 4 * px && e.clientY > r.bottom - 4 * px;
+}
+
+/**
+ * Attraper un bloc dans l'aperçu : le déplacer, ou le redimensionner par
+ * son coin bas-droit. Le geste se voit en direct sur l'élément ; le
+ * modèle n'est écrit qu'au relâcher, en une fois.
+ *
+ * Un bloc du flux qu'on prend par le coin se DÉTACHE : il devient
+ * flottant, au cadre qu'il occupait, et le geste continue sans
+ * relâcher. C'est ainsi que « chaque rectangle se redimensionne dans
+ * l'aperçu », sans passer par une case à cocher.
+ */
+function attraperFlottant(
+  doc: Document, el: HTMLElement, e: PointerEvent,
+  poser: (cadre: CadreFlottant) => void,
+  depuisLeFlux?: CadreFlottant,
+) {
+  const px = pxParMm(doc);
+  const depart = depuisLeFlux ?? cadreDe(el);
+  // Le coin bas-droit — la poignée dessinée par le rendu — redimensionne.
+  const redim = !!depuisLeFlux || surLaPoignee(doc, el, e);
+  if (depuisLeFlux) {
+    // Sorti du flux sur-le-champ, à sa place : ce qui suit remonte,
+    // comme après l'enregistrement.
+    el.style.position = "absolute";
+    el.style.margin = "0";
+    el.style.left = `${depart.xMm}mm`;
+    el.style.top = `${depart.yMm}mm`;
+    el.style.width = `${depart.largeurMm}mm`;
+    el.style.height = `${depart.hauteurMm}mm`;
+    el.style.overflow = "hidden";
+  }
+  const x0 = e.clientX;
+  const y0 = e.clientY;
+  let cadre = depart;
+  const bouger = (ev: PointerEvent) => {
+    const dx = (ev.clientX - x0) / px;
+    const dy = (ev.clientY - y0) / px;
+    cadre = redim
+      ? { ...depart,
+          largeurMm: demi(Math.max(3, depart.largeurMm + dx)),
+          hauteurMm: demi(Math.max(3, depart.hauteurMm + dy)) }
+      : { ...depart,
+          xMm: demi(Math.max(0, depart.xMm + dx)),
+          yMm: demi(Math.max(0, depart.yMm + dy)) };
+    el.style.left = `${cadre.xMm}mm`;
+    el.style.top = `${cadre.yMm}mm`;
+    el.style.width = `${cadre.largeurMm}mm`;
+    el.style.height = `${cadre.hauteurMm}mm`;
+  };
+  const lacher = () => {
+    doc.removeEventListener("pointermove", bouger);
+    doc.removeEventListener("pointerup", lacher);
+    doc.removeEventListener("pointercancel", lacher);
+    // Un bloc pris par le coin depuis le flux est détaché même sans
+    // bouger : c'est le geste qui le dit.
+    if (depuisLeFlux || JSON.stringify(cadre) !== JSON.stringify(depart)) poser(cadre);
+  };
+  doc.addEventListener("pointermove", bouger);
+  doc.addEventListener("pointerup", lacher);
+  doc.addEventListener("pointercancel", lacher);
 }
 
 function effacerPoint(doc: Document) {
@@ -195,7 +314,8 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
   const [modifie, setModifie] = useState(false);
   const [blocActif, setBlocActif] = useState<string | null>(null);
   const apercuRef = useRef<HTMLIFrameElement>(null);
-  const depotApercuRef = useRef<((charge: string, position: number) => void) | null>(null);
+  const depotApercuRef = useRef<((charge: string, avant: string | null) => void) | null>(null);
+  const poserFlottantRef = useRef<((id: string, cadre: CadreFlottant) => void) | null>(null);
 
   /** Poser une image de la société sans quitter l'atelier. */
   const importerImage = useCallback(async (genre: "logo" | "entete" | "pied") => {
@@ -477,7 +597,12 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
         filters: [{ name: "Modèles Gescom", extensions: ["json"] }],
       });
       if (!chemin) return;
-      await invoke("exporter_modeles", { chemin, ids: null });
+      // Le contenu vient du serveur (ou de la base locale en monoposte) ;
+      // le fichier s'ecrit ICI, sur le poste qui a choisi l'emplacement.
+      // Indente : un export doit rester lisible et comparable.
+      const lot = await invoke<unknown>("exporter_modeles", { ids: null });
+      const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+      await writeTextFile(chemin, JSON.stringify(lot, null, 2));
       await message(
         `${liste.length} modèle(s) exporté(s).\n\nCopier ce fichier sur les `
         + "autres postes, puis l'importer depuis cet écran.",
@@ -496,8 +621,15 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
         filters: [{ name: "Modèles Gescom", extensions: ["json"] }],
       });
       if (!chemin || typeof chemin !== "string") return;
+      const { readTextFile } = await import("@tauri-apps/plugin-fs");
+      let lot: unknown;
+      try {
+        lot = JSON.parse(await readTextFile(chemin));
+      } catch {
+        throw "Ce fichier n'est pas un export de modèles Gescom lisible.";
+      }
       const bilan = await invoke<{ ajoutes: number; remplaces: number; ignores: string[] }>(
-        "importer_modeles", { chemin },
+        "importer_modeles", { lot },
       );
       await recharger();
       const details = bilan.ignores.length
@@ -569,6 +701,32 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
       const id = cible?.getAttribute("data-bloc");
       if (id) setBlocActif(id);
     });
+    // Un bloc flottant se prend à la main : déplacer, ou redimensionner
+    // par le coin. Le geste ne touche le modèle qu'au relâcher.
+    doc.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      const cible = e.target as Element | null;
+      const flottant = cible?.closest?.(".flottant") as HTMLElement | null;
+      if (flottant) {
+        const id = flottant.getAttribute("data-bloc");
+        if (!id) return;
+        e.preventDefault();
+        setBlocActif(id);
+        attraperFlottant(doc, flottant, e, (cadre) => poserFlottantRef.current?.(id, cadre));
+        return;
+      }
+      // Un bloc du flux, pris par son coin bas-droit : il se détache et
+      // se redimensionne dans le même geste. Pris ailleurs, un clic le
+      // choisit, rien de plus — le flux reste le flux.
+      const bloc = cible?.closest?.("[data-bloc]") as HTMLElement | null;
+      const id = bloc?.getAttribute("data-bloc");
+      if (!bloc || !id || bloc.classList.contains("pied") || !surLaPoignee(doc, bloc, e)) return;
+      const cadre = cadreDansLaFeuille(doc, bloc);
+      if (!cadre) return;
+      e.preventDefault();
+      setBlocActif(id);
+      attraperFlottant(doc, bloc, e, (c) => poserFlottantRef.current?.(id, c), cadre);
+    });
     // Déposer DANS le document, et pas seulement dans la liste : c'est
     // là qu'on voit où le bloc va tomber. `dragover` doit accepter le
     // dépôt, sinon le navigateur refuse le `drop` sans rien dire.
@@ -592,13 +750,17 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
 
   // La poignée de dépôt, réécrite à chaque rendu pour voir le modèle
   // dans son état courant.
-  depotApercuRef.current = (charge: string, position: number) => {
+  depotApercuRef.current = (charge: string, avant: string | null) => {
+    const blocs = modele?.contenu.blocs ?? [];
+    const rang = avant ? blocs.findIndex((b) => b.id === avant) : -1;
+    const position = rang >= 0 ? rang : blocs.length;
     if (charge.startsWith("nouveau:")) {
       insererBloc(charge.slice(8) as TypeBloc, position);
     } else if (charge.startsWith("deplacer:")) {
       deplacerBloc(Number(charge.slice(9)), position);
     }
   };
+  poserFlottantRef.current = (id, cadre) => majBloc(id, { flottant: cadre });
 
   // Le bloc choisi s'entoure dans l'aperçu, qu'on l'ait pris dans la
   // structure ou dans le document : les deux désignent la même chose.
@@ -776,7 +938,15 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
                     >
                       <GripVertical className="h-3.5 w-3.5 shrink-0 cursor-grab text-muted-foreground" />
                       <div className="min-w-0 flex-1">
-                        <div className="text-xs font-medium">{NOM_TYPE[b.type]}</div>
+                        <div className="text-xs font-medium">
+                          {NOM_TYPE[b.type]}
+                          {b.flottant && (
+                            <span className="ml-1.5 rounded bg-muted px-1 text-[10px] font-normal text-muted-foreground"
+                              title="Posé au millimètre, par-dessus le reste">
+                              flottant
+                            </span>
+                          )}
+                        </div>
                         <div className="truncate text-[11px] text-muted-foreground">
                           {resumeBloc(b)}
                         </div>
@@ -827,6 +997,7 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
             />
             <div className="my-3 border-t" />
             {selection ? (
+              <>
               <ProprietesBloc
                 bloc={selection}
                 champsDispo={champsDispo}
@@ -841,6 +1012,16 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
                 format={modele?.format ?? "a4"}
                 images={images}
               />
+              <SectionFlottant
+                bloc={selection}
+                onChange={(patch) => majBloc(selection.id, patch)}
+                cadreActuel={() => {
+                  const doc = apercuRef.current?.contentDocument;
+                  const el = doc?.querySelector<HTMLElement>(`[data-bloc="${selection.id}"]`);
+                  return doc && el ? cadreDansLaFeuille(doc, el) : null;
+                }}
+              />
+              </>
             ) : (
               <p className="text-xs text-muted-foreground">
                 Choisir un bloc dans la structure pour en régler le contenu.
@@ -950,6 +1131,72 @@ const ALIGNEMENTS: { id: Alignement; icone: typeof AlignLeft }[] = [
   { id: "centre", icone: AlignCenter },
   { id: "droite", icone: AlignRight },
 ];
+
+/**
+ * FLOTTANT : sortir le bloc du flux pour le poser au millimètre, par-
+ * dessus le reste. Les valeurs se règlent ici ou à la main dans
+ * l'aperçu — c'est le même cadre.
+ */
+function SectionFlottant({ bloc, onChange, cadreActuel }: {
+  bloc: Bloc;
+  onChange: (patch: Record<string, unknown>) => void;
+  /** Le cadre que le bloc occupe dans l'aperçu, s'il s'y trouve. */
+  cadreActuel: () => CadreFlottant | null;
+}) {
+  const f = bloc.flottant;
+  function basculer(actif: boolean) {
+    if (!actif) { onChange({ flottant: undefined }); return; }
+    // Le bloc reste là où il est : son cadre à l'écran devient son
+    // cadre flottant. Sans aperçu (bloc caché), une vignette en haut à
+    // gauche qu'on tire ensuite.
+    const img = bloc.type === "image" ? bloc : null;
+    onChange({ flottant: cadreActuel() ?? {
+      xMm: 0, yMm: 0,
+      largeurMm: img && img.largeurMm > 0 ? img.largeurMm : 40,
+      hauteurMm: img && img.hauteurMm > 0 ? img.hauteurMm : 20,
+    } satisfies CadreFlottant });
+  }
+  const champ = (cle: keyof CadreFlottant, libelle: string) => (
+    <div>
+      <Label className="text-[11px]">{libelle}</Label>
+      <Input
+        type="number" step="0.5" min={0} className="h-8"
+        value={f?.[cle] ?? 0}
+        onChange={(e) => f && onChange({ flottant: { ...f, [cle]: Math.max(0, Number(e.target.value) || 0) } })}
+      />
+    </div>
+  );
+  return (
+    <div className="mt-3 space-y-2 border-t pt-3">
+      <label className="flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={!!f} onChange={(e) => basculer(e.target.checked)} />
+        Bloc flottant — posé au millimètre, par-dessus le reste
+      </label>
+      {f && (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            {champ("xMm", "Gauche (mm)")}
+            {champ("yMm", "Haut (mm)")}
+            {champ("largeurMm", "Largeur (mm)")}
+            {champ("hauteurMm", "Hauteur (mm)")}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Dans l'aperçu : tirer le bloc pour le déplacer, son coin
+            bas-droit pour le redimensionner. Deux blocs flottants peuvent
+            se recouvrir ; celui qui vient plus bas dans la structure passe
+            devant.
+          </p>
+        </>
+      )}
+      {!f && (
+        <p className="text-[11px] text-muted-foreground">
+          Ou, dans l'aperçu : tirer le coin bas-droit du bloc — il se
+          détache à sa place et se redimensionne dans le même geste.
+        </p>
+      )}
+    </div>
+  );
+}
 
 function ChoixAlignement({
   valeur, onChange,
