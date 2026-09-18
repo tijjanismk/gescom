@@ -55,6 +55,9 @@ interface Piece {
   reference?: string | null;
   /** Axe livraison, indépendant du paiement. Voir livraisons.rs. */
   etat_livraison?: "sans_objet" | "non_livre" | "partiel" | "livre";
+  /** La vente derrière la facture est passée en irrécouvrable
+   *  (Paramètres → Irrécouvrable) : on n'attend plus cet argent. */
+  irrecouvrable?: boolean;
 }
 
 // Livraison : information de suivi, sans effet sur le stock ni la
@@ -1118,8 +1121,11 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
   // la faire disparaitre serait pire — mais elle ne compte pour rien :
   // son montant n'est ni du, ni encaisse, ni un chiffre d'affaires.
   // L'additionner gonflait les totaux du bas d'ecran avec des documents
-  // qu'on venait justement d'annuler.
-  const comptable = piecesTri.filter(p => p.statut !== "annule");
+  // qu'on venait justement d'annuler. Meme sort pour une facture dont
+  // la vente est IRRECOUVRABLE : elle se lit, en rouge, mais ne pese
+  // dans aucun total — on n'attend plus cet argent.
+  const horsTotal = (p: Piece) => p.statut === "annule" || !!p.irrecouvrable;
+  const comptable = piecesTri.filter(p => !horsTotal(p));
 
   const totalNet  = comptable.reduce((s, p) => s + p.total_net, 0);
   const totalTTC  = comptable.reduce((s, p) => s + p.total_ttc, 0);
@@ -1130,7 +1136,13 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
     .filter(estImpayable).reduce((s, p) => s + (p.total_paye ?? 0), 0);
   const totalReste = comptable
     .filter(estImpayable).reduce((s, p) => s + (p.reste ?? 0), 0);
-  const nbAnnulees = piecesTri.length - comptable.length;
+  const nbAnnulees = piecesTri.filter(p => p.statut === "annule").length;
+  const nbIrrecouvrables = piecesTri.filter(p => p.irrecouvrable && p.statut !== "annule").length;
+  const nbHorsTotal = nbAnnulees + nbIrrecouvrables;
+  const detailHorsTotal = [
+    nbAnnulees > 0 ? `${nbAnnulees} annulée${nbAnnulees > 1 ? "s" : ""}` : "",
+    nbIrrecouvrables > 0 ? `${nbIrrecouvrables} irrécouvrable${nbIrrecouvrables > 1 ? "s" : ""}` : "",
+  ].filter(Boolean).join(", ");
   const pillsActuels = onglet === "client" ? TYPES_PILLS_CLIENT : TYPES_PILLS_FOURNISSEUR;
   const labelTiers = onglet === "client" ? "Client" : "Fournisseur";
 
@@ -1237,9 +1249,9 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
         {/* Compteur */}
         <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
           <span>{piecesTri.length} pièce{piecesTri.length > 1 ? "s" : ""}</span>
-          {nbAnnulees > 0 && (
-            <span title="Les pièces annulées ne sont comptées dans aucun total">
-              dont {nbAnnulees} annulée{nbAnnulees > 1 ? "s" : ""}, hors total
+          {nbHorsTotal > 0 && (
+            <span title="Les pièces annulées et les factures irrécouvrables ne sont comptées dans aucun total">
+              dont {detailHorsTotal}, hors total
             </span>
           )}
           {comptable.length > 0 && (
@@ -1319,13 +1331,18 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                   p.statut === "brouillon";
                 const enRetard = p.date_echeance &&
                   new Date(p.date_echeance) < new Date() &&
-                  !["paye","annule","validee"].includes(p.statut);
+                  !["paye","annule","validee"].includes(p.statut) &&
+                  !p.irrecouvrable;
 
                 return (
                   <tr key={p.id}
                     className={`border-b border-border/50 hover:bg-accent/40
                                 transition-colors group ${
-                      i % 2 === 1 ? "bg-muted/20" : "bg-background"
+                      p.irrecouvrable
+                        // Toute la ligne en rouge : on n'attend plus cet
+                        // argent, ça se voit sans lire le statut.
+                        ? "bg-red-50 text-red-800 [&_.text-muted-foreground]:text-red-600/80"
+                        : i % 2 === 1 ? "bg-muted/20" : "bg-background"
                     }`}>
 
                     <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
@@ -1368,8 +1385,10 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                     <td className="px-3 py-2">
                       <span className={`inline-flex items-center px-2 py-0.5
                                         rounded-full text-xs font-medium
-                                        ${COULEURS_STATUT[p.statut] ?? "bg-gray-100 text-gray-600"}`}>
-                        {LABELS_STATUT[p.statut] ?? p.statut}
+                                        ${p.irrecouvrable
+                                          ? "bg-red-600 text-white"
+                                          : COULEURS_STATUT[p.statut] ?? "bg-gray-100 text-gray-600"}`}>
+                        {p.irrecouvrable ? "Irrécouvrable" : LABELS_STATUT[p.statut] ?? p.statut}
                       </span>
                       {/* Second axe, sous le statut de paiement : c'est
                           leur croisement qui dit « payé non livré ». */}
@@ -1665,9 +1684,9 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                 <td className="px-3 py-2.5 text-xs font-bold uppercase
                                text-muted-foreground" colSpan={6}>
                   Total · {comptable.length} pièce(s)
-                  {nbAnnulees > 0 && (
+                  {nbHorsTotal > 0 && (
                     <span className="ml-1 normal-case font-normal">
-                      ({nbAnnulees} annulée(s) exclue(s))
+                      ({detailHorsTotal} — hors total)
                     </span>
                   )}
                 </td>

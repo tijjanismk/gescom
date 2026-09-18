@@ -65,6 +65,16 @@ pièce », visible seulement à qui a `pieces:antidater`.
 les états de dette (`fournisseurs.rs`) passent par elle — un AVF n'est
 jamais un impayé. L'écran lit le reste d'un avoir en ambre (« crédit »).
 
+## La facture irrécouvrable (18/09/2026)
+
+Les listes client (`lire_toutes_pieces_client[_sur_base]`) rendent
+`irrecouvrable: bool` — colonne **20**, ajoutée en dernier, `CASE WHEN
+EXISTS (vente irrecouvrable derrière la pièce) THEN 1 ELSE 0 END`
+(un entier : PostgreSQL rend un booléen sur `EXISTS` nu). Les filtres
+« impayés » et « en retard » l'excluent. L'écran la lit en rouge et la
+tient hors des totaux, comme une annulée. La liste fournisseur côté
+`Base` porte la même colonne (toujours 0) ; côté fenêtre, non.
+
 ## Commandes exposées
 
 **pieces.rs** (19) — `lire_toutes_pieces_client`,

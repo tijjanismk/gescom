@@ -1200,3 +1200,21 @@ Mesuré : **440 tests workspace SQLite**, 0 échec ; `achats_base`
 9/9 sur PostgreSQL ; typecheck front au vert ; serveur d'essai
 relancé, la liste des AVF vérifiée par HTTP (remboursé → reste 0).
 
+## 18/09/2026 (suite 4) — la facture irrécouvrable, en rouge et hors total
+
+Une vente passée en irrécouvrable (Paramètres → Irrécouvrable) sortait
+déjà des créances ; sa facture, elle, restait dans la liste des pièces
+comme un impayé ordinaire, et son reste s'additionnait au bas de
+l'écran. Les listes client portent maintenant `irrecouvrable` (colonne
+20, ajoutée en dernier — `CASE WHEN EXISTS … THEN 1 ELSE 0 END`, un
+entier parce que PostgreSQL rend un booléen sur `EXISTS` nu). Les
+filtres « impayés » et « en retard » l'écartent, sur les deux versions.
+À l'écran : toute la ligne en rouge, badge « Irrécouvrable », et elle
+ne compte dans aucun total, comme une pièce annulée — le pied de
+tableau dit combien sont hors total et pourquoi.
+
+`target/` (l'essai `pg_restore` du 13/09) est ignoré par git.
+
+Mesuré : `gestion_base` 10/10, `pieces_base` 18/18, `listes_base` 6/6
+sur PostgreSQL ; typecheck front au vert.
+

@@ -66,14 +66,19 @@ pub fn lire_toutes_pieces_client(
     if let Some(ref cid) = client_id {
         conditions.push(format!("pc.tiers_id = '{}'", cid.replace('\'', "''")));
     }
+    // Une facture dont la vente est irrecouvrable n'est plus un impaye
+    // qu'on attend : elle ne figure ni dans « impayes » ni dans « en
+    // retard ».
     if impaye_seulement == Some(true) {
-        conditions.push("pc.statut NOT IN ('paye','annule','transfere')".to_string());
+        conditions.push(format!(
+            "pc.statut NOT IN ('paye','annule','transfere') AND NOT {IRRECOUVRABLE_SQL}"
+        ));
     }
     if en_retard_seulement == Some(true) {
-        conditions.push(
+        conditions.push(format!(
             "pc.date_echeance IS NOT NULL AND pc.date_echeance < date('now') \
-             AND pc.statut NOT IN ('paye','annule','transfere')".to_string()
-        );
+             AND pc.statut NOT IN ('paye','annule','transfere') AND NOT {IRRECOUVRABLE_SQL}"
+        ));
     }
 
     // Filtre montant appliqué après (HAVING ou sous-requête)
@@ -118,7 +123,11 @@ pub fn lire_toutes_pieces_client(
                 -- 19 : la reference du tiers (le numero du fournisseur sur
                 -- SA facture). Ajoutee EN DERNIER : les indices 0..18 que
                 -- les quatre lectures attendent ne bougent pas.
-                pc.reference
+                pc.reference,
+                -- 20 : la vente derriere la piece est-elle irrecouvrable ?
+                -- Un entier, pas un booleen : PostgreSQL rend un bool sur
+                -- EXISTS nu, SQLite un entier — CASE met les deux d'accord.
+                CASE WHEN EXISTS (SELECT 1 FROM vente v WHERE v.piece_id = pc.id AND v.statut = 'irrecouvrable') THEN 1 ELSE 0 END
          FROM piece_commerciale pc
          JOIN client c ON c.id = pc.tiers_id
          LEFT JOIN utilisateur u ON u.id = pc.auteur_id
@@ -173,6 +182,7 @@ pub fn lire_toutes_pieces_client(
                                   row.get::<_,f64>(17).unwrap_or(0.0),
                                   row.get::<_,f64>(18).unwrap_or(0.0)),
             "reference":        row.get::<_,Option<String>>(19)?,
+            "irrecouvrable":    row.get::<_,i64>(20).unwrap_or(0) != 0,
         }))
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
@@ -2298,6 +2308,7 @@ fn ligne_de_liste(r: &crate::base::Ligne<'_>) -> crate::base::Resultat<serde_jso
                               r.get::<f64>(17).unwrap_or(0.0),
                               r.get::<f64>(18).unwrap_or(0.0)),
         "reference":        r.get::<Option<String>>(19)?,
+        "irrecouvrable":    r.get::<i64>(20).unwrap_or(0) != 0,
     }))
 }
 
@@ -2323,7 +2334,13 @@ const COLONNES_CALCULEES: &str = "
                    FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0) AS DOUBLE PRECISION),
     CAST(COALESCE((SELECT SUM(lp.quantite)
                    FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0) AS DOUBLE PRECISION),
-    pc.reference";
+    pc.reference,
+    CASE WHEN EXISTS (SELECT 1 FROM vente v WHERE v.piece_id = pc.id AND v.statut = 'irrecouvrable') THEN 1 ELSE 0 END";
+
+/// La vente derriere la piece est irrecouvrable. Un entier et pas un
+/// booleen : PostgreSQL rend un bool sur EXISTS nu, SQLite un entier.
+const IRRECOUVRABLE_SQL: &str =
+    "EXISTS (SELECT 1 FROM vente v WHERE v.piece_id = pc.id AND v.statut = 'irrecouvrable')";
 
 #[allow(clippy::too_many_arguments)]
 pub fn lire_toutes_pieces_client_sur_base(
@@ -2366,11 +2383,13 @@ pub fn lire_toutes_pieces_client_sur_base(
            AND (CAST(?5 AS TEXT) IS NULL OR pc.date_piece <= ?5)
            AND (CAST(?6 AS TEXT) IS NULL OR pc.tiers_id = ?6)
            AND (CAST(?7 AS BIGINT) = 0
-                OR pc.statut NOT IN ('paye','annule','transfere'))
+                OR (pc.statut NOT IN ('paye','annule','transfere')
+                    AND NOT EXISTS (SELECT 1 FROM vente v WHERE v.piece_id = pc.id AND v.statut = 'irrecouvrable')))
            AND (CAST(?8 AS BIGINT) = 0
                 OR (pc.date_echeance IS NOT NULL
                     AND SUBSTR(pc.date_echeance, 1, 10) < ?9
-                    AND pc.statut NOT IN ('paye','annule','transfere')))
+                    AND pc.statut NOT IN ('paye','annule','transfere')
+                    AND NOT EXISTS (SELECT 1 FROM vente v WHERE v.piece_id = pc.id AND v.statut = 'irrecouvrable')))
          ORDER BY pc.date_piece DESC, pc.cree_le DESC"
     );
 

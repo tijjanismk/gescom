@@ -198,11 +198,31 @@ fn tva_dettes_irrecouvrable_et_expiration() {
     let (vente_id, prix) = vendre_credit(&mut base, 1.0);
     chantiers::marquer_irrecouvrable_sur_base(&mut base, vente_id.clone(), "parti sans adresse".into()).unwrap();
     assert_eq!(statut_vente(&mut base, &vente_id), "irrecouvrable");
-    let refus = chantiers::marquer_irrecouvrable_sur_base(&mut base, vente_id, "encore".into()).unwrap_err();
+    let refus = chantiers::marquer_irrecouvrable_sur_base(&mut base, vente_id.clone(), "encore".into()).unwrap_err();
     assert!(refus.contains("déjà"));
     let perdues = chantiers::lire_irrecouvrable_sur_base(&mut base).unwrap();
     assert_eq!(perdues.len(), 1);
     assert_eq!(perdues[0]["montant_perdu"], prix);
+    // La liste des pièces le dit, et ne range plus la facture parmi les
+    // impayés : on n'attend plus cet argent. Une facture validée à
+    // crédit, dont la vente est ensuite perdue.
+    let client = client_reel(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let fac = pieces::creer_piece_sur_base(&mut base, client, "facture".into(), vec![ligne(&sucre, 1.0)], None, None, None, None, None, None).unwrap();
+    let piece_id = fac["id"].as_str().unwrap().to_string();
+    argent::valider_facture_sur_base(&mut base, piece_id.clone(), "credit".into(), None, None, None).unwrap();
+    let vente_perdue = pieces::lire_vente_de_piece_sur_base(&mut base, piece_id.clone()).unwrap().unwrap();
+    chantiers::marquer_irrecouvrable_sur_base(&mut base, vente_perdue, "parti".into()).unwrap();
+    let toutes = pieces::lire_toutes_pieces_client_sur_base(
+        &mut base, Some("facture".into()), None, None, None, None, None, None, None, None, None,
+    ).unwrap();
+    let fac = toutes.iter().find(|p| p["id"] == piece_id).expect("la facture de la vente perdue");
+    assert_eq!(fac["irrecouvrable"], true, "{fac}");
+    assert!(toutes.iter().filter(|p| p["id"] != piece_id).all(|p| p["irrecouvrable"] == false));
+    let impayees = pieces::lire_toutes_pieces_client_sur_base(
+        &mut base, Some("facture".into()), None, None, None, None, None, None, Some(true), None, None,
+    ).unwrap();
+    assert!(impayees.iter().all(|p| p["id"] != piece_id), "une facture irrécouvrable n'est pas un impayé");
 
     // Expiration : un avoir vieux de 100 jours expire, un frais non.
     let client = client_reel(&mut base);

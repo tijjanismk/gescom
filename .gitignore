@@ -52,3 +52,6 @@ src-tauri/binaires/
 *.db
 *.db-wal
 *.db-shm
+
+# Essais locaux (pg_restore, etc.)
+target/
