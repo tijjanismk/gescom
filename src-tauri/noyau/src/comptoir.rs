@@ -22,11 +22,19 @@ pub fn creer_client_rapide(
     let id = uuid::Uuid::new_v4().to_string();
     let auteur = id_utilisateur_courant_pub(&conn);
 
-    // Générer un code unique
-    let nb: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM client WHERE est_generique = 0", [], |r| r.get(0)
-    ).unwrap_or(0);
-    let code = format!("CLIENT{:05}", nb + 1);
+    // Le code suit le PLUS GRAND deja pris, jamais le nombre de clients
+    // (D28) : un client supprime, un import avec ses propres numeros, et
+    // COUNT + 1 retombait sur un code existant — « UNIQUE constraint
+    // failed: client.code », a chaque nouveau client, jusqu'a ce que le
+    // compte rattrape le trou.
+    let dernier: Option<i64> = conn
+        .query_row(
+            "SELECT MAX(CAST(SUBSTR(code, 7) AS INTEGER)) FROM client WHERE code LIKE 'CLIENT_____'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(None);
+    let code = crate::coeur::tiers::code_client_suivant("", dernier);
 
     conn.execute(
         "INSERT INTO client
@@ -306,19 +314,28 @@ pub fn creer_client_rapide_sur(
     let auteur = auteur_courant(base);
     let dossier = base.dossier().to_string();
 
-    // Le code suit le NOMBRE de clients reels DU DOSSIER : le client
-    // generique ne compte pas, sinon la numerotation commencerait a 2 —
-    // et les clients d'une autre societe non plus, sinon deux dossiers
-    // auraient des codes qui se suivent sans se ressembler.
-    let nb = base
+    // Le code suit le PLUS GRAND deja pris dans le dossier, jamais le
+    // nombre de clients (D28) — voir `creer_client_rapide`. Et comme
+    // `client.code` est unique sur TOUTE la base, un dossier autre que
+    // celui d'origine prefixe ses codes de son propre code
+    // (« QUINC-CLIENT00001 ») : deux dossiers ne se marchent pas dessus.
+    let prefixe = crate::dossiers::prefixe_de_code_sur(base)?;
+    let dernier: Option<i64> = base
         .lire_une(
-            "SELECT COUNT(*) FROM client WHERE est_generique = 0 AND dossier_id = ?1",
-            &parametres![dossier.clone()],
-            |r| r.get::<i64>(0),
+            // `LENGTH(?2) + 7` et non un entier lie : PostgreSQL typerait
+            // le parametre d'apres le CAST et refuserait un i64.
+            "SELECT MAX(CAST(SUBSTR(code, LENGTH(?2) + 7) AS BIGINT)) FROM client
+             WHERE dossier_id = ?1 AND code LIKE ?3",
+            &parametres![
+                dossier.clone(),
+                prefixe.clone(),
+                format!("{prefixe}CLIENT_____")
+            ],
+            |r| r.get::<Option<i64>>(0),
         )
         .map_err(|e| e.0)?
-        .unwrap_or(0);
-    let code = format!("CLIENT{:05}", nb + 1);
+        .flatten();
+    let code = crate::coeur::tiers::code_client_suivant(&prefixe, dernier);
 
     base.executer(
         "INSERT INTO client

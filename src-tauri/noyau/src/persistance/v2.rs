@@ -67,6 +67,10 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         "ALTER TABLE session_caisse ADD COLUMN poste_id TEXT",
         "ALTER TABLE session_caisse ADD COLUMN utilisateur_id TEXT",
         "ALTER TABLE mouvement_caisse ADD COLUMN poste_id TEXT",
+        // v3 : le dossier ouvert par la session (NULL = dossier
+        // d'origine). Pose ici aussi : sur une cible fichier, c'est ce
+        // chemin qui prepare la base du serveur, pas `amorcage`.
+        "ALTER TABLE session_reseau ADD COLUMN dossier_id TEXT",
     ] {
         conn.execute(sql, []).ok();
     }

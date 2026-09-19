@@ -82,6 +82,9 @@ pub enum CodeErreur {
     CommandeInconnue,
     /// Serveur injoignable, base verrouillee : reessayer a du sens.
     Technique,
+    /// v3 : la session n'a pas encore de dossier — en choisir un
+    /// (`choisir_dossier`) avant toute autre commande.
+    DossierAChoisir,
 }
 
 // =====================================================================
@@ -97,6 +100,23 @@ pub struct DemandeConnexion {
     /// Identifiant stable du poste, genere une fois et conserve.
     pub poste_empreinte: String,
     pub version_protocole: u32,
+    /// v3 : le dossier a ouvrir. Absent : le seul qui existe, ou celui
+    /// memorise pour cette personne, ou — s'il faut choisir — la
+    /// session s'ouvre SANS dossier et `Identite.dossiers` liste le choix.
+    #[serde(default)]
+    pub dossier_id: Option<String>,
+    /// Retenir ce dossier pour les prochaines connexions de cette
+    /// personne (decision 3 du plan : par utilisateur).
+    #[serde(default)]
+    pub memoriser_dossier: Option<bool>,
+}
+
+/// Un dossier tel que l'ecran de connexion le propose.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DossierOuvrable {
+    pub id: String,
+    pub code: String,
+    pub societe: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +134,17 @@ pub struct Identite {
     pub expire_le: String,
     /// Vrai si la caisse est nominative (un tiroir par utilisateur).
     pub caisse_par_utilisateur: bool,
+    /// v3 : le dossier ouvert par la session. `None` : il reste a
+    /// choisir parmi `dossiers` (commande `choisir_dossier`), et aucune
+    /// autre commande ne passe avant.
+    #[serde(default)]
+    pub dossier_id: Option<String>,
+    #[serde(default)]
+    pub dossier_societe: Option<String>,
+    /// Les dossiers ouverts, pour l'ecran de choix. Un seul : pas
+    /// d'ecran, il est deja ouvert.
+    #[serde(default)]
+    pub dossiers: Vec<DossierOuvrable>,
 }
 
 // =====================================================================

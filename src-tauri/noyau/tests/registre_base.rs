@@ -17,6 +17,8 @@ fn appelant() -> Appelant {
         utilisateur_id: "u1".into(),
         role: "patron".into(),
         poste_id: "p1".into(),
+        dossier_id: gescom_noyau::dossiers::DOSSIER_DEFAUT.into(),
+        session_id: "s1".into(),
     }
 }
 

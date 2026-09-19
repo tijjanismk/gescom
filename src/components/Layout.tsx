@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { peut } from "@/lib/droits";
-import { appeler as invoke } from "@/lib/pont";
+import { appeler as invoke, dossierCourant } from "@/lib/pont";
 import {
   ShoppingCart, Package, Users, Wallet,
   BarChart3, Settings, Menu, X, Store,
@@ -272,6 +272,14 @@ export function Layout({
                   <div className="min-w-0 text-left">
                     <p className="text-xs font-medium truncate">{utilisateur.nom}</p>
                     <p className="text-xs text-muted-foreground capitalize">{role}</p>
+                    {/* v3 : le dossier ouvert par la session. Pour en
+                        changer, on se déconnecte (plan, décision 3). */}
+                    {dossierCourant()?.societe && (
+                      <p className="text-[11px] text-muted-foreground truncate"
+                        title="Dossier ouvert — pour en changer, se déconnecter">
+                        {dossierCourant()!.societe}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

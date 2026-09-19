@@ -75,6 +75,9 @@ export interface EtatReseau {
   /** Empreinte stable, tirée une fois côté Rust. */
   posteEmpreinte: string;
   jeton: string | null;
+  /** v3 : le dossier de la session, une fois choisi. */
+  dossierId?: string | null;
+  dossierSociete?: string | null;
   posteId: string | null;
   utilisateurId: string | null;
   caisseParUtilisateur: boolean;
@@ -335,6 +338,28 @@ export interface Identite {
   poste_id: string;
   expire_le: string;
   caisse_par_utilisateur: boolean;
+  /** v3 : le dossier ouvert par la session. `null` : à choisir parmi
+   *  `dossiers` (commande `choisir_dossier`) avant toute autre commande. */
+  dossier_id?: string | null;
+  dossier_societe?: string | null;
+  dossiers?: DossierOuvrable[];
+}
+
+export interface DossierOuvrable { id: string; code: string; societe: string; }
+
+/** Le dossier ouvert par cette session, pour l'afficher. */
+export function dossierCourant(): { id: string; societe: string } | null {
+  return etat.dossierId ? { id: etat.dossierId, societe: etat.dossierSociete ?? "" } : null;
+}
+
+/**
+ * Choisit le dossier d'une session ouverte sans (plusieurs dossiers,
+ * aucun mémorisé). Une fois : changer de dossier, c'est se déconnecter.
+ */
+export async function choisirDossier(dossierId: string, memoriser: boolean): Promise<void> {
+  const r = await appeler<{ dossier_id: string; societe: string }>("choisir_dossier", { dossierId, memoriser });
+  etat = { ...etat, dossierId: r.dossier_id, dossierSociete: r.societe };
+  enregistrer();
 }
 
 export async function connecterServeur(
@@ -370,6 +395,8 @@ export async function connecterServeur(
     posteId: identite.poste_id,
     utilisateurId: identite.utilisateur_id,
     caisseParUtilisateur: identite.caisse_par_utilisateur,
+    dossierId: identite.dossier_id ?? null,
+    dossierSociete: identite.dossier_societe ?? null,
   };
   enregistrer();
   return identite;

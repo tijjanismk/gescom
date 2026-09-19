@@ -97,6 +97,10 @@ pub const CATALOGUE: &[Permission] = &[
     // --- Administration ---
     Permission { code: "utilisateurs:gerer", libelle: "Gérer les utilisateurs et les rôles", groupe: "Administration" },
     Permission { code: "parametres:modifier", libelle: "Modifier les paramètres", groupe: "Administration" },
+    // La v3 : creer un dossier (une societe), ouvrir, prolonger ou clore
+    // un exercice. Aucun role livre ne la porte : elle vient avec
+    // `acces_total` (le patron) ou se donne a la main.
+    Permission { code: "dossiers:gerer", libelle: "Créer un dossier, ouvrir et clore les exercices", groupe: "Administration" },
     Permission { code: "postes:gerer", libelle: "Gérer les postes du réseau", groupe: "Administration" },
     Permission { code: "sauvegarde:lancer", libelle: "Lancer une sauvegarde", groupe: "Administration" },
     Permission { code: "chantiers:gerer", libelle: "TVA, irrécouvrables, expiration des avoirs", groupe: "Administration" },

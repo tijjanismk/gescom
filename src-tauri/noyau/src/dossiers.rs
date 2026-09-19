@@ -648,3 +648,219 @@ pub fn clore_exercice_sur(base: &mut Base, exercice_id: String) -> Result<(), St
     }
     Ok(())
 }
+
+// =====================================================================
+//  LES DOSSIERS, EN BASE — la v3 commence ici
+// =====================================================================
+//
+// Un dossier = une societe. Le plan (AI_CONTEXT/PLAN-MULTISOCIETE.md,
+// decisions 3 et 4) : on choisit son dossier A LA CONNEXION, on en
+// change en se deconnectant, et un dossier neuf nait avec ce qu'il lui
+// faut pour vendre — un magasin par defaut et un client de passage —
+// sinon la premiere vente echoue sur un « aucun depot » que personne
+// ne comprend.
+
+/// Le code d'un dossier : ce qu'on tape, ce qui figure dans les
+/// compteurs de numerotation. Majuscules, chiffres, tiret, souligne.
+fn valider_code_dossier(code: &str) -> Result<String, String> {
+    let code = code.trim().to_uppercase();
+    if code.is_empty() || code.len() > 20 {
+        return Err("Le code du dossier : 1 a 20 caracteres.".to_string());
+    }
+    if !code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err("Le code du dossier : lettres, chiffres, tiret ou souligne, sans accent.".to_string());
+    }
+    Ok(code)
+}
+
+/// Tous les dossiers, les ouverts d'abord. Pas de filtre de dossier :
+/// c'est la liste qu'on lit AVANT d'en avoir choisi un.
+pub fn lire_dossiers_sur(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
+    base.lire_plusieurs(
+        "SELECT d.id, d.code, d.societe, d.clos,
+                (SELECT COUNT(*) FROM exercice e WHERE e.dossier_id = d.id AND e.clos = 0)
+         FROM dossier d
+         ORDER BY d.clos ASC, d.code ASC",
+        &[],
+        |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<String>(0)?,
+                "code": r.get::<String>(1)?,
+                "societe": r.get::<String>(2)?,
+                "clos": r.get::<i64>(3)? != 0,
+                "exercices_ouverts": r.get::<i64>(4)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+/// Un dossier ouvert, ou le refus qui dit pourquoi.
+pub fn dossier_ouvert_sur(base: &mut Base, dossier_id: &str) -> Result<Dossier, String> {
+    let d = base
+        .lire_une(
+            "SELECT id, code, societe, clos FROM dossier WHERE id = ?1",
+            &parametres![dossier_id],
+            |r| {
+                Ok(Dossier {
+                    id: r.get::<String>(0)?,
+                    code: r.get::<String>(1)?,
+                    societe: r.get::<String>(2)?,
+                    clos: r.get::<i64>(3)? != 0,
+                })
+            },
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Dossier introuvable.".to_string())?;
+    if d.clos {
+        return Err(format!("Le dossier « {} » est clos : il ne s'ouvre plus.", d.societe));
+    }
+    Ok(d)
+}
+
+/// Cree un dossier, avec ce qu'il lui faut pour vendre des le premier
+/// jour : son exercice de l'annee, son magasin par defaut, son client
+/// de passage. Tout dans UNE transaction — un dossier a moitie ne, sans
+/// magasin, ne vaut rien.
+///
+/// Sur SQLite, refus : les commandes de la fenetre (`Connection`) ne
+/// savent servir que le dossier d'origine, et un second dossier y
+/// recevrait des ecritures rangees dans le premier. Plusieurs dossiers
+/// demandent PostgreSQL (D11, plan §10).
+pub fn creer_dossier_sur(
+    base: &mut Base,
+    code: String,
+    societe: String,
+) -> Result<serde_json::Value, String> {
+    if !base.est_postgres() {
+        return Err(
+            "Plusieurs dossiers demandent un serveur PostgreSQL : sur une base fichier, \
+             seul le dossier d'origine se sert correctement."
+                .to_string(),
+        );
+    }
+    let code = valider_code_dossier(&code)?;
+    let societe = societe.trim().to_string();
+    if societe.is_empty() {
+        return Err("Le nom de la societe est vide.".to_string());
+    }
+    let deja: Option<String> = base
+        .lire_une("SELECT id FROM dossier WHERE code = ?1", &parametres![code.clone()], |r| r.get::<String>(0))
+        .map_err(|e| e.0)?;
+    if deja.is_some() {
+        return Err(format!("Le code « {code} » est deja pris."));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = crate::utils::maintenant_iso();
+    let annee: String = now.chars().take(4).collect();
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO dossier (id, code, societe, clos, cree_le, modifie_le)
+         VALUES (?1, ?2, ?3, 0, ?4, ?4)",
+        &parametres![id.clone(), code.clone(), societe.clone(), now.clone()],
+    )
+    .map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO exercice (id, dossier_id, date_debut, date_fin, clos, cree_le, modifie_le)
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            id.clone(),
+            format!("{annee}-01-01"),
+            format!("{annee}-12-31"),
+            now.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+    // Le magasin et le client de passage portent EXPLICITEMENT le
+    // nouveau dossier : la transaction, elle, est encore dans l'ancien.
+    tx.executer(
+        "INSERT INTO depot (id, nom, est_defaut, actif, cree_le, modifie_le, origine, dossier_id)
+         VALUES (?1, 'Magasin principal', 1, 1, ?2, ?2, 'dossier', ?3)",
+        &parametres![uuid::Uuid::new_v4().to_string(), now.clone(), id.clone()],
+    )
+    .map_err(|e| e.0)?;
+    // `client.code` est unique sur TOUTE la base, pas par dossier : les
+    // codes de ce dossier portent son prefixe (`prefixe_de_code_sur`),
+    // le client de passage comme les autres.
+    tx.executer(
+        "INSERT INTO client
+           (id, code, nom, est_generique, actif, cree_le, modifie_le, origine, dossier_id)
+         VALUES (?1, ?2, 'Comptant', 1, 1, ?3, ?3, 'dossier', ?4)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            format!("{code}-CLIENT00000"),
+            now,
+            id.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+    tx.valider().map_err(|e| e.0)?;
+
+    Ok(serde_json::json!({ "id": id, "code": code, "societe": societe }))
+}
+
+/// Le prefixe des codes de tiers du dossier courant : rien pour le
+/// dossier d'origine (ses codes existent deja sans), « CODE- » pour les
+/// autres — `client.code` est unique sur toute la base, pas par dossier.
+pub fn prefixe_de_code_sur(base: &mut Base) -> Result<String, String> {
+    let dossier = base.dossier().to_string();
+    if dossier == DOSSIER_DEFAUT {
+        return Ok(String::new());
+    }
+    let code: Option<String> = base
+        .lire_une("SELECT code FROM dossier WHERE id = ?1", &parametres![dossier], |r| r.get::<String>(0))
+        .map_err(|e| e.0)?;
+    Ok(code.map(|c| format!("{c}-")).unwrap_or_default())
+}
+
+/// Le dossier que cet utilisateur ouvre d'office (plan, decision 3 :
+/// par utilisateur). `None` : on lui demande.
+pub fn dossier_memorise_sur(base: &mut Base, utilisateur_id: &str) -> Result<Option<String>, String> {
+    base.lire_une(
+        "SELECT valeur FROM config_app WHERE cle = ?1",
+        &parametres![format!("dossier_defaut_utilisateur:{utilisateur_id}")],
+        |r| r.get::<String>(0),
+    )
+    .map_err(|e| e.0)
+    .map(|v| v.filter(|s| !s.trim().is_empty()))
+}
+
+/// Retient (ou oublie, avec `None`) le dossier a ouvrir d'office.
+pub fn memoriser_dossier_sur(
+    base: &mut Base,
+    utilisateur_id: &str,
+    dossier_id: Option<&str>,
+) -> Result<(), String> {
+    let cle = format!("dossier_defaut_utilisateur:{utilisateur_id}");
+    match dossier_id {
+        Some(d) => base
+            .executer(
+                "INSERT INTO config_app (cle, valeur) VALUES (?1, ?2)
+                 ON CONFLICT (cle) DO UPDATE SET valeur = excluded.valeur",
+                &parametres![cle, d],
+            )
+            .map(|_| ())
+            .map_err(|e| e.0),
+        None => base
+            .executer("DELETE FROM config_app WHERE cle = ?1", &parametres![cle])
+            .map(|_| ())
+            .map_err(|e| e.0),
+    }
+}
+
+#[cfg(test)]
+mod tests_code_dossier {
+    use super::*;
+
+    #[test]
+    fn le_code_se_normalise_et_se_refuse_quand_il_faut() {
+        assert_eq!(valider_code_dossier(" quinc-2 ").unwrap(), "QUINC-2");
+        assert!(valider_code_dossier("").is_err());
+        assert!(valider_code_dossier("é").is_err());
+        assert!(valider_code_dossier("a b").is_err());
+        assert!(valider_code_dossier(&"X".repeat(21)).is_err());
+    }
+}

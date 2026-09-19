@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 
 use gescom_noyau::portes::{verifier_permission_sur, ContexteUtilisateur};
 use gescom_noyau::protocole::{
-    CodeErreur, DemandeConnexion, Identite, LotEvenements, Reponse, Sante,
+    CodeErreur, DemandeConnexion, DossierOuvrable, Identite, LotEvenements, Reponse, Sante,
 };
 use gescom_noyau::VERSION_PROTOCOLE;
 use gescom_noyau::registre::{Appelant, Contexte, ContexteBase};
@@ -197,11 +197,69 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         );
     }
 
-    let (session_id, jeton, expire_le) =
-        match sessions::ouvrir_sur(&mut base, &poste.id, &utilisateur_id) {
-            Ok(t) => t,
-            Err(e) => return erreur(flux, 500, CodeErreur::Technique, &e),
-        };
+    // v3 : le dossier de la session. Un seul dossier : il s'ouvre tout
+    // seul (toutes les installations d'aujourd'hui). Plusieurs : celui
+    // demande, sinon celui memorise pour cette personne, sinon la session
+    // s'ouvre SANS dossier et l'ecran fait choisir.
+    let dossiers = match gescom_noyau::dossiers::lire_dossiers_sur(&mut base) {
+        Ok(l) => l,
+        Err(e) => return erreur(flux, 500, CodeErreur::Technique, &e),
+    };
+    let ouverts: Vec<DossierOuvrable> = dossiers
+        .iter()
+        .filter(|d| d["clos"] == false)
+        .map(|d| DossierOuvrable {
+            id: d["id"].as_str().unwrap_or("").to_string(),
+            code: d["code"].as_str().unwrap_or("").to_string(),
+            societe: d["societe"].as_str().unwrap_or("").to_string(),
+        })
+        .collect();
+    let memorise = gescom_noyau::dossiers::dossier_memorise_sur(&mut base, &utilisateur_id)
+        .ok()
+        .flatten()
+        .filter(|m| ouverts.iter().any(|d| &d.id == m));
+    let dossier_choisi: Option<String> = match demande.dossier_id.as_deref().filter(|d| !d.is_empty()) {
+        Some(d) => {
+            if let Err(e) = gescom_noyau::dossiers::dossier_ouvert_sur(&mut base, d) {
+                return erreur(flux, 409, CodeErreur::Technique, &e);
+            }
+            Some(d.to_string())
+        }
+        None if ouverts.len() == 1 => Some(ouverts[0].id.clone()),
+        None => memorise,
+    };
+    // Sur une cible fichier, les commandes `Connection` ne servent que
+    // le dossier d'origine : un autre dossier y serait servi de travers.
+    if srv.conn.is_some() {
+        if let Some(d) = dossier_choisi.as_deref() {
+            if d != gescom_noyau::dossiers::DOSSIER_DEFAUT {
+                return erreur(
+                    flux,
+                    409,
+                    CodeErreur::Technique,
+                    "Plusieurs dossiers demandent un serveur PostgreSQL.",
+                );
+            }
+        }
+    }
+    if demande.memoriser_dossier == Some(true) {
+        if let Some(d) = dossier_choisi.as_deref() {
+            gescom_noyau::dossiers::memoriser_dossier_sur(&mut base, &utilisateur_id, Some(d)).ok();
+        }
+    }
+    let dossier_societe = dossier_choisi
+        .as_deref()
+        .and_then(|d| ouverts.iter().find(|o| o.id == d).map(|o| o.societe.clone()));
+
+    let (session_id, jeton, expire_le) = match sessions::ouvrir_dans_dossier_sur(
+        &mut base,
+        &poste.id,
+        &utilisateur_id,
+        dossier_choisi.as_deref(),
+    ) {
+        Ok(t) => t,
+        Err(e) => return erreur(flux, 500, CodeErreur::Technique, &e),
+    };
 
     let _ = base.executer(
         "UPDATE utilisateur_auth SET derniere_connexion = ?1 WHERE utilisateur_id = ?2",
@@ -224,6 +282,9 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         poste_id: poste.id.clone(),
         expire_le,
         caisse_par_utilisateur: caisses::par_utilisateur_sur(&mut *base),
+        dossier_id: dossier_choisi,
+        dossier_societe,
+        dossiers: ouverts,
     };
     drop(base);
 
@@ -300,12 +361,23 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         }
     }
 
+    // v3 : une session sans dossier ne fait qu'une chose — le choisir.
+    if appelant.dossier_id.is_empty() && nom != "choisir_dossier" && nom != "lire_dossiers" {
+        return erreur(
+            flux,
+            409,
+            CodeErreur::DossierAChoisir,
+            "Choisir un dossier avant de continuer.",
+        );
+    }
+
     // D11 : sur une cible fichier, `conn` existe toujours — le chemin
     // ne change pas d'un octet. Sur PostgreSQL, `conn` est absent ; la
     // commande passe par `poignee_base` quand elle est portee, sinon
     // elle refuse clairement plutot que de retomber en silence sur un
-    // fichier SQLite vide.
-    let resultat = if let Some(conn_mutex) = srv.conn.as_ref() {
+    // fichier SQLite vide. Une commande `base_seulement` (v3) passe par
+    // `Base` sur les deux moteurs.
+    let resultat = if let (Some(conn_mutex), false) = (srv.conn.as_ref(), entree.base_seulement) {
         let mut conn = match conn_mutex.lock() {
             Ok(c) => c,
             Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
@@ -322,6 +394,14 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
             Ok(b) => b,
             Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
         };
+        // La `Base` est partagee entre toutes les sessions : on la place
+        // sur le dossier de CELLE-CI avant chaque commande. C'est ce qui
+        // fait qu'une vente tombe dans la bonne societe.
+        if !appelant.dossier_id.is_empty() {
+            if let Err(e) = base.choisir_dossier(&appelant.dossier_id) {
+                return erreur(flux, 500, CodeErreur::Technique, &e.0);
+            }
+        }
         poignee_base(
             &mut ContexteBase {
                 base: &mut base,
@@ -377,12 +457,17 @@ fn authentifier(srv: &Arc<Serveur>, req: &Requete) -> Result<Appelant, (CodeErre
             utilisateur_id,
             role,
             poste_id,
+            dossier_id,
         } => {
             sessions::toucher_sur(&mut base, &session_id);
             Ok(Appelant {
                 utilisateur_id,
                 role,
                 poste_id,
+                // Vide = pas encore choisi (plusieurs dossiers, aucun
+                // memorise) : seul `choisir_dossier` passe.
+                dossier_id: dossier_id.unwrap_or_default(),
+                session_id: session_id.clone(),
             })
         }
         sessions::Etat::Expiree => Err((

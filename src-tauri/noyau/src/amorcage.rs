@@ -157,7 +157,8 @@ fn tables_v2(base: &mut Base) {
             expire_le       TEXT NOT NULL,
             revoque_le      TEXT,
             revoque_par     TEXT,
-            derniere_vue    TEXT
+            derniere_vue    TEXT,
+            dossier_id      TEXT
          )",
         "CREATE TABLE IF NOT EXISTS modele_document (
             id           TEXT PRIMARY KEY,
@@ -203,6 +204,8 @@ fn tables_v2(base: &mut Base) {
         // La reference du tiers sur une piece : le numero de la
         // facture du fournisseur, qui n'est pas le notre.
         "ALTER TABLE piece_commerciale ADD COLUMN reference TEXT",
+        // v3 : le dossier ouvert par la session (NULL = dossier d'origine).
+        "ALTER TABLE session_reseau ADD COLUMN dossier_id TEXT",
     ] {
         let _ = base.executer(&adapter(sql), &[]);
     }

@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { appeler as invoke, connecterServeur, enReseau, etatReseau } from "@/lib/pont";
+import {
+  appeler as invoke, connecterServeur, choisirDossier, enReseau, etatReseau,
+  type DossierOuvrable,
+} from "@/lib/pont";
 import { Store, Eye, EyeOff, Loader2, Lock, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +32,26 @@ export function PageLogin({ onConnecte }: PageLoginProps) {
   const [visible, setVisible] = useState(false);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState("");
+  // v3 : plusieurs dossiers et aucun mémorisé — le serveur a ouvert la
+  // session sans dossier, on demande lequel. Un seul dossier : cet
+  // écran n'apparaît jamais (plan multi-société, décision 3).
+  const [aChoisir, setAChoisir] = useState<{ dossiers: DossierOuvrable[]; utilisateur: UtilisateurConnecte } | null>(null);
+  const [memoriser, setMemoriser] = useState(true);
+  const [choixEnCours, setChoixEnCours] = useState<string | null>(null);
+
+  async function handleChoixDossier(d: DossierOuvrable) {
+    if (!aChoisir) return;
+    setChoixEnCours(d.id);
+    setErreur("");
+    try {
+      await choisirDossier(d.id, memoriser);
+      onConnecte(aChoisir.utilisateur);
+    } catch (err) {
+      setErreur(typeof err === "string" ? err : "Impossible d'ouvrir ce dossier");
+    } finally {
+      setChoixEnCours(null);
+    }
+  }
 
   async function handleConnexion(e?: React.FormEvent) {
     e?.preventDefault();
@@ -43,21 +66,26 @@ export function PageLogin({ onConnecte }: PageLoginProps) {
       // vide refuserait tout le monde, et vérifier contre une base
       // locale pleine laisserait entrer avec un mot de passe que le
       // patron a peut-être changé depuis.
-      const utilisateur = enReseau()
-        ? await (async () => {
-            const id = await connecterServeur(identifiant.trim(), motDePasse);
-            return {
-              id: id.utilisateur_id,
-              nom: id.utilisateur_nom,
-              role: id.role,
-              permissions: id.permissions ?? [],
-              doit_changer_mdp: id.doit_changer_mdp,
-            };
-          })()
-        : await invoke<UtilisateurConnecte>("connexion", {
-            identifiant: identifiant.trim(),
-            motDePasse: motDePasse,
-          });
+      if (enReseau()) {
+        const id = await connecterServeur(identifiant.trim(), motDePasse);
+        const utilisateur = {
+          id: id.utilisateur_id,
+          nom: id.utilisateur_nom,
+          role: id.role,
+          permissions: id.permissions ?? [],
+          doit_changer_mdp: id.doit_changer_mdp,
+        };
+        if (!id.dossier_id && (id.dossiers?.length ?? 0) > 1) {
+          setAChoisir({ dossiers: id.dossiers ?? [], utilisateur });
+          return;
+        }
+        onConnecte(utilisateur);
+        return;
+      }
+      const utilisateur = await invoke<UtilisateurConnecte>("connexion", {
+        identifiant: identifiant.trim(),
+        motDePasse: motDePasse,
+      });
       onConnecte(utilisateur);
     } catch (err) {
       setErreur(typeof err === "string" ? err : "Identifiant ou mot de passe incorrect");
@@ -65,6 +93,39 @@ export function PageLogin({ onConnecte }: PageLoginProps) {
     } finally {
       setChargement(false);
     }
+  }
+
+  if (aChoisir) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-background p-8">
+        <div className="w-full max-w-sm space-y-4">
+          <div>
+            <h1 className="text-xl font-bold">Bonjour {aChoisir.utilisateur.nom}</h1>
+            <p className="text-sm text-muted-foreground">Quel dossier ouvrir ?</p>
+          </div>
+          <div className="space-y-2">
+            {aChoisir.dossiers.map(d => (
+              <button key={d.id} type="button"
+                onClick={() => handleChoixDossier(d)}
+                disabled={choixEnCours !== null}
+                className="w-full text-left rounded-md border border-border px-4 py-3
+                           hover:bg-accent transition-colors disabled:opacity-60">
+                <div className="font-medium">{d.societe}</div>
+                <div className="text-xs text-muted-foreground font-mono">{d.code}</div>
+              </button>
+            ))}
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={memoriser} onChange={e => setMemoriser(e.target.checked)} />
+            Ouvrir celui-ci directement la prochaine fois
+          </label>
+          {erreur && <p className="text-sm text-destructive">{erreur}</p>}
+          <p className="text-xs text-muted-foreground">
+            Pour changer de dossier plus tard : se déconnecter, puis se reconnecter.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

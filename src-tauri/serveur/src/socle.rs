@@ -19,6 +19,60 @@ use gescom_noyau::{
 pub fn registre() -> Registre {
     let mut r = Registre::nouveau();
 
+    // ---- v3 : dossiers et exercices. Nees sur `Base`, sans version
+    // `Connection` : elles passent par la Base sur les deux moteurs. ----
+    r.sur_base("lire_dossiers", None, false, |c, _| {
+        serde_json::to_value(gescom_noyau::dossiers::lire_dossiers_sur(c.base)?).map_err(|e| e.to_string())
+    });
+    r.sur_base("creer_dossier", Some("dossiers:gerer"), true, |c, p| {
+        gescom_noyau::dossiers::creer_dossier_sur(
+            c.base,
+            arg(&p, "code", "code")?,
+            arg(&p, "societe", "societe")?,
+        )
+    });
+    // Choisir le dossier d'une session ouverte sans : une fois, pas
+    // plus. `memoriser` retient le choix pour cette personne.
+    r.sur_base("choisir_dossier", None, false, |c, p| {
+        let dossier_id: String = arg(&p, "dossierId", "dossier_id")?;
+        let memoriser: Option<bool> = arg(&p, "memoriser", "memoriser")?;
+        let d = gescom_noyau::dossiers::dossier_ouvert_sur(c.base, &dossier_id)?;
+        if !c.base.est_postgres() && d.id != gescom_noyau::dossiers::DOSSIER_DEFAUT {
+            return Err("Plusieurs dossiers demandent un serveur PostgreSQL.".to_string());
+        }
+        sessions::choisir_dossier_session_sur(c.base, &c.appelant.session_id, &d.id)?;
+        if memoriser == Some(true) {
+            gescom_noyau::dossiers::memoriser_dossier_sur(c.base, &c.appelant.utilisateur_id, Some(&d.id))?;
+        }
+        Ok(serde_json::json!({ "dossier_id": d.id, "societe": d.societe }))
+    });
+    r.sur_base("oublier_dossier_memorise", None, false, |c, _| {
+        gescom_noyau::dossiers::memoriser_dossier_sur(c.base, &c.appelant.utilisateur_id, None)?;
+        Ok(serde_json::Value::Null)
+    });
+    r.sur_base("lire_exercices", None, false, |c, _| {
+        serde_json::to_value(gescom_noyau::dossiers::lire_exercices_sur(c.base)?).map_err(|e| e.to_string())
+    });
+    r.sur_base("ouvrir_exercice", Some("dossiers:gerer"), true, |c, p| {
+        gescom_noyau::dossiers::ouvrir_exercice_sur(
+            c.base,
+            arg(&p, "dateDebut", "date_debut")?,
+            arg(&p, "dateFin", "date_fin")?,
+        )
+    });
+    r.sur_base("prolonger_exercice", Some("dossiers:gerer"), true, |c, p| {
+        gescom_noyau::dossiers::prolonger_exercice_sur(
+            c.base,
+            arg(&p, "exerciceId", "exercice_id")?,
+            arg(&p, "prolongeJusquAu", "prolonge_jusqu_au")?,
+        )?;
+        Ok(serde_json::Value::Null)
+    });
+    r.sur_base("clore_exercice", Some("dossiers:gerer"), true, |c, p| {
+        gescom_noyau::dossiers::clore_exercice_sur(c.base, arg(&p, "exerciceId", "exercice_id")?)?;
+        Ok(serde_json::Value::Null)
+    });
+
     r.lecture("lire_stock_multi_depots", |c, _| {
         serde_json::to_value(comptoir::lire_stock_multi_depots_sur(c.conn)?)
             .map_err(|e| e.to_string())

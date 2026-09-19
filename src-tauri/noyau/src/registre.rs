@@ -27,6 +27,12 @@ pub struct Appelant {
     pub utilisateur_id: String,
     pub role: String,
     pub poste_id: String,
+    /// Le dossier de la session (v3). Le serveur le pose sur la `Base`
+    /// avant chaque commande portee ; les commandes `Connection` ne
+    /// servent que le dossier d'origine.
+    pub dossier_id: String,
+    /// La session elle-meme : ce que `choisir_dossier` doit modifier.
+    pub session_id: String,
 }
 
 pub struct Contexte<'a> {
@@ -74,6 +80,17 @@ pub struct Entree {
     /// Une commande qui ECRIT est refusee au role lecture et emet un
     /// evenement sur le canal. Une lecture, non.
     pub ecrit: bool,
+    /// Une commande nee sur `Base` et qui n'a JAMAIS eu de version
+    /// `Connection` (v3 : dossiers, exercices). Le serveur l'envoie sur
+    /// `poignee_base` sur les DEUX moteurs — la `Base` existe aussi sur
+    /// une cible fichier. `poignee` n'est qu'un refus, jamais appele.
+    pub base_seulement: bool,
+}
+
+/// La `poignee` de secours d'une commande `sur_base` : ne devrait jamais
+/// etre appelee. Si elle l'est, elle le dit au lieu de faire semblant.
+fn refus_sans_base(_: &mut Contexte, _: Value) -> Result<Value, String> {
+    Err("Cette commande n'existe que sur Base — le serveur a pris le mauvais chemin.".to_string())
 }
 
 #[derive(Default)]
@@ -87,8 +104,33 @@ impl Registre {
     }
 
     pub fn lecture(&mut self, nom: &'static str, p: Poignee) -> &mut Self {
-        self.entrees
-            .insert(nom, Entree { poignee: p, poignee_base: None, permission: None, ecrit: false });
+        self.entrees.insert(
+            nom,
+            Entree { poignee: p, poignee_base: None, permission: None, ecrit: false, base_seulement: false },
+        );
+        self
+    }
+
+    /// Une commande qui n'existe que sur `Base` (v3). `permission`
+    /// absente = ouverte a tout connecte ; `ecrit` dit si elle emet un
+    /// evenement et se refuse au role lecture.
+    pub fn sur_base(
+        &mut self,
+        nom: &'static str,
+        permission: Option<&'static str>,
+        ecrit: bool,
+        p: PoigneeBase,
+    ) -> &mut Self {
+        self.entrees.insert(
+            nom,
+            Entree {
+                poignee: refus_sans_base,
+                poignee_base: Some(p),
+                permission,
+                ecrit,
+                base_seulement: true,
+            },
+        );
         self
     }
 
@@ -100,7 +142,7 @@ impl Registre {
     ) -> &mut Self {
         self.entrees.insert(
             nom,
-            Entree { poignee: p, poignee_base: None, permission: Some(permission), ecrit: true },
+            Entree { poignee: p, poignee_base: None, permission: Some(permission), ecrit: true, base_seulement: false },
         );
         self
     }
@@ -130,8 +172,10 @@ impl Registre {
     /// Nommee explicitement pour qu'on ne l'utilise pas par paresse :
     /// une commande sans permission se voit dans cette liste.
     pub fn ecriture_libre(&mut self, nom: &'static str, p: Poignee) -> &mut Self {
-        self.entrees
-            .insert(nom, Entree { poignee: p, poignee_base: None, permission: None, ecrit: true });
+        self.entrees.insert(
+            nom,
+            Entree { poignee: p, poignee_base: None, permission: None, ecrit: true, base_seulement: false },
+        );
         self
     }
 

@@ -78,8 +78,11 @@ pub fn ouvrir(
 /// On ne se fie pas au cache memoire pour la validite : c'est la
 /// revocation qui doit prendre effet immediatement, sinon le bouton
 /// « deconnecter ce poste » ne veut rien dire.
+#[derive(Debug)]
 pub enum Etat {
-    Valide { utilisateur_id: String, role: String, poste_id: String },
+    /// `dossier_id` : le dossier ouvert par la session (v3). `None` sur
+    /// une session ouverte sans choix : le dossier d'origine.
+    Valide { utilisateur_id: String, role: String, poste_id: String, dossier_id: Option<String> },
     Expiree,
     Revoquee,
     PosteFerme,
@@ -130,7 +133,8 @@ pub fn etat(conn: &Connection, session_id: &str) -> Etat {
         return Etat::Revoquee;
     }
 
-    Etat::Valide { utilisateur_id, role, poste_id }
+    // Le chemin `Connection` (la fenetre) ne sert que le dossier d'origine.
+    Etat::Valide { utilisateur_id, role, poste_id, dossier_id: None }
 }
 
 pub fn toucher(conn: &Connection, session_id: &str) {
@@ -210,6 +214,18 @@ pub fn ouvrir_sur(
     poste_id: &str,
     utilisateur_id: &str,
 ) -> Result<(String, String, String), String> {
+    ouvrir_dans_dossier_sur(base, poste_id, utilisateur_id, None)
+}
+
+/// Ouvre une session SUR UN DOSSIER (v3). `None` : le dossier d'origine,
+/// ou un choix a faire ensuite par `choisir_dossier_session_sur` quand
+/// il y en a plusieurs.
+pub fn ouvrir_dans_dossier_sur(
+    base: &mut Base,
+    poste_id: &str,
+    utilisateur_id: &str,
+    dossier_id: Option<&str>,
+) -> Result<(String, String, String), String> {
     let jeton = engendrer_jeton();
     let hash = bcrypt::hash(&jeton, bcrypt::DEFAULT_COST).map_err(|e| e.to_string())?;
     let id = uuid::Uuid::new_v4().to_string();
@@ -220,15 +236,16 @@ pub fn ouvrir_sur(
     base.executer(
         "INSERT INTO session_reseau
            (id, jeton_hash, poste_id, utilisateur_id,
-            ouvert_le, expire_le, derniere_vue)
-         VALUES (?1,?2,?3,?4,?5,?6,?5)",
+            ouvert_le, expire_le, derniere_vue, dossier_id)
+         VALUES (?1,?2,?3,?4,?5,?6,?5,?7)",
         &parametres![
             id.clone(),
             hash,
             poste_id,
             utilisateur_id,
             f(ouvert),
-            f(expire)
+            f(expire),
+            dossier_id
         ],
     )
     .map_err(|e| e.0)?;
@@ -236,11 +253,34 @@ pub fn ouvrir_sur(
     Ok((id, jeton, f(expire)))
 }
 
+/// Pose le dossier d'une session qui n'en avait pas encore. Une seule
+/// fois : changer de dossier, c'est se deconnecter (plan, decision 3).
+pub fn choisir_dossier_session_sur(
+    base: &mut Base,
+    session_id: &str,
+    dossier_id: &str,
+) -> Result<(), String> {
+    let touche = base
+        .executer(
+            "UPDATE session_reseau SET dossier_id = ?1
+             WHERE id = ?2 AND dossier_id IS NULL AND revoque_le IS NULL",
+            &parametres![dossier_id, session_id],
+        )
+        .map_err(|e| e.0)?;
+    if touche == 0 {
+        return Err(
+            "Cette session a deja son dossier : pour en changer, se deconnecter et se reconnecter."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 pub fn etat_sur(base: &mut Base, session_id: &str) -> Etat {
     let ligne = base
         .lire_une(
             "SELECT s.utilisateur_id, s.expire_le, s.revoque_le,
-                    s.poste_id, p.actif
+                    s.poste_id, p.actif, s.dossier_id
              FROM session_reseau s
              JOIN poste p ON p.id = s.poste_id
              WHERE s.id = ?1",
@@ -252,13 +292,14 @@ pub fn etat_sur(base: &mut Base, session_id: &str) -> Etat {
                     r.get::<Option<String>>(2)?,
                     r.get::<String>(3)?,
                     r.get::<i64>(4)?,
+                    r.get::<Option<String>>(5)?,
                 ))
             },
         )
         .ok()
         .flatten();
 
-    let Some((utilisateur_id, expire_le, revoque_le, poste_id, poste_actif)) = ligne else {
+    let Some((utilisateur_id, expire_le, revoque_le, poste_id, poste_actif, dossier_id)) = ligne else {
         return Etat::Inconnue;
     };
     if revoque_le.is_some() {
@@ -288,7 +329,7 @@ pub fn etat_sur(base: &mut Base, session_id: &str) -> Etat {
         return Etat::Revoquee;
     }
 
-    Etat::Valide { utilisateur_id, role, poste_id }
+    Etat::Valide { utilisateur_id, role, poste_id, dossier_id }
 }
 
 pub fn toucher_sur(base: &mut Base, session_id: &str) {
