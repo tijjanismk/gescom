@@ -6,8 +6,8 @@ décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md).
 
 Dernière mise à jour : **19 septembre 2026** (le serveur en service
-Windows et son installeur signé ; la v3 commence : le dossier se choisit
-à la connexion).
+Windows et son installeur signé ; fondation v3 posée mais dormante — la
+v2 d'abord).
 État : **453 tests workspace SQLite** (`--workspace`, mesuré le
 18/09, 0 échec, 0 avertissement) ; sur **PostgreSQL** (`gescom_test`) :
 suite complète 394/394 le 13/09, puis rejoués sans échec les fichiers
@@ -28,7 +28,7 @@ log`.
 |---|---|---|
 | **v1** | un poste, SQLite, pas de serveur | **livré**, ne bouge plus |
 | **v2** | serveur + clients, le client ne parle **qu'**au serveur | **close le 18/09/2026** (décision du propriétaire) : fonctionnelle sur SQLite et PostgreSQL ; restent l'installeur non signé (D5), l'impression papier jamais vérifiée à la main, et le déclencheur multi-dossier (v3) |
-| **v3** | multi-société, multi-dossier, exercices | **commencée le 19/09/2026** : le dossier se choisit à la connexion (D13), création d'un dossier, exercices exposés ; écrans de gestion à faire |
+| **v3** | multi-société, multi-dossier, exercices | **pas commencée** — décision du propriétaire le 19/09/2026 : la v2 d'abord. Fondation posée et **dormante** (D13 : avec un seul dossier, rien ne change à l'écran ni au serveur) ; aucun écran de gestion, on n'y touche pas avant le feu vert |
 
 **Une seule machine ne veut pas dire sans serveur.** La boutique à une
 caisse installe les deux sur le même ordinateur. Il n'y a qu'un seul
@@ -169,8 +169,11 @@ Pas cloisonnés, et c'est voulu : `utilisateur`, `role`, `poste`,
 `session_reseau`, `modele_document`, `article`, `unite_vente`,
 `config_app`, `parametres_societe`.
 
-Fait le 19/09/2026 (D13) : le choix du dossier à la connexion, la
-création d'un dossier, les commandes d'exercices. Reste : l'écran de
+Posé le 19/09/2026 (D13), **sans le lancer** : le choix du dossier à la
+connexion, la création d'un dossier, les commandes d'exercices — tout
+reste dormant tant qu'il n'y a qu'un dossier, et c'est le cas. La v3
+ne commence pas avant le feu vert du propriétaire ; on finit la v2.
+Ce qui restera alors : l'écran de
 gestion (créer un dossier, ouvrir / prolonger / clore un exercice —
 les commandes existent), le garde-fou `verifier_date_sur` branché
 avant chaque écriture, et la migration d'une base existante vers
