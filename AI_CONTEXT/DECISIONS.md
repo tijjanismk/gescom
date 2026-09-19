@@ -159,6 +159,16 @@ que tu sois derrière lui. À ce moment-là, l'avertissement ne dit plus
 « fais attention », il dit « ce logiciel n'est pas fiable », et personne
 n'installe. C'est le déclencheur, pas une date.
 
+**Révisée le 19/09/2026 — l'installeur du serveur est signé, en
+auto-signé.** Ça ne fait pas taire SmartScreen ailleurs (la chaîne de
+confiance reste inconnue), mais l'installeur enregistre le certificat
+comme éditeur de confiance de **la machine du serveur** : sur celle-là,
+les mises à jour suivantes ne posent plus la question, et un fichier
+modifié après signature ne s'installe plus. La clé privée reste dans le
+magasin de l'utilisateur qui construit ; seule la partie publique
+(`gescom.cer`) voyage. Le jour du certificat acheté, `outils\signer.ps1`
+change d'empreinte, rien d'autre. → [installeur.md](modules/installeur.md)
+
 ---
 
 ## D6 — Le compte tout-puissant : aucun, et une commande de secours
@@ -407,5 +417,42 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D9 | l'entretien de la base passe côté serveur |
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** |
+| D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D13 | le dossier (v3) se choisit **à la connexion**, mémorisé **par personne** côté serveur ; en changer, c'est se déconnecter ; plusieurs dossiers **demandent PostgreSQL** |
 
 Aucune case n'attend de réponse.
+
+---
+
+## D12 — Le serveur tourne en service Windows, installé à part
+
+Jusqu'ici, `gescom-serveur.exe` partait au démarrage de la **session**
+de l'utilisateur, posé par l'installeur de la fenêtre (droits d'un
+utilisateur, pas d'administrateur). Un poste redémarré sans session
+ouverte : pas de serveur, et cinq caisses qui disent « injoignable ».
+
+**Décision : un installeur du serveur à part**, `Gescom-Serveur_x.y.z_
+x64-setup.exe`, qui demande les droits administrateur et fait ce que
+la fenêtre ne pouvait pas — poser un **service** (`sc create`, démarrage
+automatique, relance sur incident), ouvrir le **pare-feu** sur le port,
+enregistrer le **certificat**. La configuration (base, port) vit dans
+`%ProgramData%\Gescom\serveur.json`, le journal à côté : un service n'a
+pas de console. `sc stop` / `sc start` pour l'arrêter et le relancer.
+
+Sans crate d'enveloppe : quatre appels Win32 (`windows-sys`), dans
+`serveur/src/service.rs`. L'arrêt est propre — l'écouteur est non
+bloquant et regarde un drapeau — et révoque les sessions.
+
+---
+
+## D13 — Le dossier se choisit à la connexion (v3)
+
+Ce que le plan multi-société avait tranché (décision 3), branché le
+19/09/2026 : `/connexion` rend la liste des dossiers ouverts ; un seul,
+il s'ouvre tout seul ; plusieurs, celui demandé, sinon celui
+**mémorisé pour cette personne**, sinon la session s'ouvre **sans
+dossier** et seule `choisir_dossier` passe — une fois. Le serveur pose
+le dossier de la session sur la `Base` avant chaque commande portée.
+Sur une base fichier, les commandes `Connection` ne servent que le
+dossier d'origine : un second dossier y est **refusé** (création comme
+connexion), pas servi de travers.

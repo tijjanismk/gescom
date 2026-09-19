@@ -1,6 +1,77 @@
 # Gescom — Manuel d'utilisation
 
-*Version 1.15 — à imprimer et garder près de la caisse.*
+*Version 2.0 — à imprimer et garder près de la caisse.*
+
+---
+
+# 0. Installer
+
+Gescom se compose de **deux programmes** :
+
+- **Gescom Serveur** — il détient la base (les ventes, le stock, la
+  caisse). Un seul par magasin, sur l'ordinateur qui reste allumé.
+- **Gescom** (la fenêtre) — la caisse. Une par poste, y compris sur
+  l'ordinateur du serveur. Elle ne garde rien : tout ce qu'elle affiche
+  vient du serveur.
+
+## Le serveur
+
+`Gescom-Serveur_x.y.z_x64-setup.exe`, à lancer **en administrateur**
+(clic droit → Exécuter en tant qu'administrateur) sur l'ordinateur qui
+tiendra la base.
+
+L'installeur demande deux choses, une seule fois :
+
+| Question | Réponse habituelle |
+|---|---|
+| Base de données | Laisser la valeur proposée (un fichier dans `C:\ProgramData\Gescom`). Avec PostgreSQL : `postgresql://utilisateur:motdepasse@127.0.0.1:5432/gescom` |
+| Port | 7300 |
+
+Puis il fait tout : ouvre le pare-feu, enregistre le certificat de
+l'éditeur sur cette machine, installe le serveur comme **service
+Windows** et le démarre. Le service démarre ensuite **avec
+l'ordinateur**, avant même qu'on ouvre une session, et se relance tout
+seul s'il tombe.
+
+> Windows peut afficher « éditeur inconnu » à la première installation :
+> le certificat est celui de Gescom, pas d'un grand éditeur. Après
+> cette première fois, sur cette machine, la question ne revient plus.
+
+**Arrêter, redémarrer.** Dans une invite de commandes en administrateur :
+
+```
+sc stop GescomServeur
+sc start GescomServeur
+```
+
+Ou : **Services** (touche Windows, taper « services ») → *Gescom
+Serveur* → Arrêter / Démarrer.
+
+**Où sont les choses.** Menu Démarrer → Gescom :
+
+| Raccourci | Ce que c'est |
+|---|---|
+| Journal du serveur | `C:\ProgramData\Gescom\serveur.log` — ce que le serveur a fait, avec l'heure |
+| Configuration du serveur | `serveur.json` — la base et le port. Après une modification, redémarrer le service |
+| Console du serveur | `http://localhost:7300` — les postes connectés, les sauvegardes, l'entretien |
+
+**L'adresse à donner aux caisses.** Le journal l'écrit au démarrage
+(« Adresse à saisir sur les caisses : 192.168.x.x:7300 »). C'est
+l'adresse de cet ordinateur sur le réseau du magasin. Une adresse fixe
+vaut mieux : sinon, un jour, la box en donne une autre et les caisses
+ne trouvent plus le serveur.
+
+## Les caisses
+
+`Gescom_x.y.z_x64-setup.exe` sur chaque poste. Au premier démarrage :
+**Paramètres → Réseau → Poste**, saisir l'adresse du serveur
+(`192.168.x.x:7300`), donner un nom au poste (« Caisse 1 »), enregistrer.
+
+Sur l'ordinateur du serveur lui-même, l'adresse est `127.0.0.1:7300`.
+
+Si la caisse dit **« Serveur injoignable »** : le serveur tourne-t-il
+(Services) ? le pare-feu est-il ouvert (l'installeur l'a fait ; sinon
+`outils\parefeu.ps1 -Ouvrir`) ? l'adresse est-elle toujours la bonne ?
 
 ---
 
@@ -29,6 +100,25 @@ d'achat, ni les rapports, ni la sauvegarde.
 
 Chacun doit avoir son mot de passe. Ne les partagez pas : c'est ce qui
 permet de savoir qui a fait quoi en cas d'écart.
+
+Les deux comptes livrés (`admin` / `employe`) exigent un nouveau mot de
+passe à la première connexion. Le patron ajuste ensuite ce que chacun
+peut faire : **Paramètres → Utilisateurs → Permissions**, permission par
+permission.
+
+## Aller vite : Ctrl + K
+
+Partout dans l'application, **Ctrl + K** ouvre la palette : tapez
+quelques lettres, la liste se réduit, Entrée exécute.
+
+- une page (« ventes », « caisse », « stock ») ;
+- un geste de l'écran où vous êtes (« nouveau client », « ouvrir la
+  caisse ») ;
+- un onglet de Paramètres ;
+- **le nom d'un client ou d'un fournisseur** — deux lettres suffisent,
+  choisir ouvre sa fiche.
+
+La palette ne propose que ce que votre compte a le droit de faire.
 
 ---
 
@@ -88,12 +178,38 @@ ou écarts irréguliers.
 4. En haut à droite : **Comptant** ou **Crédit**
 5. **Encaisser**
 
+## La vente d'hier, saisie ce soir
+
+Le cahier se recopie le soir, ou le samedi pour la semaine. Juste
+au-dessus d'**Encaisser**, un champ **« Vente du »** : laisser vide pour
+aujourd'hui, ou poser la date réelle de la vente.
+
+Deux règles, et elles ne se discutent pas :
+
+- **la vente prend la date saisie ; la caisse, non.** L'argent est
+  compté dans le tiroir du jour où on le saisit — c'est ce que le
+  comptage du soir vérifie. Le mouvement de caisse porte « Vente du
+  jj/mm » pour qu'on s'y retrouve ;
+- **pas plus de 31 jours en arrière, jamais dans le futur**, et
+  seulement pour qui a la permission *antidater* (le patron, par
+  défaut). Antidater une vente en espèces est la façon la plus simple
+  de masquer un trou dans le tiroir : c'est pour ça que c'est un droit à
+  part.
+
+La même chose existe pour un règlement (« Réglé le »), une réception de
+marchandise (« Réception du ») et une pièce créée à la main (« Date de
+la pièce »).
+
 ## Le prix et la remise
 
-Le prix se remplit tout seul. Pour accorder une remise, saisissez le
-pourcentage : le prix se recalcule et l'économie s'affiche.
+Le prix se remplit tout seul. Pour accorder une remise sur un article,
+saisissez le pourcentage : le prix se recalcule et l'économie
+s'affiche. Vous pouvez aussi taper directement le nouveau prix.
 
-Vous pouvez aussi taper directement le nouveau prix.
+**Remise sur tout le panier** : sous le panier, le champ **Remise**, en
+**%** ou en **F** au choix. Elle se répartit sur les lignes ; le total
+affiché est ce que le client paie, et la facture montre la remise
+ligne par ligne.
 
 ## Comptant ou crédit
 
@@ -138,6 +254,23 @@ FOURNISSEUR  Bon de commande → Réception → Facture
 Vous n'êtes obligé de passer par aucune étape : un client pressé peut
 recevoir directement une facture.
 
+## Le bon de livraison : préparer, émettre
+
+Un bon de livraison (ou de réception, côté fournisseur) créé à la main
+naît en **brouillon** : on le prépare, on corrige les lignes, rien ne
+bouge dans le magasin. Le bouton **Émettre** constate le mouvement :
+toute la marchandise du bon sort (ou entre), et le bon ne se modifie
+plus. S'il faut le corriger ensuite : l'**annuler** — la marchandise
+revient — et en refaire un.
+
+Le livreur revient avec deux sacs refusés ? Sur le bon émis, menu **…
+→ Livraison** : on saisit ce qui est réellement parti, ligne à ligne,
+et le stock suit l'écart. Un bon en brouillon ne se facture pas : il
+faut l'émettre d'abord.
+
+Un bon issu d'une **commande** (bouton →) naît directement émis : la
+marchandise part avec lui.
+
 ## Faire avancer un document
 
 Le bouton **→** de la ligne transforme la pièce en la suivante. La pièce
@@ -161,27 +294,72 @@ Une pièce annulée reste visible — c'est la trace, et la faire disparaître
 serait pire. Mais son montant sort de tous les totaux : bas de l'écran
 Pièces, créances du client, chiffre d'affaires.
 
-L'écran Pièces l'écrit sous le tableau : *« 2 annulée(s) exclue(s) »*.
-Le nombre de lignes affichées et le nombre de pièces additionnées ne sont
-donc pas toujours le même.
+Même sort pour une **facture irrécouvrable** (voir *Les créances*) :
+toute la ligne est **en rouge**, elle ne compte dans aucun total, et
+elle ne figure plus parmi les impayés ni les retards. L'écran l'écrit
+sous le tableau : *« dont 1 annulée, 1 irrécouvrable, hors total »*.
 
-## Les signatures au bas des documents
+## Les avoirs dans la liste
 
-**Paramètres → Société → Signatures.** Deux noms, avec un trait pour
-signer dessous, au bas de chaque document imprimé.
+Le « reste » d'un **avoir** n'est pas un impayé : c'est un **crédit**,
+en ambre. Côté client, ce que le client peut encore consommer ; côté
+fournisseur, ce que le fournisseur doit déduire de sa prochaine
+facture. Un avoir fournisseur **remboursé** en espèces ne vaut plus rien
+— il est marqué *Payé* et son reste est vide.
 
-Ce ne sont pas les mêmes selon le document, d'où trois réglages :
+## Accorder un avoir sans marchandise
 
-| Documents | Exemple courant |
-|---|---|
-| Factures et acomptes | Pour acquit · Le fournisseur |
-| Livraison, réception, sortie | Le chauffeur · Le réceptionnaire |
-| Devis, commande, avoir | Le vendeur · Le client |
+Un geste commercial, un dédommagement, une remise après coup : le client
+n'a rien rendu, on lui doit quand même. **Fiche du client → Avoirs →
+Accorder un avoir** : montant, motif obligatoire. Ou **Pièces →
+Nouvelle pièce → Avoir** : sans ajouter d'article, saisir le montant
+et mettre le motif dans « Note ». Le crédit entre au
+compte du client avec une pièce AVC numérotée et une trace au journal ;
+il se consomme sur une prochaine vente ou se rembourse.
 
-Laisser une paire vide retire le bloc de ces documents-là.
+C'est un crédit qui sort de nulle part : **seul le patron** peut le
+faire (permission *Accorder un avoir sans marchandise*, qu'aucun rôle
+livré ne porte — on la donne à la main, à une personne).
 
-Sur un document qui tient sur deux pages, la signature part à la fin, sur
-la dernière page — jamais coupée en deux.
+## Créer une pièce à la main
+
+Bouton **Nouvelle pièce** en haut de l'écran. Le filtre choisi dit déjà
+le type : sur « Commandes » le bouton s'appelle *Nouvelle commande* et
+la fenêtre ne redemande pas le type ; sur « Tout », on le choisit.
+
+La fenêtre demande le tiers, les articles, éventuellement une
+**échéance** (quand le client doit payer) et, pour qui peut antidater,
+la **date de la pièce** (le jour de l'affaire, si on la saisit après
+coup). Ce sont deux dates différentes.
+
+**Du → au**, dans la barre : n'afficher que les pièces d'une période —
+côté client comme côté fournisseur.
+
+## Les modèles de documents
+
+**Paramètres → Modèles de documents.** Chaque document imprimé — facture, devis, bon
+de livraison, reçu, relevé, ticket — suit un **modèle** : une suite de
+blocs (en-tête, titre, champs, tableau, totaux, texte, signatures, pied
+de page) qu'on réordonne, règle et prévisualise avec des données
+d'exemple.
+
+**Les signatures** sont un bloc du modèle : deux noms, un trait sous
+chacun. Vider les deux noms retire le bloc. Sur un document de deux
+pages, elles partent à la fin.
+
+**Poser un bloc où l'on veut.** Dans l'aperçu, tirer le **coin
+bas-droit** d'un bloc : il se détache et se redimensionne. Une fois
+détaché, il se déplace à la main et peut chevaucher les autres — un
+cachet « PAYÉ » en travers du tableau, un logo dans un coin. L'ordre de
+la liste de gauche est l'ordre de superposition : ce qui vient plus bas
+passe devant.
+
+**D'une caisse à l'autre.** Les modèles vivent sur le serveur : toutes
+les caisses impriment pareil. **Exporter** sort un fichier, **Importer**
+le reprend — pour copier ses modèles vers un autre magasin.
+
+Sur une pièce fournisseur, le champ « Client » du modèle s'imprime
+« Fournisseur » tout seul.
 
 ## Voir avant d'imprimer
 
@@ -223,6 +401,22 @@ Le montant est prérempli avec le reste dû. Modifiez-le pour un paiement
 partiel.
 
 Quand la facture est soldée, elle passe automatiquement en **Payé**.
+
+Le champ **« Réglé le »** pose la date réelle du versement quand on le
+saisit après coup — même règle que pour la vente : la créance prend
+cette date, le tiroir garde celle du jour.
+
+## Une créance perdue
+
+Un client parti sans adresse, une dette qu'on ne reverra pas :
+**Paramètres → Irrécouvrable**, choisir la vente, dire pourquoi. Elle
+sort des créances, des relances et des totaux ; sa facture passe en
+rouge dans Pièces.
+
+Ce n'est pas un effacement. Si l'argent revient malgré tout, des mois
+plus tard, le patron l'encaisse par **Règlement exceptionnel** au même
+endroit — le règlement ordinaire refuse, exprès, pour qu'une créance
+déclarée perdue ne se solde pas en douce.
 
 ## Remettre un relevé au client
 
@@ -318,6 +512,11 @@ quand.
 
 Le stock augmente et une facture fournisseur est créée. À crédit, la
 dette apparaît dans **Fournisseurs**.
+
+**« Réception du »**, au-dessus du bouton : la marchandise est arrivée
+un autre jour et on saisit ce soir. La facture fournisseur et le
+règlement prennent cette date ; **le stock entre et l'argent sort
+aujourd'hui** — c'est aujourd'hui qu'on compte l'un et l'autre.
 
 **Achat comptant : la caisse doit être ouverte.** L'argent sort du
 tiroir, donc il doit être écrit dans la caisse. Même règle qu'à la vente,
@@ -452,7 +651,7 @@ lui, et les ventes en sortent.
 
 ## Ouvrir, renommer, fermer
 
-**Paramètres → Dépôts.**
+**Paramètres → Magasins.**
 
 **Créer** un dépôt, le **renommer**, ou désigner celui **par défaut** —
 celui que la caisse et les ventes proposent d'abord.
@@ -479,7 +678,7 @@ quelle à la réouverture. Rien n'a bougé, rien n'a été transféré.
 
 ## Rouvrir
 
-**Paramètres → Dépôts → Rouvrir.** Le dépôt revient dans les sélecteurs,
+**Paramètres → Magasins → Rouvrir.** Le dépôt revient dans les sélecteurs,
 avec le stock qu'il avait au moment de la fermeture.
 
 ## Transférer
@@ -547,8 +746,11 @@ ligne.
 
 # 13. Sauvegarder
 
-**Paramètres → Sauvegarde.** Choisissez une fois pour toutes le dossier
-de destination — une clé USB, un disque externe.
+La base vit sur le **serveur** : c'est lui qui sauvegarde, une fois par
+semaine, dans le dossier réglé dans **Paramètres → Sauvegarde** (une
+clé USB, un disque externe, branché sur l'ordinateur du serveur). La
+**console du serveur** (`http://localhost:7300`, sur cet ordinateur)
+montre la dernière sauvegarde et permet d'en lancer une.
 
 ## La sauvegarde automatique
 
@@ -611,6 +813,9 @@ masquer.
 | Le stock est faux | Stock → Ajuster, en indiquant le motif |
 | Un montant semble faux | Journal, retrouver l'opération à l'heure près |
 | L'application ne démarre pas | Redémarrer l'ordinateur, puis appeler |
+| « Serveur injoignable » | Le service tourne-t-il (Services → Gescom Serveur) ? Le pare-feu est-il ouvert ? L'adresse dans Paramètres → Réseau est-elle la bonne ? |
+| La date saisie est refusée | Plus de 31 jours en arrière, dans le futur, ou le compte n'a pas la permission *antidater* |
+| « Accorder un avoir » absent | Seul le patron a cette permission ; il la donne à la main dans Utilisateurs → Permissions |
 
 ---
 

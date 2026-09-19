@@ -388,7 +388,7 @@ function ModalEncaisser({
           throw new Error(
             "Cette facture est encore en brouillon : aucune vente n'a été " +
             "créée, il n'y a donc rien à encaisser.\n\n" +
-            "Valider la facture d'abord (bouton ✓ Valider). La validation " +
+            "Valider la facture d'abord (bouton « Valider »). La validation " +
             "crée la vente, sort le stock et permet de saisir un acompte."
           );
         }
@@ -512,9 +512,11 @@ function ModalModifierPiece({
   const [chargeLignes, setChargeLignes] = useState(false);
 
   // Brouillon ET emis acceptent la modification des lignes — cote
-  // client comme cote fournisseur. Une facture soldee ('paye') ou
-  // validee est figee : coeur::pieces la refuse de toute facon.
-  const editable = piece?.statut === "brouillon" || piece?.statut === "emis";
+  // client comme cote fournisseur — SAUF un bon (livraison, reception)
+  // emis : la marchandise a bouge avec lui, il est fige (coeur::pieces
+  // le refuse de toute facon). Une facture soldee ou validee aussi.
+  const estUnBon = piece?.type_piece === "bon_livraison" || piece?.type_piece === "bon_reception";
+  const editable = piece?.statut === "brouillon" || (piece?.statut === "emis" && !estUnBon);
 
   useEffect(() => {
     if (ouvert && piece) {
@@ -523,7 +525,7 @@ function ModalModifierPiece({
       setDatePiece((piece.date_piece ?? "").slice(0, 10));
       setReference(piece.reference ?? "");
       setLignes([]);
-      if (piece.statut === "brouillon" || piece.statut === "emis") {
+      if (piece.statut === "brouillon" || (piece.statut === "emis" && !estUnBon)) {
         setChargeLignes(true);
         invoke<LigneEdit[]>("lire_lignes_piece", { pieceId: piece.id })
           .then(setLignes)
@@ -1070,6 +1072,31 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
     await handleImprimer(p, "a4_et_bon");
   }
 
+  /**
+   * Émettre un bon en brouillon : c'est LÀ que la marchandise bouge
+   * (sort pour un BL, entre pour un BR). Avant, on prépare ; après, le
+   * bon est figé — corriger le papier sans toucher le magasin était le
+   * trou qu'on ferme. Pour corriger un bon émis : l'annuler (le stock
+   * revient) et en refaire un.
+   */
+  async function handleEmettreBon(p: Piece) {
+    const sort = p.type_piece === "bon_livraison";
+    const ok = window.confirm(
+      `Émettre ${p.numero} ?\n\n` +
+      (sort
+        ? "La marchandise SORT du magasin maintenant, pour les quantités du bon."
+        : "La marchandise ENTRE au magasin maintenant, pour les quantités du bon.") +
+      "\n\nLe bon ne sera plus modifiable ensuite.",
+    );
+    if (!ok) return;
+    try {
+      await invoke("changer_statut_piece", { pieceId: p.id, nouveauStatut: "emis" });
+      charger();
+    } catch (e) {
+      await message(`Erreur : ${e}`, { title: "Émission", kind: "error" });
+    }
+  }
+
   async function handleConvertir(p: Piece) {
     const conv = onglet === "client"
       ? conversionClient(p.type_piece, suiviLivraison)
@@ -1329,6 +1356,13 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                 const peutValider =
                   ["facture", "facture_fournisseur"].includes(p.type_piece) &&
                   p.statut === "brouillon";
+                // Un bon en brouillon s'emet : c'est l'emission qui fait
+                // bouger le stock. Une fois emis, il ne se modifie plus.
+                const estUnBon = ["bon_livraison", "bon_reception"].includes(p.type_piece);
+                const peutEmettre = estUnBon && p.statut === "brouillon";
+                const peutModifier =
+                  !["validee","annule","transfere","paye"].includes(p.statut) &&
+                  !(estUnBon && p.statut === "emis");
                 const enRetard = p.date_echeance &&
                   new Date(p.date_echeance) < new Date() &&
                   !["paye","annule","validee"].includes(p.statut) &&
@@ -1404,7 +1438,6 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                       enRetard ? "text-red-500 font-medium" : "text-muted-foreground"
                     }`}>
                       {p.date_echeance ? fmtDate(p.date_echeance) : "—"}
-                      {enRetard && " ⚠"}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <span className="font-semibold text-sm">{fmt(p.total_ttc)}</span>
@@ -1496,9 +1529,13 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                                 « livré » sans qu'un sac ne bouge — un
                                 bouton qui ment est pire que pas de
                                 bouton. */}
+                            {/* Pas en brouillon : le bon se prépare, rien ne
+                                bouge ; c'est « Émettre » qui livre tout, et
+                                on corrige ensuite ligne à ligne. */}
                             {suiviLivraison &&
                               ["bon_livraison", "bon_reception"]
-                                .includes(p.type_piece) && (
+                                .includes(p.type_piece) &&
+                              p.statut !== "brouillon" && (
                               <>
                                 <DropdownMenuItem onClick={() => setPieceALivrer(p)}>
                                   <Truck className="h-3.5 w-3.5 mr-2" />
@@ -1601,12 +1638,26 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                         {peutValider && (
                           <button onClick={() => setFactureAValider(p)}
                             title="Valider → Vente"
-                            className="flex items-center gap-0.5 px-2 py-1 rounded
+                            className="flex items-center gap-1 px-2 py-1 rounded
                                        text-xs font-medium border transition-colors
                                        text-green-700 border-green-200
                                        hover:bg-green-50 hover:border-green-400
                                        whitespace-nowrap">
-                            ✓ Valider
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Valider
+                          </button>
+                        )}
+
+                        {peutEmettre && (
+                          <button onClick={() => handleEmettreBon(p)}
+                            title={p.type_piece === "bon_livraison"
+                              ? "Émettre : la marchandise sort du magasin"
+                              : "Émettre : la marchandise entre au magasin"}
+                            className="flex items-center gap-1 px-2 py-1 rounded
+                                       text-xs font-medium border transition-colors
+                                       text-green-700 border-green-200
+                                       hover:bg-green-50 hover:border-green-400
+                                       whitespace-nowrap">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Émettre
                           </button>
                         )}
 
@@ -1624,8 +1675,8 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                           </button>
                         )}
 
-                        {/* Modifier — si pas validée/annulée */}
-                        {!["validee","annule","transfere","paye"].includes(p.statut) && (
+                        {/* Modifier — si pas validée/annulée, ni bon émis */}
+                        {peutModifier && (
                           <button onClick={() => setPieceAModifier(p)}
                             title="Modifier"
                             className="p-1.5 rounded hover:bg-muted transition-colors

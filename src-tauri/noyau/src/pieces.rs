@@ -340,7 +340,9 @@ pub fn creer_piece_sur(
     let statut = match type_piece.as_str() {
         "devis" | "proforma"   => "brouillon",
         "commande_client"      => "brouillon",
-        "bon_livraison"        => "emis",
+        // Un BL cree a la main se PREPARE : rien ne sort tant qu'il
+        // n'est pas emis (coeur::pieces::constate_le_stock).
+        "bon_livraison"        => "brouillon",
         "facture"              => "brouillon", // toujours brouillon
         "avoir_client"         => "emis",
         _                      => "brouillon",
@@ -605,6 +607,7 @@ pub fn convertir_piece(
     // Un seul transfert par pièce — statut ET descendant réel.
     let deja = descendant_actif(&conn, &piece_id);
     crate::coeur::pieces::peut_transferer(&statut_src, deja.as_deref())?;
+    crate::coeur::pieces::peut_transferer_un_bon(&type_src, &statut_src)?;
 
     // Transitions autorisées
     let ok = match (type_src.as_str(), nouveau_type.as_str()) {
@@ -960,11 +963,27 @@ pub fn changer_statut_piece(
     piece_id: String,
     nouveau_statut: String,
 ) -> Result<(), String> {
-    conn.execute(
+    let (type_piece, statut): (String, String) = conn
+        .query_row(
+            "SELECT type_piece, statut FROM piece_commerciale WHERE id = ?1",
+            rusqlite::params![piece_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|_| "Pièce introuvable".to_string())?;
+    // Emettre un bon, c'est constater que la marchandise bouge : il
+    // nait entierement livre, dans la MEME transaction que le statut.
+    let emet_un_bon = crate::coeur::pieces::changement_de_statut(&type_piece, &statut, &nouveau_statut)?;
+
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute(
         "UPDATE piece_commerciale SET statut = ?1, modifie_le = ?2
          WHERE id = ?3",
         rusqlite::params![nouveau_statut, maintenant_iso(), piece_id],
     ).map_err(|e| e.to_string())?;
+    if emet_un_bon {
+        crate::livraisons::marquer_entierement_livre(&tx, &piece_id)?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1643,6 +1662,13 @@ pub fn annuler_piece(
         }
     }
 
+    // Un bon emis avait fait bouger le stock : l'annuler le ramene.
+    // Sinon la marchandise resterait sortie au nom d'un document qui
+    // n'existe plus.
+    if crate::coeur::pieces::constate_le_stock(&type_piece) {
+        crate::livraisons::marquer_rien_livre(conn, &piece_id)?;
+    }
+
     conn.execute(
         "UPDATE piece_commerciale
          SET statut = 'annule', note = COALESCE(?1, note), modifie_le = ?2
@@ -2059,7 +2085,11 @@ use crate::parametres;
 /// avait deux tables qui pouvaient diverger.
 fn statut_initial(type_piece: &str, par_conversion: bool) -> &'static str {
     match type_piece {
-        "bon_livraison" | "avoir_client" | "avoir_fournisseur" => "emis",
+        "avoir_client" | "avoir_fournisseur" => "emis",
+        // Par conversion d'une commande, le BL nait emis ET livre : la
+        // marchandise part avec lui. Cree a la main, il se prepare en
+        // brouillon et ne sort rien avant d'etre emis.
+        "bon_livraison" if par_conversion => "emis",
         // A la creation directe, un BCF nait emis ; par conversion il
         // n'arrive jamais ici (rien ne se convertit EN bon de commande).
         "bon_commande_fournisseur" if !par_conversion => "emis",
@@ -2705,6 +2735,7 @@ pub fn convertir_piece_sur_base(
     // Un seul transfert par piece — statut ET descendant reel.
     let deja = descendant_actif_sur(base, &piece_id);
     crate::coeur::pieces::peut_transferer(&src.statut, deja.as_deref())?;
+    crate::coeur::pieces::peut_transferer_un_bon(&src.type_piece, &src.statut)?;
 
     if !conversion_permise(&src.type_piece, &nouveau_type) {
         return Err(format!(
@@ -2943,13 +2974,23 @@ pub fn changer_statut_piece_sur_base(
     nouveau_statut: String,
 ) -> Result<(), String> {
     let dossier = base.dossier().to_string();
-    base.executer(
+    let en_tete = lire_en_tete(base, &piece_id)?;
+    // Emettre un bon, c'est constater que la marchandise bouge : il
+    // nait entierement livre, dans la MEME transaction que le statut.
+    let emet_un_bon =
+        crate::coeur::pieces::changement_de_statut(&en_tete.type_piece, &en_tete.statut, &nouveau_statut)?;
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
         "UPDATE piece_commerciale SET statut = ?1, modifie_le = ?2
          WHERE id = ?3 AND dossier_id = ?4",
-        &parametres![nouveau_statut, maintenant_iso(), piece_id, dossier],
+        &parametres![nouveau_statut, maintenant_iso(), piece_id.clone(), dossier],
     )
     .map_err(|e| e.0)?;
-    Ok(())
+    if emet_un_bon {
+        crate::livraisons::marquer_entierement_livre_sur(&mut tx, &piece_id)?;
+    }
+    tx.valider().map_err(|e| e.0)
 }
 
 /// Meme geste, sur `Base`. Voir `modifier_piece` pour la regle des
@@ -3094,6 +3135,11 @@ pub fn annuler_piece_sur_base(
             ],
         )
         .map_err(|e| e.0)?;
+    }
+
+    // Un bon emis avait fait bouger le stock : l'annuler le ramene.
+    if crate::coeur::pieces::constate_le_stock(&en_tete.type_piece) {
+        crate::livraisons::marquer_rien_livre_sur(&mut tx, &piece_id)?;
     }
 
     tx.executer(

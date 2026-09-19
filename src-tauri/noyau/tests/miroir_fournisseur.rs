@@ -132,6 +132,9 @@ fn la_chaine_fournisseur_va_maintenant_jusqu_a_la_facture() {
     let brf = pieces::convertir_piece(&conn, bcf, "bon_reception".to_string())
         .expect("BCF -> BRF");
     let brf = brf["id"].as_str().unwrap().to_string();
+    // Le bon de reception nait en brouillon (les prix se corrigent) ;
+    // il s'emet — la marchandise entre — avant de se facturer.
+    pieces::changer_statut_piece(&conn, brf.clone(), "emis".to_string()).expect("émettre");
 
     let faf = pieces::convertir_piece(&conn, brf, "facture_fournisseur".to_string())
         .expect("BRF -> FAF");
@@ -149,6 +152,9 @@ fn une_facture_issue_d_un_bon_de_reception_ne_fait_pas_entrer_deux_fois() {
     // reception, puis une seconde fois a la facturation.
     let mut conn = base();
     let brf = creer_fournisseur(&conn, "bon_reception", 10.0);
+    // C'est l'emission qui fait entrer ; resaisir la meme quantite
+    // ensuite ne fait rien entrer de plus.
+    pieces::changer_statut_piece(&conn, brf.clone(), "emis".to_string()).expect("émettre");
     recevoir(&mut conn, &brf, 10.0);
     assert_eq!(stock(&conn), 10.0);
 

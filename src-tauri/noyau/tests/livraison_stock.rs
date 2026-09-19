@@ -92,6 +92,12 @@ fn creer(conn: &Connection, type_piece: &str, quantite: f64) -> String {
     v["id"].as_str().unwrap().to_string()
 }
 
+/// Un bon se prepare en brouillon et ne bouge rien ; c'est son EMISSION
+/// qui livre tout. La saisie ligne a ligne vient ensuite, pour corriger.
+fn emettre(conn: &Connection, piece_id: &str) {
+    pieces::changer_statut_piece(conn, piece_id.to_string(), "emis".to_string()).expect("émettre");
+}
+
 fn lignes_de(conn: &Connection, piece_id: &str) -> Vec<String> {
     let mut st = conn
         .prepare("SELECT id FROM ligne_piece WHERE piece_id = ?1")
@@ -127,18 +133,31 @@ fn le_bon_de_livraison_sort_ce_qui_part() {
     poser_stock(&conn, 100.0);
     let bl = creer(&conn, "bon_livraison", 10.0);
 
-    assert_eq!(stock(&conn), 100.0, "créer le bon ne sort rien");
+    assert_eq!(stock(&conn), 100.0, "créer le bon ne sort rien : il se prépare");
+    // Livrer sur un brouillon : refus, rien ne bouge.
+    let ligne_id = lignes_de(&conn, &bl).remove(0);
+    let refus = livraisons::enregistrer_livraison(
+        &mut conn, bl.clone(),
+        vec![livraisons::LigneLivraison { ligne_id, quantite_livree: 10.0 }],
+    ).unwrap_err();
+    assert!(refus.contains("émettre"), "{refus}");
+    assert_eq!(stock(&conn), 100.0);
 
+    emettre(&conn, &bl);
+    assert_eq!(stock(&conn), 90.0, "l'émission livre tout");
     let r = livrer(&mut conn, &bl, 10.0);
     assert_eq!(r["etat"], "livre");
-    assert_eq!(stock(&conn), 90.0);
+    assert_eq!(stock(&conn), 90.0, "resaisir la même quantité ne bouge rien");
 }
 
 #[test]
 fn une_livraison_partielle_ne_sort_que_ce_qui_part() {
+    // Le bon est emis (tout sort), puis le livreur revient : six sacs
+    // n'ont pas ete pris. La correction les fait rentrer.
     let mut conn = base();
     poser_stock(&conn, 100.0);
     let bl = creer(&conn, "bon_livraison", 10.0);
+    emettre(&conn, &bl);
 
     let r = livrer(&mut conn, &bl, 4.0);
     assert_eq!(r["etat"], "partiel");
@@ -152,9 +171,11 @@ fn le_stock_bouge_de_l_ecart_pas_du_total() {
     let mut conn = base();
     poser_stock(&conn, 100.0);
     let bl = creer(&conn, "bon_livraison", 10.0);
+    emettre(&conn, &bl);
+    assert_eq!(stock(&conn), 90.0);
 
     livrer(&mut conn, &bl, 6.0);
-    assert_eq!(stock(&conn), 94.0);
+    assert_eq!(stock(&conn), 94.0, "quatre sacs rentrent");
 
     livrer(&mut conn, &bl, 7.0);
     assert_eq!(stock(&conn), 93.0, "un sac de plus, pas sept");
@@ -166,8 +187,7 @@ fn corriger_une_livraison_a_la_baisse_rend_la_marchandise() {
     let mut conn = base();
     poser_stock(&conn, 100.0);
     let bl = creer(&conn, "bon_livraison", 10.0);
-
-    livrer(&mut conn, &bl, 10.0);
+    emettre(&conn, &bl);
     assert_eq!(stock(&conn), 90.0);
 
     livrer(&mut conn, &bl, 8.0);
@@ -179,6 +199,7 @@ fn on_ne_peut_pas_livrer_plus_que_commande() {
     let mut conn = base();
     poser_stock(&conn, 100.0);
     let bl = creer(&conn, "bon_livraison", 10.0);
+    emettre(&conn, &bl);
 
     livrer(&mut conn, &bl, 999.0);
     assert_eq!(stock(&conn), 90.0, "plafonné à la quantité du bon");
@@ -203,6 +224,9 @@ fn le_bon_de_reception_fait_entrer_la_marchandise() {
     .expect("BRF créé");
     let brf = brf["id"].as_str().unwrap().to_string();
 
+    assert_eq!(stock(&conn), 20.0, "en brouillon, rien n'est entré");
+    emettre(&conn, &brf);
+    assert_eq!(stock(&conn), 35.0, "l'émission fait entrer la marchandise");
     livrer(&mut conn, &brf, 15.0);
     assert_eq!(stock(&conn), 35.0);
 }
@@ -218,7 +242,7 @@ fn une_facture_issue_d_un_bon_ne_sort_rien() {
     let mut conn = base();
     poser_stock(&conn, 100.0);
     let bl = creer(&conn, "bon_livraison", 10.0);
-    livrer(&mut conn, &bl, 10.0);
+    emettre(&conn, &bl);
     assert_eq!(stock(&conn), 90.0);
 
     let facture = pieces::convertir_piece(&conn, bl.clone(), "facture".to_string())
@@ -263,16 +287,23 @@ fn une_facture_sans_bon_sort_le_stock_comme_avant() {
 }
 
 #[test]
-fn un_bon_facture_mais_pas_livre_laisse_la_marchandise() {
-    // Consequence assumee du modele : la facture peut etre emise et
-    // payee sans que rien ne soit parti. C'est vrai — les sacs sont
-    // encore la.
+fn un_bon_en_brouillon_ne_se_facture_pas_et_rien_ne_sort() {
+    // Un bon cree a la main nait en brouillon : rien n'est parti. Le
+    // facturer dans cet etat donnerait une facture dont la marchandise
+    // ne sortirait jamais (la facture issue d'un bon ne bouge rien) :
+    // refus, et les sacs sont encore la. Une fois emis, il se facture.
     let mut conn = base();
     poser_stock(&conn, 100.0);
     let bl = creer(&conn, "bon_livraison", 10.0);
+    assert_eq!(stock(&conn), 100.0, "en brouillon, rien ne sort");
 
-    let facture = pieces::convertir_piece(&conn, bl, "facture".to_string())
-        .expect("conversion");
+    let refus = pieces::convertir_piece(&conn, bl.clone(), "facture".to_string()).unwrap_err();
+    assert!(refus.contains("émettre"), "{refus}");
+    assert_eq!(stock(&conn), 100.0, "rien n'est parti, rien n'est sorti");
+
+    pieces::changer_statut_piece(&conn, bl.clone(), "emis".to_string()).expect("émettre");
+    assert_eq!(stock(&conn), 90.0, "l'émission sort la marchandise");
+    let facture = pieces::convertir_piece(&conn, bl, "facture".to_string()).expect("conversion");
     argent::valider_facture_sur(
         &mut conn,
         facture["id"].as_str().unwrap().to_string(),
@@ -282,8 +313,7 @@ fn un_bon_facture_mais_pas_livre_laisse_la_marchandise() {
         Some("patron".to_string()),
     )
     .expect("facture validée");
-
-    assert_eq!(stock(&conn), 100.0, "rien n'est parti, rien n'est sorti");
+    assert_eq!(stock(&conn), 90.0, "la facture ne sort pas une seconde fois");
 }
 
 #[test]
@@ -383,6 +413,9 @@ fn un_mouvement_de_livraison_porte_son_numero_de_bon() {
             |r| r.get(0),
         )
         .unwrap();
+    // L'emission ecrit le mouvement ; le resaisir a la meme quantite
+    // n'en ecrit pas un second.
+    emettre(&conn, &bl);
     livrer(&mut conn, &bl, 10.0);
 
     let (type_mouvement, operation): (String, String) = conn
@@ -427,7 +460,7 @@ fn une_reception_porte_son_numero_et_entre() {
     )
     .expect("BRF créé");
     let brf = brf["id"].as_str().unwrap().to_string();
-    livrer(&mut conn, &brf, 15.0);
+    emettre(&conn, &brf);
 
     let hist = gescom_noyau::depots::lire_mouvements_stock(
         &conn, None, None, None, None, None, Some(50),

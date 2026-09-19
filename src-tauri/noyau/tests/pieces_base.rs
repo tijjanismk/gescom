@@ -246,6 +246,49 @@ fn un_bon_de_livraison_sort_le_stock_et_la_facture_qui_suit_ne_le_sort_pas() {
     );
 }
 
+/// Un BL cree a la main se PREPARE : rien ne sort avant l'emission. Une
+/// fois emis, la marchandise est partie et le bon ne se modifie plus —
+/// corriger le papier sans toucher le magasin etait le trou. L'annuler
+/// ramene le stock.
+#[test]
+fn un_bon_de_livraison_cree_a_la_main_nait_en_brouillon_et_ne_sort_le_stock_qu_a_l_emission() {
+    let mut base = base_avec_demo();
+    let sucre = article_unite(&mut base, "Sucre");
+    let depot = depot_defaut(&mut base);
+    let client = client_reel(&mut base);
+    let avant = stock(&mut base, &sucre.0, &depot);
+
+    let bl = pieces::creer_piece_sur_base(
+        &mut base, client, "bon_livraison".into(), vec![ligne(&sucre, 3.0)],
+        None, None, None, None, None, None,
+    ).unwrap();
+    assert_eq!(bl["statut"], "brouillon", "un BL a la main se prepare");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant, "rien ne sort en brouillon");
+
+    // En brouillon, on corrige librement : 3 -> 5 sacs, rien ne bouge.
+    pieces::modifier_piece_sur_base(&mut base, id(&bl), None, None, None, Some(vec![ligne(&sucre, 5.0)]), None)
+        .expect("modifier un BL en brouillon");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant);
+
+    // L'emission constate la sortie : 5 sacs, ceux du bon corrige.
+    pieces::changer_statut_piece_sur_base(&mut base, id(&bl), "emis".into()).expect("émettre");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant - 5.0, "le bon emis sort la marchandise");
+    let client = client_reel(&mut base);
+    let liste = pieces::lire_pieces_client_sur_base(&mut base, client, Some("bon_livraison".into())).unwrap();
+    assert_eq!(liste[0]["etat_livraison"], "livre");
+
+    // Emis : plus modifiable, et pas de retour en brouillon.
+    let e = pieces::modifier_piece_sur_base(&mut base, id(&bl), None, None, None, Some(vec![ligne(&sucre, 9.0)]), None).unwrap_err();
+    assert!(e.contains("bougé"), "{e}");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant - 5.0, "le refus n'a rien bougé");
+    assert!(pieces::changer_statut_piece_sur_base(&mut base, id(&bl), "brouillon".into()).is_err());
+
+    // Annuler ramene la marchandise.
+    pieces::annuler_piece_sur_base(&mut base, id(&bl), Some("erreur de saisie".into())).expect("annuler");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant, "le stock revient avec l'annulation");
+    assert_eq!(statut_piece(&mut base, &id(&bl)), "annule");
+}
+
 #[test]
 fn commande_vers_bon_et_facture_en_un_geste() {
     let mut base = base_avec_demo();

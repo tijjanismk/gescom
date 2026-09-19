@@ -25,6 +25,18 @@ déjà en base, qui n'ont pas de bon, ne changent pas. Conséquence
 assumée : un bon facturé et payé mais pas livré laisse la marchandise
 en magasin ; l'écran Pièces montre les deux axes (paiement, livraison).
 
+## Le bon se prépare, s'émet, puis ne bouge plus (19/09/2026)
+
+Un bon créé à la main naît **brouillon** : il se prépare, rien ne
+bouge, les lignes se corrigent. **Émettre** (`changer_statut_piece` →
+`emis`) le livre entièrement — `marquer_entierement_livre`, même
+transaction — et le fige : `peut_modifier` refuse un bon émis, la
+saisie ligne à ligne (`peut_livrer`) refuse un brouillon, la
+facturation (`peut_transferer_un_bon`) refuse un brouillon. Annuler un
+bon émis ramène la marchandise (`marquer_rien_livre[_sur]`). Par
+conversion d'une commande, le BL naît émis et livré : la marchandise
+part avec lui. Tout est dans `coeur::pieces` (`constate_le_stock`).
+
 ## Fichiers
 
 | | |

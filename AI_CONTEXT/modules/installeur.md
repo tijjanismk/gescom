@@ -61,6 +61,44 @@ poste principal d'une boutique reste allumé sur une session ouverte.
 fichiers : tant qu'il tourne, il tient la base ouverte et la
 désinstallation échoue avec un message incompréhensible.
 
+## L'installeur du serveur (19/09/2026, D12)
+
+Un second installeur, **à part**, avec les droits administrateur :
+
+```
+.\outils\construire_installeur_serveur.ps1   → dist\Gescom-Serveur_<version>_x64-setup.exe
+```
+
+Il compile en release, signe l'exécutable (`outils\signer.ps1`,
+certificat auto-signé créé une fois dans `Cert:\CurrentUser\My`, partie
+publique exportée en `gescom.cer`), empaquette
+(`outils\installeur_serveur.nsi`, makensis de `%LOCALAPPDATA%\tauri\NSIS`)
+et signe l'installeur. 2,4 Mo.
+
+Ce que l'installeur fait sur la machine, dans l'ordre : copie
+l'exécutable dans `Program Files\Gescom Serveur` ; `certutil -addstore`
+dans `Root` et `TrustedPublisher` ; écrit `%ProgramData%\Gescom\
+serveur.json` (base, port — une page de l'assistant, **jamais par-dessus
+une configuration existante**) ; `netsh advfirewall` sur le port,
+profils Domaine + Privé ; `gescom-serveur.exe --installer-service`. La
+désinstallation défait tout et **garde** `ProgramData\Gescom` (base,
+journal, sauvegardes). Une mise à jour arrête le service, remplace,
+relance.
+
+**Le service** (`serveur/src/service.rs`, `windows-sys` seul) :
+`--installer-service` / `--desinstaller-service` passent par `sc.exe`
+(démarrage automatique, relance 5 s / 30 s / 60 s) ; `--service` est le
+chemin lancé par le gestionnaire : `StartServiceCtrlDispatcherW`,
+gestionnaire de contrôle, `SetStdHandle` pour envoyer `println!` dans
+`serveur.log`, configuration lue dans `serveur.json` (les arguments de
+la ligne de commande passent devant). La boucle d'écoute est non
+bloquante (`accept` toutes les 200 ms) : `sc stop` répond en moins de
+5 s et révoque les sessions.
+
+Pas testé en élevé depuis la session d'écriture (UAC bloqué) : c'est
+la section A de [TESTS-MANUELS.md](../../TESTS-MANUELS.md), et
+`scratchpad/test_service.ps1` le déroule sur une base jetable.
+
 ## Ce que l'installeur ne fait pas
 
 ### Le pare-feu
@@ -74,9 +112,10 @@ tant que la règle manque (`reseau_local.rs`).
 
 ### La signature
 
-L'installeur n'est **pas signé** — décision assumée pour l'instant. Un
-certificat auto-signé n'enlèverait pas l'avertissement : Windows vérifie
-la chaîne de confiance, pas la présence d'une signature. Voir
+L'installeur de la **fenêtre** n'est pas signé (D5). Celui du
+**serveur** l'est, en auto-signé (D5 révisée) : l'avertissement reste
+ailleurs, disparaît sur la machine du serveur une fois le certificat
+enregistré, et une modification après signature se voit. Voir
 [environnement-windows.md](environnement-windows.md).
 
 ## La taille : 267 Mo

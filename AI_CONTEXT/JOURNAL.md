@@ -1218,3 +1218,122 @@ tableau dit combien sont hors total et pourquoi.
 Mesuré : `gestion_base` 10/10, `pieces_base` 18/18, `listes_base` 6/6
 sur PostgreSQL ; typecheck front au vert.
 
+## 19/09/2026 — le service, l'installeur signé, les documents, la v3 commence
+
+**Le serveur en service Windows (D12).** Un serveur qu'on lance à la
+main ne tourne pas le jour où personne n'a ouvert de session.
+`service.rs` parle à l'API Win32 par `windows-sys` (déjà dans le cache
+local — pas de réseau vers crates.io ce jour-là) : `sc create` avec
+relance sur incident, gestionnaire de contrôle, sortie redirigée dans
+`ProgramData\Gescom\serveur.log` par `SetStdHandle` (que `println!`
+relit à chaque écriture). `main.rs` se scinde en `preparer` et
+`boucle` ; l'écouteur devient non bloquant pour que « sc stop » soit
+entendu en 200 ms au lieu d'attendre la prochaine caisse. Configuration
+dans `serveur.json`, la ligne de commande passe devant. Vérifié à la
+main hors service (connexion, arrêt net) ; **le service lui-même n'a
+pas pu être installé depuis cette session** — l'élévation est bloquée
+— c'est la section A des tests manuels, script prêt.
+
+**L'installeur du serveur, signé (D5 révisée).** Ce que la fenêtre ne
+peut pas faire (droits utilisateur), un installeur à part le fait en
+administrateur : service, pare-feu sur le port, certificat auto-signé
+enregistré comme éditeur de confiance de la machine, configuration
+demandée une fois et jamais écrasée, désinstallation qui garde la base.
+`signer.ps1` crée le certificat une fois (clé privée dans le magasin,
+jamais dans le dépôt), `construire_installeur_serveur.ps1` enchaîne
+compilation, signature, makensis (celui que Tauri a téléchargé),
+signature. Deux scripts PowerShell sans BOM : lus en ANSI, cassés sur
+les accents — BOM ajouté, comme sur les autres. 2,4 Mo, signé,
+`Get-AuthenticodeSignature` dit « racine non approuvée » jusqu'à ce que
+l'installeur enregistre le certificat : c'est attendu.
+
+**Les sockets.** Rien à faire : le serveur écoute déjà `0.0.0.0:7300`
+(toutes les adresses, `--hote`/`--port`) et le canal d'événements
+existe. La configuration du service permet de fixer les deux.
+
+**Les documents.** `TESTS-MANUELS.md` (dix sections, résultat attendu à
+chaque ligne — ce que les tests automatiques ne voient pas) ;
+`MANUEL.md` passe en 2.0 : installation serveur/caisses, Ctrl+K, dates
+saisissables, modèles à la place des signatures de Société, avoir
+accordé, irrécouvrable, « Réception du ».
+
+**La v3 commence (D13).** Le plan avait tout tranché ; c'est branché :
+`lire_dossiers_sur`, `creer_dossier_sur` (une transaction : dossier,
+exercice de l'année, magasin par défaut, client de passage — refus sur
+SQLite, où les commandes `Connection` ne servent que le dossier
+d'origine), le dossier mémorisé par personne dans `config_app`. La
+session porte son dossier (`session_reseau.dossier_id`, ajoutée sur les
+deux chemins de création — le serveur sur fichier passe par
+`persistance/v2.rs`, pas par `amorcage`, et la première connexion l'a
+dit). `Appelant` porte `dossier_id` et `session_id` ; `api::rpc` refuse
+tout sauf `choisir_dossier` tant qu'il n'y a pas de dossier, et pose la
+`Base` sur le dossier avant chaque poignée. `Registre::sur_base` : une
+commande née sur `Base` seule, servie par la `Base` sur les deux
+moteurs. Écran : « Quel dossier ouvrir ? » dans `PageLogin`, dossier
+affiché sous le nom dans `Layout`. Vérifié par HTTP sur `gescom_essai` :
+un dossier ESSAI2 créé, la reconnexion demande, le choix mémorise, le
+second choix refuse, le nouveau dossier ne voit que son client de
+passage. **210 commandes, 29 permissions.**
+
+Mesuré : `dossiers_base` 5/5, `auth_base` 17/17, `postgres_amorcage`
+21/21 sur PostgreSQL ; suite SQLite complète : **446 tests, 0 échec**.
+
+## 19/09/2026 (suite) — cinq retours du terrain
+
+**Le code client cassait.** « UNIQUE constraint failed: client.code »,
+à chaque nouveau client, depuis la nouvelle base : le code suivait
+`COUNT + 1`. Qu'un client soit supprimé ou qu'un import porte ses
+propres numéros, et le compte retombe sur un code existant — jusqu'à
+ce qu'il rattrape le trou. C'est le piège que D28 nomme pour les
+pièces ; il vaut pour les tiers. Le code suit le plus grand déjà pris
+(`coeur::tiers::code_client_suivant`), et un second dossier préfixe
+les siens de son code : `client.code` est unique sur toute la base,
+`QUINC-CLIENT00001` ne se heurte pas à `CLIENT00001`. Sur PostgreSQL,
+`SUBSTR(code, ?2)` avec un entier lié refusait (« error serializing
+parameter ») : `LENGTH(?2) + 7` avec le préfixe en texte.
+
+**La remise globale au POS**, en % ou en francs. Pas stockée à part —
+l'invariant est `SUM(prix_pratique × quantité) = dû` — mais répartie
+sur les lignes au prorata, la dernière prenant le reste ; le total
+affiché est celui des lignes baissées, donc ce qui part et ce que le
+client paie.
+
+**L'avoir sans marchandise depuis « Nouvelle pièce »** : type Avoir,
+pas de ligne, un montant, le motif dans Note. Même commande que la
+fiche client (`accorder_avoir_client`), même permission ; l'écran dit
+pourquoi quand on ne l'a pas.
+
+**L'impression « parfois »** : le fichier temporaire gardait le nom
+demandé — deux fois le même pour la même pièce, et l'aperçu passait
+le numéro nu, sans `.html`. WebView2 tenait encore l'ancien fichier
+ou le sortait de son cache, ou devinait le type. Nom unique + `.html`
+toujours, un dossier à part nettoyé après un jour, et un second label
+si la fenêtre d'avant n'a pas fini de se fermer.
+
+**Le tableau de bord** perd ses icônes ; l'intitulé passe en tête,
+lisible.
+
+## 19/09/2026 (suite 2) — le bon de livraison naît en brouillon
+
+Modifier un bon de livraison émis laissait le stock tel quel : « 6
+sacs » corrigé en « 9 » sur le papier, six sortis du magasin — le
+trou que le propriétaire a nommé. La règle, dans `coeur` : un bon
+(livraison, réception) **constate** un mouvement physique, donc il se
+**prépare** en brouillon (rien ne bouge, on corrige librement),
+**s'émet** (tout est livré d'un coup, `marquer_entierement_livre`, dans
+la même transaction que le statut), puis il est **figé** — pour
+corriger, l'annuler (le stock revient par le même chemin, écart négatif
+ligne à ligne : `marquer_rien_livre`) et en refaire un. La saisie ligne
+à ligne ne vient qu'après l'émission, pour l'écart (le livreur revient
+avec deux sacs). Un bon en brouillon ne se facture pas : la facture
+issue d'un bon ne bouge rien, la marchandise ne serait jamais sortie.
+Le retour émis → brouillon est refusé. Par conversion d'une commande,
+le BL naît émis et livré, comme avant : la marchandise part avec lui.
+
+Six scénarios réécrits pour suivre la règle (ils livraient sur des
+brouillons), un ajouté (`un_bon_de_livraison_cree_a_la_main_nait_en_
+brouillon_et_ne_sort_le_stock_qu_a_l_emission`), trois tests purs dans
+`coeur`. Écran : bouton « Émettre » sur un bon en brouillon, plus de
+« Modifier » ni de « Livraison » ligne à ligne sur un bon émis /
+brouillon respectivement.
+

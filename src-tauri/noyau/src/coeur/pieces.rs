@@ -35,6 +35,80 @@ fn est_close(statut: &str) -> bool {
     matches!(statut, "validee" | "transfere" | "annule" | "paye")
 }
 
+/// Un BON constate un mouvement physique : le bon de livraison fait
+/// sortir la marchandise, le bon de réception la fait entrer — au
+/// moment où il est ÉMIS. Avant, en brouillon, on le prépare et rien
+/// ne bouge ; après, il est figé, parce que le stock a bougé avec lui.
+///
+/// Modifier un bon émis laissait le stock tel quel : « 6 sacs » corrigé
+/// en « 9 sacs » sur le papier, six sortis du magasin. C'est ce que
+/// cette règle empêche.
+pub fn constate_le_stock(type_piece: &str) -> bool {
+    matches!(type_piece, "bon_livraison" | "bon_reception")
+}
+
+/// Un bon ne se facture qu'une fois ÉMIS : c'est l'émission qui fait
+/// bouger le stock, et une facture issue d'un bon ne bouge plus rien
+/// (`stock_confie_a_un_bon`). Facturer un bon en brouillon laisserait
+/// la marchandise au magasin pour toujours, avec une facture qui dit
+/// le contraire.
+pub fn peut_transferer_un_bon(type_piece: &str, statut: &str) -> Result<(), String> {
+    if constate_le_stock(type_piece) && statut == "brouillon" {
+        return Err(
+            "Bon en brouillon — l'émettre d'abord : c'est l'émission qui fait bouger la marchandise."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Peut-on saisir une livraison ligne à ligne sur cette pièce ?
+///
+/// Un bon en brouillon se PRÉPARE : rien ne sort. C'est l'émission qui
+/// livre tout d'un coup ; on corrige ensuite ligne à ligne (le livreur
+/// revient avec deux sacs refusés). Livrer sur un brouillon, puis le
+/// modifier — ce que le brouillon autorise — perdrait le lien entre ce
+/// qui est sorti et ce que le bon dit.
+pub fn peut_livrer(type_piece: &str, statut: &str) -> Result<(), String> {
+    if constate_le_stock(type_piece) && statut == "brouillon" {
+        return Err(
+            "Bon en brouillon — l'émettre d'abord : l'émission livre tout, on corrige ensuite ligne à ligne."
+                .to_string(),
+        );
+    }
+    if est_close(statut) {
+        return Err(format!("Pièce {statut} — sa livraison ne bouge plus."));
+    }
+    Ok(())
+}
+
+/// Ce que vaut un changement de statut demandé à la main.
+///
+/// `Ok(true)` : le changement ÉMET un bon — la marchandise bouge, le
+/// bon naît entièrement livré. `Ok(false)` : un changement ordinaire.
+/// `Err` : refusé, et pourquoi.
+pub fn changement_de_statut(type_piece: &str, de: &str, vers: &str) -> Result<bool, String> {
+    if de == vers {
+        return Ok(false);
+    }
+    if est_close(de) {
+        return Err(format!("Pièce {de} — son statut ne change plus."));
+    }
+    if constate_le_stock(type_piece) {
+        if de == "brouillon" && vers == "emis" {
+            return Ok(true);
+        }
+        if de == "emis" && vers == "brouillon" {
+            return Err(
+                "Un bon émis ne revient pas en brouillon : la marchandise a bougé avec lui. \
+                 L'annuler (le stock revient), puis en refaire un."
+                    .to_string(),
+            );
+        }
+    }
+    Ok(false)
+}
+
 /// La pièce peut-elle être modifiée ?
 ///
 /// `Err(raison)` porte un message destiné à l'utilisateur.
@@ -53,6 +127,16 @@ pub fn peut_modifier(type_piece: &str, statut: &str) -> Result<(), String> {
         return Err(
             "Pièce émise et numérotée — non modifiable. \
              Pour corriger, émettre un avoir."
+                .to_string(),
+        );
+    }
+
+    // Un bon émis a fait bouger le stock : le corriger sur le papier
+    // laisserait le magasin à l'ancienne quantité.
+    if constate_le_stock(type_piece) && statut != "brouillon" {
+        return Err(
+            "Bon émis — la marchandise a bougé avec lui, il ne se modifie plus. \
+             L'annuler (le stock revient), puis en refaire un."
                 .to_string(),
         );
     }
@@ -190,7 +274,10 @@ mod tests {
         assert!(peut_modifier("devis", "emis").is_ok());
         assert!(peut_modifier("proforma", "emis").is_ok());
         assert!(peut_modifier("commande_client", "accepte").is_ok());
-        assert!(peut_modifier("bon_livraison", "emis").is_ok());
+        // Un bon de livraison emis, lui, a fait sortir la marchandise :
+        // il ne se modifie plus (voir tests_bons).
+        assert!(peut_modifier("bon_livraison", "brouillon").is_ok());
+        assert!(peut_modifier("bon_livraison", "emis").is_err());
     }
 
     #[test]
@@ -272,3 +359,50 @@ mod tests {
         assert!(e.to_lowercase().contains("avoir"));
     }
 }
+
+#[cfg(test)]
+mod tests_bons {
+    use super::*;
+
+    #[test]
+    fn un_bon_se_modifie_en_brouillon_plus_une_fois_emis() {
+        assert!(peut_modifier("bon_livraison", "brouillon").is_ok());
+        assert!(peut_modifier("bon_reception", "brouillon").is_ok());
+        let e = peut_modifier("bon_livraison", "emis").unwrap_err();
+        assert!(e.contains("bougé"), "{e}");
+        assert!(peut_modifier("bon_reception", "emis").is_err());
+        // Un devis émis reste modifiable : il ne constate rien.
+        assert!(peut_modifier("devis", "emis").is_ok());
+    }
+
+    #[test]
+    fn emettre_un_bon_constate_le_stock_et_le_retour_en_brouillon_est_refuse() {
+        assert_eq!(changement_de_statut("bon_livraison", "brouillon", "emis"), Ok(true));
+        assert_eq!(changement_de_statut("bon_reception", "brouillon", "emis"), Ok(true));
+        assert!(changement_de_statut("bon_livraison", "emis", "brouillon").is_err());
+        // Les autres pièces changent de statut sans rien constater.
+        assert_eq!(changement_de_statut("devis", "brouillon", "emis"), Ok(false));
+        assert_eq!(changement_de_statut("devis", "emis", "accepte"), Ok(false));
+        assert!(changement_de_statut("devis", "annule", "emis").is_err());
+        assert_eq!(changement_de_statut("bon_livraison", "emis", "emis"), Ok(false));
+    }
+
+    #[test]
+    fn on_ne_livre_pas_sur_un_bon_en_brouillon_ni_sur_une_piece_close() {
+        assert!(peut_livrer("bon_livraison", "brouillon").is_err());
+        assert!(peut_livrer("bon_livraison", "emis").is_ok());
+        assert!(peut_livrer("bon_reception", "emis").is_ok());
+        assert!(peut_livrer("bon_livraison", "annule").is_err());
+        // Une commande n'est pas un bon : sa livraison n'est qu'un suivi.
+        assert!(peut_livrer("commande_client", "brouillon").is_ok());
+    }
+
+    #[test]
+    fn un_bon_en_brouillon_ne_se_facture_pas_avant_d_etre_emis() {
+        assert!(peut_transferer_un_bon("bon_livraison", "brouillon").is_err());
+        assert!(peut_transferer_un_bon("bon_reception", "brouillon").is_err());
+        assert!(peut_transferer_un_bon("bon_livraison", "emis").is_ok());
+        assert!(peut_transferer_un_bon("commande_client", "brouillon").is_ok());
+    }
+}
+

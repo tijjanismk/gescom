@@ -111,9 +111,17 @@ fn une_livraison_se_saisit_ligne_a_ligne_et_bouge_le_stock_de_l_ecart() {
     let ligne_id = l["lignes"][0]["id"].as_str().unwrap().to_string();
     assert_eq!(l["lignes"][0]["reste"], 10.0);
 
+    // En brouillon, on ne livre pas : on émet, et tout sort d'un coup.
+    let refus = livraisons::enregistrer_livraison_sur_base(&mut base, bl_id.clone(), vec![livraisons::LigneLivraison { ligne_id: ligne_id.clone(), quantite_livree: 6.0 }]).unwrap_err();
+    assert!(refus.contains("émettre"), "{refus}");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant, "rien ne bouge en brouillon");
+    pieces::changer_statut_piece_sur_base(&mut base, bl_id.clone(), "emis".into()).expect("émettre");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant - 10.0, "l'émission livre tout");
+
+    // Puis on corrige ligne à ligne, de l'écart : quatre rentrent.
     let r = livraisons::enregistrer_livraison_sur_base(&mut base, bl_id.clone(), vec![livraisons::LigneLivraison { ligne_id: ligne_id.clone(), quantite_livree: 6.0 }]).unwrap();
     assert_eq!(r["etat"], "partiel");
-    assert_eq!(stock(&mut base, &sucre.0, &depot), avant - 6.0, "six sortent");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant - 6.0, "quatre rentrent, six restent sortis");
     let r = livraisons::enregistrer_livraison_sur_base(&mut base, bl_id.clone(), vec![livraisons::LigneLivraison { ligne_id: ligne_id.clone(), quantite_livree: 7.0 }]).unwrap();
     assert_eq!(r["etat"], "partiel");
     assert_eq!(stock(&mut base, &sucre.0, &depot), avant - 7.0, "corriger 6 en 7 sort UNE unité");
@@ -211,6 +219,7 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     pagination::lire_ventes_recentes_paginee_sur_base(&mut base, 0, 10, None, Some("semaine".into()), None, None).expect("récentes");
     let l = livraisons::lire_livraison_piece_sur_base(&mut base, bl_id.clone()).expect("livraison");
     let lid = l["lignes"][0]["id"].as_str().unwrap().to_string();
+    pieces::changer_statut_piece_sur_base(&mut base, bl_id.clone(), "emis".into()).expect("émettre le bon");
     livraisons::enregistrer_livraison_sur_base(&mut base, bl_id, vec![livraisons::LigneLivraison { ligne_id: lid, quantite_livree: 1.0 }]).expect("livrer");
     let m = modeles::Modele { id: "t".into(), genre: "g".into(), nom: "n".into(), format: "A4".into(), contenu: serde_json::json!({}), est_defaut: false, actif: false, modifie_le: String::new() };
     modeles::enregistrer_sur_base(&mut base, &m, "t").expect("modèle");

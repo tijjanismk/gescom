@@ -5,20 +5,20 @@ Le récit daté de chaque avancée vit dans [JOURNAL.md](JOURNAL.md), les
 décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md).
 
-Dernière mise à jour : **17 septembre 2026** (la fenêtre Tauri essayée
-pour de vrai sur PostgreSQL ; modèles branchés à l'impression ; dates
-saisissables).
-État : **440 tests workspace SQLite** (`--workspace`, mesuré le
+Dernière mise à jour : **19 septembre 2026** (le serveur en service
+Windows et son installeur signé ; la v3 commence : le dossier se choisit
+à la connexion).
+État : **453 tests workspace SQLite** (`--workspace`, mesuré le
 18/09, 0 échec, 0 avertissement) ; sur **PostgreSQL** (`gescom_test`) :
 suite complète 394/394 le 13/09, puis rejoués sans échec les fichiers
 touchés à chaque séance — le 18/09 : `gestion_base`, `pieces_base`,
 `achats_base`, `fournisseurs_base`, `postgres_amorcage` ;
-**153 scénarios** en seize fichiers `*_base.rs` qui tournent sur les
-deux moteurs (`GESCOM_PG`). Serveur : **202 commandes** (198 le 17/09 ;
-+`regler_creance_exceptionnel`, +`accorder_avoir_client`,
-+`exporter_modeles`, +`importer_modeles` le 18/09), `POST
-/entretien` vérifié par HTTP (D9). **28 permissions** (`avoirs:accorder`
-le 18/09, patron seul). Dernier commit : voir `git log`.
+**158 scénarios** en dix-sept fichiers `*_base.rs` qui tournent sur
+les deux moteurs (`GESCOM_PG`). Serveur : **210 commandes** (202 le
+18/09 ; +8 de la v3 le 19/09 : dossiers, exercices, choix du dossier),
+`POST /entretien` vérifié par HTTP (D9). **29 permissions**
+(`dossiers:gerer` le 19/09, patron seul). Dernier commit : voir `git
+log`.
 
 ---
 
@@ -28,7 +28,7 @@ le 18/09, patron seul). Dernier commit : voir `git log`.
 |---|---|---|
 | **v1** | un poste, SQLite, pas de serveur | **livré**, ne bouge plus |
 | **v2** | serveur + clients, le client ne parle **qu'**au serveur | **close le 18/09/2026** (décision du propriétaire) : fonctionnelle sur SQLite et PostgreSQL ; restent l'installeur non signé (D5), l'impression papier jamais vérifiée à la main, et le déclencheur multi-dossier (v3) |
-| **v3** | multi-société, multi-dossier, exercices | fondation posée, écrans pas commencés |
+| **v3** | multi-société, multi-dossier, exercices | **commencée le 19/09/2026** : le dossier se choisit à la connexion (D13), création d'un dossier, exercices exposés ; écrans de gestion à faire |
 
 **Une seule machine ne veut pas dire sans serveur.** La boutique à une
 caisse installe les deux sur le même ordinateur. Il n'y a qu'un seul
@@ -53,7 +53,7 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 
 | # | quoi | pourquoi ça compte |
 |---|---|---|
-| 1 | **L'installeur n'est pas signé** | chaque installation dépend de SmartScreen ; tenable tant qu'on déploie soi-même (D5) |
+| 1 | ~~**L'installeur n'est pas signé**~~ **le serveur a le sien, signé, le 19/09/2026** (D5 révisée, D12) : `outils\construire_installeur_serveur.ps1`, service Windows, pare-feu, certificat enregistré sur la machine. Celui de la fenêtre reste non signé | chaque installation dépend de SmartScreen ; tenable tant qu'on déploie soi-même (D5) |
 | 2 | ~~L'écran des permissions **par personne**~~ **fait le 13/09/2026** : Paramètres → Utilisateurs → « Permissions », à trois états par permission (rôle / autorisée / refusée) | les commandes existent, l'interface non (D7) |
 | 3 | ~~Aucun compte `superadmin` n'est créé~~ **réglé le 13/09/2026** : `gescom-serveur --promouvoir IDENTIFIANT` redonne le rôle `superadmin` à un compte existant, depuis la machine du serveur — pas de compte de secours livré (D6) | le rôle existe, personne ne le porte (D6) |
 | 4 | ~~Écriture des images depuis une caisse~~ **fait le 13/09/2026** : la caisse lit le fichier et envoie le **contenu** en base64 ; le serveur le range dans son dossier d'images et enregistre le chemin. Refus net : format inconnu, base64 illisible, plus de 10 Mo. La suppression efface aussi le fichier (D8) | la commande recevait un *chemin* local, qui ne désigne rien chez le serveur (D8) |
@@ -86,6 +86,16 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | J7 | **La palette cherche les tiers** : dès deux lettres, cinq clients et cinq fournisseurs dont le nom correspond (`lire_*_pagines`, mêmes droits que le menu) ; choisir ouvre la fiche. Plus large (`max-w-3xl`, élargie une seconde fois le 18/09) | `src/components/PaletteCommandes.tsx` |
 | J8 | **Pièces : Du → au dans la barre** (la même paire que les filtres avancés), et la liste fournisseur accepte enfin `date_debut`/`date_fin` (deux versions, serveur, façade, scénario). **Le filtre dit le type** : sur « Commandes », le bouton devient « Nouvelle commande » et la fenêtre n'a plus de sélecteur ; sur « Tout », on choisit — client comme fournisseur | `noyau/src/pieces.rs`, `src/pages/Pieces.tsx`, `src/components/ModalNouvellePiece.tsx` |
 | J9 | **La date se saisit aussi à la création d'une pièce**, pas seulement à l'échéance : `creer_piece[_sur_base]` et `creer_piece_fournisseur[_sur_base]` prennent `date_piece` (même règle que la réception/le règlement, `pieces:antidater` côté serveur). Rien d'autre ne bouge — `creer_piece*` ne touche ni stock ni caisse. Champ « Date de la pièce » dans la modale, visible à qui a le droit ; scénario `une_piece_peut_naitre_deja_datee` | `noyau/src/pieces.rs`, `noyau/src/argent.rs` (`date_de_la_piece`), `src/components/ModalNouvellePiece.tsx` |
+| K5 | **« UNIQUE constraint failed: client.code »** à chaque nouveau client dès qu'un code plus grand que le nombre de clients existait (client supprimé, import) : le code suivait `COUNT + 1`. Il suit le **plus grand déjà pris** (`coeur::tiers::code_client_suivant`, D28), et un dossier autre que l'origine préfixe ses codes de son code (`QUINC-CLIENT00001`) — `client.code` est unique sur toute la base. Deux scénarios | `noyau/src/comptoir.rs`, `coeur/tiers.rs`, `dossiers.rs` |
+| K6 | **POS : remise globale en % ou en francs**, répartie sur les lignes au prorata (la dernière prend le reste) ; l'invariant `SUM(prix_pratique × quantité) = dû` tient, HT/TVA se relisent sur les lignes remisées | `src/pages/Ventes.tsx` |
+| K7 | **Avoir sans marchandise depuis « Nouvelle pièce »** : type Avoir, aucune ligne, un montant + le motif dans Note → `accorder_avoir_client` (permission `avoirs:accorder`, sinon l'écran le dit). Le crédit se consomme sur une vente ou se rembourse | `src/components/ModalNouvellePiece.tsx` |
+| K8 | **Impression « parfois » cassée** : le fichier temporaire portait le nom demandé tel quel — le même deux fois (cache ou fichier encore tenu par la webview : ancien document ou page blanche), parfois **sans `.html`** (le numéro de pièce nu, WebView2 devinait le type). Nom unique + `.html` garantis, dossier `gescom_impression` nettoyé après 24 h, second essai de label si la fenêtre précédente n'a pas fini de se fermer | `src-tauri/src/commandes/impression.rs` |
+| K10 | **Un bon se prépare en brouillon, s'émet, et ne se modifie plus** : modifier un BL émis laissait le stock à l'ancienne quantité. Règle dans `coeur` (`constate_le_stock`, `changement_de_statut`, `peut_livrer`, `peut_transferer_un_bon`) : un bon (livraison, réception) créé à la main naît **brouillon** (rien ne bouge, modifiable), **Émettre** le livre entièrement (`marquer_entierement_livre`, même transaction que le statut), puis il est figé ; la saisie ligne à ligne ne vient qu'après pour corriger ; **annuler** un bon émis ramène la marchandise (`marquer_rien_livre`) ; un bon en brouillon ne se facture pas (sa facture ne sortirait jamais rien). Par conversion d'une commande, le BL naît émis et livré, comme avant. Bouton « Émettre » dans Pièces ; six scénarios adaptés, un ajouté | `coeur/pieces.rs`, `noyau/src/pieces.rs`, `livraisons.rs`, `src/pages/Pieces.tsx` |
+| K9 | **Tableau de bord sans icônes** : `KpiCard` / `KpiPetit` perdent la tuile, l'intitulé passe en tête en `text-sm font-semibold` ; « tinted » teinte le bord | `src/components/ui/KpiVerre.tsx` |
+| K1 | **Le serveur en service Windows** (D12) : `service.rs` (`windows-sys`, quatre appels), `--installer-service` / `--desinstaller-service` / `--service`, configuration `ProgramData\Gescom\serveur.json`, journal `serveur.log`, boucle d'écoute non bloquante qui s'arrête sur `sc stop` et révoque les sessions. **Pas déroulé en élevé** (UAC bloqué depuis la session) : TESTS-MANUELS §A | `serveur/src/service.rs`, `main.rs` |
+| K2 | **L'installeur du serveur, signé** (D5 révisée) : `signer.ps1` (certificat auto-signé, 10 ans, clé jamais exportée), `installeur_serveur.nsi` (admin, page base/port, certificat, pare-feu, service, désinstallation qui garde les données), `construire_installeur_serveur.ps1`. Construit : `dist\Gescom-Serveur_0.2.0_x64-setup.exe`, 2,4 Mo, signé | `outils/` |
+| K3 | **TESTS-MANUELS.md** (dix sections, à cocher) et **MANUEL.md v2.0** (installation, palette, dates, modèles, avoir accordé, irrécouvrable) | racine |
+| K4 | **La v3 commence** (D13) : `dossiers::lire_dossiers_sur`, `creer_dossier_sur` (exercice + magasin + client de passage, refus sur SQLite), `dossier_memorise_sur` ; la session porte son dossier (`session_reseau.dossier_id`, deux chemins de création), `Appelant.dossier_id`/`session_id`, `api::rpc` place la `Base` sur le dossier ; `Registre::sur_base` ; 8 commandes ; écran de choix dans `PageLogin`, dossier affiché dans `Layout`. Vérifié par HTTP sur `gescom_essai` : second dossier créé, choix, mémorisation, refus du second choix. **5 scénarios** `dossiers_base` sur les deux moteurs | `noyau/src/dossiers.rs`, `sessions.rs`, `registre.rs`, `serveur/src/api.rs`, `src/pages/PageLogin.tsx` |
 | J11 | **La facture irrécouvrable se lit en rouge et ne pèse nulle part** : les listes client rendent `irrecouvrable` (colonne 20, `CASE WHEN EXISTS(vente irrecouvrable)`, un entier pour que PostgreSQL et SQLite s'accordent) ; « impayés » et « en retard » l'excluent (deux versions) ; à l'écran, ligne rouge, badge « Irrécouvrable », hors des totaux comme une annulée. Scénario dans `gestion_base` | `noyau/src/pieces.rs`, `src/pages/Pieces.tsx` |
 | J10 | **Six retouches d'après capture** : (a) un AVF **remboursé** affichait « Payé » et un reste rouge de son montant — la règle `credit_avoir_fournisseur` est dans `coeur` (remboursé/annulé → 0, sinon le crédit) et sert aux deux listes et aux trois états de dette ; le reste d'un avoir se lit en ambre (crédit), et le pied de tableau n'additionne que les factures ; (b) la palette ne s'élargissait pas : `DialogContent` pose `sm:max-w-sm`, il faut `sm:max-w-3xl` ; (c) **Caisse plantait** : `useActionsPalette` était appelé après le `return` du chargement (nombre de hooks variable) — remonté avant ; (d) Paramètres → Société n'a plus la section « Signatures » : les noms vivent dans le bloc Signatures de chaque modèle ; (e) **chaque bloc se redimensionne dans l'aperçu** : tirer le coin bas-droit d'un bloc du flux le détache (flottant, à sa place, même cadre) dans le même geste ; cocher « flottant » garde aussi le cadre à l'écran ; (f) un champ « Client » posé sur `tiers.*` s'imprime « Fournisseur » sur une pièce fournisseur | `coeur/calcul.rs`, `noyau/src/pieces.rs`, `fournisseurs.rs`, `src/pages/Caisse.tsx`, `Modeles.tsx`, `lib/modeles/rendu.ts`, `ParametresSociete.tsx` |
 
@@ -159,8 +169,12 @@ Pas cloisonnés, et c'est voulu : `utilisateur`, `role`, `poste`,
 `session_reseau`, `modele_document`, `article`, `unite_vente`,
 `config_app`, `parametres_societe`.
 
-Reste : les écrans (choisir un dossier, ouvrir un exercice, clôturer),
-et la migration d'une base existante vers plusieurs dossiers.
+Fait le 19/09/2026 (D13) : le choix du dossier à la connexion, la
+création d'un dossier, les commandes d'exercices. Reste : l'écran de
+gestion (créer un dossier, ouvrir / prolonger / clore un exercice —
+les commandes existent), le garde-fou `verifier_date_sur` branché
+avant chaque écriture, et la migration d'une base existante vers
+plusieurs dossiers.
 → [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md)
 
 ---

@@ -13,8 +13,9 @@ l'arrêt (récit : [JOURNAL.md](../JOURNAL.md), [DECISIONS.md](../DECISIONS.md) 
 |---|---|
 | [noyau/src/protocole.rs](../../src-tauri/noyau/src/protocole.rs) | le contrat client/serveur, compilé des deux côtés — un champ renommé casse l'autre |
 | [noyau/src/sessions.rs](../../src-tauri/noyau/src/sessions.rs), [postes.rs](../../src-tauri/noyau/src/postes.rs), [caisses.rs](../../src-tauri/noyau/src/caisses.rs) | jeton/expiration/révocation ; les machines ; quel tiroir pour qui |
-| [noyau/src/registre.rs](../../src-tauri/noyau/src/registre.rs) | nom → poignée `Connection` **et** poignée `Base` (`aussi_sur_base`) |
-| [serveur/src/socle.rs](../../src-tauri/serveur/src/socle.rs) | les 202 commandes enregistrées ; le bloc généré vit entre marqueurs (`outils/generer_socle.py`) |
+| [noyau/src/registre.rs](../../src-tauri/noyau/src/registre.rs) | nom → poignée `Connection` **et** poignée `Base` (`aussi_sur_base`) ; `sur_base` pour une commande née sur `Base` seule (v3), servie par la `Base` sur les deux moteurs |
+| [serveur/src/service.rs](../../src-tauri/serveur/src/service.rs) | le service Windows (D12) : installer, désinstaller, tourner sous le gestionnaire, journal dans `ProgramData` |
+| [serveur/src/socle.rs](../../src-tauri/serveur/src/socle.rs) | les 210 commandes enregistrées ; le bloc généré vit entre marqueurs (`outils/generer_socle.py`) |
 | [serveur/src/http.rs](../../src-tauri/serveur/src/http.rs), [api.rs](../../src-tauri/serveur/src/api.rs), [canal.rs](../../src-tauri/serveur/src/canal.rs) | HTTP/1.1 minimal sans dépendance (ni TLS ni keep-alive) ; les routes ; la longue attente |
 | [serveur/src/sauvegarde.rs](../../src-tauri/serveur/src/sauvegarde.rs) | toutes les 24 h, 14 copies : `VACUUM INTO` (SQLite) ou `pg_dump` (PostgreSQL) |
 | [serveur/src/console.rs](../../src-tauri/serveur/src/console.rs), [reseau_local.rs](../../src-tauri/serveur/src/reseau_local.rs) | la console (une page HTML dans une constante) ; adresse à saisir et état du pare-feu au démarrage |
@@ -66,6 +67,22 @@ même permission que la sauvegarde (D9).
 - **`outils/caisse_pg.py <url>`** — rejoue une caisse écran par écran par `/rpc` (141 clics) contre un serveur qui tourne. Sur une base **jetable**.
 - Le pare-feu est vérifié depuis un second appareil (11/09/2026) ; la console n'est pas testée automatiquement — ce qu'elle appelle l'est. `POST /entretien` a été joué par HTTP le 13/09 (401 sans jeton, ok avec, dump lisible) : il a attrapé un interblocage (`sauvegarde::dossier` reprenait le verrou que le gestionnaire tenait), corrigé — récit dans [JOURNAL.md](../JOURNAL.md).
 
+## La v3 dans le protocole (19/09/2026, D13)
+
+`DemandeConnexion.dossier_id` / `memoriser_dossier` ; `Identite.dossier_id`
+(`null` = à choisir), `dossier_societe`, `dossiers` (les ouverts).
+`CodeErreur::DossierAChoisir` sur toute commande d'une session sans
+dossier, sauf `lire_dossiers` et `choisir_dossier`. `Appelant` porte
+`dossier_id` et `session_id` ; `api::rpc` fait `base.choisir_dossier`
+avant chaque poignée `Base`. Commandes : `lire_dossiers`,
+`creer_dossier` (`dossiers:gerer`), `choisir_dossier`,
+`oublier_dossier_memorise`, `lire_exercices`, `ouvrir_exercice`,
+`prolonger_exercice`, `clore_exercice`. L'écran : `PageLogin.tsx`
+demande « Quel dossier ouvrir ? » quand il y en a plusieurs ;
+`Layout` affiche le dossier ouvert sous le nom.
+
 ## Ce qui reste
 
 - Une vraie impression papier depuis une caisse, jamais essayée.
+- Le service Windows n'a pas été déroulé en élevé depuis la session
+  d'écriture (TESTS-MANUELS, section A).

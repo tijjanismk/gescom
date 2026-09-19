@@ -218,6 +218,53 @@ pub fn marquer_entierement_livre(
     Ok(())
 }
 
+/// Le contraire : ramene un bon a « rien de livre », mouvements de
+/// stock compris. C'est le geste de l'ANNULATION d'un bon emis : la
+/// marchandise revient au magasin par le meme chemin qu'elle en est
+/// sortie — un ecart negatif ligne a ligne, jamais un total. Un bon en
+/// brouillon n'a rien livre : rien ne bouge.
+pub fn marquer_rien_livre(conn: &rusqlite::Connection, piece_id: &str) -> Result<(), String> {
+    let (type_piece, depot_piece): (String, Option<String>) = conn
+        .query_row(
+            "SELECT type_piece, depot_id FROM piece_commerciale WHERE id = ?1",
+            rusqlite::params![piece_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|_| "Piece introuvable".to_string())?;
+    let now = maintenant_iso();
+    let auteur = crate::argent::id_utilisateur_courant_pub(conn);
+    let depot = crate::pieces::depot_de_piece(conn, depot_piece);
+
+    let lignes: Vec<(String, f64, String, String)> = {
+        let mut st = conn
+            .prepare(
+                "SELECT id, COALESCE(quantite_livree, 0), article_id, unite_vente_id
+                 FROM ligne_piece WHERE piece_id = ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let v = st
+            .query_map(rusqlite::params![piece_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        v
+    };
+    for (ligne_id, livree, article_id, unite_id) in lignes {
+        if livree.abs() <= EPSILON {
+            continue;
+        }
+        conn.execute(
+            "UPDATE ligne_piece SET quantite_livree = 0 WHERE id = ?1",
+            rusqlite::params![ligne_id],
+        )
+        .map_err(|e| e.to_string())?;
+        mouvementer_ecart(conn, &type_piece, depot.as_deref(), &article_id, &unite_id, -livree, &auteur, &now, piece_id)?;
+    }
+    Ok(())
+}
+
 // =====================================================================
 //  LECTURE
 // =====================================================================
@@ -301,13 +348,14 @@ pub fn enregistrer_livraison(
     let now = maintenant_iso();
     let auteur = crate::argent::id_utilisateur_courant_pub(&conn);
 
-    let (type_piece, depot_piece): (String, Option<String>) = conn
+    let (type_piece, depot_piece, statut): (String, Option<String>, String) = conn
         .query_row(
-            "SELECT type_piece, depot_id FROM piece_commerciale WHERE id = ?1",
+            "SELECT type_piece, depot_id, statut FROM piece_commerciale WHERE id = ?1",
             rusqlite::params![piece_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .map_err(|_| "Piece introuvable".to_string())?;
+    crate::coeur::pieces::peut_livrer(&type_piece, &statut)?;
     let depot = crate::pieces::depot_de_piece(&conn, depot_piece);
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -556,6 +604,46 @@ pub fn marquer_entierement_livre_sur(
     Ok(())
 }
 
+/// Meme geste que `marquer_rien_livre`, sur l'un ou l'autre moteur,
+/// dedans ou hors transaction.
+pub fn marquer_rien_livre_sur(acces: &mut impl Acces, piece_id: &str) -> Result<(), String> {
+    let dossier = acces.dossier().to_string();
+    let (type_piece, depot_piece): (String, Option<String>) = acces
+        .lire_une(
+            "SELECT type_piece, depot_id FROM piece_commerciale
+             WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![piece_id, dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<Option<String>>(1)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Piece introuvable".to_string())?;
+    let now = maintenant_iso();
+    let auteur = crate::argent::id_utilisateur_courant_sur(acces);
+    let depot = crate::pieces::depot_de_piece_sur(acces, depot_piece);
+
+    let lignes: Vec<(String, f64, String, String)> = acces
+        .lire_plusieurs(
+            "SELECT id, COALESCE(quantite_livree, 0), article_id, unite_vente_id
+             FROM ligne_piece WHERE piece_id = ?1 AND dossier_id = ?2",
+            &parametres![piece_id, dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<f64>(1)?, r.get::<String>(2)?, r.get::<String>(3)?)),
+        )
+        .map_err(|e| e.0)?;
+    for (ligne_id, livree, article_id, unite_id) in lignes {
+        if livree.abs() <= EPSILON {
+            continue;
+        }
+        acces
+            .executer(
+                "UPDATE ligne_piece SET quantite_livree = 0 WHERE id = ?1 AND dossier_id = ?2",
+                &parametres![ligne_id, dossier.clone()],
+            )
+            .map_err(|e| e.0)?;
+        mouvementer_ecart_sur(acces, &type_piece, depot.as_deref(), &article_id, &unite_id, -livree, &auteur, &now, piece_id)?;
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------
 //  Lecture et saisie ligne a ligne
 // ---------------------------------------------------------------------
@@ -617,14 +705,15 @@ pub fn enregistrer_livraison_sur_base(
     let dossier = base.dossier().to_string();
     let now = maintenant_iso();
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
-    let (type_piece, depot_piece): (String, Option<String>) = base
+    let (type_piece, depot_piece, statut): (String, Option<String>, String) = base
         .lire_une(
-            "SELECT type_piece, depot_id FROM piece_commerciale WHERE id = ?1 AND dossier_id = ?2",
+            "SELECT type_piece, depot_id, statut FROM piece_commerciale WHERE id = ?1 AND dossier_id = ?2",
             &parametres![piece_id.clone(), dossier.clone()],
-            |r| Ok((r.get::<String>(0)?, r.get::<Option<String>>(1)?)),
+            |r| Ok((r.get::<String>(0)?, r.get::<Option<String>>(1)?, r.get::<String>(2)?)),
         )
         .map_err(|e| e.0)?
         .ok_or_else(|| "Piece introuvable".to_string())?;
+    crate::coeur::pieces::peut_livrer(&type_piece, &statut)?;
     let depot = crate::pieces::depot_de_piece_sur(base, depot_piece);
 
     let mut tx = base.transaction().map_err(|e| e.0)?;

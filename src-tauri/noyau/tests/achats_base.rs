@@ -261,15 +261,24 @@ fn valider_une_facture_fournisseur_brouillon_fait_entrer_le_stock_une_fois() {
         .unwrap_err();
     assert!(refus.contains("déjà"), "{refus}");
 
-    // La chaîne BCF → BRF → FAF : la réception entre le stock, la
-    // facture ne le fait pas entrer une seconde fois.
+    // La chaîne BCF → BRF → FAF : le bon de réception nait en brouillon
+    // (les prix se corrigent), c'est son ÉMISSION qui fait entrer le
+    // stock, et la facture ne le fait pas entrer une seconde fois. Un
+    // bon encore en brouillon ne se facture pas : rien n'est entré.
     let avant = stock(&mut base, &sucre.0, &depot);
     let bcf = pieces::creer_piece_fournisseur_sur_base(
         &mut base, f, "bon_commande_fournisseur".into(), vec![ligne(&sucre, 8.0)], None, None, None, None, None,
     )
     .unwrap();
     let brf = pieces::convertir_piece_sur_base(&mut base, bcf["id"].as_str().unwrap().to_string(), "bon_reception".into()).unwrap();
-    let faf2 = pieces::convertir_piece_sur_base(&mut base, brf["id"].as_str().unwrap().to_string(), "facture_fournisseur".into()).unwrap();
+    let brf_id = brf["id"].as_str().unwrap().to_string();
+    assert_eq!(brf["statut"], "brouillon");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant, "en brouillon, rien n'est entré");
+    let refus = pieces::convertir_piece_sur_base(&mut base, brf_id.clone(), "facture_fournisseur".into()).unwrap_err();
+    assert!(refus.contains("émettre"), "{refus}");
+    pieces::changer_statut_piece_sur_base(&mut base, brf_id.clone(), "emis".into()).expect("émettre le bon");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant + 8.0, "l'émission fait entrer la marchandise");
+    let faf2 = pieces::convertir_piece_sur_base(&mut base, brf_id, "facture_fournisseur".into()).unwrap();
     assert_eq!(faf2["statut"], "brouillon");
     let r = achats::valider_facture_fournisseur_sur_base(
         &mut base, faf2["id"].as_str().unwrap().to_string(), "credit".into(), None, None, None,
@@ -277,7 +286,7 @@ fn valider_une_facture_fournisseur_brouillon_fait_entrer_le_stock_une_fois() {
     .unwrap();
     assert_eq!(r["stock_entre"], false, "le bon de réception s'en est chargé");
     assert_eq!(r["statut"], "emis");
-    let _ = avant;
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant + 8.0, "une seule entrée");
 }
 
 #[test]

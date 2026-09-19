@@ -18,7 +18,7 @@ du noyau, **à chaque appel** ; l'écran ne fait que cacher des boutons.
 
 | | où | qui le change |
 |---|---|---|
-| le **catalogue** — 28 permissions, celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`) | code | personne |
+| le **catalogue** — 29 permissions, celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`) | code | personne |
 | les **rôles** — `role.permissions` (JSON), `role.acces_total` | base | le patron |
 | le **sur-mesure** — `utilisateur_permission(utilisateur, permission, accorde)` | base | le patron, par personne |
 
@@ -35,6 +35,12 @@ La permission est au catalogue mais **dans aucun rôle livré** : elle
 vient avec `acces_total` (patron, superadmin), ou se donne à la main
 par le sur-mesure. `avoirs:gerer` (le comptable) applique et rembourse
 les avoirs existants ; il n'en crée pas.
+
+## `dossiers:gerer` (19/09/2026, v3)
+
+Créer un dossier, ouvrir, prolonger ou clore un exercice. Comme
+`avoirs:accorder` : aucun rôle livré ne la porte, elle vient avec
+`acces_total` ou se donne à la main.
 
 ## Une permission qui dépend des ARGUMENTS : `pieces:antidater`
 
