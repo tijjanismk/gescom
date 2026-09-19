@@ -243,7 +243,7 @@ export function ApercuPiece({
                       : "border-border text-muted-foreground hover:bg-muted"
                   }`}>
                   <LayoutTemplate className="h-3 w-3 mr-1 inline-block" />
-                  {m.nom}{m.actif ? " ★" : ""}
+                  {m.nom}{m.actif ? " (actif)" : ""}
                 </button>
               ))}
             </>

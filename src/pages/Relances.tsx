@@ -257,8 +257,9 @@ function ModalRelancer({
                            focus:ring-1 focus:ring-primary"
               />
               {!creance.telephone && (
-                <p className="text-xs text-orange-600 mt-1">
-                  ⚠ Aucun numéro de téléphone pour ce client
+                <p className="text-xs text-orange-600 mt-1 flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  Aucun numéro de téléphone pour ce client
                 </p>
               )}
               <div className="flex gap-2 mt-2">

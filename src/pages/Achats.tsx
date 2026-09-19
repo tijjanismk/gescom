@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   Plus, Trash2, ShoppingBag, Search,
-  Loader2, Truck, PackagePlus
+  Loader2, Truck, PackagePlus, X, Info
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -203,10 +203,12 @@ function ModalConfirmationAchat({
             )}
 
             {/* Le montant réglé ci-dessus sort réellement de la caisse. */}
-            <div className="bg-muted rounded-md px-3 py-2 text-xs text-muted-foreground mt-2">
-              ℹ️ {regle > 0
+            <div className="bg-muted rounded-md px-3 py-2 text-xs text-muted-foreground mt-2
+                            flex items-start gap-1.5">
+              <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span>{regle > 0
                 ? "Le stock est mis à jour et le montant réglé sort de la caisse."
-                : "Cet achat met à jour le stock. Aucun règlement immédiat."}
+                : "Cet achat met à jour le stock. Aucun règlement immédiat."}</span>
             </div>
           </div>
 
@@ -451,8 +453,8 @@ export function Achats() {
       viderPanier();
       await message(
         res.numero
-          ? `Achat enregistré ✓ — facture ${res.numero}`
-          : "Achat enregistré ✓ — stock mis à jour",
+          ? `Achat enregistré — facture ${res.numero}`
+          : "Achat enregistré — stock mis à jour",
         { title: "Succès", kind: "info" },
       );
 
@@ -505,7 +507,9 @@ export function Achats() {
               <div className="flex items-center gap-2 mb-1">
                 <Badge variant="secondary" className="text-xs">{fournisseur.nom}</Badge>
                 <button onClick={() => setFournisseur(null)}
-                  className="text-xs text-muted-foreground hover:text-foreground">✕</button>
+                  className="text-xs text-muted-foreground hover:text-foreground">
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
             ) : (
               <p className="text-xs text-muted-foreground mb-1">

@@ -13,7 +13,7 @@ import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import {
-  BookOpen, RefreshCw, Loader2, Printer, ChevronLeft, ChevronRight,
+  BookOpen, RefreshCw, Loader2, Printer, ChevronLeft, ChevronRight, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -412,9 +412,11 @@ export function Journal() {
       {!!data?.decouverts?.length && (
         <div className="mb-6 border border-orange-300 bg-orange-50 rounded-lg
                         overflow-hidden print:rounded-none">
-          <div className="px-4 py-2 border-b border-orange-200">
+          <div className="px-4 py-2 border-b border-orange-200
+                          flex items-center gap-1.5">
+            <AlertTriangle className="h-4 w-4 text-orange-600 shrink-0" />
             <p className="text-sm font-medium text-orange-900">
-              ⚠ {data.decouverts.length} vente(s) à découvert
+              {data.decouverts.length} vente(s) à découvert
             </p>
           </div>
           <table className="w-full">

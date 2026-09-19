@@ -173,7 +173,7 @@ function ModalReglementCreance({
               }`} />
               <div>
                 <p className="text-sm font-medium">
-                  {resultat.soldee ? "Créance soldée ✓" : "Paiement partiel enregistré"}
+                  {resultat.soldee ? "Créance soldée" : "Paiement partiel enregistré"}
                 </p>
                 {!resultat.soldee && (
                   <p className="text-xs text-muted-foreground">

@@ -735,7 +735,7 @@ export function OngletAvoirs() {
         active: config.active,
         dureeJours: config.duree_jours,
       });
-      await message("Configuration sauvegardée ✓", { title: "Succès", kind: "info" });
+      await message("Configuration sauvegardée", { title: "Succès", kind: "info" });
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
     } finally { setSaving(false); }

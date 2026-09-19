@@ -62,7 +62,7 @@ export function OngletVentes() {
       await invoke("sauvegarder_config_scanner", { actif });
       setScannerActif(actif);
       await message(
-        actif ? "Scanner activé ✓" : "Scanner désactivé ✓",
+        actif ? "Scanner activé" : "Scanner désactivé",
         { title: "Succès", kind: "info" }
       );
     } catch (e) {

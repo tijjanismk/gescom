@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
-import { Loader2, X, UserPlus, Package } from "lucide-react";
+import { Loader2, X, UserPlus, Package, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +18,7 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { UTILISATEUR_ACTIF, DEPOT_ACTIF } from "@/App";
 import { peut } from "@/lib/droits";
 import { cn } from "@/lib/utils";
+import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 
 // =====================================================================
 //  Types
@@ -109,6 +110,14 @@ export function ModalNouvellePiece({
   const [datePiece, setDatePiece] = useState("");
   const peutAntidater = peut("pieces:antidater");
   const [note, setNote] = useState("");
+  // Un avoir client SANS marchandise : un montant et un motif, pas de
+  // lignes — geste commercial, dedommagement. Il entre au credit du
+  // client, se consomme sur une vente ou se rembourse. Reserve a qui
+  // porte `avoirs:accorder` (le patron).
+  const [montantAvoir, setMontantAvoir] = useState("");
+  const peutAccorder = peut("avoirs:accorder");
+  const avoirSansLignes = cote === "client" && typePiece === "avoir_client"
+    && lignes.length === 0 && parseMontant(montantAvoir) > 0;
   const [rechercheArticle, setRechercheArticle] = useState("");
   const [articlesFiltres, setArticlesFiltres] = useState<Article[]>([]);
   const [chargement, setChargement] = useState(false);
@@ -126,7 +135,7 @@ export function ModalNouvellePiece({
   useEffect(() => {
     if (!ouvert) return;
     setTypePiece(defaultType);
-    setLignes([]); setRemiseGlobale("0");
+    setLignes([]); setRemiseGlobale("0"); setMontantAvoir("");
     setDateEcheance(""); setDatePiece(""); setNote("");
     setRechercheArticle(""); setArticlesFiltres([]);
     if (!tiersIdInitial) { setTiersId(""); setTiersNom(""); }
@@ -150,7 +159,7 @@ export function ModalNouvellePiece({
   }, [ouvert, cote]);
 
   function handleFermer() {
-    setLignes([]); setRemiseGlobale("0");
+    setLignes([]); setRemiseGlobale("0"); setMontantAvoir("");
     setDateEcheance(""); setDatePiece(""); setNote("");
     if (!tiersIdInitial) { setTiersId(""); setTiersNom(""); }
     onFermer();
@@ -269,7 +278,28 @@ export function ModalNouvellePiece({
   const totalNet = totalHT - remiseMt;
 
   async function handleCreer() {
-    if (!tiersId || lignes.length === 0) return;
+    if (!tiersId) return;
+    if (avoirSansLignes) {
+      if (!note.trim()) {
+        await message("Un avoir sans marchandise porte un motif (dans « Note »).", { title: "Avoir", kind: "warning" });
+        return;
+      }
+      setChargement(true);
+      try {
+        const r = await invoke<{ numero: string }>("accorder_avoir_client", {
+          clientId: tiersId, montant: parseMontant(montantAvoir), motif: note.trim(),
+          utilisateurRole: UTILISATEUR_ACTIF?.role ?? "patron",
+        });
+        await message(`Avoir ${r.numero} accordé : ${fmt(parseMontant(montantAvoir))} au crédit du client.`,
+          { title: "Avoir", kind: "info" });
+        handleFermer();
+        onCree();
+      } catch (e) {
+        await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+      } finally { setChargement(false); }
+      return;
+    }
+    if (lignes.length === 0) return;
     setChargement(true);
     try {
       const commande = cote === "client" ? "creer_piece" : "creer_piece_fournisseur";
@@ -461,8 +491,32 @@ export function ModalNouvellePiece({
             </p>
           )}
 
+          {/* Un avoir sans marchandise : le montant suffit, les lignes
+              restent vides. Avec des lignes, c'est l'avoir ordinaire. */}
+          {cote === "client" && typePiece === "avoir_client" && lignes.length === 0 && (
+            peutAccorder ? (
+              <div className={cn(
+                "flex items-center gap-3 rounded-md border px-3 py-2",
+                parseMontant(montantAvoir) > 0 ? "border-amber-400 bg-amber-50" : "border-border",
+              )}>
+                <Label className="text-xs whitespace-nowrap">Avoir sans marchandise — montant (F)</Label>
+                <MoneyInput value={montantAvoir} onChange={setMontantAvoir} className="h-8 w-40" />
+                <span className="text-[11px] text-muted-foreground">
+                  Le motif va dans « Note ». Le crédit se consomme sur une vente ou se rembourse en espèces.
+                  Ou bien ajouter des articles ci-dessous : l'avoir portera alors ses lignes.
+                </span>
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                Un avoir sans marchandise (montant seul) demande la permission « Accorder un avoir » —
+                le patron la donne à la main. Avec des articles, l'avoir se crée normalement.
+              </p>
+            )
+          )}
+
           {/* Recherche article */}
           <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input value={rechercheArticle}
               onChange={e => {
                 setRechercheArticle(e.target.value);
@@ -473,8 +527,8 @@ export function ModalNouvellePiece({
                   ).slice(0, 10)
                 );
               }}
-              placeholder="🔍 Rechercher un article à ajouter..."
-              className="h-9" />
+              placeholder="Rechercher un article à ajouter..."
+              className="h-9 pl-9" />
             {(articlesFiltres.length > 0 || (rechercheArticle.length >= 2)) && (
               <div className="absolute z-20 w-full mt-1 bg-card border border-border
                               rounded-md shadow-lg max-h-64 overflow-auto">
@@ -639,7 +693,7 @@ export function ModalNouvellePiece({
                             className="w-6 h-6 rounded-full flex items-center justify-center
                                        text-muted-foreground hover:bg-destructive/10
                                        hover:text-destructive transition-colors mx-auto">
-                            ✕
+                            <X className="h-3.5 w-3.5" />
                           </button>
                         </td>
                       </tr>
@@ -680,7 +734,7 @@ export function ModalNouvellePiece({
         <div className="border-t border-border px-6 py-4 flex gap-3 shrink-0 bg-card">
           <Button variant="outline" onClick={handleFermer} className="flex-1">Annuler</Button>
           <Button onClick={handleCreer}
-            disabled={!tiersId || lignes.length === 0 || chargement}
+            disabled={!tiersId || (lignes.length === 0 && !avoirSansLignes) || chargement}
             className="flex-1">
             {chargement
               ? <Loader2 className="h-4 w-4 animate-spin" />

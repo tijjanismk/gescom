@@ -90,7 +90,7 @@ export function ParametresSociete() {
         siteWeb: params.site_web || null,
         piedFacture: params.pied_facture || null,
       });
-      await message("Paramètres sauvegardés ✓", { title: "Succès", kind: "info" });
+      await message("Paramètres sauvegardés", { title: "Succès", kind: "info" });
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
     } finally {
@@ -117,7 +117,7 @@ export function ParametresSociete() {
       const logo = await invoke<string | null>("lire_logo_base64");
       setLogoBase64(logo);
 
-      await message("Logo mis à jour ✓", { title: "Succès", kind: "info" });
+      await message("Logo mis à jour", { title: "Succès", kind: "info" });
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
     } finally {

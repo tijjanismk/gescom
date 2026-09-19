@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import {
-  Wallet, RefreshCw, Loader2, TrendingUp, TrendingDown,
+  Wallet, RefreshCw, Loader2,
   // `History` entre en collision avec window.History, une classe
   // native que React tenterait d'instancier (« Illegal constructor »).
   History as HistoryIcon,
@@ -364,7 +364,7 @@ function ModalFermetureSession({
               : "bg-red-50 text-red-600"
             }`}>
               <span>
-                {ecart === 0 ? "✓ Caisse équilibrée"
+                {ecart === 0 ? "Caisse équilibrée"
                   : ecart > 0 ? "Excédent"
                   : "Manque"}
               </span>
@@ -424,13 +424,13 @@ export function Caisse() {
   async function handleApresOuverture() {
     setModalOuverture(false);
     await charger();
-    await message("Caisse ouverte ✓", { title: "Succès", kind: "info" });
+    await message("Caisse ouverte", { title: "Succès", kind: "info" });
   }
 
   async function handleApresFermeture() {
     setModalFermeture(false);
     await charger();
-    await message("Caisse clôturée ✓", { title: "Succès", kind: "info" });
+    await message("Caisse clôturée", { title: "Succès", kind: "info" });
   }
 
   const sessionOuverte = resume?.statut === "ouverte";
@@ -542,7 +542,6 @@ export function Caisse() {
           <KpiPetit
             titre="Fond d'ouverture"
             valeur={fmt(resume.fond_ouverture)}
-            icone={Unlock}
             variante="clear"
             inactif={!sessionOuverte}
           />
@@ -550,21 +549,18 @@ export function Caisse() {
             titre="Entrées"
             valeur={`+ ${fmt(resume.total_entrees)}`}
             sous={`${resume.nb_transactions} mouvement${resume.nb_transactions > 1 ? "s" : ""}`}
-            icone={TrendingUp}
             variante="neutral"
             inactif={!sessionOuverte}
           />
           <KpiPetit
             titre="Sorties"
             valeur={`- ${fmt(resume.total_sorties)}`}
-            icone={TrendingDown}
             variante="neutral"
             inactif={!sessionOuverte}
           />
           <KpiPetit
             titre="Solde théorique"
             valeur={fmt(resume.solde_theorique)}
-            icone={Wallet}
             variante="tinted"
             inactif={!sessionOuverte}
           />

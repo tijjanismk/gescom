@@ -5,7 +5,7 @@ import {
   ArrowLeft, User, Phone, MapPin, Mail, FileText,
   Loader2, Plus, Printer, ArrowRight, Eye, Pencil, RotateCcw,
   Receipt, Package, Truck, ClipboardList, Gift,
-  AlertTriangle, TrendingUp, Clock,
+  AlertTriangle, TrendingUp, Clock, Search, X,
 } from "lucide-react";
 import { GlassHalos } from "@/components/ui/GlassIcon";
 import { KpiLigne, CARTE, GRILLE } from "@/components/ui/KpiVerre";
@@ -291,6 +291,7 @@ function ModalNouvellePiece({
 
           {/* Recherche article */}
           <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input value={rechercheArticle}
               onChange={e => {
                 setRechercheArticle(e.target.value);
@@ -301,8 +302,8 @@ function ModalNouvellePiece({
                   ).slice(0, 10)
                 );
               }}
-              placeholder="🔍 Rechercher un article à ajouter..."
-              className="h-9" autoFocus />
+              placeholder="Rechercher un article à ajouter..."
+              className="h-9 pl-9" autoFocus />
             {articlesFiltres.length > 0 && (
               <div className="absolute z-20 w-full mt-1 bg-card border border-border
                               rounded-md shadow-lg max-h-52 overflow-auto">
@@ -397,7 +398,7 @@ function ModalNouvellePiece({
                             className="w-6 h-6 rounded-full flex items-center justify-center
                                        text-muted-foreground hover:bg-destructive/10
                                        hover:text-destructive transition-colors mx-auto">
-                            ✕
+                            <X className="h-3.5 w-3.5" />
                           </button>
                         </td>
                       </tr>

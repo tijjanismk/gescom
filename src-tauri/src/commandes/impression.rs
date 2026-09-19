@@ -31,13 +31,28 @@ pub async fn imprimer_facture(
     // Le fichier temporaire reste nécessaire : une webview ne charge
     // pas de façon fiable une longue chaîne HTML en data: URL sous
     // Windows (limite de longueur).
-    let tmp_dir = std::env::temp_dir();
-    let nom = nom_fichier.unwrap_or_else(|| {
-        format!(
-            "gescom_{}.html",
-            chrono::Local::now().format("%Y%m%d_%H%M%S")
-        )
-    });
+    // Le fichier a TOUJOURS un nom unique et l'extension .html — quel
+    // que soit le nom demande. Deux impressions de la meme piece
+    // donnaient le meme fichier : la webview le tenait encore, ou le
+    // sortait de son cache, et « parfois » c'etait l'ancien document ou
+    // une page blanche qui s'imprimait. Et un nom sans extension (le
+    // numero de piece tel quel) laissait WebView2 deviner le type.
+    let tmp_dir = std::env::temp_dir().join("gescom_impression");
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| format!("Impossible de préparer le dossier d'impression : {}", e))?;
+    nettoyer_les_anciens(&tmp_dir);
+    let base: String = nom_fichier
+        .unwrap_or_else(|| "document".to_string())
+        .trim_end_matches(".html")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .take(60)
+        .collect();
+    let nom = format!(
+        "{}_{}.html",
+        if base.is_empty() { "document".to_string() } else { base },
+        chrono::Local::now().format("%Y%m%d_%H%M%S%3f")
+    );
     let chemin = tmp_dir.join(&nom);
 
     std::fs::write(&chemin, html.as_bytes())
@@ -61,15 +76,39 @@ pub async fn imprimer_facture(
     let url = tauri::Url::from_file_path(&chemin)
         .map_err(|_| "Chemin de fichier invalide".to_string())?;
 
-    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
-        .title("Impression — Gescom")
-        .inner_size(900.0, 1000.0)
-        .center()
-        .resizable(true)
-        .build()
-        .map_err(|e| format!("Impossible d'ouvrir la fenêtre : {}", e))?;
+    // Un second essai avec un autre label : la fenetre precedente peut
+    // ne pas avoir fini de se fermer, et Tauri refuse deux fenetres du
+    // meme nom. Avant, l'impression echouait sur ce refus.
+    let mut derniere_erreur = String::new();
+    for essai in 0..2u8 {
+        let label = if essai == 0 { label.clone() } else { format!("{label}_{essai}") };
+        match WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.clone()))
+            .title("Impression — Gescom")
+            .inner_size(900.0, 1000.0)
+            .center()
+            .resizable(true)
+            .build()
+        {
+            Ok(_) => return Ok(chemin.to_string_lossy().to_string()),
+            Err(e) => derniere_erreur = e.to_string(),
+        }
+    }
+    Err(format!("Impossible d'ouvrir la fenêtre d'impression : {derniere_erreur}"))
+}
 
-    Ok(chemin.to_string_lossy().to_string())
+/// Les documents de plus d'un jour : le dossier temporaire ne doit pas
+/// grossir a chaque facture. Silencieux — un fichier qu'on ne peut pas
+/// effacer n'empeche pas d'imprimer.
+fn nettoyer_les_anciens(dossier: &std::path::Path) {
+    let Ok(entrees) = std::fs::read_dir(dossier) else { return };
+    let limite = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 3600);
+    for e in entrees.flatten() {
+        if let Ok(meta) = e.metadata() {
+            if meta.modified().map(|m| m < limite).unwrap_or(false) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
 }
 
 /// Ouvre un fichier avec le programme par défaut du système.

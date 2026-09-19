@@ -178,7 +178,7 @@ function ModalReglementRapide({
             <div className="flex items-center gap-3 p-4 rounded-lg
                             bg-green-50 border border-green-200">
               <CheckCircle2 className="h-6 w-6 text-green-600 shrink-0" />
-              <p className="text-sm font-medium text-green-800">Paiement enregistré ✓</p>
+              <p className="text-sm font-medium text-green-800">Paiement enregistré</p>
             </div>
           ) : (
             <>

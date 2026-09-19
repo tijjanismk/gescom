@@ -341,6 +341,10 @@ function OngletMouvements() {
   // le mois dernier restait introuvable, sans que rien ne le dise.
   const [debut, setDebut] = useState("");
   const [fin, setFin] = useState("");
+  // Grouper par article : le patron cherche « qu'est-il arrivé au sac
+  // de ciment ce mois-ci », pas « qu'est-il arrivé à 15h32 » — la liste
+  // chronologique melange tous les articles et noie la question.
+  const [grouperParArticle, setGrouperParArticle] = useState(false);
 
   useEffect(() => {
     setChargement(true);
@@ -358,6 +362,25 @@ function OngletMouvements() {
   const filtrees = lignes.filter(m =>
     !recherche || m.article.toLowerCase().includes(recherche.toLowerCase()));
 
+  // Un groupe par article, dans l'ordre de premiere apparition (la
+  // liste source est deja triee par date decroissante : l'article le
+  // plus recemment mouvemente arrive donc en tete). A l'interieur d'un
+  // groupe, l'ordre chronologique d'origine est conserve.
+  const groupes = (() => {
+    if (!grouperParArticle) return null;
+    const parArticle = new Map<string, MouvementStock[]>();
+    for (const m of filtrees) {
+      const liste = parArticle.get(m.article);
+      if (liste) liste.push(m); else parArticle.set(m.article, [m]);
+    }
+    return Array.from(parArticle.entries()).map(([article, mouvements]) => ({
+      article,
+      mouvements,
+      net: mouvements.reduce((s, m) => s + (m.entrant ? m.quantite : -m.quantite), 0),
+      unite: mouvements[0]?.unite_base ?? "",
+    }));
+  })();
+
   if (chargement) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -371,12 +394,23 @@ function OngletMouvements() {
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Input value={recherche} onChange={e => setRecherche(e.target.value)}
           placeholder="Rechercher un article..." className="h-8 text-sm w-48" />
+        <button
+          onClick={() => setGrouperParArticle(!grouperParArticle)}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors h-8",
+            grouperParArticle
+              ? "border-primary bg-primary/5 text-primary"
+              : "border-border text-muted-foreground hover:bg-muted"
+          )}
+        >
+          Grouper par article
+        </button>
         <Button variant="outline" size="sm" className="h-8"
           disabled={filtrees.length === 0}
           onClick={() => invoke("imprimer_facture", {
             // On imprime CE QUI EST AFFICHÉ, filtres compris : la liste
             // sert à justifier un écart sur un article précis.
-            html: genererMouvementsHTML(filtrees, { type, recherche, debut, fin }),
+            html: genererMouvementsHTML(filtrees, { type, recherche, debut, fin, groupe: grouperParArticle }),
             nomFichier: `mouvements_${new Date().toISOString().slice(0,10)}.html`,
           }).catch(e => message(`Erreur : ${e}`,
             { title: "Impression", kind: "error" }))}>
@@ -427,13 +461,56 @@ function OngletMouvements() {
               <tr>
                 <th className="text-left px-3 py-2 font-medium">Date</th>
                 <th className="text-left px-3 py-2 font-medium">Type</th>
-                <th className="text-left px-3 py-2 font-medium">Article</th>
+                {!grouperParArticle && <th className="text-left px-3 py-2 font-medium">Article</th>}
                 <th className="text-left px-3 py-2 font-medium">Magasin</th>
                 <th className="text-left px-3 py-2 font-medium">Motif</th>
                 <th className="text-left px-3 py-2 font-medium">Facture</th>
                 <th className="text-right px-3 py-2 font-medium">Qté</th>
               </tr>
             </thead>
+            {groupes ? groupes.map((g) => (
+              <tbody key={g.article} className="divide-y divide-border">
+                {/* L'entete du groupe porte le solde net : ce que le
+                    magasin a vraiment gagne ou perdu sur cet article, sur
+                    la periode — la somme signee, pas juste un compte de
+                    lignes. */}
+                <tr className="bg-muted/70">
+                  <td colSpan={6} className="px-3 py-1.5 font-semibold text-xs">
+                    {g.article}
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      {g.mouvements.length} mouvement{g.mouvements.length > 1 ? "s" : ""} · net{" "}
+                      <span className={g.net >= 0 ? "text-green-700" : "text-red-700"}>
+                        {g.net >= 0 ? "+" : ""}{g.net % 1 === 0 ? g.net : g.net.toFixed(2)} {g.unite}
+                      </span>
+                    </span>
+                  </td>
+                </tr>
+                {g.mouvements.map((m, i) => (
+                  <tr key={i} className="hover:bg-muted/30">
+                    <td className="px-3 py-2 text-xs text-muted-foreground
+                                   whitespace-nowrap">
+                      {new Date(m.date).toLocaleString("fr-ML", {
+                        day: "2-digit", month: "2-digit", year: "2-digit",
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                    </td>
+                    <td className="px-3 py-2 text-xs">{m.libelle}</td>
+                    <td className="px-3 py-2 text-xs">{m.depot}</td>
+                    <td className="px-3 py-2 text-xs text-muted-foreground">
+                      {m.motif || m.fournisseur || "—"}
+                    </td>
+                    <td className="px-3 py-2 text-xs font-mono text-muted-foreground">
+                      {m.numero_facture || "—"}
+                    </td>
+                    <td className={cn("px-3 py-2 text-right font-semibold",
+                      m.entrant ? "text-green-700" : "text-red-700")}>
+                      {m.entrant ? "+" : "−"} {m.quantite % 1 === 0
+                        ? m.quantite : m.quantite.toFixed(2)} {m.unite_base}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            )) : (
             <tbody className="divide-y divide-border">
               {filtrees.map((m, i) => (
                 <tr key={i} className="hover:bg-muted/30">
@@ -463,6 +540,7 @@ function OngletMouvements() {
                 </tr>
               ))}
             </tbody>
+            )}
           </table>
         </div>
       )}
@@ -509,7 +587,7 @@ export function Stock() {
     if (type === "entree") setArticleEntree(null);
     else setArticleAjustement(null);
     await charger(page);
-    await message("Opération enregistrée ✓", { title: "Succès", kind: "info" });
+    await message("Opération enregistrée", { title: "Succès", kind: "info" });
   }
 
   // L'etat du stock est un document qu'on emporte pour l'inventaire :
@@ -783,7 +861,7 @@ function genererEtatStockHTML(d: any): string {
  */
 function genererMouvementsHTML(
   lignes: MouvementStock[],
-  filtre: { type: string; recherche: string; debut?: string; fin?: string },
+  filtre: { type: string; recherche: string; debut?: string; fin?: string; groupe?: boolean },
 ): string {
   const fmtQ = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(2));
   const fmtD = (iso: string) =>
@@ -792,7 +870,29 @@ function genererMouvementsHTML(
       hour: "2-digit", minute: "2-digit",
     });
 
-  const corps = lignes.map(m => `
+  // Groupees : un sous-titre par article, avec le solde net, comme
+  // les categories de l'etat du stock. L'ordre redevient celui de la
+  // premiere apparition (la liste source est deja triee par date).
+  const parArticle = new Map<string, MouvementStock[]>();
+  for (const m of lignes) {
+    const liste = parArticle.get(m.article);
+    if (liste) liste.push(m); else parArticle.set(m.article, [m]);
+  }
+  const source = filtre.groupe ? Array.from(parArticle.values()).flat() : lignes;
+  let articleCourant = "";
+  const corps = source.map(m => {
+    let entete = "";
+    if (filtre.groupe && m.article !== articleCourant) {
+      articleCourant = m.article;
+      const groupe = parArticle.get(m.article)!;
+      const net = groupe.reduce((s, x) => s + (x.entrant ? x.quantite : -x.quantite), 0);
+      entete = `<tr><td colspan="8" style="background:#eee;padding:5px 6px;
+        font-weight:bold;font-size:11px">
+        ${m.article} — ${groupe.length} mouvement(s) · net
+        ${net >= 0 ? "+" : ""}${fmtQ(net)} ${m.unite_base}
+      </td></tr>`;
+    }
+    return entete + `
     <tr style="border-bottom:1px solid #eee">
       <td style="padding:4px 6px;font-size:10px;white-space:nowrap">${fmtD(m.date)}</td>
       <td style="padding:4px 6px;font-size:10px">${m.libelle}</td>
@@ -808,7 +908,8 @@ function genererMouvementsHTML(
       <td style="padding:4px 6px;text-align:right;font-weight:bold">
         ${m.entrant ? "+" : "−"} ${fmtQ(m.quantite)} ${m.unite_base}
       </td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 
   const entrees = lignes.filter(m => m.entrant).length;
   const criteres = [

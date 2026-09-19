@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Plus, Trash2, ShoppingCart, User, Search,
-  Loader2, Warehouse, AlertTriangle, Gift, Scan, PackagePlus
+  Loader2, Warehouse, AlertTriangle, Gift, Scan, PackagePlus, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -607,7 +607,8 @@ export function Ventes() {
   const [chequeBanque, setChequeBanque] = useState("");
   const [chargementVente, setChargementVente] = useState(false);
   const [venteIdPourImpression, setVenteIdPourImpression] = useState<string | null>(null);
-  const [scannerNotification, setScannerNotification] = useState<string | null>(null);
+  const [scannerNotification, setScannerNotification] =
+    useState<{ texte: string; type: "succes" | "erreur" | "attente" } | null>(null);
 
   const inputArticleRef = useRef<HTMLInputElement>(null);
   // Les prix saisis / de reference sont des prix HORS TAXE.
@@ -615,11 +616,46 @@ export function Ventes() {
   // On calcule ici le PU TTC une seule fois par ligne, et c'est ce PU
   // qui part vers creer_vente -> prix_pratique reste "ce que le client
   // paie", et toutes les requetes de totaux restent justes.
-  const puTTC = (l: LignePanier) =>
+  const puTTCBrut = (l: LignePanier) =>
     Math.round(l.prix_pratique * (1 + (l.article.taux_tva_defaut ?? 0)));
 
-  const totalHT  = panier.reduce((s, l) => s + l.montant, 0);
+  // ---- La remise globale : en % ou en francs, au choix du vendeur ----
+  // Elle n'est pas stockee a part (l'invariant est SUM(prix_pratique ×
+  // quantite) = montant du) : elle se REPARTIT sur les lignes, au
+  // prorata, en baissant le prix unitaire de chacune. Le total affiche
+  // est celui des lignes une fois baissees — c'est ce qui part au
+  // serveur et ce que le client paie, au franc pres. La derniere ligne
+  // prend le reste de la repartition, pour que la somme tombe juste.
+  const [remiseGlobaleMode, setRemiseGlobaleMode] = useState<"pct" | "montant">("pct");
+  const [remiseGlobale, setRemiseGlobale] = useState("");
+  const totalBrut = panier.reduce((s, l) => s + Math.round(puTTCBrut(l) * l.quantite), 0);
+  const remiseVoulue = (() => {
+    if (remiseGlobaleMode === "pct") {
+      const pct = parseFloat(remiseGlobale) || 0;
+      return pct > 0 && pct <= 100 ? Math.round(totalBrut * pct / 100) : 0;
+    }
+    return Math.min(totalBrut, Math.max(0, parseMontant(remiseGlobale) || 0));
+  })();
+  const puTTCParLigne = new Map<LignePanier, number>();
+  {
+    let restant = remiseVoulue;
+    panier.forEach((l, i) => {
+      const brut = Math.round(puTTCBrut(l) * l.quantite);
+      const part = totalBrut > 0
+        ? (i === panier.length - 1 ? restant : Math.round(remiseVoulue * brut / totalBrut))
+        : 0;
+      restant -= part;
+      const pu = l.quantite > 0 ? Math.round((brut - part) / l.quantite) : puTTCBrut(l);
+      puTTCParLigne.set(l, Math.max(0, pu));
+    });
+  }
+  const puTTC = (l: LignePanier) => puTTCParLigne.get(l) ?? puTTCBrut(l);
   const total    = panier.reduce((s, l) => s + Math.round(puTTC(l) * l.quantite), 0);
+  const remiseAppliquee = totalBrut - total;
+  // HT et TVA se lisent sur les lignes REMISEES : la remise porte sur
+  // le TTC, la TVA contenue baisse avec (D8).
+  const totalHT  = panier.reduce((s, l) =>
+    s + Math.round(Math.round(puTTC(l) * l.quantite) / (1 + (l.article.taux_tva_defaut ?? 0))), 0);
   const totalTVA = total - totalHT;
   const aTVA = totalTVA > 0;
   const totalApresAvoir = Math.max(0, total - avoirAAppliquer);
@@ -746,7 +782,7 @@ export function Ventes() {
             depotActif?.id ?? "", depotActif?.nom ?? "",
           ));
           setArticleSelectionne(null);
-          setScannerNotification(`✓ ${article.nom} — ${scannee.libelle}`);
+          setScannerNotification({ texte: `${article.nom} — ${scannee.libelle}`, type: "succes" });
         } else if (article.unites.length === 1) {
           const unite = article.unites[0];
           setPanier(prev => ajouterOuFusionner(
@@ -754,13 +790,13 @@ export function Ventes() {
             depotActif?.id ?? "", depotActif?.nom ?? "",
           ));
           setArticleSelectionne(null);
-          setScannerNotification(`✓ ${article.nom} ajouté`);
+          setScannerNotification({ texte: `${article.nom} ajouté`, type: "succes" });
         } else {
-          setScannerNotification(`${article.nom} — choisir l'unité`);
+          setScannerNotification({ texte: `${article.nom} — choisir l'unité`, type: "attente" });
         }
         setTimeout(() => setScannerNotification(null), 2000);
       } else {
-        setScannerNotification(`Article non trouvé : ${code}`);
+        setScannerNotification({ texte: `Article non trouvé : ${code}`, type: "erreur" });
         setTimeout(() => setScannerNotification(null), 3000);
       }
     } catch (e) {
@@ -953,7 +989,7 @@ export function Ventes() {
   function viderPanier() {
     setPanier([]); setClient(clientGenerique);
     setModeReglement("comptant"); setAcompte(""); setDateVente("");
-    setAvoirAAppliquer(0);
+    setAvoirAAppliquer(0); setRemiseGlobale("");
   }
 
   // ---- Avoir ----
@@ -1179,13 +1215,13 @@ export function Ventes() {
       {scannerNotification && (
         <div className={cn(
           "px-4 py-1.5 text-xs font-medium text-center",
-          scannerNotification.startsWith("✓")
+          scannerNotification.type === "succes"
             ? "bg-green-50 text-green-700"
-            : scannerNotification.startsWith("Article non trouvé")
+            : scannerNotification.type === "erreur"
             ? "bg-red-50 text-red-700"
             : "bg-blue-50 text-blue-700"
         )}>
-          {scannerNotification}
+          {scannerNotification.texte}
         </div>
       )}
 
@@ -1209,7 +1245,9 @@ export function Ventes() {
               <Badge variant="secondary" className="text-xs">{client?.nom}</Badge>
               {client?.id !== clientGenerique?.id && (
                 <button onClick={() => { setClient(clientGenerique); setAvoirAAppliquer(0); }}
-                  className="text-xs text-muted-foreground hover:text-foreground">✕</button>
+                  className="text-xs text-muted-foreground hover:text-foreground">
+                  <X className="h-3.5 w-3.5" />
+                </button>
               )}
               {/* Badge avoir disponible */}
               {totalAvoirs > 0 && (
@@ -1466,7 +1504,7 @@ export function Ventes() {
                       {ligne.prix_pratique < ligne.unite.prix_reference && (
                         <span className="text-orange-500 ml-1">(remise)</span>
                       )}
-                      {ligne.a_decouvert && <span className="text-red-500 ml-1">⚠</span>}
+                      {ligne.a_decouvert && <span className="text-red-500 ml-1">(à découvert)</span>}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 ml-2">
@@ -1538,8 +1576,49 @@ export function Ventes() {
               </div>
             )}
 
+            {/* Remise globale : % ou francs, repartie sur les lignes. */}
+            {panier.length > 0 && (
+              <div className={cn(
+                "flex items-center gap-2 rounded-md border px-2 py-1.5",
+                remiseAppliquee > 0 ? "border-orange-300 bg-orange-50" : "border-border",
+              )}>
+                <Label className="text-xs text-muted-foreground whitespace-nowrap">Remise</Label>
+                <Input
+                  type="text" inputMode="decimal"
+                  value={remiseGlobale}
+                  onChange={e => setRemiseGlobale(e.target.value.replace(/[^0-9.,\s]/g, ""))}
+                  placeholder={remiseGlobaleMode === "pct" ? "0" : "0 F"}
+                  className="h-7 text-sm text-right flex-1" />
+                <div className="flex rounded-md border border-border overflow-hidden text-xs">
+                  {(["pct", "montant"] as const).map(m => (
+                    <button key={m} type="button"
+                      onClick={() => { setRemiseGlobaleMode(m); setRemiseGlobale(""); }}
+                      className={cn("px-2 py-1",
+                        remiseGlobaleMode === m ? "bg-primary text-primary-foreground" : "hover:bg-muted")}>
+                      {m === "pct" ? "%" : "F"}
+                    </button>
+                  ))}
+                </div>
+                {remiseAppliquee > 0 && (
+                  <span className="text-xs text-orange-700 whitespace-nowrap">−{fmt(remiseAppliquee)}</span>
+                )}
+              </div>
+            )}
+
             {/* Total */}
             <div className="space-y-1">
+              {remiseAppliquee > 0 && (
+                <>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Avant remise</span>
+                    <span>{fmt(totalBrut)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-orange-700">
+                    <span>Remise globale{remiseGlobaleMode === "pct" ? ` (${remiseGlobale} %)` : ""}</span>
+                    <span>− {fmt(remiseAppliquee)}</span>
+                  </div>
+                </>
+              )}
               {/* TVA si active */}
               {aTVA && (
                 <>

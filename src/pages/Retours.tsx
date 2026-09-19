@@ -97,7 +97,7 @@ export function Retours() {
     setModalAvoir(false);
     setModalEchange(false);
     await charger();
-    await message("Opération enregistrée ✓", { title: "Succès", kind: "info" });
+    await message("Opération enregistrée", { title: "Succès", kind: "info" });
   }
 
   const ventesFiltrees = ventes.filter(v =>

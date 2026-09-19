@@ -412,7 +412,7 @@ function OngletSauvegarde() {
         dossierDestination: config.dossier_sauvegarde,
       });
       await charger();
-      await message(`Sauvegarde réussie ✓\n${chemin}`,
+      await message(`Sauvegarde réussie\n${chemin}`,
         { title: "Succès", kind: "info" });
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
@@ -479,7 +479,7 @@ function OngletSauvegarde() {
 
         {diag && diag.sain && (
           <p className="text-sm text-green-700">
-            ✓ Base saine — aucune anomalie détectée.
+            Base saine — aucune anomalie détectée.
           </p>
         )}
 

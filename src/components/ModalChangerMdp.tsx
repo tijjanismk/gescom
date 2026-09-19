@@ -37,7 +37,7 @@ export function ModalChangerMdp({
         ancienMdp,
         nouveauMdp,
       });
-      await message("Mot de passe changé ✓", { title: "Succès", kind: "info" });
+      await message("Mot de passe changé", { title: "Succès", kind: "info" });
       setAncienMdp(""); setNouveauMdp(""); setConfirmation("");
       onChange();
     } catch (err) {

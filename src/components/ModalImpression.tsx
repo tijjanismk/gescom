@@ -185,7 +185,7 @@ export function ModalImpression({ ouvert, venteId, onFermer }: ModalImpressionPr
                     <div>
                       <p className={`text-sm font-medium ${
                         modeleChoisi === m.id ? "text-primary" : ""}`}>
-                        {m.nom}{m.actif ? " ★" : ""}
+                        {m.nom}{m.actif ? " (actif)" : ""}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Atelier des modèles — {m.format.replace("_", " ")}

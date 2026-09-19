@@ -830,7 +830,7 @@ export function Modeles({ onFermer }: { onFermer?: () => void } = {}) {
             <SelectContent>
               {duGenre.map((m) => (
                 <SelectItem key={m.id} value={m.id}>
-                  {m.actif ? "★ " : ""}{m.nom}
+                  {m.nom}{m.actif ? " (actif)" : ""}
                 </SelectItem>
               ))}
             </SelectContent>

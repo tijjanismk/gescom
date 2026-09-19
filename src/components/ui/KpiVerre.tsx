@@ -1,5 +1,10 @@
 import { GlassIcon, type GlassVariante } from "@/components/ui/GlassIcon";
 
+// Les tuiles du tableau de bord et de la caisse n'ont PLUS d'icone :
+// l'intitule prend sa place, en tete, bien lisible — c'est lui qu'on
+// cherche des yeux, pas un pictogramme a decoder. `variante` reste :
+// « tinted » teinte le bord quand la carte reclame l'attention.
+
 // =====================================================================
 //  Cartes KPI — vocabulaire commun aux ecrans qui affichent du verre.
 //
@@ -25,11 +30,11 @@ export const GRILLE: React.CSSProperties = {
 // =====================================================================
 
 export function KpiCard({
-  titre, valeur, sous, icone, variante = "neutral", inactif,
+  titre, valeur, sous, variante = "neutral", inactif,
   tendance, tendanceIcones, onClick,
 }: {
   titre: string; valeur: string; sous?: string;
-  icone: React.ElementType; variante?: GlassVariante;
+  variante?: GlassVariante;
   inactif?: boolean; tendance?: number;
   /** [hausse, baisse] — evite d'importer lucide ici. */
   tendanceIcones?: [React.ElementType, React.ElementType];
@@ -40,9 +45,11 @@ export function KpiCard({
     <div
       onClick={onClick}
       className={`${CARTE} p-4 space-y-3
+                  ${variante === "tinted" ? "border-primary/40" : ""}
+                  ${inactif ? "opacity-60" : ""}
                   ${onClick ? "cursor-pointer transition-all hover:border-primary/30" : ""}`}>
-      <div className="flex items-start justify-between">
-        <GlassIcon icone={icone} variante={variante} taille="md" inactif={inactif} />
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold text-foreground leading-tight">{titre}</p>
         {tendance !== undefined && Haut && Bas && (
           <div className={`flex items-center gap-1 text-xs font-medium ${
             tendance >= 0 ? "text-green-600" : "text-red-500"
@@ -56,8 +63,7 @@ export function KpiCard({
       </div>
       <div>
         <p className="text-2xl tracking-tight" style={{ fontWeight: 700 }}>{valeur}</p>
-        <p className="text-xs mt-0.5" style={{ color: TXT2 }}>{titre}</p>
-        {sous && <p className="text-xs" style={{ color: TXT2 }}>{sous}</p>}
+        {sous && <p className="text-xs mt-0.5" style={{ color: TXT2 }}>{sous}</p>}
       </div>
     </div>
   );
@@ -68,18 +74,15 @@ export function KpiCard({
 // =====================================================================
 
 export function KpiPetit({
-  titre, valeur, sous, icone, variante = "clear", inactif, alerte,
+  titre, valeur, sous, variante = "clear", inactif, alerte,
 }: {
   titre: string; valeur: string; sous?: string;
-  icone: React.ElementType; variante?: GlassVariante;
+  variante?: GlassVariante;
   inactif?: boolean; alerte?: boolean;
 }) {
   return (
-    <div className={`${CARTE} p-4`}>
-      <div className="flex items-center gap-2.5 mb-2">
-        <GlassIcon icone={icone} variante={variante} taille="sm" inactif={inactif} />
-        <p className="text-xs font-medium" style={{ color: TXT2 }}>{titre}</p>
-      </div>
+    <div className={`${CARTE} p-4 ${variante === "tinted" ? "border-primary/40" : ""} ${inactif ? "opacity-60" : ""}`}>
+      <p className="text-sm font-semibold text-foreground mb-2 leading-tight">{titre}</p>
       <p className={`text-2xl ${alerte ? "text-red-500" : ""}`} style={{ fontWeight: 700 }}>
         {valeur}
       </p>

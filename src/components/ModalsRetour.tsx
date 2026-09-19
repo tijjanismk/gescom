@@ -10,7 +10,7 @@
 
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
-import { Loader2, Search, Wallet, Gift } from "lucide-react";
+import { Loader2, Search, Wallet, Gift, X } from "lucide-react";
 import { genererBonEchangeHTML } from "@/lib/genererPDF";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -500,7 +500,9 @@ export function ModalEchange({
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium">{articleRemplacement.nom}</p>
                   <button onClick={() => setArticleRemplacement(null)}
-                    className="text-xs text-muted-foreground hover:text-foreground">✕</button>
+                    className="text-xs text-muted-foreground hover:text-foreground">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
 
                 {/* Toujours affiche, meme avec une seule unite : l'operateur

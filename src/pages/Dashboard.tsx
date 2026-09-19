@@ -1,10 +1,8 @@
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import {
-  TrendingUp, ShoppingCart, Users, Wallet,
-  AlertTriangle, FileText, Clock,
-  Package, ArrowUpRight, ArrowDownRight,
-  Receipt, Gift, Loader2, RefreshCw,
+  AlertTriangle, ArrowUpRight, ArrowDownRight,
+  Loader2, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GlassHalos } from "@/components/ui/GlassIcon";
@@ -280,23 +278,20 @@ export function Dashboard() {
           r.factures_brouillon > 0 || nbDecouverts > 0) && (
           <div className="flex gap-2 flex-wrap">
             {r.nb_creances_en_retard > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2
+              <div className="px-3 py-2
                               bg-red-50 border border-red-200 text-sm text-red-700">
-                <AlertTriangle className="h-4 w-4" />
                 <span><strong>{r.nb_creances_en_retard}</strong> créance{r.nb_creances_en_retard > 1 ? "s" : ""} en retard</span>
               </div>
             )}
             {r.factures_brouillon > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2
+              <div className="px-3 py-2
                               bg-orange-50 border border-orange-200 text-sm text-orange-700">
-                <FileText className="h-4 w-4" />
                 <span><strong>{r.factures_brouillon}</strong> facture{r.factures_brouillon > 1 ? "s" : ""} à valider</span>
               </div>
             )}
             {r.commandes_en_attente > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2
+              <div className="px-3 py-2
                               bg-blue-50 border border-blue-200 text-sm text-blue-700">
-                <Clock className="h-4 w-4" />
                 <span><strong>{r.commandes_en_attente}</strong> commande{r.commandes_en_attente > 1 ? "s" : ""} en attente</span>
               </div>
             )}
@@ -304,19 +299,17 @@ export function Dashboard() {
                 chose du stock, mais le découvert est plus grave — la
                 marchandise est déjà partie. */}
             {nbDecouverts > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2
+              <div className="px-3 py-2
                               bg-orange-50 border border-orange-300 text-sm text-orange-800"
                 title="Vendu au-delà du stock connu : régulariser par une entrée, un achat ou un ajustement">
-                <AlertTriangle className="h-4 w-4" />
                 <span>
                   <strong>{nbDecouverts}</strong> vente{nbDecouverts > 1 ? "s" : ""} à découvert
                 </span>
               </div>
             )}
             {r.stock_ruptures > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2
+              <div className="px-3 py-2
                               bg-yellow-50 border border-yellow-200 text-sm text-yellow-700">
-                <Package className="h-4 w-4" />
                 <span><strong>{r.stock_ruptures}</strong> article{r.stock_ruptures > 1 ? "s" : ""} en rupture</span>
               </div>
             )}
@@ -329,14 +322,12 @@ export function Dashboard() {
             titre="CA aujourd'hui"
             valeur={fmtCompact(r.ca_jour)}
             sous={`${r.nb_ventes_jour} vente${r.nb_ventes_jour > 1 ? "s" : ""}`}
-            icone={ShoppingCart}
             variante="tinted"
           />
           <KpiCard
             titre="CA ce mois"
             valeur={fmtCompact(r.ca_mois)}
             sous={`${r.nb_ventes_mois} ventes`}
-            icone={TrendingUp}
             variante="neutral"
             tendance={tendanceMois}
             tendanceIcones={[ArrowUpRight, ArrowDownRight]}
@@ -346,7 +337,6 @@ export function Dashboard() {
               titre="Créances ouvertes"
               valeur={fmtCompact(r.total_creances)}
               sous={`${r.nb_creances_ouvertes} client${r.nb_creances_ouvertes > 1 ? "s" : ""}`}
-              icone={r.nb_creances_en_retard > 0 ? AlertTriangle : Users}
               variante={r.nb_creances_en_retard > 0 ? "tinted" : "clear"}
             />
           )}
@@ -356,7 +346,6 @@ export function Dashboard() {
             titre="Caisse"
             valeur={fmtCompact(r.caisse_solde)}
             sous={r.caisse_session_ouverte ? "Session ouverte" : "Session fermée"}
-            icone={Wallet}
             variante="neutral"
             inactif={!r.caisse_session_ouverte}
           />
@@ -368,20 +357,17 @@ export function Dashboard() {
             titre="Factures brouillon"
             valeur={String(r.factures_brouillon)}
             sous="à valider"
-            icone={Receipt}
           />
           <KpiPetit
             titre="Commandes"
             valeur={String(r.commandes_en_attente)}
             sous="en attente de transfert"
-            icone={FileText}
           />
           {estPatron && (
             <KpiPetit
               titre="Avoirs disponibles"
               valeur={fmtCompact(r.total_avoirs_ouverts)}
               sous="à appliquer"
-              icone={Gift}
             />
           )}
           <KpiPetit
@@ -391,7 +377,6 @@ export function Dashboard() {
                   (r.stock_alertes > 0
                     ? ` · ${r.stock_alertes} alerte${r.stock_alertes > 1 ? "s" : ""}`
                     : "")}
-            icone={Package}
             variante={r.stock_ruptures > 0 ? "tinted" : "clear"}
             alerte={r.stock_ruptures > 0}
           />
