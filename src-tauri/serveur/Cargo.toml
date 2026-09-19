@@ -17,3 +17,9 @@ uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 bcrypt = "0.15"
 dirs = "5"
+
+[target.'cfg(windows)'.dependencies]
+# Le service Windows parle a l'API Win32 sans crate d'enveloppe
+# (service.rs) : Services pour le gestionnaire, Console pour envoyer la
+# sortie dans le journal.
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Services", "Win32_System_Console"] }

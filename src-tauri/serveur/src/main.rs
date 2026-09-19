@@ -17,7 +17,13 @@
 //!
 //! ```text
 //! gescom-serveur [--port 7300] [--base CHEMIN] [--sauvegardes DOSSIER]
+//! gescom-serveur --installer-service | --desinstaller-service   (Windows, administrateur)
 //! ```
+//!
+//! En service Windows (`--service`, lance par le gestionnaire de
+//! services), la configuration se lit dans `%ProgramData%\Gescom\
+//! serveur.json` et la sortie va dans `serveur.log` a cote : voir
+//! `service.rs`.
 
 mod api;
 mod canal;
@@ -26,10 +32,12 @@ mod etat;
 mod http;
 mod reseau_local;
 mod sauvegarde;
+mod service;
 mod socle;
 
 use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -50,8 +58,54 @@ use etat::Serveur;
 const DELAI_LECTURE: Duration = Duration::from_secs(60);
 
 fn main() {
-    let options = Options::depuis_arguments();
+    let mut options = Options::depuis_arguments();
 
+    #[cfg(windows)]
+    {
+        if options.installer_service {
+            if let Err(e) = service::installer() {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        if options.desinstaller_service {
+            if let Err(e) = service::desinstaller() {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        if options.service {
+            // Sous le gestionnaire de services : la configuration vient
+            // du fichier, les arguments de la ligne de commande passent
+            // devant s'ils sont donnes.
+            options.completer_depuis(&service::chemin_configuration());
+            if options.base.is_none() {
+                options.base = Some(
+                    service::dossier_programme().join("gescom.db").to_string_lossy().to_string(),
+                );
+            }
+            if let Err(e) = service::executer(move |arret| {
+                let (srv, ecouteur) = preparer(options.clone());
+                boucle(srv, ecouteur, arret);
+            }) {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+    }
+
+    let (srv, ecouteur) = preparer(options);
+    boucle(srv, ecouteur, Arc::new(AtomicBool::new(false)));
+}
+
+/// Ouvre la base, l'amorce, pose le poste serveur, planifie les
+/// sauvegardes et se met a l'ecoute — tout ce qui precede la premiere
+/// connexion. Le serveur qui en sort est pret ; il ne sert encore
+/// personne.
+fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
     let cible = options.base.unwrap_or_else(chemin_base_par_defaut);
     // Meme detection que `Base::ouvrir` : une adresse PostgreSQL n'est
     // pas un chemin de fichier, et n'a pas de dossier parent a creer.
@@ -245,9 +299,22 @@ fn main() {
     println!("  Console : http://localhost:{}", options.port);
     println!("            a ouvrir dans un navigateur sur ce poste.");
 
-    for flux in ecouteur.incoming() {
-        match flux {
-            Ok(flux) => {
+    (srv, ecouteur)
+}
+
+/// Sert les connexions jusqu'a ce que `arret` soit leve — par le
+/// gestionnaire de services, ou jamais quand on tourne a la main.
+///
+/// L'ecouteur est en mode non bloquant : `accept` rend la main toutes
+/// les 200 ms pour regarder le drapeau. Un `accept` bloquant ne se
+/// reveillerait qu'a la prochaine connexion, et « sc stop » attendrait
+/// qu'une caisse veuille bien appeler.
+fn boucle(srv: Arc<Serveur>, ecouteur: TcpListener, arret: Arc<AtomicBool>) {
+    ecouteur.set_nonblocking(true).ok();
+    while !arret.load(Ordering::SeqCst) {
+        match ecouteur.accept() {
+            Ok((flux, _)) => {
+                flux.set_nonblocking(false).ok();
                 let srv = Arc::clone(&srv);
                 // Un fil par connexion. SQLite serialise de toute facon
                 // les ecritures derriere le verrou de `srv.conn` ; le
@@ -255,8 +322,17 @@ fn main() {
                 // caisse pendant qu'une autre imprime.
                 std::thread::spawn(move || servir(&srv, flux));
             }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(200));
+            }
             Err(e) => eprintln!("[connexion refusée] {e}"),
         }
+    }
+    println!("Arrêt demandé : le serveur ferme.");
+    // Les jetons meurent avec le processus ; le dire en base evite une
+    // liste de postes « connectes » qui ment au prochain demarrage.
+    if let Ok(mut b) = srv.base.lock() {
+        gescom_noyau::sessions::revoquer_toutes_sur(&mut b, "arret_serveur").ok();
     }
 }
 
@@ -282,15 +358,52 @@ fn servir(srv: &Arc<Serveur>, mut flux: TcpStream) {
 //  Options de ligne de commande
 // =====================================================================
 
+#[derive(Clone)]
 struct Options {
     hote: String,
     port: u16,
     base: Option<String>,
     sauvegardes: Option<String>,
     promouvoir: Option<String>,
+    /// Lance par le gestionnaire de services Windows (service.rs).
+    service: bool,
+    installer_service: bool,
+    desinstaller_service: bool,
+    /// Le port a-t-il ete donne sur la ligne de commande ? Sinon le
+    /// fichier de configuration peut le fixer.
+    port_donne: bool,
 }
 
 impl Options {
+    /// Ce que le fichier de configuration du service peut fixer. Tout
+    /// est facultatif ; ce qui manque garde sa valeur par defaut.
+    ///
+    /// ```json
+    /// { "base": "postgresql://gescom:***@127.0.0.1:5432/gescom",
+    ///   "port": 7300, "sauvegardes": "D:\\Sauvegardes" }
+    /// ```
+    fn completer_depuis(&mut self, chemin: &std::path::Path) {
+        let Ok(texte) = std::fs::read_to_string(chemin) else { return };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&texte) else {
+            eprintln!("[configuration] {} illisible — ignoree", chemin.display());
+            return;
+        };
+        if self.base.is_none() {
+            self.base = v.get("base").and_then(|b| b.as_str()).filter(|b| !b.trim().is_empty()).map(str::to_string);
+        }
+        if !self.port_donne {
+            if let Some(p) = v.get("port").and_then(|p| p.as_u64()).and_then(|p| u16::try_from(p).ok()) {
+                self.port = p;
+            }
+        }
+        if self.sauvegardes.is_none() {
+            self.sauvegardes = v.get("sauvegardes").and_then(|s| s.as_str()).filter(|s| !s.trim().is_empty()).map(str::to_string);
+        }
+        if let Some(h) = v.get("hote").and_then(|h| h.as_str()).filter(|h| !h.trim().is_empty()) {
+            self.hote = h.to_string();
+        }
+    }
+
     fn depuis_arguments() -> Options {
         let mut o = Options {
             // 0.0.0.0 et non 127.0.0.1 : sinon les autres postes du
@@ -301,6 +414,10 @@ impl Options {
             base: None,
             sauvegardes: None,
             promouvoir: None,
+            service: false,
+            installer_service: false,
+            desinstaller_service: false,
+            port_donne: false,
         };
         let args: Vec<String> = std::env::args().skip(1).collect();
         let mut i = 0;
@@ -309,8 +426,21 @@ impl Options {
                 "--port" => {
                     if let Some(v) = args.get(i + 1).and_then(|v| v.parse().ok()) {
                         o.port = v;
+                        o.port_donne = true;
                     }
                     i += 2;
+                }
+                "--service" => {
+                    o.service = true;
+                    i += 1;
+                }
+                "--installer-service" => {
+                    o.installer_service = true;
+                    i += 1;
+                }
+                "--desinstaller-service" => {
+                    o.desinstaller_service = true;
+                    i += 1;
                 }
                 "--hote" => {
                     if let Some(v) = args.get(i + 1) {
@@ -333,7 +463,8 @@ impl Options {
                 "--aide" | "-h" | "--help" => {
                     println!(
                         "gescom-serveur [--hote 0.0.0.0] [--port {PORT_DEFAUT}] \
-                         [--base CHEMIN] [--sauvegardes DOSSIER] [--promouvoir IDENTIFIANT]"
+                         [--base CHEMIN] [--sauvegardes DOSSIER] [--promouvoir IDENTIFIANT]\n\
+                         gescom-serveur --installer-service | --desinstaller-service  (Windows, administrateur)"
                     );
                     std::process::exit(0);
                 }
