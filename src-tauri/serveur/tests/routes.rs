@@ -28,6 +28,7 @@ impl Drop for Serveur {
         for suffixe in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffixe}", self.base.display()));
         }
+        let _ = std::fs::remove_file(self.base.with_extension("log"));
     }
 }
 
@@ -145,6 +146,21 @@ fn le_serveur_repond_connecte_refuse_sans_jeton_et_sert_une_commande() {
     assert_eq!(code, 200);
     let (code, v) = rpc(port, &jeton, "lire_dossiers", json!({}));
     assert_eq!(code, 401, "{v}");
+
+    // Tout ce qui a été refusé a laissé une ligne dans le journal
+    // technique, à côté de la base, avec l'heure, le niveau et la
+    // commande — c'est ce qui manquait pour comprendre un « erreur
+    // technique » signalé par une caisse à 11 h.
+    let journal = std::fs::read_to_string(srv.base.with_extension("log")).expect("journal technique");
+    assert!(journal.contains("[INFO  ] Serveur démarré"), "{journal}");
+    assert!(journal.contains("[REFUS ]") && journal.contains("401 · Identifiant ou mot de passe incorrect"), "{journal}");
+    assert!(journal.contains("commande_qui_n_existe_pas") && journal.contains("404 ·"), "{journal}");
+    // Une commande qui réussit ne laisse rien : le journal reste lisible.
+    assert!(!journal.contains("lire_dossiers"), "{journal}");
+    // Le contexte d'une commande : route, commande, utilisateur@poste.
+    assert!(journal.contains("POST /rpc · commande_qui_n_existe_pas · "), "{journal}");
+    // Jamais de mot de passe dedans (D10).
+    assert!(!journal.contains("admin123"), "{journal}");
 }
 
 #[test]

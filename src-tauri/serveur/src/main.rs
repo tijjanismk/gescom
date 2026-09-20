@@ -30,6 +30,7 @@ mod canal;
 mod console;
 mod etat;
 mod http;
+mod journal_technique;
 mod reseau_local;
 mod sauvegarde;
 mod service;
@@ -130,6 +131,16 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
     // Meme detection que `Base::ouvrir` : une adresse PostgreSQL n'est
     // pas un chemin de fichier, et n'a pas de dossier parent a creer.
     let est_postgres = cible.starts_with("postgres://") || cible.starts_with("postgresql://");
+
+    // Le journal technique, avant tout le reste : ce qui echoue a
+    // l'ouverture de la base doit deja s'y lire. En service, stderr
+    // est deja le fichier — on n'y recopie pas.
+    let journal = options
+        .journal
+        .clone()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| chemin_journal_par_defaut(&cible, est_postgres, options.service));
+    journal_technique::ouvrir(Some(journal), !options.service);
 
     let mut amorcage_fait = false;
 
@@ -284,8 +295,7 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
     let ecouteur = match TcpListener::bind(&adresse) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("Impossible d'écouter sur {adresse} : {e}");
-            eprintln!("Un autre Gescom tourne-t-il déjà sur ce poste ?");
+            journal_technique::erreur(format!("Impossible d'écouter sur {adresse} : {e} — un autre Gescom tourne-t-il déjà sur ce poste ?"));
             std::process::exit(1);
         }
     };
@@ -299,6 +309,14 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
         if est_postgres { "pg_dump" } else { "VACUUM INTO" }
     );
     println!("  commandes   : {}", srv.registre.len());
+    println!("  journal     : {}", journal_technique::chemin().map(|c| c.display().to_string()).unwrap_or_default());
+    journal_technique::info(format!(
+        "Serveur démarré — protocole v{}, base {} ({}), écoute http://{adresse}, {} commandes",
+        gescom_noyau::VERSION_PROTOCOLE,
+        sans_mot_de_passe(&cible),
+        if est_postgres { "PostgreSQL" } else { "SQLite" },
+        srv.registre.len()
+    ));
 
     // L'adresse a saisir sur les caisses, et l'etat du pare-feu.
     // Sans ces deux lignes, la premiere installation multiposte se
@@ -345,10 +363,10 @@ fn boucle(srv: Arc<Serveur>, ecouteur: TcpListener, arret: Arc<AtomicBool>) {
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(Duration::from_millis(200));
             }
-            Err(e) => eprintln!("[connexion refusée] {e}"),
+            Err(e) => journal_technique::erreur(format!("Connexion refusée par le système : {e}")),
         }
     }
-    println!("Arrêt demandé : le serveur ferme.");
+    journal_technique::info("Arrêt demandé : le serveur ferme.");
     // Les jetons meurent avec le processus ; le dire en base evite une
     // liste de postes « connectes » qui ment au prochain demarrage.
     if let Ok(mut b) = srv.base.lock() {
@@ -363,7 +381,7 @@ fn servir(srv: &Arc<Serveur>, mut flux: TcpStream) {
     match http::lire_requete(&flux) {
         Ok(requete) => {
             if let Err(e) = api::traiter(srv, &requete, &mut flux) {
-                eprintln!("[réponse interrompue] {e}");
+                journal_technique::avertissement(format!("Réponse interrompue : {e}"));
             }
         }
         // Requete illisible : un scan de port, un poste coupe en plein
@@ -384,6 +402,10 @@ struct Options {
     port: u16,
     base: Option<String>,
     sauvegardes: Option<String>,
+    /// Le fichier du journal technique (journal_technique.rs). Par
+    /// defaut : `serveur.log` a cote de la base fichier, ou dans
+    /// `%ProgramData%\Gescom` en service.
+    journal: Option<String>,
     promouvoir: Option<String>,
     /// Restaure ce fichier de sauvegarde sur la base, puis s'arrete.
     restaurer: Option<String>,
@@ -421,6 +443,9 @@ impl Options {
         if self.sauvegardes.is_none() {
             self.sauvegardes = v.get("sauvegardes").and_then(|s| s.as_str()).filter(|s| !s.trim().is_empty()).map(str::to_string);
         }
+        if self.journal.is_none() {
+            self.journal = v.get("journal").and_then(|s| s.as_str()).filter(|s| !s.trim().is_empty()).map(str::to_string);
+        }
         if let Some(h) = v.get("hote").and_then(|h| h.as_str()).filter(|h| !h.trim().is_empty()) {
             self.hote = h.to_string();
         }
@@ -435,6 +460,7 @@ impl Options {
             port: PORT_DEFAUT,
             base: None,
             sauvegardes: None,
+            journal: None,
             promouvoir: None,
             restaurer: None,
             service: false,
@@ -479,6 +505,10 @@ impl Options {
                     o.sauvegardes = args.get(i + 1).cloned();
                     i += 2;
                 }
+                "--journal" => {
+                    o.journal = args.get(i + 1).cloned();
+                    i += 2;
+                }
                 "--promouvoir" => {
                     o.promouvoir = args.get(i + 1).cloned();
                     i += 2;
@@ -490,7 +520,7 @@ impl Options {
                 "--aide" | "-h" | "--help" => {
                     println!(
                         "gescom-serveur [--hote 0.0.0.0] [--port {PORT_DEFAUT}] \
-                         [--base CHEMIN] [--sauvegardes DOSSIER] [--promouvoir IDENTIFIANT]\n\
+                         [--base CHEMIN] [--sauvegardes DOSSIER] [--journal FICHIER] [--promouvoir IDENTIFIANT]\n\
                          gescom-serveur --restaurer FICHIER [--base CHEMIN]   (serveur arrêté)\n\
                          gescom-serveur --installer-service | --desinstaller-service  (Windows, administrateur)"
                     );
@@ -516,6 +546,27 @@ fn sans_mot_de_passe(cible: &str) -> String {
     match acces.split_once(':') {
         Some((u, _)) => format!("{tete}://{u}:***@{suite}"),
         None => cible.to_string(),
+    }
+}
+
+/// Ou va le journal quand rien ne le dit : a cote de la base fichier
+/// (`gescom.db` → `gescom.log`, ce qui suit la base dans les tests et
+/// les essais), dans le dossier de l'application pour PostgreSQL, et
+/// dans `%ProgramData%\Gescom` en service — la ou l'administrateur
+/// sait deja regarder.
+fn chemin_journal_par_defaut(cible: &str, est_postgres: bool, service: bool) -> std::path::PathBuf {
+    #[cfg(windows)]
+    if service {
+        return service::chemin_journal();
+    }
+    let _ = service;
+    if est_postgres {
+        dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("ml.gescom.app")
+            .join("serveur.log")
+    } else {
+        std::path::PathBuf::from(cible).with_extension("log")
     }
 }
 

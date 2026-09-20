@@ -888,8 +888,11 @@ pub fn creer_facture_depuis_vente_sur(
         rusqlite::params![piece_id, vente_id],
     ) {
         // Non bloquant : la piece est creee, seul le lien manque.
-        // Si ce message apparait, la migration vente.piece_id n'est pas passee.
-        eprintln!("[gescom] lien vente->piece non etabli : {}", e);
+        // Si cette anomalie apparait, la migration vente.piece_id n'est pas passee.
+        crate::journal::anomalie(conn, "vente", &vente_id, None, serde_json::json!({
+            "message": format!("Lien vente → pièce non établi : {e}"),
+            "piece_id": piece_id,
+        }));
     }
 
     Ok(serde_json::json!({
@@ -2274,9 +2277,12 @@ pub fn creer_facture_depuis_vente_sur_base(
     // la piece est creee, seul le lien manquerait.
     if let Err(e) = base.executer(
         "UPDATE vente SET piece_id = ?1 WHERE id = ?2 AND dossier_id = ?3",
-        &parametres![piece_id.clone(), vente_id, dossier],
+        &parametres![piece_id.clone(), vente_id.clone(), dossier],
     ) {
-        eprintln!("[gescom] lien vente->piece non etabli : {}", e.0);
+        crate::journal::anomalie_sur(base, "vente", &vente_id, None, serde_json::json!({
+            "message": format!("Lien vente → pièce non établi : {}", e.0),
+            "piece_id": piece_id,
+        }));
     }
 
     Ok(serde_json::json!({

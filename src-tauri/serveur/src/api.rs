@@ -15,7 +15,13 @@ use gescom_noyau::{caisses, parametres, persistance, postes, sessions};
 
 use crate::etat::Serveur;
 use crate::http::{repondre_html, repondre_json, repondre_texte, Requete};
+use crate::journal_technique as journal;
 use crate::sauvegarde;
+
+/// Au-dela, une commande reussie laisse quand meme une ligne : c'est
+/// par la qu'on voit une base qui rame avant que les caisses se
+/// plaignent.
+const COMMANDE_LENTE: std::time::Duration = std::time::Duration::from_secs(2);
 
 pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Result<()> {
     // Le navigateur embarque envoie un OPTIONS avant tout POST porteur
@@ -25,6 +31,8 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
     if req.methode == "OPTIONS" {
         return repondre_texte(flux, 204, "");
     }
+    // Le contexte des lignes du journal technique ecrites par ce fil.
+    journal::contexte(format!("{} {} {}", req.ip, req.methode, req.chemin));
 
     match (req.methode.as_str(), req.chemin.as_str()) {
         // La console du serveur. Ce qu'elle montre sans mot de passe
@@ -43,14 +51,11 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
         ("GET", "/canal") => canal(srv, req, flux),
         ("POST", "/sauvegarde") => sauvegarde_manuelle(srv, req, flux),
         ("POST", "/entretien") => entretien(srv, req, flux),
-        _ => repondre_json(
+        _ => erreur(
             flux,
             404,
-            &json!({
-                "etat": "erreur",
-                "code": "technique",
-                "message": format!("Route inconnue : {} {}", req.methode, req.chemin),
-            }),
+            CodeErreur::Technique,
+            &format!("Route inconnue : {} {}", req.methode, req.chemin),
         ),
     }
 }
@@ -327,6 +332,12 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
     };
     let nom = corps.get("commande").and_then(Value::as_str).unwrap_or("");
     let params = corps.get("params").cloned().unwrap_or(Value::Null);
+    journal::contexte_ajouter(&format!(
+        "{nom} · {}@{}",
+        court(&appelant.utilisateur_id),
+        court(&appelant.poste_id)
+    ));
+    let depart = std::time::Instant::now();
 
     let Some(entree) = srv.registre.trouver(nom) else {
         return erreur(
@@ -430,6 +441,16 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         Reponse::Ok { .. } => 200,
         Reponse::Erreur { .. } => 409,
     };
+    let duree = depart.elapsed();
+    match &reponse {
+        // Un refus metier est normal (stock insuffisant, caisse fermee) ;
+        // il se lit quand meme : « pourquoi la caisse a dit non a 11 h ».
+        Reponse::Erreur { message, .. } => journal::refus(format!("409 · {message}")),
+        Reponse::Ok { .. } if duree > COMMANDE_LENTE => {
+            journal::avertissement(format!("commande lente : {} ms", duree.as_millis()))
+        }
+        Reponse::Ok { .. } => {}
+    }
     repondre_json(
         flux,
         code,
@@ -600,12 +621,26 @@ fn entretien(
     }
 }
 
+/// Les huit premiers caracteres d'un identifiant : assez pour retrouver
+/// la ligne, pas de quoi encombrer le journal.
+fn court(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
+}
+
+/// Repond une erreur ET la journalise : un 5xx est une erreur, le reste
+/// un refus (jeton, permission, commande inconnue, mauvaise requete).
+/// Le message seulement — jamais le corps de la requete (D10).
 fn erreur(
     flux: &mut TcpStream,
     code_http: u16,
     code: CodeErreur,
     message: &str,
 ) -> std::io::Result<()> {
+    if code_http >= 500 {
+        journal::erreur(format!("{code_http} · {message}"));
+    } else {
+        journal::refus(format!("{code_http} · {message}"));
+    }
     let r = Reponse::erreur(code, message);
     repondre_json(
         flux,

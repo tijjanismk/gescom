@@ -7,14 +7,17 @@ décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 
 Dernière mise à jour : **20 septembre 2026** (la dette v2 qu'on pouvait
 payer sans le propriétaire : restauration, routes HTTP testées, chèque
-rejeté, filtres liés, codes-barres dessinés ; fondation v3 posée mais
-dormante — la v2 d'abord).
-État : **458 tests workspace SQLite** (`--workspace`, mesuré le
+rejeté, filtres liés, codes-barres dessinés ; le retour d'une vente
+payée avec un avoir, D15 ; les anomalies dans le cahier du jour et le
+journal technique du serveur ; fondation v3 posée mais dormante — la v2
+d'abord).
+État : **463 tests workspace SQLite** (`--workspace`, mesuré le
 20/09, 0 échec, 0 avertissement) ; sur **PostgreSQL** (`gescom_test`) :
 suite complète 394/394 le 13/09, puis rejoués sans échec les fichiers
 touchés à chaque séance — le 20/09 : `journal_rapports_base`,
-`pieces_base`, `listes_base`, `achats_base`, `gestion_base` ;
-**159 scénarios** en dix-sept fichiers `*_base.rs` qui tournent sur
+`pieces_base`, `listes_base`, `achats_base`, `gestion_base`,
+`retours_base`, `caisse_base` ;
+**162 scénarios** en dix-sept fichiers `*_base.rs` qui tournent sur
 les deux moteurs (`GESCOM_PG`), plus **3 tests de routes HTTP**
 (`serveur/tests/routes.rs`, le vrai exécutable, le vrai JSON de
 l'écran). Serveur : **210 commandes** (202 le
@@ -93,6 +96,8 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | K6 | **POS : remise globale en % ou en francs**, répartie sur les lignes au prorata (la dernière prend le reste) ; l'invariant `SUM(prix_pratique × quantité) = dû` tient, HT/TVA se relisent sur les lignes remisées | `src/pages/Ventes.tsx` |
 | K7 | **Avoir sans marchandise depuis « Nouvelle pièce »** : type Avoir, aucune ligne, un montant + le motif dans Note → `accorder_avoir_client` (permission `avoirs:accorder`, sinon l'écran le dit). Le crédit se consomme sur une vente ou se rembourse | `src/components/ModalNouvellePiece.tsx` |
 | K8 | **Impression « parfois » cassée** : le fichier temporaire portait le nom demandé tel quel — le même deux fois (cache ou fichier encore tenu par la webview : ancien document ou page blanche), parfois **sans `.html`** (le numéro de pièce nu, WebView2 devinait le type). Nom unique + `.html` garantis, dossier `gescom_impression` nettoyé après 24 h, second essai de label si la fenêtre précédente n'a pas fini de se fermer | `src-tauri/src/commandes/impression.rs` |
+| K14 | **Un système de traces, enfin** : (a) les **anomalies** du noyau (montant ni imputable ni remboursable, lien vente→pièce non écrit) étaient des `eprintln!` sur une console que personne ne regarde — elles sont des événements `anomalie` du `journal`, écrits dans la transaction du geste (annulée avec lui), et le **cahier du jour** les montre en rouge en tête ; (b) le **journal technique du serveur** (`serveur/src/journal_technique.rs`, sans crate) : une ligne horodatée par refus (401/403/404/409 avec le message), par erreur (5xx), par commande lente (> 2 s), par démarrage/arrêt/sauvegarde, avec le contexte `ip METHODE /route · commande · utilisateur@poste` ; rotation à 5 Mo × 3 ; `--journal FICHIER` ou clé `journal` de `serveur.json`, sinon `gescom.log` à côté de la base fichier / `ProgramData` en service ; jamais de mot de passe (D10). Le test de routes vérifie les lignes et l'absence du mot de passe. Ce qui reste (v3) : les erreurs de la fenêtre remontées au serveur | `noyau/src/journal.rs`, `retours.rs`, `argent.rs`, `serveur/src/journal_technique.rs`, `api.rs`, `main.rs`, `src/pages/Journal.tsx` |
+| K13 | **Rendre ce qu'on a payé avec un avoir rend l'avoir** (D15) : le plafond « jamais plus que versé » excluait les paiements par avoir (« pas d'argent reçu ») — un client qui achetait avec son avoir puis rendait la marchandise perdait tout, une ligne dans le journal et rien pour lui. Règle pure `coeur::calcul::repartir_retour` : l'argent revient en argent, l'avoir en avoir, le surplus est signalé ; appliquée au remboursement (espèces + avoir en un geste, l'écran dit combien ouvrir le tiroir) et au reliquat d'échange. Deux scénarios | `coeur/calcul.rs`, `noyau/src/retours.rs`, `src/components/ModalsRetour.tsx` |
 | K12 | **La dette v2 payable sans le propriétaire** (20/09) : (a) **restaurer** — `sauvegarde::restaurer` + `gescom-serveur --restaurer FICHIER`, hors ligne : `pg_restore --clean --if-exists` sur PostgreSQL, sur SQLite contrôle d'intégrité + table `vente` exigée, copie `.avant-restauration-<date>` gardée, `-wal`/`-shm` retirés ; (b) **trois tests de routes HTTP** qui lancent le vrai binaire sur une base temporaire : 401/403/404, la livraison avec le JSON de l'écran (snake et camel), sauvegarde → `--restaurer` → redémarrage ; (c) **chèque rejeté** : plus de suppression, une contre-passation (`paiement` négatif `origine = 'rejet_cheque'`, sortie de caisse `cheque_rejete`) — D14 ; (d) les cinq listes filtrées du poste (`lire_toutes_pieces_client/fournisseur`, clients, stocks, fournisseurs paginés) **lient** leurs filtres au lieu de coller du texte échappé — scénario `filtres_lies` avec apostrophe et `%` ; (e) `ModalImpression` retiré, le POS ouvre `ApercuPiece` (modèles, formats) ; (f) **étiquettes EAN-13 dessinées** en SVG (`lib/ean13.ts`, 95 modules, 31 mm), le numéro en clair dessous | `noyau/src/sauvegarde.rs`, `cheques.rs`, `pieces.rs`, `pagination.rs`, `serveur/src/main.rs`, `serveur/tests/routes.rs`, `noyau/tests/filtres_lies.rs`, `src/lib/ean13.ts`, `src/pages/Ventes.tsx` |
 | K11 | **Livraison : les filtres suivent, et deux filtres qui ne filtraient rien** — la saisie ligne à ligne échouait sur « missing field ligne_id » (l'écran envoyait `ligneId` en camelCase, un champ imbriqué n'est pas renommé : `serde(alias)` + l'écran en snake_case) ; le filtre **Livraison / Réception** (non livré, partiel, livré) apparaît quand le suivi est actif ; le filtre **Échéance** existait sans jamais s'appliquer, la case **Impayés** envoyait `impaySeulement` que le serveur ne lisait pas. Et la réponse à « que fait le stock si on annule une facture issue d'un BL » : la marchandise **revient une fois** (retour porté par l'avoir), le bon garde sa trace « livré » — scénario `annuler_par_avoir_une_facture_issue_d_un_bon_…` | `livraisons.rs`, `src/components/FiltresAvances.tsx`, `ModalLivraison.tsx`, `src/pages/Pieces.tsx` |
 | K10 | **Un bon se prépare en brouillon, s'émet, et ne se modifie plus** : modifier un BL émis laissait le stock à l'ancienne quantité. Règle dans `coeur` (`constate_le_stock`, `changement_de_statut`, `peut_livrer`, `peut_transferer_un_bon`) : un bon (livraison, réception) créé à la main naît **brouillon** (rien ne bouge, modifiable), **Émettre** le livre entièrement (`marquer_entierement_livre`, même transaction que le statut), puis il est figé ; la saisie ligne à ligne ne vient qu'après pour corriger ; **annuler** un bon émis ramène la marchandise (`marquer_rien_livre`) ; un bon en brouillon ne se facture pas (sa facture ne sortirait jamais rien). Par conversion d'une commande, le BL naît émis et livré, comme avant. Bouton « Émettre » dans Pièces ; six scénarios adaptés, un ajouté | `coeur/pieces.rs`, `noyau/src/pieces.rs`, `livraisons.rs`, `src/pages/Pieces.tsx` |
@@ -151,6 +156,10 @@ Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
   « missing field ligne_id » du 19/09.
 - **Les commandes Tauri n'ont aucun test** — à commencer par
   `creer_vente`, `valider_facture`, `regler_dette_fournisseur`.
+- **Les erreurs de la fenêtre ne remontent pas** : `window.onerror` et
+  les rejets non gérés du front n'arrivent nulle part (61
+  `console.error` dans la webview). À faire avec la v3 : `POST
+  /journal-poste` vers le journal technique du serveur (K14).
 - ~~**Un chèque rejeté ne défait pas son mouvement de caisse**~~
   **corrigé le 20/09/2026** : contre-passation, pas suppression ; un
   rejet n'exige pas de caisse ouverte (D14).

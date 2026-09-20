@@ -284,3 +284,37 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     cheques::changer_statut_cheque_sur_base(&mut base, ch, "rejete".into(), None).expect("statut chèque");
     transferts::lire_transferts_sur_base(&mut base, Some(10)).expect("transferts");
 }
+
+#[test]
+fn une_anomalie_se_lit_dans_le_cahier_du_jour_et_suit_sa_transaction() {
+    let mut base = base_avec_demo();
+
+    // Une anomalie abandonnee avec son geste n'a pas eu lieu.
+    {
+        let mut tx = base.transaction().unwrap();
+        journal::anomalie_sur(&mut tx, "retour", "r-abandonne", None, serde_json::json!({
+            "message": "ne doit pas apparaitre", "non_attribue": 1,
+        }));
+        drop(tx);
+    }
+    let j = journal::lire_journal_du_jour_sur_base(&mut base, None, None).unwrap();
+    assert_eq!(j["anomalies"].as_array().unwrap().len(), 0, "{}", j["anomalies"]);
+
+    // Une anomalie validee se lit, avec son message et ses chiffres.
+    {
+        let mut tx = base.transaction().unwrap();
+        journal::anomalie_sur(&mut tx, "retour", "r-123456789", Some("u-1"), serde_json::json!({
+            "message": "Retour : 800 F ni imputables ni remboursables", "non_attribue": 800,
+        }));
+        tx.valider().unwrap();
+    }
+    let j = journal::lire_journal_du_jour_sur_base(&mut base, None, None).unwrap();
+    let a = j["anomalies"].as_array().unwrap();
+    assert_eq!(a.len(), 1);
+    assert_eq!(a[0]["message"], "Retour : 800 F ni imputables ni remboursables");
+    assert_eq!(a[0]["entite_type"], "retour");
+    assert_eq!(a[0]["detail"]["non_attribue"], 800);
+    // Elle n'est pas dans le cahier d'hier.
+    let hier = journal::lire_journal_du_jour_sur_base(&mut base, Some("2000-01-01".into()), None).unwrap();
+    assert_eq!(hier["anomalies"].as_array().unwrap().len(), 0);
+}

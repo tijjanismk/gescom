@@ -58,8 +58,15 @@ interface Depense {
   libelle: string; categorie: string; moyen: string;
   montant: number; date: string;
 }
+// Ce que le noyau a constaté sans pouvoir le corriger : un montant ni
+// imputable ni remboursable, un lien qui ne s'est pas écrit. Avant,
+// une ligne sur stderr que personne ne lisait.
+interface Anomalie {
+  date: string; entite_type: string; entite_id: string; message: string;
+}
 interface Journal {
   date: string;
+  anomalies: Anomalie[];
   ventes: LigneVente[];
   hors_jour: HorsJour[];
   impayes: Impaye[];
@@ -243,6 +250,31 @@ export function Journal() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
           <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
         </div>
+      )}
+
+      {/* ── 0. Anomalies — seulement s'il y en a ── */}
+      {!!data?.anomalies?.length && (
+        <Section titre={`Anomalies à vérifier (${data.anomalies.length})`}
+          couleur="bg-red-100" vide={false}>
+          <table className="w-full">
+            <thead className="border-b border-border">
+              <tr>
+                <th className={`${TH} w-20`}>Heure</th>
+                <th className={`${TH} w-28`}>Sur</th>
+                <th className={TH}>Ce qui s'est passé</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.anomalies.map((a, i) => (
+                <tr key={i} className="border-b border-border/50 text-red-700">
+                  <td className={TD}>{a.date.slice(11, 16)}</td>
+                  <td className={`${TD} text-xs`}>{a.entite_type} {a.entite_id.slice(0, 8)}</td>
+                  <td className={TD}>{a.message}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Section>
       )}
 
       {/* ── 1. Ventes du jour ── */}

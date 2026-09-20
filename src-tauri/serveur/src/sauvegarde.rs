@@ -135,11 +135,11 @@ pub fn planifier(srv: Arc<Serveur>) {
         // l'ouverture du service un lundi matin.
         std::thread::sleep(Duration::from_secs(HEURES_ENTRE_SAUVEGARDES * 3600));
         match maintenant(&srv) {
-            Ok(f) => eprintln!("[sauvegarde] {f}"),
+            Ok(f) => crate::journal_technique::info(format!("Sauvegarde automatique : {f}")),
             // Un echec de sauvegarde ne doit pas arreter le service :
             // les caisses continuent de vendre. Mais il doit se VOIR,
             // et `/sante` montrera une date qui n'avance plus.
-            Err(e) => eprintln!("[sauvegarde] ECHEC : {e}"),
+            Err(e) => crate::journal_technique::erreur(format!("Sauvegarde automatique ÉCHOUÉE : {e}")),
         }
     });
 }

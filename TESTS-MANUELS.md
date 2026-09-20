@@ -25,7 +25,8 @@ passe par les yeux et par le réseau.
 | A1 | Lancer `Gescom-Serveur_x.y.z_x64-setup.exe` en administrateur | Assistant en français ; page « Configuration du serveur » avec base et port préremplis | ☐ |
 | A2 | Garder les valeurs, terminer | Pas d'erreur ; page finale nomme le journal, la configuration et `sc stop/start` | ☐ |
 | A3 | Ouvrir **Services** | *Gescom Serveur* : **En cours d'exécution**, démarrage **Automatique** | ☐ |
-| A4 | Menu Démarrer → Gescom → *Journal du serveur* | Le fichier s'ouvre ; dernière section « service démarré », base, écoute `0.0.0.0:7300`, nombre de commandes, adresse à saisir sur les caisses | ☐ |
+| A4 | Menu Démarrer → Gescom → *Journal du serveur* | Le fichier s'ouvre ; dernière section « service démarré », puis une ligne `[INFO  ] Serveur démarré — … écoute http://0.0.0.0:7300, 210 commandes` ; adresse à saisir sur les caisses | ☐ |
+| A4b | Depuis une caisse : mauvais mot de passe, puis une vente caisse fermée | Deux lignes `[REFUS ]` dans le journal, avec l'heure, la route, la commande et le message ; **aucun mot de passe** dans le fichier | ☐ |
 | A5 | Navigateur : `http://localhost:7300` | La console répond (postes, sauvegardes) | ☐ |
 | A6 | `sc stop GescomServeur` puis `http://localhost:7300` | Le service passe **Arrêté** en moins de 5 s ; la page ne répond plus ; le journal dit « Arrêt demandé » | ☐ |
 | A7 | `sc start GescomServeur` | Redémarre ; la console répond de nouveau | ☐ |

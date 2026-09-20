@@ -18,6 +18,89 @@
 //! crédit encaissée plus tard.
 
 
+// =====================================================================
+//  ANOMALIES — ce que le noyau constate sans pouvoir le corriger
+// =====================================================================
+//
+// Un montant qui ne peut etre ni impute ni rendu, un lien qui n'a pas
+// pu s'ecrire : avant, une ligne `eprintln!` que personne ne lisait
+// (stderr, sans console). Une anomalie est un evenement du journal,
+// type `anomalie`, et le cahier du jour la montre en rouge. Elle
+// s'ecrit dans la transaction en cours quand il y en a une : si le
+// geste est annule, l'anomalie l'est aussi — elle n'a pas eu lieu.
+
+/// Enregistre une anomalie sur `entite_type` / `entite_id`. `detail`
+/// dit ce qui s'est passe (un `message` lisible, plus les chiffres).
+/// Ne fait jamais echouer l'appelant : une anomalie qui ne s'ecrit pas
+/// n'est pas une raison de refuser la vente.
+pub fn anomalie(
+    conn: &rusqlite::Connection,
+    entite_type: &str,
+    entite_id: &str,
+    auteur_id: Option<&str>,
+    detail: serde_json::Value,
+) {
+    let _ = conn.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1, 'anomalie', ?2, ?3, ?4, ?5, 'app', ?6)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(),
+            entite_type,
+            entite_id,
+            auteur_id,
+            detail.to_string(),
+            crate::utils::maintenant_iso()
+        ],
+    );
+}
+
+/// Meme chose sur `Base` ou dans une transaction.
+pub fn anomalie_sur(
+    acces: &mut impl crate::base::Acces,
+    entite_type: &str,
+    entite_id: &str,
+    auteur_id: Option<&str>,
+    detail: serde_json::Value,
+) {
+    let dossier = acces.dossier().to_string();
+    let _ = acces.executer(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'anomalie', ?2, ?3, ?4, ?5, 'app', ?6, ?7)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            entite_type.to_string(),
+            entite_id.to_string(),
+            auteur_id.map(|s| s.to_string()),
+            detail.to_string(),
+            crate::utils::maintenant_iso(),
+            dossier
+        ],
+    );
+}
+
+/// Une anomalie telle que le cahier la montre.
+fn ligne_anomalie(date: String, entite_type: String, entite_id: String, detail: Option<String>) -> serde_json::Value {
+    let detail: serde_json::Value = detail
+        .and_then(|d| serde_json::from_str(&d).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let message = detail
+        .get("message")
+        .and_then(|m| m.as_str())
+        .unwrap_or("Anomalie sans description")
+        .to_string();
+    serde_json::json!({
+        "date": date,
+        "entite_type": entite_type,
+        "entite_id": entite_id,
+        "message": message,
+        "detail": detail,
+    })
+}
+
 /// Date au format AAAA-MM-JJ. `None` = aujourd'hui.
 pub fn jour(date: &Option<String>) -> String {
     match date {
@@ -383,10 +466,24 @@ pub fn lire_journal_du_jour(
         rusqlite::params![j], |r| r.get(0),
     ).unwrap_or(0);
 
+    // Les anomalies du jour : ce que le noyau n'a pas su faire
+    // proprement et qu'il faut regarder.
+    let mut st = conn.prepare(
+        "SELECT date_evenement, entite_type, entite_id, nouveau_valeur
+         FROM journal
+         WHERE type_evenement = 'anomalie' AND SUBSTR(date_evenement, 1, 10) = ?1
+         ORDER BY date_evenement"
+    ).map_err(|e| e.to_string())?;
+    let anomalies: Vec<serde_json::Value> = st.query_map(rusqlite::params![j], |r| {
+        Ok(ligne_anomalie(r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+    }).map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok()).collect();
+
     Ok(serde_json::json!({
         "date": j,
         // null = journal consolide
         "depot_id": dep,
+        "anomalies":  anomalies,
         "ventes":     ventes,
         "hors_jour":  hors_jour,
         "impayes":    impayes,
@@ -741,15 +838,28 @@ pub fn lire_journal_du_jour_sur_base(
             "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
              FROM paiement WHERE SUBSTR(date_paiement, 1, 10) = ?1 AND mode <> 'avoir'
                AND dossier_id = ?2",
-            &parametres![j.clone(), dossier],
+            &parametres![j.clone(), dossier.clone()],
             |r| r.get::<i64>(0),
         )
         .map_err(|e| e.0)?
         .unwrap_or(0);
 
+    let anomalies: Vec<serde_json::Value> = base
+        .lire_plusieurs(
+            "SELECT date_evenement, entite_type, entite_id, nouveau_valeur
+             FROM journal
+             WHERE type_evenement = 'anomalie' AND SUBSTR(date_evenement, 1, 10) = ?1
+               AND dossier_id = ?2
+             ORDER BY date_evenement",
+            &parametres![j.clone(), dossier.clone()],
+            |r| Ok(ligne_anomalie(r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?, r.get::<Option<String>>(3)?)),
+        )
+        .map_err(|e| e.0)?;
+
     Ok(serde_json::json!({
         "date": j,
         "depot_id": dep,
+        "anomalies":  anomalies,
         "ventes":     ventes,
         "hors_jour":  hors_jour,
         "impayes":    impayes,

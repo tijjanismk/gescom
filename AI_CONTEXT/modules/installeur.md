@@ -91,7 +91,10 @@ relance.
 chemin lancé par le gestionnaire : `StartServiceCtrlDispatcherW`,
 gestionnaire de contrôle, `SetStdHandle` pour envoyer `println!` dans
 `serveur.log`, configuration lue dans `serveur.json` (les arguments de
-la ligne de commande passent devant). La boucle d'écoute est non
+la ligne de commande passent devant ; clés `base`, `port`, `hote`,
+`sauvegardes`, `journal`). Depuis le 20/09/2026 le même fichier reçoit
+le journal technique structuré (`journal_technique.rs`) : horodatage,
+niveau, contexte. La boucle d'écoute est non
 bloquante (`accept` toutes les 200 ms) : `sc stop` répond en moins de
 5 s et révoque les sessions.
 

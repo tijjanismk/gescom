@@ -1414,3 +1414,58 @@ MANUELS, H).
 
 458 tests SQLite, 0 échec ; PostgreSQL vert sur les cinq fichiers
 touchés. Rien de committé : lot posé avec celui du 19/09 (suite 3).
+
+## 20/09/2026 (suite) — rendre ce qu'on a payé avec un avoir
+
+Question du propriétaire : « comment les retours sur factures avec
+remise sont gérés, est-ce logique, manque-t-il une fonctionnalité de
+base ? » La remise, elle, est bien gérée : fondue dans `prix_pratique`
+(au POS par prorata, sur une facture par ligne → globale → TVA), et le
+retour crédite ce prix net — on rend ce qu'on a encaissé.
+
+Le trou était à côté. Le plafond « jamais plus que versé » excluait les
+paiements par avoir. Scénario écrit avant le correctif : un client
+obtient un avoir de 800 F, rachète avec, rend l'article → `numero_avoir:
+null`, « 800 F non attribuables » dans le journal. Il avait tout perdu.
+
+Règle pure `repartir_retour` (espèces, avoir, non attribuable) : l'argent
+revient en argent, l'avoir en avoir, quel que soit le mode demandé ; le
+reliquat d'échange demandé en espèces est borné pareil. L'écran dit au
+vendeur combien ouvrir le tiroir et combien part en avoir. Deux
+scénarios (`rendre_ce_qu_on_a_paye_avec_un_avoir_rend_l_avoir`,
+`un_remboursement_rend_les_especes_en_especes_et_l_avoir_en_avoir`),
+verts sur les deux moteurs. 461 tests.
+
+Noté sans le corriger : l'échange valorise le remplacement à
+`prix_reference` (tarif plein, sans remise), et l'avoir de retour porte
+une TVA à zéro — le montant est juste, la ventilation du document non.
+
+## 20/09/2026 (suite 2) — « on n'a pas de système de log ? »
+
+Non. Le journal métier (`journal`, trente types d'événements) disait
+qui a fait quoi ; le reste — un montant non attribuable, une base
+indisponible, une commande refusée — partait sur stderr, que personne
+ne lit quand le serveur est un service, et `serveur.log` n'était que
+cette sortie brute, sans heure ni niveau.
+
+**Les anomalies vont dans le journal.** `journal::anomalie[_sur]` : un
+événement `anomalie` avec un message lisible et les chiffres, écrit
+dans la transaction du geste — abandonnée, l'anomalie l'est aussi. Le
+cahier du jour (`lire_journal_du_jour*`) les rend en `anomalies`, et
+l'écran Journal les montre en rouge, en tête, seulement s'il y en a.
+Les quatre `eprintln!` du noyau sont remplacés.
+
+**Le journal technique du serveur.** Soixante lignes sans crate :
+`2026-09-20T13:21:42 [REFUS ] 127.0.0.1 POST /rpc · commande_x ·
+269edae1@7be67b69 · 404 · Le serveur ne connaît pas…`. Le contexte est
+posé par le fil qui sert la requête (thread-local), enrichi de la
+commande et de l'appelant dès qu'on les connaît. Une ligne par refus,
+par erreur, par commande lente (plus de deux secondes), par démarrage,
+arrêt et sauvegarde ; une commande qui réussit n'écrit rien. Rotation à
+5 Mo, trois copies. Le fichier suit la base (`gescom.db` → `gescom.log`)
+sauf en service (`ProgramData\Gescom\serveur.log`, où stderr va déjà —
+on n'y recopie pas). Le test de routes lit le fichier : le démarrage,
+les refus, le contexte, et **pas** le mot de passe.
+
+La fenêtre, elle, ne remonte toujours rien : ce sera avec la v3.
+463 tests.

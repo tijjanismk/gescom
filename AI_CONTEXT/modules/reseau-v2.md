@@ -18,6 +18,7 @@ l'arrêt (récit : [JOURNAL.md](../JOURNAL.md), [DECISIONS.md](../DECISIONS.md) 
 | [serveur/src/socle.rs](../../src-tauri/serveur/src/socle.rs) | les 210 commandes enregistrées ; le bloc généré vit entre marqueurs (`outils/generer_socle.py`) |
 | [serveur/src/http.rs](../../src-tauri/serveur/src/http.rs), [api.rs](../../src-tauri/serveur/src/api.rs), [canal.rs](../../src-tauri/serveur/src/canal.rs) | HTTP/1.1 minimal sans dépendance (ni TLS ni keep-alive) ; les routes ; la longue attente |
 | [serveur/src/sauvegarde.rs](../../src-tauri/serveur/src/sauvegarde.rs) | toutes les 24 h, 14 copies : `VACUUM INTO` (SQLite) ou `pg_dump` (PostgreSQL) |
+| [serveur/src/journal_technique.rs](../../src-tauri/serveur/src/journal_technique.rs) | le journal technique (20/09/2026) : une ligne horodatée par refus, erreur, commande lente, démarrage, arrêt, sauvegarde ; contexte `ip METHODE /route · commande · utilisateur@poste` posé par `api::traiter` ; rotation 5 Mo × 3 ; `--journal` / clé `journal` ; jamais de mot de passe |
 | [serveur/src/console.rs](../../src-tauri/serveur/src/console.rs), [reseau_local.rs](../../src-tauri/serveur/src/reseau_local.rs) | la console (une page HTML dans une constante) ; adresse à saisir et état du pare-feu au démarrage |
 | [src/lib/pont.ts](../../src/lib/pont.ts) | **le** pont côté écran : `invoke` → `POST /rpc` ; la liste `LOCALES` des commandes qui restent sur le poste (imprimer, ouvrir un fichier, régler le réseau) |
 
@@ -85,6 +86,7 @@ demande « Quel dossier ouvrir ? » quand il y en a plusieurs ;
 ## Ce qui reste
 
 - Les routes sont testées sur SQLite ; le même fichier contre PostgreSQL demanderait une base jetable par test (schéma à créer et détruire), pas fait.
+- Les erreurs de la fenêtre (`window.onerror`, rejets non gérés) ne remontent pas au serveur — `POST /journal-poste`, prévu avec la v3.
 - Une vraie impression papier depuis une caisse, jamais essayée.
 - Le service Windows n'a pas été déroulé en élevé depuis la session
   d'écriture (TESTS-MANUELS, section A).
