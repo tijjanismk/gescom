@@ -5,16 +5,19 @@ Le récit daté de chaque avancée vit dans [JOURNAL.md](JOURNAL.md), les
 décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md).
 
-Dernière mise à jour : **19 septembre 2026** (le serveur en service
-Windows et son installeur signé ; fondation v3 posée mais dormante — la
-v2 d'abord).
-État : **453 tests workspace SQLite** (`--workspace`, mesuré le
-18/09, 0 échec, 0 avertissement) ; sur **PostgreSQL** (`gescom_test`) :
+Dernière mise à jour : **20 septembre 2026** (la dette v2 qu'on pouvait
+payer sans le propriétaire : restauration, routes HTTP testées, chèque
+rejeté, filtres liés, codes-barres dessinés ; fondation v3 posée mais
+dormante — la v2 d'abord).
+État : **458 tests workspace SQLite** (`--workspace`, mesuré le
+20/09, 0 échec, 0 avertissement) ; sur **PostgreSQL** (`gescom_test`) :
 suite complète 394/394 le 13/09, puis rejoués sans échec les fichiers
-touchés à chaque séance — le 18/09 : `gestion_base`, `pieces_base`,
-`achats_base`, `fournisseurs_base`, `postgres_amorcage` ;
-**158 scénarios** en dix-sept fichiers `*_base.rs` qui tournent sur
-les deux moteurs (`GESCOM_PG`). Serveur : **210 commandes** (202 le
+touchés à chaque séance — le 20/09 : `journal_rapports_base`,
+`pieces_base`, `listes_base`, `achats_base`, `gestion_base` ;
+**159 scénarios** en dix-sept fichiers `*_base.rs` qui tournent sur
+les deux moteurs (`GESCOM_PG`), plus **3 tests de routes HTTP**
+(`serveur/tests/routes.rs`, le vrai exécutable, le vrai JSON de
+l'écran). Serveur : **210 commandes** (202 le
 18/09 ; +8 de la v3 le 19/09 : dossiers, exercices, choix du dossier),
 `POST /entretien` vérifié par HTTP (D9). **29 permissions**
 (`dossiers:gerer` le 19/09, patron seul). Dernier commit : voir `git
@@ -90,6 +93,8 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | K6 | **POS : remise globale en % ou en francs**, répartie sur les lignes au prorata (la dernière prend le reste) ; l'invariant `SUM(prix_pratique × quantité) = dû` tient, HT/TVA se relisent sur les lignes remisées | `src/pages/Ventes.tsx` |
 | K7 | **Avoir sans marchandise depuis « Nouvelle pièce »** : type Avoir, aucune ligne, un montant + le motif dans Note → `accorder_avoir_client` (permission `avoirs:accorder`, sinon l'écran le dit). Le crédit se consomme sur une vente ou se rembourse | `src/components/ModalNouvellePiece.tsx` |
 | K8 | **Impression « parfois » cassée** : le fichier temporaire portait le nom demandé tel quel — le même deux fois (cache ou fichier encore tenu par la webview : ancien document ou page blanche), parfois **sans `.html`** (le numéro de pièce nu, WebView2 devinait le type). Nom unique + `.html` garantis, dossier `gescom_impression` nettoyé après 24 h, second essai de label si la fenêtre précédente n'a pas fini de se fermer | `src-tauri/src/commandes/impression.rs` |
+| K12 | **La dette v2 payable sans le propriétaire** (20/09) : (a) **restaurer** — `sauvegarde::restaurer` + `gescom-serveur --restaurer FICHIER`, hors ligne : `pg_restore --clean --if-exists` sur PostgreSQL, sur SQLite contrôle d'intégrité + table `vente` exigée, copie `.avant-restauration-<date>` gardée, `-wal`/`-shm` retirés ; (b) **trois tests de routes HTTP** qui lancent le vrai binaire sur une base temporaire : 401/403/404, la livraison avec le JSON de l'écran (snake et camel), sauvegarde → `--restaurer` → redémarrage ; (c) **chèque rejeté** : plus de suppression, une contre-passation (`paiement` négatif `origine = 'rejet_cheque'`, sortie de caisse `cheque_rejete`) — D14 ; (d) les cinq listes filtrées du poste (`lire_toutes_pieces_client/fournisseur`, clients, stocks, fournisseurs paginés) **lient** leurs filtres au lieu de coller du texte échappé — scénario `filtres_lies` avec apostrophe et `%` ; (e) `ModalImpression` retiré, le POS ouvre `ApercuPiece` (modèles, formats) ; (f) **étiquettes EAN-13 dessinées** en SVG (`lib/ean13.ts`, 95 modules, 31 mm), le numéro en clair dessous | `noyau/src/sauvegarde.rs`, `cheques.rs`, `pieces.rs`, `pagination.rs`, `serveur/src/main.rs`, `serveur/tests/routes.rs`, `noyau/tests/filtres_lies.rs`, `src/lib/ean13.ts`, `src/pages/Ventes.tsx` |
+| K11 | **Livraison : les filtres suivent, et deux filtres qui ne filtraient rien** — la saisie ligne à ligne échouait sur « missing field ligne_id » (l'écran envoyait `ligneId` en camelCase, un champ imbriqué n'est pas renommé : `serde(alias)` + l'écran en snake_case) ; le filtre **Livraison / Réception** (non livré, partiel, livré) apparaît quand le suivi est actif ; le filtre **Échéance** existait sans jamais s'appliquer, la case **Impayés** envoyait `impaySeulement` que le serveur ne lisait pas. Et la réponse à « que fait le stock si on annule une facture issue d'un BL » : la marchandise **revient une fois** (retour porté par l'avoir), le bon garde sa trace « livré » — scénario `annuler_par_avoir_une_facture_issue_d_un_bon_…` | `livraisons.rs`, `src/components/FiltresAvances.tsx`, `ModalLivraison.tsx`, `src/pages/Pieces.tsx` |
 | K10 | **Un bon se prépare en brouillon, s'émet, et ne se modifie plus** : modifier un BL émis laissait le stock à l'ancienne quantité. Règle dans `coeur` (`constate_le_stock`, `changement_de_statut`, `peut_livrer`, `peut_transferer_un_bon`) : un bon (livraison, réception) créé à la main naît **brouillon** (rien ne bouge, modifiable), **Émettre** le livre entièrement (`marquer_entierement_livre`, même transaction que le statut), puis il est figé ; la saisie ligne à ligne ne vient qu'après pour corriger ; **annuler** un bon émis ramène la marchandise (`marquer_rien_livre`) ; un bon en brouillon ne se facture pas (sa facture ne sortirait jamais rien). Par conversion d'une commande, le BL naît émis et livré, comme avant. Bouton « Émettre » dans Pièces ; six scénarios adaptés, un ajouté | `coeur/pieces.rs`, `noyau/src/pieces.rs`, `livraisons.rs`, `src/pages/Pieces.tsx` |
 | K9 | **Tableau de bord sans icônes** : `KpiCard` / `KpiPetit` perdent la tuile, l'intitulé passe en tête en `text-sm font-semibold` ; « tinted » teinte le bord | `src/components/ui/KpiVerre.tsx` |
 | K1 | **Le serveur en service Windows** (D12) : `service.rs` (`windows-sys`, quatre appels), `--installer-service` / `--desinstaller-service` / `--service`, configuration `ProgramData\Gescom\serveur.json`, journal `serveur.log`, boucle d'écoute non bloquante qui s'arrête sur `sc stop` et révoque les sessions. **Pas déroulé en élevé** (UAC bloqué depuis la session) : TESTS-MANUELS §A | `serveur/src/service.rs`, `main.rs` |
@@ -135,23 +140,27 @@ qui a mordu le 13/09.
 Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
 `ALERTES.md` et les fiches `modules/*.md` restent plus récentes.
 
-- **Aucune restauration dans l'application** : le contrôle d'intégrité
-  dit « restaurer la dernière sauvegarde », aucun bouton ne le fait.
-- **Les routes HTTP ne sont pas testées** : les scénarios couvrent le
-  noyau, pas `serveur/src/api.rs`. C'est ce qui a laissé passer
-  l'interblocage du 13/09, et R1 à R3 étaient toutes sur ce chemin —
-  corrigées par lecture, pas par un test qui les aurait attrapées. Un
-  seul test de route vaudrait cher.
+- ~~**Aucune restauration dans l'application**~~ **fait le 20/09/2026**
+  en ligne de commande, serveur arrêté : `gescom-serveur --restaurer
+  FICHIER` (K12). Pas de bouton dans l'écran : restaurer par-dessus une
+  base en service est le geste qu'on ne veut pas rendre facile.
+- ~~**Les routes HTTP ne sont pas testées**~~ **trois tests le
+  20/09/2026** (`serveur/tests/routes.rs`) : le vrai exécutable sur une
+  base temporaire, connexion, refus, une livraison avec le JSON de
+  l'écran, sauvegarde et restauration. Ils auraient attrapé le
+  « missing field ligne_id » du 19/09.
 - **Les commandes Tauri n'ont aucun test** — à commencer par
   `creer_vente`, `valider_facture`, `regler_dette_fournisseur`.
-- **Un chèque rejeté ne défait pas son mouvement de caisse** : le
-  correctif propre est un mouvement INVERSE, pas une suppression ;
-  reste à décider si un rejet exige une caisse ouverte (D46).
+- ~~**Un chèque rejeté ne défait pas son mouvement de caisse**~~
+  **corrigé le 20/09/2026** : contre-passation, pas suppression ; un
+  rejet n'exige pas de caisse ouverte (D14).
 - **Bon de livraison partiel** : le suivi gère le partiel, le document
   non — la conversion copie toutes les lignes à quantité pleine.
-- `lire_fournisseurs_pagines` construit son `WHERE` par `format!()`.
-- `ModalImpression` fait doublon avec `ApercuPiece` ; codes-barres non
-  dessinés ; pièces historiques restées en `validee`.
+- ~~`lire_fournisseurs_pagines` construit son `WHERE` par `format!()`~~
+  **liés le 20/09/2026**, ainsi que les quatre autres listes du poste.
+- ~~`ModalImpression` fait doublon avec `ApercuPiece` ; codes-barres non
+  dessinés~~ **faits le 20/09/2026** ; pièces historiques restées en
+  `validee`.
 - ~~Un scénario instable (`gestion_base`, une fois sur trois)~~ **réglé
   le 17/09/2026** : l'horloge Windows tique par 15 ms, deux règlements
   du même tic ont le même horodatage. Départage `cree_le, id` dans les

@@ -44,7 +44,12 @@ avoirs, relances, chèques.
 `lire_historique_relances`, `lire_stats_relances`.
 
 **cheques.rs** — `enregistrer_cheque`, `lire_cheques`,
-`changer_statut_cheque`.
+`changer_statut_cheque`. Un passage à `rejete` ne supprime plus rien :
+il écrit un `paiement` négatif (`origine = 'rejet_cheque'`,
+`annule_paiement_id`) et une sortie de caisse `cheque_rejete` en moyen
+`cheque`, sans exiger une caisse ouverte — la sortie va sur la session
+ouverte, sinon sur celle qui avait reçu le chèque (D14, 20/09/2026).
+Scénario : `journal_rapports_base::un_cheque_suit_son_cycle_et_un_rejet_rouvre_la_creance`.
 
 ## Entrant
 

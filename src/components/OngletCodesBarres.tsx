@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { svgEan13 } from "@/lib/ean13";
 import { message } from "@tauri-apps/plugin-dialog";
 import {
   Barcode, Loader2, RefreshCw, Wand2, Printer, Search, Check, X,
@@ -292,20 +293,22 @@ export function OngletCodesBarres() {
 //  Étiquettes imprimables
 // =====================================================================
 //
-//  Le code-barres est dessiné en CSS : des barres de largeurs variables
-//  ne se scannent pas de façon fiable sur une imprimante de bureau. On
-//  imprime donc le NUMÉRO en gros, lisible et saisissable à la main.
-//
-//  Pour de vrais codes scannables, il faut une imprimante d'étiquettes
-//  et une police EAN-13 dédiée.
+//  Le code-barres est un SVG EAN-13 (lib/ean13.ts) : 95 modules de
+//  largeur identique, 31 mm, lisible à la douchette sur une imprimante
+//  de bureau. Le numéro reste en clair sous les barres. Un code qui
+//  n'a pas la forme EAN-13 (code fabricant exotique) garde l'ancien
+//  affichage : le numéro seul.
 
 function genererEtiquettesHTML(articles: ArticleCode[]): string {
-  const cases = articles.map(a => `
+  const cases = articles.map(a => {
+    const svg = svgEan13(a.code_barre);
+    return `
     <div class="etq">
       <div class="nom">${a.nom}</div>
       <div class="prix">${new Intl.NumberFormat("fr-ML").format(a.prix)} F</div>
-      <div class="code">${a.code_barre}</div>
-    </div>`).join("");
+      ${svg ? `<div class="barres">${svg}</div>` : `<div class="code">${a.code_barre}</div>`}
+    </div>`;
+  }).join("");
 
   return `<!DOCTYPE html>
 <html lang="fr"><head><meta charset="UTF-8"><title>Étiquettes</title>
@@ -313,8 +316,9 @@ function genererEtiquettesHTML(articles: ArticleCode[]): string {
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:Arial,sans-serif;padding:8mm;
        display:grid;grid-template-columns:repeat(4,1fr);gap:3mm}
-  .etq{border:1px dashed #bbb;padding:3mm;text-align:center;
-       height:26mm;display:flex;flex-direction:column;justify-content:space-between}
+  .etq{border:1px dashed #bbb;padding:2.5mm;text-align:center;
+       height:34mm;display:flex;flex-direction:column;justify-content:space-between}
+  .barres svg{display:block;margin:0 auto}
   .nom{font-size:9px;font-weight:600;line-height:1.15;
        overflow:hidden;max-height:22px}
   .prix{font-size:14px;font-weight:bold}

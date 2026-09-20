@@ -184,10 +184,13 @@ par colonne et nomme ce qui manque.
   deux moteurs, toutes les 24 h, 14 copies gardées. Vérifié :
   [sauvegarde_pg.rs](../../src-tauri/noyau/tests/sauvegarde_pg.rs)
   produit un dump de la démo et `pg_restore --list` le lit.
-  **Restaurer** : `pg_restore --clean --if-exists --dbname gescom
-  gescom_backup_….dump` — **jouée le 13/09/2026** sur une base jetable :
-  dump de `gescom_essai`, restauration sur `gescom_restaure`, le serveur
-  redémarre dessus sans ré-amorçage (D4).
+  **Restaurer** : `gescom-serveur --restaurer FICHIER --base URL`,
+  serveur arrêté (`sauvegarde::restaurer`, 20/09/2026) — c'est
+  `pg_restore --clean --if-exists --no-password`, le mot de passe en
+  `PGPASSWORD`, l'exécutable trouvé à côté de `pg_dump`. Jouée à la main
+  le 13/09/2026 (`gescom_essai` → `gescom_restaure`), et rejouée par un
+  test de route sur SQLite (`serveur/tests/routes.rs`) : sauvegarde,
+  restauration, redémarrage (D4).
 - **Le déclencheur de stock et le dossier.** `stock_suit_les_mouvements`
   pose la ligne `stock_depot` sans `dossier_id` explicite : le défaut de
   la colonne (SQLite : `defaut` ; PostgreSQL : le dossier de session)

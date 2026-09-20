@@ -268,6 +268,15 @@ Le livreur revient avec deux sacs refusés ? Sur le bon émis, menu **…
 et le stock suit l'écart. Un bon en brouillon ne se facture pas : il
 faut l'émettre d'abord.
 
+**Annuler par avoir une facture issue d'un bon** : la marchandise
+revient au magasin (une fois), le bon garde sa trace de livraison. Si
+le client n'a rien rendu, ce n'est pas une annulation : c'est une
+créance à traiter.
+
+**Filtrer sur la livraison** : dans les filtres avancés de Pièces,
+quand le suivi est actif — non livré, partiellement, livré. C'est là
+qu'on trouve le « payé, pas encore livré ».
+
 Un bon issu d'une **commande** (bouton →) naît directement émis : la
 marchandise part avec lui.
 
@@ -607,8 +616,12 @@ chèques non déposés depuis plus de 15 jours.
 | **Encaissé** | L'argent est arrivé |
 | **Rejeté** | La banque a refusé |
 
-> **Un chèque rejeté annule le paiement.** La créance du client se
-> rouvre : il redoit l'argent.
+> **Un chèque rejeté ne s'efface pas, il se contre-passe.** Le
+> paiement reste dans l'historique, suivi d'une ligne négative « Chèque
+> rejeté » ; la caisse enregistre une sortie du même montant en chèque.
+> La créance du client se rouvre : il redoit l'argent. Vous pouvez
+> rejeter un chèque caisse fermée — la banque ne prévient pas aux
+> heures d'ouverture.
 
 ---
 
@@ -740,7 +753,10 @@ attribuer un code à tout le catalogue.
 Un article qui a déjà un code fabricant le garde.
 
 Cochez des articles et cliquez **Étiquettes** pour imprimer, quatre par
-ligne.
+ligne. Chaque étiquette porte le code-barres dessiné (EAN-13, 31 mm,
+lisible à la douchette sur une imprimante de bureau) et le numéro en
+clair dessous, pour le saisir à la main si la douchette manque. Un code
+fabricant qui n'a pas treize chiffres s'imprime en numéro seul.
 
 ---
 
@@ -769,6 +785,26 @@ quelqu'un.
 > **Ne copiez jamais le fichier de base à la main.** Les écritures
 > récentes vivent dans un fichier annexe : vous récupéreriez une base
 > vide sans le savoir. Utilisez toujours le bouton.
+
+## Restaurer une sauvegarde
+
+Ça se fait **sur l'ordinateur du serveur, service arrêté**, jamais
+depuis une caisse : restaurer efface tout ce qui a été saisi depuis la
+sauvegarde, et ce geste-là ne doit pas tenir en un clic.
+
+1. Arrêter le service : `sc stop GescomServeur`.
+2. Dans une invite de commandes, dans le dossier d'installation :
+   `gescom-serveur.exe --restaurer "D:\Sauvegardes\gescom_….db"`
+   (ou le fichier `.dump` sur PostgreSQL, avec `--base` si la base n'est
+   pas celle du réglage).
+3. Le programme vérifie que le fichier est bien une base Gescom, garde
+   la base en place à côté (`…avant-restauration-<date>`) et dit ce
+   qu'il a fait. Un fichier abîmé est refusé, rien n'est touché.
+4. Relancer : `sc start GescomServeur`. Les caisses se reconnectent.
+
+Faites-le **une fois pour de vrai** sur une base d'essai, avant d'en
+avoir besoin : une sauvegarde qu'on n'a jamais restaurée n'est pas une
+sauvegarde.
 
 ## Vérifier et réparer
 

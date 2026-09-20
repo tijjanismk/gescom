@@ -1337,3 +1337,80 @@ brouillon_et_ne_sort_le_stock_qu_a_l_emission`), trois tests purs dans
 « Modifier » ni de « Livraison » ligne à ligne sur un bon émis /
 brouillon respectivement.
 
+## 19/09/2026 (suite 3) — la livraison, ses filtres, et ce que fait le stock
+
+**« missing field ligne_id »** à la saisie d'une livraison : l'écran
+envoyait `ligneId` / `quantiteLivree` — en camelCase, comme les
+arguments de premier niveau — mais un champ imbriqué n'est renommé par
+personne, et `LigneLivraison` attend `ligne_id`. La structure accepte
+les deux (`serde(alias)`), l'écran envoie désormais la même graphie que
+les lignes d'une pièce. Trouvé par le propriétaire, pas par un test :
+aucun scénario ne passait par le JSON de l'écran.
+
+**Les filtres suivent la livraison.** Quand le suivi est actif, un
+filtre Livraison / Réception (non livré, partiel, livré) — le troisième
+axe, celui qui répond à « payé, pas livré ». En passant : le filtre
+Échéance existait et ne s'appliquait jamais ; la case Impayés envoyait
+`impaySeulement`, que le serveur ne lisait pas. Les deux marchent.
+
+**Annuler par avoir une facture issue d'un BL.** Le bon a fait sortir
+la marchandise, la facture n'a rien sorti (`stock_confie_a_un_bon`) ;
+l'avoir d'annulation constate un retour : la marchandise **revient une
+fois**, le bon garde sa trace « livré », sortie + retour = point de
+départ, et l'historique dit les deux mouvements. Scénario ajouté pour
+que la réponse reste vraie.
+
+**« Une livraison vient de telle commande » est dans les tables** :
+`piece_commerciale.piece_origine_id`, posé à la conversion, et c'est
+lui que remonte `stock_confie_a_un_bon`. À l'écran, la flèche ↗ à
+côté du numéro.
+
+## 20/09/2026 — la dette qu'on pouvait payer sans le propriétaire
+
+Ce qui restait de la v2 se partageait en deux : ce qui demande le
+propriétaire devant sa machine (le service en élevé, le papier, deux
+postes) et ce qui ne demande que du temps. Le second lot, ce jour.
+
+**Restaurer, enfin.** Depuis le 13/09 la restauration était « jouée à
+la main » — une commande `pg_restore` dans une fiche. Elle est dans le
+serveur : `gescom-serveur --restaurer FICHIER`, hors ligne, qui refuse
+un fichier qui n'est pas une base (`PRAGMA integrity_check`, table
+`vente` exigée), garde l'ancienne base à côté, et dit quoi faire
+ensuite. Pas de bouton dans l'écran, et c'est voulu (D4).
+
+**Trois tests de routes.** Le noyau avait 158 scénarios et le serveur
+zéro — c'est par là qu'étaient passés l'interblocage du 13/09 et le
+« missing field ligne_id » du 19/09. `serveur/tests/routes.rs` lance le
+vrai exécutable sur une base temporaire et un port libre, parle HTTP à
+la main (pas de client dans les dépendances de test), et rejoue :
+connexion / mauvais mot de passe / jeton révoqué / commande inconnue /
+permission refusée ; un bon de livraison qu'on émet, qu'on livre avec
+le JSON de l'écran en snake **et** en camel, le stock qui suit ; une
+sauvegarde, un client créé après, `--restaurer`, le serveur relancé,
+le client absent. Soixante secondes chacun sur cette machine (le
+binaire en debug s'amorce lentement), et ils attrapent ce que la
+lecture laissait passer.
+
+**Le chèque rejeté.** Il supprimait le paiement et le mouvement. Il
+écrit maintenant l'inverse — paiement négatif, sortie de caisse — et
+ne demande pas de caisse ouverte : la banque refuse quand elle veut,
+pas aux heures d'ouverture (D14). Le scénario du cycle du chèque a
+changé d'assertions : deux paiements dont la somme fait zéro, une
+sortie `cheque_rejete`, la créance rouverte.
+
+**Cinq listes qui collaient du texte dans le SQL.** Les versions
+`Connection` de `lire_toutes_pieces_client/fournisseur` et des trois
+paginations (clients, stocks, fournisseurs) échappaient l'apostrophe à
+la main et laissaient `%` et `_` faire joker. Filtres liés (`?n`),
+un scénario `filtres_lies` qui cherche « O'Brien 100% » et le trouve.
+
+**Deux cosmétiques.** `ModalImpression` (le POS avait sa propre
+impression, sans les modèles) est retiré : après la vente, le même
+`ApercuPiece` que dans Pièces. Et les étiquettes dessinent un vrai
+EAN-13 — un SVG de 95 modules à 0,33 mm, pas des barres en CSS —
+avec le numéro en clair dessous ; les trois codes d'essai se relisent
+module par module. À vérifier à la douchette sur du papier (TESTS-
+MANUELS, H).
+
+458 tests SQLite, 0 échec ; PostgreSQL vert sur les cinq fichiers
+touchés. Rien de committé : lot posé avec celui du 19/09 (suite 3).

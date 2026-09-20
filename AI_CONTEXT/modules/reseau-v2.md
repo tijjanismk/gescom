@@ -64,6 +64,7 @@ même permission que la sauvegarde (D9).
 ## Tests et essais
 
 - [tests/reseau.rs](../../src-tauri/noyau/tests/reseau.rs) — sessions, postes, révocations, sur base en mémoire ; [registre_base.rs](../../src-tauri/noyau/tests/registre_base.rs) — le double enregistrement.
+- **[serveur/tests/routes.rs](../../src-tauri/serveur/tests/routes.rs)** (20/09/2026) — le vrai `gescom-serveur.exe` lancé sur une base SQLite temporaire et un port libre, HTTP/1.1 écrit à la main sur un `TcpStream`. Trois tests : connexion et refus (401, mauvais mot de passe, 404 commande inconnue, 403 permission, jeton révoqué par `/deconnexion`) ; un bon de livraison émis puis livré avec le JSON de l'écran, en snake_case et en camelCase, le stock qui suit ; `POST /sauvegarde`, arrêt, `--restaurer`, relance, la saisie d'après la sauvegarde absente. `cargo test -p gescom-serveur --test routes` (via cargo-tenace), ~1 min par test en debug.
 - **`outils/caisse_pg.py <url>`** — rejoue une caisse écran par écran par `/rpc` (141 clics) contre un serveur qui tourne. Sur une base **jetable**.
 - Le pare-feu est vérifié depuis un second appareil (11/09/2026) ; la console n'est pas testée automatiquement — ce qu'elle appelle l'est. `POST /entretien` a été joué par HTTP le 13/09 (401 sans jeton, ok avec, dump lisible) : il a attrapé un interblocage (`sauvegarde::dossier` reprenait le verrou que le gestionnaire tenait), corrigé — récit dans [JOURNAL.md](../JOURNAL.md).
 
@@ -83,6 +84,7 @@ demande « Quel dossier ouvrir ? » quand il y en a plusieurs ;
 
 ## Ce qui reste
 
+- Les routes sont testées sur SQLite ; le même fichier contre PostgreSQL demanderait une base jetable par test (schéma à créer et détruire), pas fait.
 - Une vraie impression papier depuis une caisse, jamais essayée.
 - Le service Windows n'a pas été déroulé en élevé depuis la session
   d'écriture (TESTS-MANUELS, section A).

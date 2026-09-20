@@ -144,6 +144,15 @@ restauration d'essai, et le manuel doit dire de la faire une fois.
 
 **Confirmé le 11/09/2026 : on fait `pg_dump`.**
 
+**La restauration, le 20/09/2026** : `gescom-serveur --restaurer
+FICHIER [--base …]`, serveur **arrêté**, depuis la machine du serveur.
+Pas de bouton dans l'application : restaurer écrase tout ce qui a été
+saisi depuis la sauvegarde, et un geste qui efface une journée de ventes
+ne se fait pas d'un clic depuis une caisse. Sur SQLite, la base en place
+est gardée à côté (`.avant-restauration-<date>`) ; sur PostgreSQL,
+`pg_restore --clean --if-exists` remplace les tables. Un test de route
+rejoue le cycle complet (sauvegarde, restauration, redémarrage).
+
 ---
 
 ## D5 — L'installeur n'est pas signé, et voici quand ça changera
@@ -409,7 +418,7 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D1 | `depot` reste `depot` dans le code ; « magasin » à l'écran |
 | D2 | les calculs de dates passent en Rust, le SQL ne fait que comparer |
 | D3 | 54 constructions traduites module par module, jamais deux variantes |
-| D4 | `pg_dump` tous les soirs, deux endroits, restauration à essayer — **branché le 12/09/2026**, restauration encore à essayer |
+| D4 | `pg_dump` tous les soirs, deux endroits, restauration à essayer — **branché le 12/09/2026**, `--restaurer` **le 20/09/2026** |
 | D5 | pas de signature tant que tu installes toi-même |
 | D6 | aucun compte de secours ; une commande sur le serveur |
 | D7 | l'écran des permissions par personne se fait |
@@ -418,6 +427,7 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D14 | un chèque rejeté se contre-passe (paiement négatif + sortie de caisse), sans exiger une caisse ouverte |
 | D13 | le dossier (v3) se choisit **à la connexion**, mémorisé **par personne** côté serveur ; en changer, c'est se déconnecter ; plusieurs dossiers **demandent PostgreSQL** — **dormante** : la v3 n'est pas commencée, un seul dossier = comportement d'avant |
 
 Aucune case n'attend de réponse.
@@ -456,3 +466,25 @@ le dossier de la session sur la `Base` avant chaque commande portée.
 Sur une base fichier, les commandes `Connection` ne servent que le
 dossier d'origine : un second dossier y est **refusé** (création comme
 connexion), pas servi de travers.
+
+---
+
+## D14 — Un chèque rejeté se contre-passe, sans caisse ouverte
+
+Avant : rejeter un chèque **supprimait** le paiement et son mouvement de
+caisse, comme s'ils n'avaient jamais existé. Le journal de caisse du
+jour de l'encaissement ne bouclait plus, et rien ne disait qu'un chèque
+avait été reçu puis refusé.
+
+**Décision (20/09/2026) : un rejet écrit l'inverse, il n'efface pas.**
+Un `paiement` négatif (`origine = 'rejet_cheque'`, `annule_paiement_id`
+vers l'encaissement) rouvre la créance ; une **sortie de caisse**
+`cheque_rejete` du même montant, en moyen `cheque`, défait l'entrée.
+L'historique dit les deux.
+
+**Le rejet n'exige pas de caisse ouverte.** La règle « l'argent sort du
+tiroir → caisse ouverte » vaut pour les espèces ; un chèque refusé par
+la banque n'a jamais été dans le tiroir, et la nouvelle arrive quand
+elle arrive — souvent des jours après, à un moment où la caisse est
+close. La sortie se rattache à la session ouverte si elle existe, sinon
+à celle qui a reçu le chèque, pour que le journal reste lisible.

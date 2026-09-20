@@ -147,7 +147,8 @@ passe par les yeux et par le réseau.
 |---|---|---|---|
 | J1 | Console → Sauvegarder maintenant | Fichier daté dans le dossier réglé (`.db` ou dump PostgreSQL) | ☐ |
 | J2 | Console → Entretien | Intégrité vérifiée, copie faite avant, compactage ; message de fin | ☐ |
-| J3 | Restaurer la sauvegarde sur une base neuve, relancer le service | Les données reviennent ; les caisses se reconnectent | ☐ |
+| J3 | `sc stop GescomServeur`, puis `gescom-serveur.exe --restaurer <fichier J1>`, puis `sc start` | « Sauvegarde restaurée (sqlite\|postgresql) sur … », l'ancienne base gardée en `…avant-restauration-<date>` ; les données reviennent ; les caisses se reconnectent | ☐ |
+| J3b | `--restaurer` sur un fichier texte quelconque | « Restauration impossible : … », la base en place intacte | ☐ |
 | J4 | Abîmer volontairement le fichier SQLite, `sc start` | Le service **refuse** de démarrer : « BASE ABIMEE … restaurer » dans le journal | ☐ |
 
 ---

@@ -22,7 +22,7 @@ import { SelectUnite } from "@/components/SelectUnite";
 import {
   ModalOuvrirCaisse, estCaisseFermee,
 } from "@/components/ModalOuvrirCaisse";
-import { ModalImpression } from "@/components/ModalImpression";
+import { ApercuPiece } from "@/components/ApercuPiece";
 import { useScanner } from "@/lib/useScanner";
 import { UTILISATEUR_ACTIF, DEPOT_ACTIF, definirDepotActif } from "@/App";
 import type { CreerVenteResultat } from "@/lib/types-api";
@@ -599,14 +599,15 @@ export function Ventes() {
   // Modals
   const [modalEncaissement, setModalEncaissement] = useState(false);
   const [modalConfirmation, setModalConfirmation] = useState(false);
-  const [modalImpression, setModalImpression] = useState(false);
+  // Apres la vente : l'apercu de la facture — le MEME que dans Pieces,
+  // avec les modeles et les formats. ModalImpression faisait doublon.
+  const [pieceAImprimer, setPieceAImprimer] = useState<string | null>(null);
   const [modePaiementComptant, setModePaiementComptant] = useState("especes");
   // Un cheque doit etre identifie : numero + banque. Sans cela il est
   // impossible de savoir plus tard lequel a ete encaisse ou rejete.
   const [chequeNumero, setChequeNumero] = useState("");
   const [chequeBanque, setChequeBanque] = useState("");
   const [chargementVente, setChargementVente] = useState(false);
-  const [venteIdPourImpression, setVenteIdPourImpression] = useState<string | null>(null);
   const [scannerNotification, setScannerNotification] =
     useState<{ texte: string; type: "succes" | "erreur" | "attente" } | null>(null);
 
@@ -1094,8 +1095,11 @@ export function Ventes() {
       setModalConfirmation(false);
       setChequeNumero(""); setChequeBanque("");
       viderPanier();
-      setVenteIdPourImpression(vente_id);
-      setModalImpression(true);
+      // La facture derriere la vente (D16 : creee en try/catch, elle
+      // peut manquer — alors rien a montrer).
+      invoke<string | null>("lire_piece_de_vente", { venteId: vente_id })
+        .then(p => setPieceAImprimer(p))
+        .catch(() => setPieceAImprimer(null));
 
     } catch (e) {
       setModalConfirmation(false);
@@ -1736,9 +1740,8 @@ export function Ventes() {
         }}
       />
 
-      <ModalImpression ouvert={modalImpression}
-        venteId={venteIdPourImpression}
-        onFermer={() => setModalImpression(false)} />
+      <ApercuPiece pieceId={pieceAImprimer} typePiece="facture"
+        onFermer={() => setPieceAImprimer(null)} />
 
       <Dialog open={modalNouvelArticle}
         onOpenChange={o => !o && setModalNouvelArticle(false)}>
