@@ -26,6 +26,8 @@ export interface FiltresState {
   montant_max: string;
   impaye_seulement: boolean;
   en_retard_seulement: boolean;
+  /** Etat de livraison — ne sert que si le suivi est actif. */
+  livraison: string;
 }
 
 export const FILTRES_VIDES: FiltresState = {
@@ -39,11 +41,12 @@ export const FILTRES_VIDES: FiltresState = {
   montant_max: "",
   impaye_seulement: false,
   en_retard_seulement: false,
+  livraison: "tous",
 };
 
 function nbFiltresActifs(f: FiltresState): number {
   return Object.entries(f).filter(([k, v]) => {
-    if (k === "type_piece" || k === "statut" || k === "client_id")
+    if (k === "type_piece" || k === "statut" || k === "client_id" || k === "livraison")
       return v !== "tous";
     if (k === "echeance") return v !== "toutes";
     if (typeof v === "boolean") return v === true;
@@ -84,6 +87,15 @@ const STATUTS = [
   { value: "annule",    label: "Annulé"       },
 ];
 
+// Le troisieme axe, quand la boutique livre : une piece est payee OU
+// livree, et c'est leur croisement qu'on cherche (« payé, pas livré »).
+export const LIVRAISONS = [
+  { value: "tous",      label: "Toute livraison" },
+  { value: "non_livre", label: "Non livré"       },
+  { value: "partiel",   label: "Partiellement"   },
+  { value: "livre",     label: "Livré"           },
+];
+
 const ECHEANCES = [
   { value: "toutes",        label: "Toutes échéances" },
   { value: "depassee",      label: "Dépassée"         },
@@ -99,9 +111,12 @@ interface FiltresAvancesProps {
   filtres: FiltresState;
   onChange: (f: FiltresState) => void;
   cote: "client" | "fournisseur";
+  /** Le suivi de livraison est actif (Parametres → Ventes) : le filtre
+   *  de livraison apparait. Sinon il n'aurait rien a filtrer. */
+  suiviLivraison?: boolean;
 }
 
-export function FiltresAvances({ filtres, onChange, cote }: FiltresAvancesProps) {
+export function FiltresAvances({ filtres, onChange, cote, suiviLivraison }: FiltresAvancesProps) {
   // Ouverts par defaut : un filtre replie est un filtre qu'on oublie.
   const [ouvert, setOuvert] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
@@ -258,6 +273,28 @@ export function FiltresAvances({ filtres, onChange, cote }: FiltresAvancesProps)
                   className="h-8 text-xs w-24" />
               </div>
             </div>
+
+            {/* Livraison — seulement quand la boutique livre */}
+            {suiviLivraison && (
+              <div>
+                <Label className="text-xs mb-1 block">
+                  {cote === "client" ? "Livraison" : "Réception"}
+                </Label>
+                <Select value={filtres.livraison}
+                  onValueChange={v => { if (v) set("livraison", v); }}>
+                  <SelectTrigger className="h-8 text-xs w-36"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {LIVRAISONS.map(l => (
+                      <SelectItem key={l.value} value={l.value} className="text-xs">
+                        {cote === "fournisseur" && l.value === "livre" ? "Reçu"
+                          : cote === "fournisseur" && l.value === "non_livre" ? "Non reçu"
+                          : l.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* Cases à cocher */}
             <div className="flex flex-col gap-2 pb-0.5">

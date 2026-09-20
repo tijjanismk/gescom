@@ -289,6 +289,46 @@ fn un_bon_de_livraison_cree_a_la_main_nait_en_brouillon_et_ne_sort_le_stock_qu_a
     assert_eq!(statut_piece(&mut base, &id(&bl)), "annule");
 }
 
+/// Ce que fait le stock quand on annule par avoir une facture ISSUE
+/// d'un bon de livraison. Le bon a fait sortir la marchandise ; la
+/// facture, elle, n'a rien sorti (`stock_confie_a_un_bon`). L'avoir
+/// d'annulation constate un RETOUR : la marchandise revient — c'est le
+/// sens d'un avoir sur une livraison faite. Le bon garde sa trace de
+/// livraison ; sortie + retour, le stock est revenu au point de depart,
+/// et l'historique dit les deux mouvements.
+#[test]
+fn annuler_par_avoir_une_facture_issue_d_un_bon_fait_revenir_la_marchandise_une_fois() {
+    let mut base = base_avec_demo();
+    let sucre = article_unite(&mut base, "Sucre");
+    let depot = depot_defaut(&mut base);
+    let avant = stock(&mut base, &sucre.0, &depot);
+
+    let d = devis(&mut base, 4.0);
+    let cmd = pieces::convertir_piece_sur_base(&mut base, id(&d), "commande_client".into()).unwrap();
+    let bl = pieces::convertir_piece_sur_base(&mut base, id(&cmd), "bon_livraison".into()).unwrap();
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant - 4.0, "le bon sort");
+    let fac = pieces::convertir_piece_sur_base(&mut base, id(&bl), "facture".into()).unwrap();
+    ouvrir_caisse(&mut base);
+    argent::valider_facture_sur_base(&mut base, id(&fac), "credit".into(), None, None, None).unwrap();
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant - 4.0, "la facture ne sort rien de plus");
+
+    let r = pieces::annuler_facture_par_avoir_sur_base(&mut base, id(&fac), Some("avoir".into()), None, Some("client a rendu".into()))
+        .expect("annuler par avoir");
+    assert!(r["numero_avoir"].as_str().unwrap_or("").starts_with("AVC-"), "{r}");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant, "la marchandise revient — une fois, pas deux");
+    // Le bon n'est pas touche : sa livraison a eu lieu, l'avoir la contredit.
+    let client = client_reel(&mut base);
+    let liste = pieces::lire_pieces_client_sur_base(&mut base, client, Some("bon_livraison".into())).unwrap();
+    assert_eq!(liste[0]["etat_livraison"], "livre");
+    let dossier = base.dossier().to_string();
+    let mouvements = compter(
+        &mut base,
+        "SELECT COUNT(*) FROM mouvement_stock WHERE article_id = ?1 AND type_mouvement IN ('livraison', 'retour') AND dossier_id = ?2",
+        &parametres![sucre.0.clone(), dossier],
+    );
+    assert_eq!(mouvements, 2, "une sortie par le bon, un retour par l'avoir");
+}
+
 #[test]
 fn commande_vers_bon_et_facture_en_un_geste() {
     let mut base = base_avec_demo();

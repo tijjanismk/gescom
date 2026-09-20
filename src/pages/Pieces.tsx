@@ -833,7 +833,9 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
           dateFin:           filtresAvances.date_fin   ? filtresAvances.date_fin   + "T23:59:59" : null,
           montantMin:        filtresAvances.montant_min ? parseInt(filtresAvances.montant_min) : null,
           montantMax:        filtresAvances.montant_max ? parseInt(filtresAvances.montant_max) : null,
-          impaySeulement:    filtresAvances.impaye_seulement    || null,
+          // `impayeSeulement` : la cle etait mal ecrite (impaySeulement)
+          // et le serveur ne la lisait pas — la case ne filtrait rien.
+          impayeSeulement:   filtresAvances.impaye_seulement    || null,
           enRetardSeulement: filtresAvances.en_retard_seulement || null,
           clientId:          filtresAvances.client_id !== "tous" ? filtresAvances.client_id : null,
         });
@@ -862,8 +864,35 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
 
   useEffect(() => { charger(); }, [charger]);
 
+  // Filtres locaux : l'echeance (existait, ne s'appliquait pas) et la
+  // livraison — deux axes que la liste porte deja sur chaque piece.
+  const aujourdHui = new Date();
+  const dansJours = (d: string, n: number) => {
+    const e = new Date(d);
+    const diff = (e.getTime() - aujourdHui.getTime()) / 86_400_000;
+    return diff >= 0 && diff <= n;
+  };
+  const piecesFiltrees = pieces.filter(p => {
+    if (filtresAvances.echeance !== "toutes") {
+      if (!p.date_echeance) return false;
+      const close = ["paye", "annule", "transfere", "validee"].includes(p.statut);
+      const e = new Date(p.date_echeance);
+      if (filtresAvances.echeance === "depassee" && (close || e >= aujourdHui)) return false;
+      if (filtresAvances.echeance === "cette_semaine" && !dansJours(p.date_echeance, 7)) return false;
+      if (filtresAvances.echeance === "ce_mois"
+          && (e.getMonth() !== aujourdHui.getMonth() || e.getFullYear() !== aujourdHui.getFullYear())) return false;
+    }
+    if (suiviLivraison && filtresAvances.livraison !== "tous") {
+      // Une piece qui ne livre rien (devis, avoir) n'a pas d'etat : elle
+      // sort du filtre plutot que de passer pour « non livree ».
+      if (!p.etat_livraison || p.etat_livraison === "sans_objet") return false;
+      if (p.etat_livraison !== filtresAvances.livraison) return false;
+    }
+    return true;
+  });
+
   // Tri local
-  const piecesTri = [...pieces].sort((a, b) => {
+  const piecesTri = [...piecesFiltrees].sort((a, b) => {
     let va: any, vb: any;
     switch (triCol) {
       case "date":    va = a.date_piece; vb = b.date_piece; break;
@@ -1296,6 +1325,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
             if (f.type_piece !== "tous") setFiltreTypeRapide("tous");
           }}
           cote={onglet}
+          suiviLivraison={suiviLivraison}
         />
       </div>
 

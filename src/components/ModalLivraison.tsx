@@ -111,9 +111,11 @@ export function ModalLivraison({
     try {
       await invoke("enregistrer_livraison", {
         pieceId,
+        // Champs imbriques : en snake_case, comme les lignes d'une piece
+        // (Tauri ne renomme que les arguments de premier niveau).
         lignes: donnees.lignes.map(l => ({
-          ligneId: l.id,
-          quantiteLivree: parseFloat(saisie[l.id] ?? "0") || 0,
+          ligne_id: l.id,
+          quantite_livree: parseFloat(saisie[l.id] ?? "0") || 0,
         })),
       });
       onEnregistre?.();

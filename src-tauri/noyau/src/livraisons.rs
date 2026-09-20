@@ -326,12 +326,18 @@ pub fn lire_livraison_piece(
 
 #[derive(Deserialize)]
 pub struct LigneLivraison {
+    // `alias` : l'ecran a envoye un temps `ligneId` / `quantiteLivree`
+    // (camelCase, comme les arguments de premier niveau) — un champ
+    // IMBRIQUE n'est pas renomme, et la livraison echouait sur
+    // « missing field ligne_id ». Les deux graphies passent.
+    #[serde(alias = "ligneId")]
     pub ligne_id: String,
     /// Quantite TOTALE livree a ce jour, pas l'increment.
     ///
     /// Un increment obligerait l'ecran a connaitre l'etat courant pour
     /// calculer la difference, et deux enregistrements rapproches
     /// doubleraient la quantite. Ici l'ecran envoie ce qu'il affiche.
+    #[serde(alias = "quantiteLivree")]
     pub quantite_livree: f64,
 }
 
