@@ -32,7 +32,12 @@ avoirs, relances, chèques.
 
 **retours.rs** — `lire_ventes_recentes`,
 `enregistrer_retour` ([retours.rs:110](../../src-tauri/src/commandes/retours.rs#L110)),
-`lire_avoirs_ouverts_tous`.
+`lire_avoirs_ouverts_tous`. Le retour crédite `prix_pratique × qté`
+(prix net, remise déduite), éteint d'abord la dette (D33), puis rend le
+solde selon `coeur::calcul::repartir_retour` (D15) : la part payée en
+argent en espèces ou en avoir selon le mode, la part payée avec un
+avoir **toujours en avoir**. La réponse porte `part_especes`,
+`part_avoir`, `numero_avoir`.
 
 **avoirs.rs** — `lire_avoirs_client`, `total_avoirs_client`,
 `rembourser_avoir`, `chercher_article_par_code_barre`,

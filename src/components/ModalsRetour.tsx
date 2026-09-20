@@ -113,17 +113,29 @@ export function ModalRemboursement({
     if (!vente || !ligne || quantiteNum <= 0) return;
     setChargement(true);
     try {
-      await invoke("enregistrer_retour", {
-        venteId: vente.id,
-        ligneVenteId: ligne.id,
-        quantite: quantiteNum,
-        modeResolution: "remboursement",
-        modeEncaissement,
-        articleRemplacementId: null,
-        uniteRemplacementId: null,
-        quantiteRemplacement: null,
-        modeReliquatPositif: null,
-      });
+      const res = await invoke<{ part_especes: number; part_avoir: number; numero_avoir: string | null }>(
+        "enregistrer_retour", {
+          venteId: vente.id,
+          ligneVenteId: ligne.id,
+          quantite: quantiteNum,
+          modeResolution: "remboursement",
+          modeEncaissement,
+          articleRemplacementId: null,
+          uniteRemplacementId: null,
+          quantiteRemplacement: null,
+          modeReliquatPositif: null,
+        });
+      // Ce que le client avait paye avec un avoir revient en avoir, pas
+      // en especes (D15) : le vendeur doit le savoir AVANT d'ouvrir le
+      // tiroir, sinon il rend de l'argent qui n'est jamais entre.
+      if (res?.part_avoir > 0) {
+        await message(
+          `À rendre en espèces : ${formaterMontant(res.part_especes)}. ` +
+          `Le reste (${formaterMontant(res.part_avoir)}) avait été payé avec un avoir : ` +
+          `il revient en avoir ${res.numero_avoir ?? ""} — imprimable depuis Pièces.`,
+          { title: "Remboursement partiel en espèces", kind: "info" },
+        );
+      }
       onConfirmer();
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
@@ -394,7 +406,7 @@ export function ModalEchange({
     if (!vente || !ligne || !articleRemplacement || !uniteRemplacement) return;
     setChargement(true);
     try {
-      await invoke("enregistrer_retour", {
+      const res = await invoke<{ part_avoir: number; numero_avoir: string | null }>("enregistrer_retour", {
         venteId: vente.id,
         ligneVenteId: ligne.id,
         quantite: quantiteRetourNum,
@@ -442,6 +454,16 @@ export function ModalEchange({
         } catch (e) {
           console.error("Bon d'échange non imprimé :", e);
         }
+      }
+
+      // Le reliquat demande en especes revient en avoir pour la part
+      // que le client avait payee avec un avoir (D15).
+      if (reliquat > 0 && modeReliquatPositif === "remboursement" && res?.part_avoir > 0) {
+        await message(
+          `Le client avait payé avec un avoir : ${formaterMontant(res.part_avoir)} ` +
+          `reviennent en avoir ${res.numero_avoir ?? ""}, pas en espèces.`,
+          { title: "Reliquat en avoir", kind: "info" },
+        );
       }
 
       onConfirmer();

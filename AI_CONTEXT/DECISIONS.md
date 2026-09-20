@@ -427,6 +427,7 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D15 | un retour rend l'argent en argent et l'avoir en avoir ; ce qui a été payé avec un avoir ne devient jamais des espèces |
 | D14 | un chèque rejeté se contre-passe (paiement négatif + sortie de caisse), sans exiger une caisse ouverte |
 | D13 | le dossier (v3) se choisit **à la connexion**, mémorisé **par personne** côté serveur ; en changer, c'est se déconnecter ; plusieurs dossiers **demandent PostgreSQL** — **dormante** : la v3 n'est pas commencée, un seul dossier = comportement d'avant |
 
@@ -488,3 +489,26 @@ la banque n'a jamais été dans le tiroir, et la nouvelle arrive quand
 elle arrive — souvent des jours après, à un moment où la caisse est
 close. La sortie se rattache à la session ouverte si elle existe, sinon
 à celle qui a reçu le chèque, pour que le journal reste lisible.
+
+---
+
+## D15 — L'argent revient en argent, l'avoir en avoir
+
+Un retour ne rend jamais plus que ce que le client a versé (D33). Le
+plafond ne comptait que l'argent : les paiements par avoir en étaient
+exclus, « pas d'argent reçu ». Vrai — mais un avoir consommé est un
+crédit dépensé. Le client qui achetait avec son avoir puis rendait la
+marchandise se retrouvait sans rien : ni espèces (jamais versées), ni
+avoir (consommé). Le montant partait dans le journal en « non
+attribuable ».
+
+**Décision (20/09/2026) : chaque part revient sous sa forme.** La part
+payée en argent revient en argent (ou en avoir si le client le
+préfère) ; la part payée avec un avoir **revient toujours en avoir**,
+même si le client demande un remboursement — un avoir n'a jamais été
+de l'argent, on ne le convertit pas au tiroir. Le vendeur voit à
+l'écran combien rendre en espèces et combien part en avoir. Sur un
+échange, le reliquat demandé en espèces est borné de la même façon.
+
+La règle est pure (`coeur::calcul::repartir_retour`) : espèces,
+avoir, non attribuable — ce dernier reste signalé, jamais rendu.

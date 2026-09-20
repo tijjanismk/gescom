@@ -241,6 +241,49 @@ mod tests_avoir_fournisseur {
     }
 }
 
+/// Ce qu'un retour rend au client, et sous quelle forme (D15).
+///
+/// Le client a payé sa vente avec de l'argent, avec un avoir, ou les
+/// deux. Un retour ne rend jamais plus que ce qui a été versé, et il
+/// rend chaque part sous sa forme : **l'argent revient en argent, un
+/// avoir revient en avoir** — jamais un avoir converti en espèces, et
+/// jamais un avoir consommé qui disparaît parce que « rien n'a été
+/// encaissé » (c'était le trou : payer avec son avoir puis rendre
+/// laissait le client sans rien).
+///
+/// `a_rendre` : la part du retour qui ne s'impute pas sur la dette.
+/// `plafond_especes` : argent réellement reçu moins déjà remboursé.
+/// `plafond_total` : ce plafond plus les avoirs consommés, moins les
+/// avoirs déjà rendus. Rend (espèces, avoir, non attribuable).
+pub fn repartir_retour(a_rendre: i64, plafond_especes: i64, plafond_total: i64) -> (i64, i64, i64) {
+    let plafond_especes = plafond_especes.max(0);
+    let plafond_total = plafond_total.max(0).max(plafond_especes);
+    let attribuable = a_rendre.max(0).min(plafond_total);
+    let especes = attribuable.min(plafond_especes);
+    (especes, attribuable - especes, a_rendre.max(0) - attribuable)
+}
+
+#[cfg(test)]
+mod tests_retour {
+    use super::*;
+
+    #[test]
+    fn l_argent_revient_en_argent_et_l_avoir_en_avoir() {
+        // Payé 800 en espèces : tout revient en espèces.
+        assert_eq!(repartir_retour(800, 800, 800), (800, 0, 0));
+        // Payé avec un avoir de 800 : rien en caisse, l'avoir revient.
+        assert_eq!(repartir_retour(800, 0, 800), (0, 800, 0));
+        // 500 en espèces + 300 d'avoir, retour de 800 : 500 et 300.
+        assert_eq!(repartir_retour(800, 500, 800), (500, 300, 0));
+        // Retour partiel de 200 sur le même : les espèces d'abord.
+        assert_eq!(repartir_retour(200, 500, 800), (200, 0, 0));
+        // Plus que versé : le surplus est signalé, pas rendu.
+        assert_eq!(repartir_retour(1_000, 500, 800), (500, 300, 200));
+        // Rien à rendre (le retour a éteint la dette).
+        assert_eq!(repartir_retour(0, 500, 800), (0, 0, 0));
+    }
+}
+
 /// Écart entre prix de référence et prix pratiqué.
 /// Positif = remise accordée. Négatif = hausse (ignorée, cf. §7).
 pub fn ecart_prix(prix_reference: i64, prix_pratique: i64) -> i64 {

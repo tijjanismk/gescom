@@ -51,7 +51,7 @@ Serveur* → Arrêter / Démarrer.
 
 | Raccourci | Ce que c'est |
 |---|---|
-| Journal du serveur | `C:\ProgramData\Gescom\serveur.log` — ce que le serveur a fait, avec l'heure |
+| Journal du serveur | `C:\ProgramData\Gescom\serveur.log` — ce que le serveur a fait, avec l'heure : chaque refus (« 11:02 REFUS … creer_vente … Caisse fermée »), chaque erreur, chaque commande lente, les démarrages et les sauvegardes. Une commande qui passe n'y écrit rien. Le fichier tourne tout seul à 5 Mo, jamais de mot de passe dedans |
 | Configuration du serveur | `serveur.json` — la base et le port. Après une modification, redémarrer le service |
 | Console du serveur | `http://localhost:7300` — les postes connectés, les sauvegardes, l'entretien |
 
@@ -589,6 +589,12 @@ Trouvez la vente, choisissez la ligne et la quantité, puis :
 > **Important** : si le client n'avait pas tout payé, le retour éteint
 > d'abord sa dette. On ne lui rend que ce qu'il avait réellement versé.
 
+> **Payé avec un avoir ?** Ce qui avait été payé avec un avoir revient
+> **en avoir**, jamais en espèces — même si vous choisissez
+> « Remboursement ». L'écran vous dit alors combien rendre en billets et
+> quel avoir a été créé. Un article vendu avec remise se rembourse au
+> prix payé, remise déduite.
+
 ## Retour fournisseur
 
 Onglet **Retour fournisseur**. Choisissez le fournisseur, sa facture,
@@ -711,6 +717,10 @@ d'affaires ne bouge pas.
 
 **Journal.** Tout ce qui s'est passé dans la journée :
 
+- **Anomalies à vérifier**, en rouge, en tête — seulement s'il y en a :
+  ce que le programme a constaté sans pouvoir le régler (un montant de
+  retour ni imputable ni remboursable, par exemple). À regarder le
+  jour même.
 - Les ventes, ligne par ligne
 - **Hors du jour** — l'argent reçu aujourd'hui sur des ventes anciennes
 - Les achats, les retours, les dépenses

@@ -288,3 +288,100 @@ fn tout_ce_qui_est_porte_dans_retours_passe_le_detecteur() {
     .expect("échange");
     retours::lire_avoirs_ouverts_tous_sur_base(&mut base).expect("avoirs");
 }
+
+#[test]
+fn rendre_ce_qu_on_a_paye_avec_un_avoir_rend_l_avoir() {
+    let mut base = base_avec_demo();
+    ouvrir_caisse(&mut base);
+    let depot = depot_defaut(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let client = client_reel(&mut base);
+
+    // 1. Un premier retour donne un avoir au client.
+    let v = argent::creer_vente_sur_base(
+        &mut base, client.clone(), depot.clone(), "comptant".into(),
+        vec![ligne_vente(&sucre, &depot, 1.0)], None, Some(sucre.3), None, None,
+    )
+    .unwrap();
+    let vente_id = v["vente_id"].as_str().unwrap().to_string();
+    let ligne_id: String = base
+        .lire_une("SELECT id FROM ligne_vente WHERE vente_id = ?1", &parametres![vente_id.clone()], |r| r.get::<String>(0))
+        .unwrap().unwrap();
+    retours::enregistrer_retour_sur_base(
+        &mut base, vente_id, ligne_id, 1.0, "avoir_conserve".into(), None, None, None, None, None, None,
+    )
+    .unwrap();
+    assert_eq!(retours::lire_avoirs_ouverts_tous_sur_base(&mut base).unwrap().len(), 1);
+
+    // 2. Il achete avec cet avoir — pas un franc en caisse.
+    let v = argent::creer_vente_sur_base(
+        &mut base, client.clone(), depot.clone(), "comptant".into(),
+        vec![ligne_vente(&sucre, &depot, 1.0)], None, Some(0), None, Some(sucre.3),
+    )
+    .unwrap();
+    let vente_id = v["vente_id"].as_str().unwrap().to_string();
+    let ligne_id: String = base
+        .lire_une("SELECT id FROM ligne_vente WHERE vente_id = ?1", &parametres![vente_id.clone()], |r| r.get::<String>(0))
+        .unwrap().unwrap();
+    assert_eq!(retours::lire_avoirs_ouverts_tous_sur_base(&mut base).unwrap().len(), 0, "l'avoir est consomme");
+
+    // 3. Il rend la marchandise et veut garder un avoir.
+    let r = retours::enregistrer_retour_sur_base(
+        &mut base, vente_id, ligne_id, 1.0, "avoir_conserve".into(), None, None, None, None, None, None,
+    )
+    .unwrap();
+    assert!(r["numero_avoir"].as_str().is_some(), "aucun avoir rendu : {r}");
+    let avoirs = retours::lire_avoirs_ouverts_tous_sur_base(&mut base).unwrap();
+    assert_eq!(avoirs.len(), 1);
+    assert_eq!(avoirs[0]["montant"], sucre.3);
+    assert_eq!(sorties(&mut base, "remboursement"), 0);
+}
+
+#[test]
+fn un_remboursement_rend_les_especes_en_especes_et_l_avoir_en_avoir() {
+    let mut base = base_avec_demo();
+    ouvrir_caisse(&mut base);
+    let depot = depot_defaut(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let client = client_reel(&mut base);
+
+    // Un avoir de 1 × sucre, obtenu par un premier retour.
+    let v = argent::creer_vente_sur_base(
+        &mut base, client.clone(), depot.clone(), "comptant".into(),
+        vec![ligne_vente(&sucre, &depot, 1.0)], None, Some(sucre.3), None, None,
+    )
+    .unwrap();
+    let vente_id = v["vente_id"].as_str().unwrap().to_string();
+    let ligne_id: String = base
+        .lire_une("SELECT id FROM ligne_vente WHERE vente_id = ?1", &parametres![vente_id.clone()], |r| r.get::<String>(0))
+        .unwrap().unwrap();
+    retours::enregistrer_retour_sur_base(
+        &mut base, vente_id, ligne_id, 1.0, "avoir_conserve".into(), None, None, None, None, None, None,
+    )
+    .unwrap();
+
+    // Il achete 3 sucres : 1 avec l'avoir, 2 en especes.
+    let v = argent::creer_vente_sur_base(
+        &mut base, client.clone(), depot.clone(), "comptant".into(),
+        vec![ligne_vente(&sucre, &depot, 3.0)], None, Some(2 * sucre.3), None, Some(sucre.3),
+    )
+    .unwrap();
+    let vente_id = v["vente_id"].as_str().unwrap().to_string();
+    let ligne_id: String = base
+        .lire_une("SELECT id FROM ligne_vente WHERE vente_id = ?1", &parametres![vente_id.clone()], |r| r.get::<String>(0))
+        .unwrap().unwrap();
+    let sorties_avant = sorties(&mut base, "remboursement");
+
+    // Il rend les 3 et veut un remboursement : 2 en especes, 1 en avoir.
+    let r = retours::enregistrer_retour_sur_base(
+        &mut base, vente_id, ligne_id, 3.0, "remboursement".into(), Some("especes".into()), None, None, None, None, None,
+    )
+    .unwrap();
+    assert_eq!(r["part_especes"], 2 * sucre.3);
+    assert_eq!(r["part_avoir"], sucre.3);
+    assert!(r["numero_avoir"].as_str().unwrap().starts_with("AVC-"));
+    assert_eq!(sorties(&mut base, "remboursement") - sorties_avant, 2 * sucre.3);
+    let avoirs = retours::lire_avoirs_ouverts_tous_sur_base(&mut base).unwrap();
+    assert_eq!(avoirs.len(), 1);
+    assert_eq!(avoirs[0]["montant"], sucre.3);
+}

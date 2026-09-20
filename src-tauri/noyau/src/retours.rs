@@ -266,20 +266,35 @@ pub fn enregistrer_retour_sur(
          WHERE vente_id = ?1 AND mode NOT IN ('retour', 'avoir')",
         rusqlite::params![vente_id], |r| r.get(0),
     ).unwrap_or(0);
+    // Ce qu'il a paye avec un avoir : pas d'argent recu, mais un credit
+    // consomme — il revient en avoir, jamais en especes (D15).
+    let verse_avoir: i64 = tx.query_row(
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
+         FROM paiement WHERE vente_id = ?1 AND mode = 'avoir'",
+        rusqlite::params![vente_id], |r| r.get(0),
+    ).unwrap_or(0);
+    let avoirs_deja_rendus: i64 = tx.query_row(
+        "SELECT CAST(COALESCE(SUM(a.montant), 0) AS INTEGER)
+         FROM avoir a
+         WHERE a.retour_id IN (SELECT id FROM retour WHERE vente_id = ?1)",
+        rusqlite::params![vente_id], |r| r.get(0),
+    ).unwrap_or(0);
 
-    let plafond_client = (verse_reel - rembourse_deja).max(0);
+    let plafond_especes = verse_reel - rembourse_deja;
+    let plafond_total = verse_reel + verse_avoir - rembourse_deja - avoirs_deja_rendus;
     let part_client_brute = montant_credit - part_creance;
-    let part_client = part_client_brute.min(plafond_client);
+    let (part_especes, part_avoir, non_attribue) =
+        crate::coeur::calcul::repartir_retour(part_client_brute, plafond_especes, plafond_total);
+    let part_client = part_especes + part_avoir;
 
-    // Ce qui ne peut etre ni impute ni rendu : le signaler plutot que
-    // de le faire disparaitre en silence.
-    let non_attribue = part_client_brute - part_client;
+    // Ce qui ne peut etre ni impute ni rendu : une anomalie dans le
+    // journal, que le cahier du jour montre — pas une ligne sur stderr.
     if non_attribue > 0 {
-        eprintln!(
-            "[gescom] retour {} : {} F non attribuables \
-             (verse {}, deja rembourse {})",
-            retour_id, non_attribue, verse_reel, rembourse_deja
-        );
+        crate::journal::anomalie(&tx, "retour", &retour_id, Some(&utilisateur_id), serde_json::json!({
+            "message": format!("Retour : {non_attribue} F ni imputables ni remboursables (versé {verse_reel}, par avoir {verse_avoir}, déjà remboursé {rembourse_deja}, avoirs rendus {avoirs_deja_rendus})"),
+            "non_attribue": non_attribue, "verse": verse_reel, "verse_avoir": verse_avoir,
+            "rembourse_deja": rembourse_deja, "avoirs_rendus": avoirs_deja_rendus, "vente_id": vente_id,
+        }));
     }
 
     // 1. Remonter le stock de l'article retourné — TOUJOURS.
@@ -365,10 +380,24 @@ pub fn enregistrer_retour_sur(
     match mode_resolution.as_str() {
 
         "remboursement" => {
-            if part_client > 0 {
+            if part_especes > 0 {
                 let mode = mode_encaissement.as_deref().unwrap_or("especes");
-                enregistrer_sortie_caisse(&tx, part_client, mode, &retour_id,
+                enregistrer_sortie_caisse(&tx, part_especes, mode, &retour_id,
                     "remboursement", &utilisateur_id, &maintenant)?;
+            }
+            // La part payee avec un avoir revient en avoir, meme quand
+            // le client demande un remboursement : ce credit n'a jamais
+            // ete de l'argent (D15). Un client de passage n'a pas
+            // d'avoir a consommer (D40) : sa part_avoir est nulle.
+            if part_avoir > 0 {
+                if client_generique {
+                    return Err("Cette vente a été payée avec un avoir : \
+                                il ne peut pas être remboursé en espèces.".to_string());
+                }
+                numero_avoir = Some(creer_avoir_client(
+                    &tx, &client_id, &retour_id, part_avoir, &maintenant,
+                    &article_id, &unite_vente_id, quantite, &utilisateur_id,
+                )?);
             }
             // part_client == 0 : le retour a servi a eteindre la dette,
             // rien a rendre. Ce n'est pas une erreur.
@@ -459,11 +488,24 @@ pub fn enregistrer_retour_sur(
                                         Le reliquat doit être remboursé.".to_string());
                         }
                         Some("remboursement") => {
+                            // Jamais plus d'especes que d'argent recu : la
+                            // part payee par avoir revient en avoir (D15).
+                            let (en_especes, en_avoir, _) = crate::coeur::calcul::repartir_retour(
+                                reliquat, plafond_especes, reliquat.max(plafond_especes));
                             let mode = mode_encaissement_reliquat
                                 .as_deref().unwrap_or("especes");
-                            enregistrer_sortie_caisse(&tx, reliquat, mode,
-                                &retour_id, "remboursement_reliquat",
-                                &utilisateur_id, &maintenant)?;
+                            if en_especes > 0 {
+                                enregistrer_sortie_caisse(&tx, en_especes, mode,
+                                    &retour_id, "remboursement_reliquat",
+                                    &utilisateur_id, &maintenant)?;
+                            }
+                            if en_avoir > 0 {
+                                numero_avoir = Some(creer_avoir_client(
+                                    &tx, &client_id, &retour_id, en_avoir,
+                                    &maintenant, &article_id, &unite_vente_id,
+                                    quantite, &utilisateur_id,
+                                )?);
+                            }
                         }
                         _ => {
                             // Avoir par défaut.
@@ -526,6 +568,8 @@ pub fn enregistrer_retour_sur(
         // client. Permet au front d'expliquer le resultat.
         "part_creance":   part_creance,
         "part_client":    part_client,
+        "part_especes":   part_especes,
+        "part_avoir":     part_avoir,
         // Numero de la piece AVC quand un avoir a ete cree — permet
         // d'ouvrir directement l'impression cote front.
         "numero_avoir":  numero_avoir,
@@ -998,15 +1042,34 @@ pub fn enregistrer_retour_sur_base(
          WHERE vente_id = ?1 AND mode NOT IN ('retour', 'avoir') AND dossier_id = ?2",
         &parametres![vente_id.clone(), dossier.clone()],
     )?;
-    let plafond_client = (verse_reel - rembourse_deja).max(0);
+    // Ce qu'il a paye avec un avoir : pas d'argent recu, mais un credit
+    // consomme — il revient en avoir, jamais en especes (D15).
+    let verse_avoir = montant(
+        &mut tx,
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
+         FROM paiement WHERE vente_id = ?1 AND mode = 'avoir' AND dossier_id = ?2",
+        &parametres![vente_id.clone(), dossier.clone()],
+    )?;
+    let avoirs_deja_rendus = montant(
+        &mut tx,
+        "SELECT CAST(COALESCE(SUM(a.montant), 0) AS BIGINT)
+         FROM avoir a
+         WHERE a.dossier_id = ?2
+           AND a.retour_id IN (SELECT id FROM retour WHERE vente_id = ?1)",
+        &parametres![vente_id.clone(), dossier.clone()],
+    )?;
+    let plafond_especes = verse_reel - rembourse_deja;
+    let plafond_total = verse_reel + verse_avoir - rembourse_deja - avoirs_deja_rendus;
     let part_client_brute = montant_credit - part_creance;
-    let part_client = part_client_brute.min(plafond_client);
-    let non_attribue = part_client_brute - part_client;
+    let (part_especes, part_avoir, non_attribue) =
+        crate::coeur::calcul::repartir_retour(part_client_brute, plafond_especes, plafond_total);
+    let part_client = part_especes + part_avoir;
     if non_attribue > 0 {
-        eprintln!(
-            "[gescom] retour {} : {} F non attribuables (verse {}, deja rembourse {})",
-            retour_id, non_attribue, verse_reel, rembourse_deja
-        );
+        crate::journal::anomalie_sur(&mut tx, "retour", &retour_id, Some(&utilisateur_id), serde_json::json!({
+            "message": format!("Retour : {non_attribue} F ni imputables ni remboursables (versé {verse_reel}, par avoir {verse_avoir}, déjà remboursé {rembourse_deja}, avoirs rendus {avoirs_deja_rendus})"),
+            "non_attribue": non_attribue, "verse": verse_reel, "verse_avoir": verse_avoir,
+            "rembourse_deja": rembourse_deja, "avoirs_rendus": avoirs_deja_rendus, "vente_id": vente_id,
+        }));
     }
 
     // ---- 1. Le stock remonte — TOUJOURS.
@@ -1096,12 +1159,26 @@ pub fn enregistrer_retour_sur_base(
     let mut numero_avoir: Option<String> = None;
     match mode_resolution.as_str() {
         "remboursement" => {
-            if part_client > 0 {
+            if part_especes > 0 {
                 let mode = mode_encaissement.as_deref().unwrap_or("especes");
                 enregistrer_sortie_caisse_sur(
-                    &mut tx, part_client, mode, &retour_id, "remboursement",
+                    &mut tx, part_especes, mode, &retour_id, "remboursement",
                     &utilisateur_id, &maintenant,
                 )?;
+            }
+            // La part payee avec un avoir revient en avoir, meme quand
+            // le client demande un remboursement (D15). Un client de
+            // passage n'a pas d'avoir a consommer (D40) : part nulle.
+            if part_avoir > 0 {
+                if client_generique {
+                    return Err("Cette vente a été payée avec un avoir : \
+                                il ne peut pas être remboursé en espèces."
+                        .to_string());
+                }
+                numero_avoir = Some(creer_avoir_client_sur(
+                    &mut tx, &client_id, &retour_id, part_avoir, &maintenant,
+                    &article_id, &unite_vente_id, quantite, &utilisateur_id,
+                )?);
             }
         }
 
@@ -1194,11 +1271,23 @@ pub fn enregistrer_retour_sur_base(
                                 .to_string());
                         }
                         Some("remboursement") => {
+                            // Jamais plus d'especes que d'argent recu : la
+                            // part payee par avoir revient en avoir (D15).
+                            let (en_especes, en_avoir, _) = crate::coeur::calcul::repartir_retour(
+                                reliquat, plafond_especes, reliquat.max(plafond_especes));
                             let mode = mode_encaissement_reliquat.as_deref().unwrap_or("especes");
-                            enregistrer_sortie_caisse_sur(
-                                &mut tx, reliquat, mode, &retour_id, "remboursement_reliquat",
-                                &utilisateur_id, &maintenant,
-                            )?;
+                            if en_especes > 0 {
+                                enregistrer_sortie_caisse_sur(
+                                    &mut tx, en_especes, mode, &retour_id, "remboursement_reliquat",
+                                    &utilisateur_id, &maintenant,
+                                )?;
+                            }
+                            if en_avoir > 0 {
+                                numero_avoir = Some(creer_avoir_client_sur(
+                                    &mut tx, &client_id, &retour_id, en_avoir, &maintenant,
+                                    &article_id, &unite_vente_id, quantite, &utilisateur_id,
+                                )?);
+                            }
                         }
                         _ => {
                             numero_avoir = Some(creer_avoir_client_sur(
@@ -1260,6 +1349,8 @@ pub fn enregistrer_retour_sur_base(
         "montant_credit": montant_credit,
         "part_creance":   part_creance,
         "part_client":    part_client,
+        "part_especes":   part_especes,
+        "part_avoir":     part_avoir,
         "numero_avoir":   numero_avoir,
     }))
 }
