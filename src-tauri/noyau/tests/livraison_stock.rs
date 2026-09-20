@@ -446,7 +446,7 @@ fn un_mouvement_de_livraison_porte_son_numero_de_bon() {
 
 #[test]
 fn une_reception_porte_son_numero_et_entre() {
-    let mut conn = base();
+    let conn = base();
     let brf = pieces::creer_piece_fournisseur(
         &conn,
         "f1".to_string(),

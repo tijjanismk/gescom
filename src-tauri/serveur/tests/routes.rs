@@ -1,0 +1,297 @@
+//! Les routes HTTP, par le vrai binaire.
+//!
+//! Les scénarios du noyau couvrent ce que les commandes font à la base ;
+//! ils ne passent jamais par `api.rs`, ni par le JSON tel que l'écran
+//! l'envoie. C'est ce trou qui a laissé passer « missing field
+//! ligne_id » (un champ imbriqué en camelCase) et l'interblocage du
+//! 13/09. Ici on lance `gescom-serveur.exe` sur une base jetable, port
+//! libre, et on lui parle en HTTP brut, comme une caisse — sans client
+//! HTTP, pour ne rien devoir à une dépendance.
+
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
+
+use serde_json::{json, Value};
+
+struct Serveur {
+    enfant: Child,
+    port: u16,
+    base: std::path::PathBuf,
+}
+
+impl Drop for Serveur {
+    fn drop(&mut self) {
+        let _ = self.enfant.kill();
+        let _ = self.enfant.wait();
+        for suffixe in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffixe}", self.base.display()));
+        }
+    }
+}
+
+fn port_libre() -> u16 {
+    TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
+fn lancer() -> Serveur {
+    let port = port_libre();
+    let base = std::env::temp_dir().join(format!("gescom_routes_{}_{port}.db", std::process::id()));
+    let sauvegardes = std::env::temp_dir().join(format!("gescom_routes_sauv_{port}"));
+    let enfant = Command::new(env!("CARGO_BIN_EXE_gescom-serveur"))
+        .args(["--hote", "127.0.0.1", "--port", &port.to_string()])
+        .args(["--base", &base.to_string_lossy()])
+        .args(["--sauvegardes", &sauvegardes.to_string_lossy()])
+        // Des articles pour vendre : la demo.
+        .env("GESCOM_DEMO", "1")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("lancer gescom-serveur");
+    let srv = Serveur { enfant, port, base };
+    // L'amorçage d'une base neuve prend quelques secondes (bcrypt).
+    let debut = Instant::now();
+    loop {
+        if let Ok((200, _)) = requete(port, "GET", "/sante", None, None) {
+            break;
+        }
+        assert!(debut.elapsed() < Duration::from_secs(60), "le serveur ne répond pas sur /sante");
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    srv
+}
+
+/// Une requête HTTP/1.1 écrite à la main, réponse lue jusqu'à la
+/// fermeture. Rend (code, corps JSON ou Null).
+fn requete(port: u16, methode: &str, chemin: &str, corps: Option<&Value>, jeton: Option<&str>) -> std::io::Result<(u16, Value)> {
+    let mut flux = TcpStream::connect(("127.0.0.1", port))?;
+    flux.set_read_timeout(Some(Duration::from_secs(30)))?;
+    let corps = corps.map(|c| c.to_string()).unwrap_or_default();
+    let mut tete = format!(
+        "{methode} {chemin} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
+        corps.len()
+    );
+    if let Some(j) = jeton {
+        tete.push_str(&format!("Authorization: Bearer {j}\r\n"));
+    }
+    tete.push_str("\r\n");
+    flux.write_all(tete.as_bytes())?;
+    flux.write_all(corps.as_bytes())?;
+    let mut brut = Vec::new();
+    flux.read_to_end(&mut brut)?;
+    let texte = String::from_utf8_lossy(&brut);
+    let code: u16 = texte.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or(0);
+    let corps = texte.split_once("\r\n\r\n").map(|(_, c)| c).unwrap_or("");
+    Ok((code, serde_json::from_str(corps).unwrap_or(Value::Null)))
+}
+
+fn connexion(port: u16) -> (String, Value) {
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({
+            "identifiant": "admin", "mot_de_passe": "admin123",
+            "poste_nom": "Caisse test", "poste_empreinte": "routes-1", "version_protocole": 1
+        })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    (v["jeton"].as_str().unwrap().to_string(), v)
+}
+
+fn rpc(port: u16, jeton: &str, commande: &str, params: Value) -> (u16, Value) {
+    requete(port, "POST", "/rpc", Some(&json!({ "commande": commande, "params": params })), Some(jeton)).unwrap()
+}
+
+#[test]
+fn le_serveur_repond_connecte_refuse_sans_jeton_et_sert_une_commande() {
+    let srv = lancer();
+    let port = srv.port;
+
+    let (jeton, identite) = connexion(port);
+    assert_eq!(identite["role"], "patron");
+    assert_eq!(identite["doit_changer_mdp"], true, "les comptes livrés exigent un nouveau mot de passe");
+    // Un seul dossier : ouvert d'office, aucun choix à faire.
+    assert!(identite["dossier_id"].is_string(), "{identite}");
+    assert_eq!(identite["dossiers"].as_array().map(|d| d.len()), Some(1));
+
+    // Sans jeton : 401 et un code que la caisse sait lire.
+    let (code, v) = requete(port, "POST", "/rpc", Some(&json!({ "commande": "lire_dossiers", "params": {} })), None).unwrap();
+    assert_eq!(code, 401, "{v}");
+    assert_eq!(v["code"], "authentification");
+
+    // Un mauvais mot de passe : même message qu'un identifiant inconnu.
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "admin", "mot_de_passe": "faux", "poste_nom": "x", "poste_empreinte": "x", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 401);
+    assert_eq!(v["message"], "Identifiant ou mot de passe incorrect");
+
+    // Une commande inconnue le dit, sans deviner.
+    let (code, v) = rpc(port, &jeton, "commande_qui_n_existe_pas", json!({}));
+    assert_eq!(code, 404, "{v}");
+    assert_eq!(v["code"], "commande_inconnue");
+
+    // Une lecture ordinaire, avec le jeton.
+    let (code, v) = rpc(port, &jeton, "lire_dossiers", json!({}));
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["etat"], "ok");
+    assert_eq!(v["donnee"][0]["code"], "PRINCIPAL");
+
+    // La déconnexion révoque : le jeton ne vaut plus rien.
+    let (code, _) = requete(port, "POST", "/deconnexion", Some(&json!({})), Some(&jeton)).unwrap();
+    assert_eq!(code, 200);
+    let (code, v) = rpc(port, &jeton, "lire_dossiers", json!({}));
+    assert_eq!(code, 401, "{v}");
+}
+
+#[test]
+fn une_livraison_passe_avec_le_json_de_l_ecran_et_le_stock_suit() {
+    let srv = lancer();
+    let port = srv.port;
+    let (jeton, _) = connexion(port);
+
+    // Un article de la démo, avec son unité.
+    let (code, v) = rpc(port, &jeton, "lire_articles_avec_unites", json!({ "role": "patron" }));
+    assert_eq!(code, 200, "{v}");
+    let article = &v["donnee"][0];
+    let article_id = article["id"].as_str().unwrap();
+    let unite_id = article["unites"][0]["id"].as_str().unwrap();
+    let stock_avant = article["stock"].as_f64().unwrap();
+
+    // Un client réel, sinon pas de pièce.
+    let (code, c) = rpc(port, &jeton, "creer_client_rapide", json!({ "nom": "Client des routes" }));
+    assert_eq!(code, 200, "{c}");
+    let client_id = c["donnee"]["id"].as_str().unwrap();
+
+    // Un bon de livraison créé à la main : brouillon, rien ne bouge.
+    let (code, bl) = rpc(port, &jeton, "creer_piece", json!({
+        "clientId": client_id, "typePiece": "bon_livraison",
+        "lignes": [{ "article_id": article_id, "unite_vente_id": unite_id, "quantite": 2.0, "prix_unitaire": 1000, "remise_pct": 0.0, "taux_tva": 0.0 }],
+        "remiseGlobale": 0, "dateEcheance": null, "note": null, "pieceOrigineId": null, "depotId": null
+    }));
+    assert_eq!(code, 200, "{bl}");
+    assert_eq!(bl["donnee"]["statut"], "brouillon");
+    let bl_id = bl["donnee"]["id"].as_str().unwrap().to_string();
+
+    // Livrer sur un brouillon : refus clair, et la réponse porte le code métier.
+    let (code, lig) = rpc(port, &jeton, "lire_lignes_piece", json!({ "pieceId": bl_id }));
+    assert_eq!(code, 200, "{lig}");
+    let ligne_id = lig["donnee"][0]["id"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &jeton, "enregistrer_livraison", json!({
+        "pieceId": bl_id, "lignes": [{ "ligne_id": ligne_id, "quantite_livree": 1.0 }]
+    }));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap_or("").contains("émettre"), "{v}");
+
+    // Émettre : tout sort.
+    let (code, v) = rpc(port, &jeton, "changer_statut_piece", json!({ "pieceId": bl_id, "nouveauStatut": "emis" }));
+    assert_eq!(code, 200, "{v}");
+    let stock = |jeton: &str| -> f64 {
+        let (_, v) = rpc(port, jeton, "lire_articles_avec_unites", json!({ "role": "patron" }));
+        v["donnee"].as_array().unwrap().iter().find(|a| a["id"] == article_id).unwrap()["stock"].as_f64().unwrap()
+    };
+    assert_eq!(stock(&jeton), stock_avant - 2.0, "l'émission sort deux unités");
+
+    // Le JSON de l'écran, en snake_case : un sac revient.
+    let (code, v) = rpc(port, &jeton, "enregistrer_livraison", json!({
+        "pieceId": bl_id, "lignes": [{ "ligne_id": ligne_id, "quantite_livree": 1.0 }]
+    }));
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["donnee"]["etat"], "partiel");
+    assert_eq!(stock(&jeton), stock_avant - 1.0);
+
+    // L'ancienne graphie camelCase passe aussi (« missing field ligne_id »).
+    let (code, v) = rpc(port, &jeton, "enregistrer_livraison", json!({
+        "pieceId": bl_id, "lignes": [{ "ligneId": ligne_id, "quantiteLivree": 2.0 }]
+    }));
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["donnee"]["etat"], "livre");
+    assert_eq!(stock(&jeton), stock_avant - 2.0);
+
+    // Une permission manquante se lit comme telle : l'employé ne crée pas de dossier.
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "employe", "mot_de_passe": "employe123", "poste_nom": "Caisse 2", "poste_empreinte": "routes-2", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let employe = v["jeton"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &employe, "creer_dossier", json!({ "code": "X", "societe": "X" }));
+    assert_eq!(code, 403, "{v}");
+    assert_eq!(v["code"], "permission");
+}
+
+#[test]
+fn une_sauvegarde_se_restaure_hors_ligne_et_le_serveur_repart_dessus() {
+    // Le diagnostic disait « restaurer la dernière sauvegarde » et rien ne
+    // le faisait. Ici : on sauvegarde, on écrit encore, on restaure
+    // serveur arrêté, on relance — l'écriture d'après a disparu, la base
+    // d'avant est gardée à côté.
+    let mut srv = lancer();
+    let port = srv.port;
+    let (jeton, _) = connexion(port);
+
+    let (code, v) = requete(port, "POST", "/sauvegarde", Some(&json!({})), Some(&jeton)).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let fichier = v["fichier"].as_str().unwrap().to_string();
+    assert!(std::path::Path::new(&fichier).exists(), "la sauvegarde est un fichier : {fichier}");
+
+    let (code, c) = rpc(port, &jeton, "creer_client_rapide", json!({ "nom": "Ecrit apres la sauvegarde" }));
+    assert_eq!(code, 200, "{c}");
+
+    // Serveur arrêté, restauration par le binaire.
+    let _ = srv.enfant.kill();
+    let _ = srv.enfant.wait();
+    let sortie = Command::new(env!("CARGO_BIN_EXE_gescom-serveur"))
+        .args(["--restaurer", &fichier, "--base", &srv.base.to_string_lossy()])
+        .output()
+        .expect("lancer --restaurer");
+    let texte = String::from_utf8_lossy(&sortie.stdout);
+    assert!(sortie.status.success(), "{texte}{}", String::from_utf8_lossy(&sortie.stderr));
+    assert!(texte.contains("restaurée"), "{texte}");
+    assert!(texte.contains("gardée"), "la base d'avant est mise de côté : {texte}");
+
+    // Une sauvegarde qui n'en est pas une est refusée, et rien ne bouge.
+    let faux = std::env::temp_dir().join(format!("pas_une_base_{port}.db"));
+    std::fs::write(&faux, b"bonjour").unwrap();
+    let sortie = Command::new(env!("CARGO_BIN_EXE_gescom-serveur"))
+        .args(["--restaurer", &faux.to_string_lossy(), "--base", &srv.base.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(!sortie.status.success());
+    assert!(String::from_utf8_lossy(&sortie.stderr).contains("Restauration impossible"));
+    let _ = std::fs::remove_file(&faux);
+
+    // On relance sur la base restaurée : le client d'après n'y est pas.
+    srv.enfant = Command::new(env!("CARGO_BIN_EXE_gescom-serveur"))
+        .args(["--hote", "127.0.0.1", "--port", &port.to_string()])
+        .args(["--base", &srv.base.to_string_lossy()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let debut = Instant::now();
+    while requete(port, "GET", "/sante", None, None).map(|(c, _)| c).unwrap_or(0) != 200 {
+        assert!(debut.elapsed() < Duration::from_secs(60));
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    let (jeton, _) = connexion(port);
+    let (code, v) = rpc(port, &jeton, "lire_clients", json!({}));
+    assert_eq!(code, 200, "{v}");
+    let noms: Vec<&str> = v["donnee"].as_array().unwrap().iter().filter_map(|c| c["nom"].as_str()).collect();
+    assert!(!noms.contains(&"Ecrit apres la sauvegarde"), "{noms:?}");
+
+    // Ménage : la copie « avant restauration » et la sauvegarde.
+    if let Some(parent) = srv.base.parent() {
+        for e in std::fs::read_dir(parent).unwrap().flatten() {
+            let n = e.file_name().to_string_lossy().to_string();
+            if n.contains("avant-restauration") && n.starts_with(&format!("gescom_routes_{}", std::process::id())) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(std::env::temp_dir().join(format!("gescom_routes_sauv_{port}")));
+}

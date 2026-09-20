@@ -196,13 +196,11 @@ pub fn lire_clients_pagines(
         "c.est_generique = 0".to_string(),
     ];
 
-    if let Some(ref r) = recherche {
-        if !r.is_empty() {
-            conditions.push(format!(
-                "(c.nom LIKE '%{r}%' OR c.telephone LIKE '%{r}%')",
-                r = r.replace('\'', "''")
-            ));
-        }
+    // La recherche est un parametre lie (?1), pas du texte colle au SQL.
+    let mut valeurs: Vec<String> = Vec::new();
+    if let Some(r) = recherche.as_deref().filter(|r| !r.is_empty()) {
+        valeurs.push(format!("%{r}%"));
+        conditions.push("(c.nom LIKE ?1 OR c.telephone LIKE ?1)".to_string());
     }
 
     // avec_creances_seulement et ventes_filtre portent sur des colonnes
@@ -279,7 +277,9 @@ pub fn lire_clients_pagines(
          ) WHERE 1=1", creance_exigible, where_base, having_clause
     );
 
-    let total: i64 = conn.query_row(&sql_count, [], |row| row.get(0)).unwrap_or(0);
+    let total: i64 = conn
+        .query_row(&sql_count, rusqlite::params_from_iter(valeurs.iter()), |row| row.get(0))
+        .unwrap_or(0);
 
     let offset = page * limite;
     let sql = format!(
@@ -303,7 +303,7 @@ pub fn lire_clients_pagines(
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
 
     let donnees: Vec<serde_json::Value> = {
-        let x = stmt.query_map([], |row| {
+        let x = stmt.query_map(rusqlite::params_from_iter(valeurs.iter()), |row| {
             Ok(serde_json::json!({
                 "id":             row.get::<_, String>(0)?,
                 "code":           row.get::<_, String>(1)?,
@@ -347,17 +347,15 @@ pub fn lire_stocks_pagines(
     // depot n'est pas remis en service.
     let mut conditions = vec!["a.actif = 1".to_string(), "d.actif = 1".to_string()];
 
-    if let Some(ref r) = recherche {
-        if !r.is_empty() {
-            conditions.push(format!(
-                "a.nom LIKE '%{}%'",
-                r.replace('\'', "''")
-            ));
-        }
+    let mut valeurs: Vec<String> = Vec::new();
+    if let Some(r) = recherche.as_deref().filter(|r| !r.is_empty()) {
+        valeurs.push(format!("%{r}%"));
+        conditions.push(format!("a.nom LIKE ?{}", valeurs.len()));
     }
     if let Some(ref cid) = categorie_id {
         if !cid.is_empty() {
-            conditions.push(format!("a.categorie_id = '{}'", cid.replace('\'', "''")));
+            valeurs.push(cid.clone());
+            conditions.push(format!("a.categorie_id = ?{}", valeurs.len()));
         }
     }
     if a_regulariser_seulement {
@@ -373,7 +371,7 @@ pub fn lire_stocks_pagines(
              JOIN depot d ON d.id = sd.depot_id
              WHERE {}", where_clause
         ),
-        [],
+        rusqlite::params_from_iter(valeurs.iter()),
         |row| row.get(0),
     ).unwrap_or(0);
 
@@ -401,7 +399,7 @@ pub fn lire_stocks_pagines(
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
 
     let donnees: Vec<serde_json::Value> = {
-        let x = stmt.query_map([], |row| {
+        let x = stmt.query_map(rusqlite::params_from_iter(valeurs.iter()), |row| {
             Ok(serde_json::json!({
                 "article_id":  row.get::<_, String>(0)?,
                 "article_nom": row.get::<_, String>(1)?,
@@ -448,20 +446,17 @@ pub fn lire_fournisseurs_pagines(
         "f.est_voisin = 0".to_string(),
     ];
 
-    if let Some(ref r) = recherche {
-        if !r.is_empty() {
-            conditions.push(format!(
-                "(f.nom LIKE '%{r}%' OR f.telephone LIKE '%{r}%')",
-                r = r.replace('\'', "''")
-            ));
-        }
+    let mut valeurs: Vec<String> = Vec::new();
+    if let Some(r) = recherche.as_deref().filter(|r| !r.is_empty()) {
+        valeurs.push(format!("%{r}%"));
+        conditions.push("(f.nom LIKE ?1 OR f.telephone LIKE ?1)".to_string());
     }
 
     let where_clause = conditions.join(" AND ");
 
     let total: i64 = conn.query_row(
         &format!("SELECT COUNT(*) FROM fournisseur f WHERE {}", where_clause),
-        [],
+        rusqlite::params_from_iter(valeurs.iter()),
         |row| row.get(0),
     ).unwrap_or(0);
 
@@ -502,7 +497,7 @@ pub fn lire_fournisseurs_pagines(
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
 
     let donnees: Vec<serde_json::Value> = {
-        let x = stmt.query_map([], |row| {
+        let x = stmt.query_map(rusqlite::params_from_iter(valeurs.iter()), |row| {
             let total_achats: i64 = row.get(6)?;
             let total_paye:   i64 = row.get(7)?;
             let dette = (total_achats - total_paye).max(0);

@@ -184,8 +184,29 @@ fn un_cheque_suit_son_cycle_et_un_rejet_rouvre_la_creance() {
         .lire_une("SELECT statut FROM vente WHERE id = ?1", &parametres![vente_id.clone()], |r| r.get::<String>(0))
         .unwrap()
         .unwrap();
-    assert_eq!(statut, "creance_ouverte", "le paiement a disparu, la créance rouvre (D35)");
-    assert_eq!(compter(&mut base, "SELECT COUNT(*) FROM paiement WHERE vente_id = ?1", &parametres![vente_id]), 0);
+    assert_eq!(statut, "creance_ouverte", "le paiement est contre-passé, la créance rouvre (D35)");
+    // Rien n'est efface : le paiement d'origine reste, un paiement negatif
+    // le contre-passe, et le livre de caisse porte la sortie inverse.
+    assert_eq!(compter(&mut base, "SELECT COUNT(*) FROM paiement WHERE vente_id = ?1", &parametres![vente_id.clone()]), 2);
+    let net = compter(
+        &mut base,
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM paiement WHERE vente_id = ?1",
+        &parametres![vente_id.clone()],
+    );
+    assert_eq!(net, 0, "le cheque rejete ne vaut plus rien");
+    let contre = compter(
+        &mut base,
+        "SELECT COUNT(*) FROM paiement WHERE vente_id = ?1 AND annule_paiement_id IS NOT NULL AND origine = 'rejet_cheque'",
+        &parametres![vente_id.clone()],
+    );
+    assert_eq!(contre, 1);
+    let sorties_cheque = compter(
+        &mut base,
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM mouvement_caisse
+         WHERE operation_id = ?1 AND moyen = 'cheque' AND sens = 'sortie' AND motif = 'cheque_rejete'",
+        &parametres![vente_id],
+    );
+    assert_eq!(sorties_cheque, montant, "le livre de caisse porte l'inverse du cheque");
 
     let refus = cheques::changer_statut_cheque_sur_base(&mut base, id, "n_importe".into(), None).unwrap_err();
     assert!(refus.contains("inconnu"));

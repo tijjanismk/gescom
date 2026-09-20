@@ -97,6 +97,26 @@ fn main() {
         }
     }
 
+    // D4 : restaurer une sauvegarde — HORS LIGNE, avant d'ouvrir quoi
+    // que ce soit. Il faut etre devant la machine, serveur arrete.
+    if let Some(fichier) = options.restaurer.as_deref() {
+        let cible = options.base.clone().unwrap_or_else(chemin_base_par_defaut);
+        match gescom_noyau::sauvegarde::restaurer(&cible, std::path::Path::new(fichier), None) {
+            Ok(r) => {
+                println!("Sauvegarde restaurée ({}) sur {}", r.moteur, sans_mot_de_passe(&cible));
+                if let Some(c) = r.copie_avant {
+                    println!("  la base précédente est gardée : {}", c.display());
+                }
+                println!("  Relancer le serveur pour servir la base restaurée.");
+                return;
+            }
+            Err(e) => {
+                eprintln!("Restauration impossible : {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let (srv, ecouteur) = preparer(options);
     boucle(srv, ecouteur, Arc::new(AtomicBool::new(false)));
 }
@@ -365,6 +385,8 @@ struct Options {
     base: Option<String>,
     sauvegardes: Option<String>,
     promouvoir: Option<String>,
+    /// Restaure ce fichier de sauvegarde sur la base, puis s'arrete.
+    restaurer: Option<String>,
     /// Lance par le gestionnaire de services Windows (service.rs).
     service: bool,
     installer_service: bool,
@@ -414,6 +436,7 @@ impl Options {
             base: None,
             sauvegardes: None,
             promouvoir: None,
+            restaurer: None,
             service: false,
             installer_service: false,
             desinstaller_service: false,
@@ -460,10 +483,15 @@ impl Options {
                     o.promouvoir = args.get(i + 1).cloned();
                     i += 2;
                 }
+                "--restaurer" => {
+                    o.restaurer = args.get(i + 1).cloned();
+                    i += 2;
+                }
                 "--aide" | "-h" | "--help" => {
                     println!(
                         "gescom-serveur [--hote 0.0.0.0] [--port {PORT_DEFAUT}] \
                          [--base CHEMIN] [--sauvegardes DOSSIER] [--promouvoir IDENTIFIANT]\n\
+                         gescom-serveur --restaurer FICHIER [--base CHEMIN]   (serveur arrêté)\n\
                          gescom-serveur --installer-service | --desinstaller-service  (Windows, administrateur)"
                     );
                     std::process::exit(0);

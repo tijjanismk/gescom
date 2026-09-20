@@ -172,11 +172,46 @@ pub fn changer_statut_cheque(
     let mut creance_rouverte = false;
 
     if statut == "rejete" {
-        // Le paiement n'a jamais eu lieu : on le supprime et on
-        // recalcule le statut de la vente.
-        if let Some(pid) = &paiement_id {
-            tx.execute("DELETE FROM paiement WHERE id = ?1",
-                rusqlite::params![pid]).map_err(|e| e.to_string())?;
+        // Un rejet ne s'efface pas, il se CONTRE-PASSE : un paiement
+        // negatif rattache au premier (comme l'annulation d'un
+        // reglement), et le mouvement de caisse inverse. Supprimer le
+        // paiement laissait le cheque dans le livre de caisse a jamais,
+        // et effacait la trace de ce qui s'etait passe.
+        let auteur = crate::argent::id_utilisateur_courant_pub(&tx);
+        if let (Some(pid), Some(vid)) = (&paiement_id, &vente_id) {
+            tx.execute(
+                "INSERT INTO paiement
+                 (id, vente_id, montant, mode, date_paiement, auteur_id,
+                  cree_le, cree_par, origine, annule_paiement_id)
+                 VALUES (?1, ?2, ?3, 'cheque', ?4, ?5, ?4, ?5, 'rejet_cheque', ?6)",
+                rusqlite::params![uuid::Uuid::new_v4().to_string(), vid, -montant, now, auteur, pid],
+            ).map_err(|e| e.to_string())?;
+
+            // Le livre de caisse : la session ouverte, sinon celle qui a
+            // recu le cheque. Un cheque n'est pas dans le tiroir, le
+            // rejet n'exige donc pas la caisse ouverte (D14).
+            let session: Option<String> = tx.query_row(
+                "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
+                [], |r| r.get(0),
+            ).ok().or_else(|| tx.query_row(
+                "SELECT session_id FROM mouvement_caisse
+                 WHERE operation_id = ?1 AND moyen = 'cheque' AND sens = 'entree'
+                 ORDER BY cree_le DESC LIMIT 1",
+                rusqlite::params![vid], |r| r.get(0),
+            ).ok());
+            if let Some(sid) = session {
+                tx.execute(
+                    "INSERT INTO mouvement_caisse
+                     (id, session_id, sens, moyen, montant, motif, libelle,
+                      operation_id, date_mouvement, cree_le, cree_par, origine)
+                     VALUES (?1,?2,'sortie','cheque',?3,'cheque_rejete',?4,?5,?6,?6,?7,'app')",
+                    rusqlite::params![
+                        uuid::Uuid::new_v4().to_string(), sid, montant,
+                        format!("Chèque rejeté{}", motif.as_deref().map(|m| format!(" — {m}")).unwrap_or_default()),
+                        vid, now, auteur
+                    ],
+                ).map_err(|e| e.to_string())?;
+            }
         }
 
         if let Some(vid) = &vente_id {
@@ -395,20 +430,62 @@ pub fn changer_statut_cheque_sur_base(
     let mut tx = base.transaction().map_err(|e| e.0)?;
     tx.executer(
         "UPDATE cheque_recu SET statut = ?1, motif_rejet = CAST(?2 AS TEXT), modifie_le = ?3 WHERE id = ?4",
-        &parametres![statut.clone(), motif, now.clone(), cheque_id.clone()],
+        &parametres![statut.clone(), motif.clone(), now.clone(), cheque_id.clone()],
     )
     .map_err(|e| e.0)?;
 
     let mut creance_rouverte = false;
     if statut == "rejete" {
-        // Le paiement n'a jamais eu lieu : on le supprime et on
-        // recalcule le statut de la vente.
-        if let Some(pid) = &paiement_id {
+        // Contre-passation, pas suppression — voir la version Connection.
+        let auteur = crate::argent::id_utilisateur_courant_sur(&mut tx);
+        if let (Some(pid), Some(vid)) = (&paiement_id, &vente_id) {
             tx.executer(
-                "DELETE FROM paiement WHERE id = ?1 AND dossier_id = ?2",
-                &parametres![pid.clone(), dossier.clone()],
+                "INSERT INTO paiement
+                 (id, vente_id, montant, mode, date_paiement, auteur_id,
+                  cree_le, cree_par, origine, annule_paiement_id, dossier_id)
+                 VALUES (?1, ?2, ?3, 'cheque', ?4, ?5, ?4, ?5, 'rejet_cheque', ?6, ?7)",
+                &parametres![
+                    uuid::Uuid::new_v4().to_string(), vid.clone(), -montant, now.clone(),
+                    auteur.clone(), pid.clone(), dossier.clone()
+                ],
             )
             .map_err(|e| e.0)?;
+
+            let ouverte: Option<String> = tx
+                .lire_une(
+                    "SELECT id FROM session_caisse WHERE statut = 'ouverte' AND dossier_id = ?1 LIMIT 1",
+                    &parametres![dossier.clone()],
+                    |r| r.get::<String>(0),
+                )
+                .ok()
+                .flatten();
+            let session = match ouverte {
+                Some(s) => Some(s),
+                None => tx
+                    .lire_une(
+                        "SELECT session_id FROM mouvement_caisse
+                         WHERE operation_id = ?1 AND moyen = 'cheque' AND sens = 'entree' AND dossier_id = ?2
+                         ORDER BY cree_le DESC LIMIT 1",
+                        &parametres![vid.clone(), dossier.clone()],
+                        |r| r.get::<String>(0),
+                    )
+                    .ok()
+                    .flatten(),
+            };
+            if let Some(sid) = session {
+                tx.executer(
+                    "INSERT INTO mouvement_caisse
+                     (id, session_id, sens, moyen, montant, motif, libelle,
+                      operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+                     VALUES (?1,?2,'sortie','cheque',?3,'cheque_rejete',?4,?5,?6,?6,?7,'app',?8)",
+                    &parametres![
+                        uuid::Uuid::new_v4().to_string(), sid, montant,
+                        format!("Chèque rejeté{}", motif.as_deref().map(|m| format!(" — {m}")).unwrap_or_default()),
+                        vid.clone(), now.clone(), auteur, dossier.clone()
+                    ],
+                )
+                .map_err(|e| e.0)?;
+            }
         }
         if let Some(vid) = &vente_id {
             let total: i64 = tx

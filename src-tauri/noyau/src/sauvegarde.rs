@@ -522,3 +522,103 @@ pub fn sauvegarder_config_sauvegarde_sur_base(
     }
     Ok(())
 }
+
+// ---------------------------------------------------------------------
+//  Restaurer
+// ---------------------------------------------------------------------
+//
+// Le diagnostic disait « restaurer la dernière sauvegarde » et rien ne
+// le faisait : c'etait un fichier a copier a la main, en devinant
+// lequel des trois (.db, -wal, -shm) compte. Ici le geste existe, et il
+// est HORS LIGNE : `gescom-serveur --restaurer FICHIER`, serveur
+// arrete. Restaurer une base que cinq caisses ecrivent en meme temps
+// n'aurait aucun sens, et un serveur qui tient le fichier ouvert ne
+// peut pas le remplacer proprement. Il faut etre devant la machine,
+// comme pour --promouvoir (D6).
+
+/// Ce que la restauration a fait, pour le dire a l'ecran.
+pub struct Restauration {
+    pub moteur: &'static str,
+    /// La copie de ce qui etait en place avant, pour revenir en arriere.
+    pub copie_avant: Option<std::path::PathBuf>,
+}
+
+/// Restaure `fichier` sur `cible` (chemin SQLite ou URL PostgreSQL).
+///
+/// SQLite : le fichier source doit etre une base saine (`integrity_check`)
+/// ; la base en place est d'abord copiee a cote (`.avant-restauration-
+/// <date>`), puis remplacee, et ses `-wal` / `-shm` retires — sinon
+/// SQLite rejouerait sur la base restauree des ecritures de l'ancienne.
+/// PostgreSQL : `pg_restore --clean --if-exists` sur le dump `--format=
+/// custom` que la sauvegarde produit ; pas de copie prealable (c'est
+/// `pg_dump` qui la ferait — le faire avant, a la main, est dit).
+pub fn restaurer(cible: &str, fichier: &std::path::Path, executable: Option<&str>) -> Result<Restauration, String> {
+    if !fichier.exists() {
+        return Err(format!("Fichier de sauvegarde introuvable : {}", fichier.display()));
+    }
+    let est_postgres = cible.starts_with("postgres://") || cible.starts_with("postgresql://");
+    if est_postgres {
+        let c = decouper_url(cible)?;
+        let exe = trouver_pg_dump(executable)?;
+        // pg_restore vit a cote de pg_dump.
+        let exe = exe.with_file_name(if cfg!(windows) { "pg_restore.exe" } else { "pg_restore" });
+        if !exe.exists() {
+            return Err(format!("pg_restore introuvable à côté de pg_dump : {}", exe.display()));
+        }
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.arg("--clean").arg("--if-exists").arg("--no-password")
+            .arg("--host").arg(&c.hote)
+            .arg("--port").arg(&c.port)
+            .arg("--dbname").arg(&c.base)
+            .arg(fichier);
+        if let Some(u) = &c.utilisateur {
+            cmd.arg("--username").arg(u);
+        }
+        if let Some(p) = &c.mot_de_passe {
+            cmd.env("PGPASSWORD", p);
+        }
+        let sortie = cmd.output().map_err(|e| format!("Impossible de lancer {} : {e}", exe.display()))?;
+        if !sortie.status.success() {
+            let detail = String::from_utf8_lossy(&sortie.stderr).trim().to_string();
+            return Err(format!("pg_restore a échoué : {detail}"));
+        }
+        return Ok(Restauration { moteur: "PostgreSQL", copie_avant: None });
+    }
+
+    // SQLite : on n'ecrase pas avec n'importe quoi.
+    {
+        let source = rusqlite::Connection::open_with_flags(
+            fichier,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(|e| format!("Ce fichier n'est pas une base SQLite lisible : {e}"))?;
+        let verdict: String = source
+            .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+            .map_err(|e| format!("Contrôle d'intégrité impossible : {e}"))?;
+        if verdict != "ok" {
+            return Err(format!("La sauvegarde elle-même est abîmée ({verdict}) : ne pas la restaurer."));
+        }
+        let tables: i64 = source
+            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'vente'", [], |r| r.get(0))
+            .unwrap_or(0);
+        if tables == 0 {
+            return Err("Ce fichier n'est pas une base Gescom (pas de table vente).".to_string());
+        }
+    }
+    let cible_path = std::path::Path::new(cible);
+    let mut copie_avant = None;
+    if cible_path.exists() {
+        let horodatage = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+        let copie = cible_path.with_extension(format!("db.avant-restauration-{horodatage}"));
+        std::fs::copy(cible_path, &copie).map_err(|e| format!("Impossible de mettre de côté la base en place : {e}"))?;
+        copie_avant = Some(copie);
+    }
+    if let Some(parent) = cible_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::copy(fichier, cible_path).map_err(|e| format!("Impossible d'écrire la base restaurée : {e}"))?;
+    for suffixe in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{cible}{suffixe}"));
+    }
+    Ok(Restauration { moteur: "SQLite", copie_avant })
+}

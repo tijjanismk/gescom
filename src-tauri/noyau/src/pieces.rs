@@ -37,34 +37,39 @@ pub fn lire_toutes_pieces_client(
     client_id: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
 
+    // Les filtres sont des parametres lies (?n), jamais du texte colle
+    // dans le SQL : `valeurs[i]` repond a `?i+1`.
     let mut conditions = vec!["pc.tiers_type = 'client'".to_string()];
+    let mut valeurs: Vec<String> = Vec::new();
+    let mut lier = |conditions: &mut Vec<String>, gabarit: &str, v: String| {
+        valeurs.push(v);
+        conditions.push(gabarit.replace("?n", &format!("?{}", valeurs.len())));
+    };
 
     if let Some(ref tf) = type_filtre {
         if tf == "devis" {
             conditions.push("pc.type_piece IN ('devis','proforma')".to_string());
         } else {
-            conditions.push(format!("pc.type_piece = '{}'",
-                tf.replace('\'', "''")));
+            lier(&mut conditions, "pc.type_piece = ?n", tf.clone());
         }
     }
     if let Some(ref s) = statut {
-        conditions.push(format!("pc.statut = '{}'", s.replace('\'', "''")));
+        lier(&mut conditions, "pc.statut = ?n", s.clone());
     }
     if let Some(ref r) = recherche {
-        let r = r.replace('\'', "''");
-        conditions.push(format!(
-            "(pc.numero LIKE '%{r}%' OR c.nom LIKE '%{r}%' OR c.code LIKE '%{r}%' \
-              OR COALESCE(pc.reference, '') LIKE '%{r}%')"
-        ));
+        lier(&mut conditions,
+            "(pc.numero LIKE ?n OR c.nom LIKE ?n OR c.code LIKE ?n \
+              OR COALESCE(pc.reference, '') LIKE ?n)",
+            format!("%{r}%"));
     }
     if let Some(ref dd) = date_debut {
-        conditions.push(format!("pc.date_piece >= '{}'", dd.replace('\'', "''")));
+        lier(&mut conditions, "pc.date_piece >= ?n", dd.clone());
     }
     if let Some(ref df) = date_fin {
-        conditions.push(format!("pc.date_piece <= '{}'", df.replace('\'', "''")));
+        lier(&mut conditions, "pc.date_piece <= ?n", df.clone());
     }
     if let Some(ref cid) = client_id {
-        conditions.push(format!("pc.tiers_id = '{}'", cid.replace('\'', "''")));
+        lier(&mut conditions, "pc.tiers_id = ?n", cid.clone());
     }
     // Une facture dont la vente est irrecouvrable n'est plus un impaye
     // qu'on attend : elle ne figure ni dans « impayes » ni dans « en
@@ -138,7 +143,7 @@ pub fn lire_toutes_pieces_client(
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
 
-    let rows: Vec<serde_json::Value> = stmt.query_map([], |row| {
+    let rows: Vec<serde_json::Value> = stmt.query_map(rusqlite::params_from_iter(valeurs.iter()), |row| {
         let total_ht: i64 = row.get(11)?;
         let total_tva: i64 = row.get(12)?;
         let total_paye: i64 = row.get(13)?;
@@ -1330,31 +1335,35 @@ pub fn lire_toutes_pieces_fournisseur(
 ) -> Result<Vec<serde_json::Value>, String> {
 
     let mut conditions = vec!["pc.tiers_type = 'fournisseur'".to_string()];
+    let mut valeurs: Vec<String> = Vec::new();
+    let mut lier = |conditions: &mut Vec<String>, gabarit: &str, v: String| {
+        valeurs.push(v);
+        conditions.push(gabarit.replace("?n", &format!("?{}", valeurs.len())));
+    };
     // Les bornes de date, comme cote client : la liste fournisseur ne
     // les avait pas, et « les receptions de la semaine » se cherchaient
     // a l'oeil.
-    if let Some(ref dd) = date_debut.as_ref().filter(|d| !d.is_empty()) {
-        conditions.push(format!("pc.date_piece >= '{}'", dd.replace('\'', "''")));
+    if let Some(dd) = date_debut.as_ref().filter(|d| !d.is_empty()) {
+        lier(&mut conditions, "pc.date_piece >= ?n", dd.clone());
     }
-    if let Some(ref df) = date_fin.as_ref().filter(|d| !d.is_empty()) {
-        conditions.push(format!("pc.date_piece <= '{}'", df.replace('\'', "''")));
+    if let Some(df) = date_fin.as_ref().filter(|d| !d.is_empty()) {
+        lier(&mut conditions, "pc.date_piece <= ?n", df.clone());
     }
 
     if let Some(ref tf) = type_filtre {
-        conditions.push(format!("pc.type_piece = '{}'", tf.replace('\'', "''")));
+        lier(&mut conditions, "pc.type_piece = ?n", tf.clone());
     }
     if let Some(ref s) = statut {
-        conditions.push(format!("pc.statut = '{}'", s.replace('\'', "''")));
+        lier(&mut conditions, "pc.statut = ?n", s.clone());
     }
     if let Some(ref r) = recherche {
-        let r = r.replace('\'', "''");
-        conditions.push(format!(
-            "(pc.numero LIKE '%{r}%' OR f.nom LIKE '%{r}%' \
-              OR COALESCE(pc.reference, '') LIKE '%{r}%')"
-        ));
+        lier(&mut conditions,
+            "(pc.numero LIKE ?n OR f.nom LIKE ?n \
+              OR COALESCE(pc.reference, '') LIKE ?n)",
+            format!("%{r}%"));
     }
     if let Some(ref fid) = fournisseur_id {
-        conditions.push(format!("pc.tiers_id = '{}'", fid.replace('\'', "''")));
+        lier(&mut conditions, "pc.tiers_id = ?n", fid.clone());
     }
 
     let where_clause = conditions.join(" AND ");
@@ -1402,7 +1411,7 @@ pub fn lire_toutes_pieces_fournisseur(
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
 
-    let x = stmt.query_map([], |row| {
+    let x = stmt.query_map(rusqlite::params_from_iter(valeurs.iter()), |row| {
         let total_ht: i64 = row.get(11)?;
         let total_tva: i64 = row.get(12)?;
         let total_paye: i64 = row.get(13)?;
