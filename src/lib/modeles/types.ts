@@ -161,6 +161,13 @@ export type Bloc =
       image: "logo" | "entete" | "aucune";
       hauteurMm: number;
       afficherSociete: boolean;
+      /**
+       * Quelles coordonnées, sous le nom — un sous-ensemble de
+       * CHAMPS_SOCIETE (l'ordre est celui du tableau). Absent : les
+       * cinq d'origine (sans le second téléphone), pour qu'un modèle
+       * enregistré avant ce réglage imprime exactement comme avant.
+       */
+      champsSociete?: string[];
       alignement: Alignement;
     })
   | (BlocBase & {
@@ -313,6 +320,29 @@ export const CHAMPS_SOCIETE: ChampDisponible[] = [
   { chemin: "societe.rccm", libelle: "RCCM", format: "texte" },
   { chemin: "societe.devise", libelle: "Devise", format: "texte" },
 ];
+
+/**
+ * Les coordonnées que le bloc En-tête peut afficher sous le nom, et
+ * dans cet ordre — utilisé par `champsSociete` (types.ts) et par le
+ * rendu (rendu.ts). Le nom n'y figure pas : il s'affiche toujours,
+ * c'est l'ancre du bloc.
+ */
+export const CHAMPS_ENTETE: { cle: string; libelle: string }[] = [
+  { cle: "adresse", libelle: "Adresse" },
+  { cle: "telephone", libelle: "Téléphone" },
+  { cle: "telephone2", libelle: "Téléphone 2" },
+  { cle: "email", libelle: "E-mail" },
+  { cle: "nif", libelle: "NIF" },
+  { cle: "rccm", libelle: "RCCM" },
+];
+
+/**
+ * Ce qu'un modèle enregistré avant ce réglage affichait : les cinq
+ * d'origine (le second téléphone n'entrait pas encore dans la boucle).
+ * `champsSociete` absent retombe ici, pour qu'un ancien modèle imprime
+ * exactement comme avant.
+ */
+export const CHAMPS_ENTETE_PAR_DEFAUT = ["adresse", "telephone", "email", "nif", "rccm"];
 
 export const CHAMPS_PIECE: ChampDisponible[] = [
   { chemin: "piece.numero", libelle: "Numéro", format: "texte" },

@@ -27,8 +27,9 @@ import { appeler as invoke } from "@/lib/pont";
 import { EditeurPiedPage } from "@/components/EditeurPiedPage";
 
 import {
-  CHAMPS_PAR_GENRE, CHAMPS_PIECE, CHAMPS_SOCIETE, CHAMPS_TOTAUX,
-  COLONNES_PAR_GENRE, FORMATS, GENRES, SOURCE_PAR_GENRE,
+  CHAMPS_ENTETE, CHAMPS_ENTETE_PAR_DEFAUT, CHAMPS_PAR_GENRE, CHAMPS_PIECE,
+  CHAMPS_SOCIETE, CHAMPS_TOTAUX, COLONNES_PAR_GENRE, FORMATS, GENRES,
+  SOURCE_PAR_GENRE,
 } from "@/lib/modeles/types";
 import type {
   Alignement, Bloc, CadreFlottant, Champ, ChampDisponible, Colonne, FormatPapier,
@@ -1417,6 +1418,38 @@ function ProprietesBloc({
             />
             Afficher les coordonnées de la société
           </label>
+          {bloc.afficherSociete && (
+            <div className="ml-5 space-y-1 border-l pl-2">
+              <p className="text-[11px] text-muted-foreground">
+                Le nom s'affiche toujours ; cochez ce qui va sous lui.
+              </p>
+              {CHAMPS_ENTETE.map((c) => {
+                const actifs = bloc.champsSociete ?? CHAMPS_ENTETE_PAR_DEFAUT;
+                const coche = actifs.includes(c.cle);
+                return (
+                  <label key={c.cle} className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox" checked={coche}
+                      onChange={(e) => {
+                        const suivant = e.target.checked
+                          ? [...actifs, c.cle]
+                          : actifs.filter((k) => k !== c.cle);
+                        // L'ordre du tableau CHAMPS_ENTETE, pas celui du
+                        // clic : deux modeles avec les memes champs
+                        // cochés impriment dans le même ordre.
+                        onChange({
+                          champsSociete: CHAMPS_ENTETE
+                            .map((x) => x.cle)
+                            .filter((k) => suivant.includes(k)),
+                        });
+                      }}
+                    />
+                    {c.libelle}
+                  </label>
+                );
+              })}
+            </div>
+          )}
           <div>
             <Label className="text-xs">Alignement</Label>
             <ChoixAlignement valeur={bloc.alignement} onChange={(a) => onChange({ alignement: a })} />

@@ -21,6 +21,7 @@ import type {
   FormatValeur,
   Modele,
 } from "./types";
+import { CHAMPS_ENTETE_PAR_DEFAUT } from "./types";
 
 export interface ImagesDocument {
   logo?: string | null;
@@ -240,7 +241,7 @@ function rendreBloc(
       const soc = bloc.afficherSociete
         ? `<div class="soc">
              <div class="soc-nom">${esc(valeurAuChemin(donnees, "societe.nom"))}</div>
-             ${["adresse", "telephone", "email", "nif", "rccm"]
+             ${(bloc.champsSociete ?? CHAMPS_ENTETE_PAR_DEFAUT)
                .map((k) => {
                  const v = valeurAuChemin(donnees, `societe.${k}`);
                  if (!v) return "";
