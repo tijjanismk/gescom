@@ -427,14 +427,17 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
-| D20 | la v3 se fait dans l'ordre A (pièces simplifiées), B (journal), C (droits), D (dossiers) — [PLAN-V3.md](PLAN-V3.md) |
+| D23 | le **plan comptable SYSCOHADA** en base, les opérations affectées en réglage, les journaux lus et exportés — rien de stocké ; la comptabilité complète après |
+| D22 | **SQLite reste** ; plusieurs dossiers demandent **le serveur**, pas PostgreSQL — le serveur sert tout par `Base` sur les deux moteurs, la fenêtre monoposte garde un dossier (révise D11 et D13) |
+| D21 | les **dates de travail** d'un dossier se donnent à sa création et se prolongent ; une écriture hors dates est refusée en disant quoi faire |
+| D20 | la v3 se fait dans l'ordre A (pièces simplifiées), B (journal), C (droits), D (dossiers), E (plan comptable) — [PLAN-V3.md](PLAN-V3.md) |
 | D19 | cinq permissions de **lecture** (prix d'achat, rapports, soldes, historique, autres caisses) ; `employe` n'en porte aucune |
 | D18 | trois signatures au plus par genre de document, libellé + image facultative (cachet) |
 | D17 | **l'atelier de modèles part** : un seul générateur, mise en page fixe par genre, réglages en cases ; `modele_document` et `image_document` supprimées — révoque les décisions de l'atelier des 17–18/09 |
 | D16 | le bon de livraison partiel reste un document à quantité pleine ; seul le suivi (et le stock) connaît le partiel |
 | D15 | un retour rend l'argent en argent et l'avoir en avoir ; ce qui a été payé avec un avoir ne devient jamais des espèces |
 | D14 | un chèque rejeté se contre-passe (paiement négatif + sortie de caisse), sans exiger une caisse ouverte |
-| D13 | le dossier (v3) se choisit **à la connexion**, mémorisé **par personne** côté serveur ; en changer, c'est se déconnecter ; plusieurs dossiers **demandent PostgreSQL** — **dormante** : la v3 n'est pas commencée, un seul dossier = comportement d'avant |
+| D13 | le dossier (v3) se choisit **à la connexion**, mémorisé **par personne** côté serveur ; en changer, c'est se déconnecter ; plusieurs dossiers ~~demandent PostgreSQL~~ **demandent le serveur** (D22, 21/09) — **dormante** : la v3 n'est pas commencée, un seul dossier = comportement d'avant |
 
 Aucune case n'attend de réponse.
 
@@ -579,8 +582,43 @@ jamais un zéro qui ressemble à une valeur) ou refuse. Le rôle
 aucune** ; le patron rend un droit à une personne par le sur-mesure.
 (21/09/2026) → [PLAN-V3.md](PLAN-V3.md) § 4.
 
-## D20 — L'ordre de la v3 : A, B, C, D
+## D20 — L'ordre de la v3 : A, B, C, D, E
 
 Pièces simplifiées d'abord (ce qui se voit tous les jours), le journal
 ensuite (pour corriger le reste avec des traces), les droits, puis les
-dossiers (un seul commerce tourne). (21/09/2026)
+dossiers (un seul commerce tourne), puis le plan comptable, qui lit
+tout ce que les autres écrivent. (21/09/2026)
+
+## D21 — Les dates de travail se donnent à la création du dossier
+
+À la création, le dossier posait d'office l'année civile comme
+premier exercice. Désormais on **donne** les dates de travail
+(proposées à l'année civile), et elles se **prolongent** — la commande
+existe. Une écriture hors dates est refusée par le garde-fou, avec le
+remède dans le message (prolonger, ou ouvrir l'exercice suivant). Un
+dossier n'a jamais de trou entre deux exercices. (21/09/2026) →
+[PLAN-V3.md](PLAN-V3.md) § 5.
+
+## D22 — SQLite reste ; plusieurs dossiers demandent le serveur, pas PostgreSQL
+
+Un commerçant seul, une machine, n'a pas à installer PostgreSQL. Les
+deux moteurs restent de plein droit. Ce que le multi-dossier demande,
+c'est **le serveur** — qui peut tourner sur la même machine, sur la
+même base SQLite — parce que la fenêtre monoposte parle à la base par
+ses façades `Connection`, qui ne connaissent qu'un dossier. Le serveur,
+lui, sert **tout par `Base`** sur les deux moteurs : les 202 commandes
+y sont portées et les scénarios `*_base.rs` tournent sur SQLite par
+défaut — le chemin le plus testé. Son chemin `conn` sur SQLite (D11)
+part ; D13 est révisée sur un mot. Le déclencheur de stock SQLite
+multi-dossier se corrige avant. (21/09/2026)
+
+## D23 — Le plan comptable comme fondation : SYSCOHADA en base, journaux lus, rien de stocké
+
+Le Mali est dans l'OHADA. La v3 pose le plan SYSCOHADA révisé en base
+(commun, sous-comptes par dossier), l'affectation de chaque type
+d'opération de Gescom à ses comptes (réglage, défauts livrés), et les
+journaux — ventes, achats, caisse, règlements — **générés à la
+lecture** et exportés en CSV pour le comptable. **Aucune écriture
+n'est stockée** : ce serait une seconde vérité à côté de la vente,
+et les deux finiraient par se contredire. Balance, bilan, OD,
+lettrage, TVA : après, sur ce sol, sans rien refaire. (21/09/2026)

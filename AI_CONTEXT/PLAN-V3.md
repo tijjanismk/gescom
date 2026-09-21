@@ -16,12 +16,14 @@ tâches : il tranche, avec l'exemple, le coût et une recommandation
 | A | **Pièces commerciales simplifiées** | un en-tête et un pied de page qu'on **téléverse** (une image), les **signatures** qu'on règle, et c'est tout. L'atelier de blocs glisser-déposer disparaît. |
 | B | **Un vrai système de journal** | ce que le logiciel a fait se **lit** : qui a fait quoi (déjà écrit, jamais montré), les erreurs des caisses remontées au serveur, les anomalies sur le tableau de bord. |
 | C | **Des droits plus complets** | ce qu'on **voit** se règle (prix d'achat, marges, rapports), les droits valent **par dossier**, des **plafonds** (remise, remboursement) et le patron **voit qui est connecté**. |
-| D | **Plusieurs dossiers** (fondation posée le 19/09, dormante) | l'écran des dossiers et des exercices, le garde-fou des dates, la migration d'une base existante. → [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md), déjà tranché. |
+| D | **Plusieurs dossiers** (fondation posée le 19/09, dormante) | l'écran des dossiers et des exercices, le garde-fou des dates, la migration d'une base existante. → [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md), déjà tranché — avec trois précisions du 21/09 (§ 5) : les **dates de travail** se donnent à la création et se **prolongent** ; **SQLite reste** un moteur de plein droit ; plusieurs dossiers demandent **le serveur**, pas PostgreSQL. |
+| E | **Le plan comptable** (fondation) | le plan SYSCOHADA en base, chaque opération de Gescom **affectée** à ses comptes, et les journaux (ventes, achats, caisse) **lus** depuis ce qui existe et exportés pour le comptable. La comptabilité complète (balance, bilan, OD) viendra après — la v3 pose le sol. |
 
-L'ordre proposé est **A, B, C, D** : A parce que c'est ce qui se voit
-tous les jours et que l'atelier actuel coûte à chaque retour du
-terrain ; B parce que sans lui on corrige C et D à l'aveugle ; D en
-dernier parce qu'un seul commerce tourne aujourd'hui.
+L'ordre est **A, B, C, D, E** (D20, E ajouté le 21/09) : A parce que
+c'est ce qui se voit tous les jours et que l'atelier actuel coûte à
+chaque retour du terrain ; B parce que sans lui on corrige C, D et E à
+l'aveugle ; D après C parce que les droits par dossier en dépendent ;
+E en dernier parce qu'il lit tout ce que les autres écrivent.
 
 ---
 
@@ -282,18 +284,124 @@ un trou, à fermer en premier).
 ## 5. Chantier D — plusieurs dossiers
 
 Tout est tranché dans [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md) et
-la fondation est posée (D13, 19/09). Ce qui reste, dans l'ordre du
-plan (§ 13, points 3 à 6) :
+la fondation est posée (D13, 19/09). Trois précisions du propriétaire
+le 21/09/2026, qui deviennent D21 et D22.
 
-1. L'écran des dossiers : créer (avec son magasin et son client de
-   passage), voir, et le choix à la connexion qui existe déjà.
-2. L'écran des exercices : ouvrir, prolonger, clore ; le garde-fou
+### Décision D21 — les dates de travail se donnent à la création, et se prolongent
+
+> Tu ouvres le dossier « Quincaillerie » le 15 mars, tu dis : je
+> travaille dedans du 1er mars 2026 au 28 février 2027. En janvier
+> 2027 tu n'as pas fini les papiers : tu prolonges jusqu'au 31 mars.
+
+Aujourd'hui `creer_dossier_sur(code, societe)` pose **d'office**
+l'année civile comme premier exercice. Désormais la création
+**demande** les dates de travail (`date_debut`, `date_fin`) — proposées
+à l'année civile, modifiables — et c'est le premier exercice.
+`prolonger_exercice_sur` existe déjà (`date_prolongation`) ; l'écran
+des exercices le rend visible. Le garde-fou `verifier_date_sur`,
+branché avant chaque écriture datée, dit clairement : « Le 5 avril
+2027 est hors des dates de travail (jusqu'au 31 mars). Prolonger
+l'exercice ou en ouvrir un nouveau. » Un dossier n'a jamais de
+« trou » : un exercice commence le lendemain de la fin du précédent.
+
+### Décision D22 — SQLite reste, et plusieurs dossiers demandent le serveur, pas PostgreSQL
+
+> Un commerçant seul, une machine : SQLite, rien à installer. Il veut
+> un second dossier pour la boutique de son frère : il lance le
+> serveur **sur la même machine**, sur la même base SQLite. PostgreSQL
+> n'entre en jeu qu'avec plusieurs caisses qui écrivent en même temps.
+
+Les deux moteurs restent de plein droit, et D13 est révisée sur un
+mot : plusieurs dossiers demandent **le serveur**, pas PostgreSQL.
+Ce qui le rend possible : les 202 commandes ont leur version `Base`,
+et les 162 scénarios `*_base.rs` tournent **sur SQLite par défaut** —
+c'est le chemin le plus testé de tout le logiciel. Donc :
+
+| | moteur | chemin | dossiers |
+|---|---|---|---|
+| fenêtre **monoposte** | SQLite | façades `Connection` | **un seul** (le dossier d'origine) |
+| **serveur** | SQLite ou PostgreSQL | **`Base` pour tout** | plusieurs |
+
+Ce que ça change dans le code : le serveur cesse d'avoir deux chemins
+(`conn` sur SQLite, `Base` sur PostgreSQL — D11) ; il sert **tout par
+`Base`** sur les deux moteurs, et le chemin `conn` du serveur part.
+`creer_dossier_sur` refuse quand il est appelé **par la fenêtre
+monoposte** (« Plusieurs dossiers demandent le serveur — le lancer sur
+cette machine suffit »), plus quand la base est SQLite. Le déclencheur
+de stock SQLite multi-dossier (ETAPES item 9) doit être corrigé
+**avant** — c'est la première tâche de D. Ce qui ne change pas : la
+fenêtre monoposte garde ses façades `Connection`, un dossier, comme
+depuis le début.
+
+### L'ordre de D
+
+1. Le déclencheur de stock SQLite multi-dossier (item 9) — sinon D22
+   n'est pas vrai.
+2. Le serveur sert tout par `Base` ; le chemin `conn` du serveur part
+   (les tests de routes tournent sur SQLite : ils le prouvent).
+3. L'écran des dossiers : créer **avec ses dates de travail** (D21),
+   son magasin, son client de passage ; le choix à la connexion
+   existe déjà.
+4. L'écran des exercices : ouvrir, prolonger, clore ; le garde-fou
    `verifier_date_sur` branché avant chaque écriture datée.
-3. La migration d'une base existante : tout ce qui est en `defaut`
-   devient le premier dossier, nommé par le patron.
-4. Le déclencheur de stock SQLite multi-dossier (ETAPES item 9).
-5. C2 (droits par dossier) se branche ici.
-6. Le compte PostgreSQL limité (D10).
+5. La migration d'une base existante : tout ce qui est en `defaut`
+   devient le premier dossier, nommé par le patron, avec ses dates.
+6. C2 (droits par dossier) se branche ici.
+7. Le compte PostgreSQL limité (D10) — pour ceux qui ont PostgreSQL.
+
+---
+
+## 5 bis. Chantier E — le plan comptable, comme fondation
+
+> « Inclure les plans comptables comme prévision dans le futur, mais
+> inclus dans v3. » — le propriétaire, 21/09/2026.
+
+### Ce qu'on a
+
+Rien de comptable, et c'est voulu jusqu'ici : Gescom tient le
+commerce (stock, caisse, créances, dettes), pas la comptabilité. Mais
+le comptable du commerçant, lui, ressaisit chaque mois les ventes,
+les achats et la caisse dans son logiciel. C'est ce temps-là que la
+fondation vise.
+
+### Décision D23 — SYSCOHADA en base, les opérations affectées, les journaux lus — rien de stocké
+
+Le Mali est dans l'OHADA : le plan est le **SYSCOHADA révisé**. La v3
+fait trois choses, et pas une de plus :
+
+1. **Le plan en base** : `compte_comptable (numero, libelle, classe,
+   parent)`, **commun à tous les dossiers** (le plan est le même pour
+   tout le monde), semé avec les comptes usuels d'un commerce (une
+   centaine, classes 1 à 7 : 401, 411, 4431, 4452, 521, 571, 601, 603,
+   31x, 701, 7019…). Le patron ou le comptable ajoute des
+   sous-comptes (`4111 Client Coulibaly`) — par dossier, avec un
+   `dossier_id` facultatif.
+2. **L'affectation** : quelle opération de Gescom va sur quel compte,
+   en réglage (`affectation_comptable`, par dossier) : vente comptant →
+   571 / 701 / 4431 ; vente à crédit → 411 ; règlement client → 571 ou
+   521 / 411 ; achat → 601 / 4452 / 401 ; paiement fournisseur ; avoir ;
+   retour ; dépense de caisse par catégorie ; écart de clôture ;
+   créance irrécouvrable → 6511. Des défauts livrés qui tiennent la
+   route ; un écran pour les changer.
+3. **Les journaux, lus** : journal des ventes, des achats, de caisse,
+   des règlements — **générés à la lecture** depuis `vente`, `achat`,
+   `paiement`, `mouvement_caisse`, par période, avec le compte de
+   chaque ligne — et **exportés** (CSV, colonnes date / journal /
+   compte / libellé / débit / crédit / pièce) pour le logiciel du
+   comptable. **Rien n'est stocké** : une écriture comptable
+   enregistrée à côté de la vente serait une seconde vérité, et les
+   deux finiraient par se contredire — le principe de l'exercice
+   (PLAN-MULTISOCIETE § 4) vaut ici aussi. Un test le prouve : le
+   total débit = total crédit sur chaque journal, et le journal des
+   ventes d'un mois = le chiffre d'affaires du cahier du jour sommé.
+
+### Ce qui n'est PAS dans E (et viendra après)
+
+Balance, grand livre avec report à nouveau, bilan et compte de
+résultat, opérations diverses saisies à la main, lettrage,
+immobilisations, déclaration de TVA. Tout cela **lit** ce que E pose ;
+rien de E ne devra être refait pour l'accueillir — c'est le sens de
+« fondation ».
 
 ---
 
@@ -308,7 +416,10 @@ suivent la recommandation. Numérotées dans
 | **D17** | **L'atelier part.** Un seul générateur, mise en page fixe par genre, réglages en cases. `modele_document` et `image_document` supprimées par migration. Pas de « mode avancé ». |
 | **D18** | **Trois signatures au plus** par genre, chacune avec libellé et **image facultative** (cachet, signature scannée). |
 | **D19** | **`employe` ne voit pas les prix d'achat** ni les marges : cinq permissions de lecture (C1), le rôle des vendeurs n'en porte aucune. Le patron rend le droit par le sur-mesure. |
-| **D20** | **L'ordre est A, B, C, D.** |
+| **D20** | **L'ordre est A, B, C, D** — puis **E**, ajouté le même jour. |
+| **D21** | **Les dates de travail** se donnent à la création du dossier (proposées à l'année civile) et se **prolongent** ; le garde-fou refuse une écriture hors dates en disant quoi faire. |
+| **D22** | **SQLite reste** un moteur de plein droit ; plusieurs dossiers demandent **le serveur** (sur la même machine s'il le faut), pas PostgreSQL. Le serveur sert tout par `Base` sur les deux moteurs ; la fenêtre monoposte garde un dossier. |
+| **D23** | **Le plan comptable SYSCOHADA** en base, l'affectation des opérations en réglage, les journaux **lus** et exportés — **rien de stocké**. La comptabilité complète viendra après, sur ce sol. |
 
 Il ne reste **rien** à décider pour commencer A.
 
@@ -327,6 +438,14 @@ Il ne reste **rien** à décider pour commencer A.
 | C-1 | Cinq permissions de lecture | scénarios `permissions.rs` : le caissier reçoit `prix_achat: null` |
 | C-3 | Plafonds dans `coeur`, vérifiés dans la poignée | unitaires + scénario |
 | C-2 | Droits par dossier | avec D |
-| D | voir § 5 | PLAN-MULTISOCIETE |
+| D-1 | Déclencheur de stock SQLite multi-dossier (item 9) | scénario `cloisonnement.rs` sur SQLite |
+| D-2 | Le serveur sert tout par `Base` ; le chemin `conn` part | tests de routes (SQLite) + workspace vert |
+| D-3 | Écran des dossiers, création avec dates de travail (D21) | scénario `dossiers_base.rs` : dates données, hors dates refusé avec le message |
+| D-4 | Écran des exercices, garde-fou branché | scénarios : prolonger, clore, écriture le lendemain d'une clôture |
+| D-5 | Migration d'une base existante vers un premier dossier nommé | scénario sur une base v2 amorcée |
+| D-6 | Compte PostgreSQL limité (D10) | postgres_amorcage |
+| E-1 | `compte_comptable` semé (SYSCOHADA), sous-comptes par dossier | `schema_commun` + scénario : les deux moteurs, ~100 comptes |
+| E-2 | `affectation_comptable` + défauts livrés + écran | scénario : chaque type d'opération a un compte |
+| E-3 | Journaux lus (ventes, achats, caisse, règlements) + export CSV | scénario : débit = crédit ; ventes du mois = CA du cahier |
 
 Chaque étape est un commit, un scénario, une ligne dans ETAPES.

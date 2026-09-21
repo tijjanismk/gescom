@@ -205,9 +205,13 @@ journal jusqu'au bout (Historique lisible, erreurs des caisses
 remontées, onglet Journal de la console, anomalies au tableau de
 bord) ; **C** droits plus complets (cinq permissions de lecture, D19 ;
 droits par dossier ; plafonds de remise / remboursement / crédit ;
-sessions visibles et révocables) ; **D** plusieurs dossiers, ci-dessous.
-Tout est tranché : → [PLAN-V3.md](PLAN-V3.md). Première étape : A-1,
-les réglages Documents en base.
+sessions visibles et révocables) ; **D** plusieurs dossiers, ci-dessous
+— dates de travail données à la création et prolongeables (D21),
+SQLite reste et le multi-dossier demande le serveur, pas PostgreSQL
+(D22) ; **E** le plan comptable SYSCOHADA en base, opérations
+affectées, journaux lus et exportés, rien de stocké (D23). Tout est
+tranché : → [PLAN-V3.md](PLAN-V3.md). Première étape : A-1, les
+réglages Documents en base.
 
 ### D — la fondation multi-dossier, posée, dormante
 

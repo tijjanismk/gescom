@@ -1535,3 +1535,21 @@ l'employé ne verra plus les prix d'achat.
 Quatre questions posées, quatre réponses dans le sens des
 recommandations (D17–D20). Il ne reste rien à décider pour commencer
 A-1.
+
+## 21/09/2026 (suite 2) — trois précisions sur les dossiers, et le plan comptable
+
+Le propriétaire, après le plan : les dates de travail d'un dossier se
+donnent à sa création et se prolongent (D21) ; SQLite reste, « pour un
+utilisateur qui n'a pas besoin de beaucoup de machines » (D22) ; le
+plan comptable entre dans la v3, comme fondation (D23).
+
+D22 est celle qui change le code : le multi-dossier ne demande plus
+PostgreSQL mais **le serveur**, qui servira tout par `Base` sur les
+deux moteurs — les 202 commandes y sont, et les scénarios tournent sur
+SQLite par défaut. Le chemin `conn` du serveur part ; la fenêtre
+monoposte garde ses façades et un dossier. Le déclencheur de stock
+SQLite multi-dossier (item 9) passe en tête du chantier D.
+
+D23 tient en une règle : le plan SYSCOHADA en base, les opérations
+affectées, les journaux **lus** et exportés — **rien de stocké**. Une
+écriture à côté de la vente serait une seconde vérité.
