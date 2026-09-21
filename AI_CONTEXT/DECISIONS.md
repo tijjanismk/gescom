@@ -427,6 +427,8 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D25 | **le serveur gagne une fenêtre** : une coque Tauri fine qui affiche la console existante — pas une interface reconstruite |
+| D24 | **deux rôles, un seul produit** : simple (monoposte, existe déjà) ou complet (serveur + plusieurs postes/dossiers), choisis **à l'installation**, jamais devinés en cours de route |
 | D23 | le **plan comptable SYSCOHADA** en base, les opérations affectées en réglage, les journaux lus et exportés — rien de stocké ; la comptabilité complète après |
 | D22 | **SQLite reste** ; plusieurs dossiers demandent **le serveur**, pas PostgreSQL — le serveur sert tout par `Base` sur les deux moteurs, la fenêtre monoposte garde un dossier (révise D11 et D13) |
 | D21 | les **dates de travail** d'un dossier se donnent à sa création et se prolongent ; une écriture hors dates est refusée en disant quoi faire |
@@ -622,3 +624,49 @@ lecture** et exportés en CSV pour le comptable. **Aucune écriture
 n'est stockée** : ce serait une seconde vérité à côté de la vente,
 et les deux finiraient par se contredire. Balance, bilan, OD,
 lettrage, TVA : après, sur ce sol, sans rien refaire. (21/09/2026)
+
+## D24 — Deux rôles, un seul produit, un choix qui ne se devine jamais
+
+Le propriétaire vend à deux profils : le commerçant seul, une machine,
+qui ne branchera jamais de deuxième caisse ; et celui qui en a
+plusieurs, ou plusieurs boutiques. Aujourd'hui ce sont deux produits
+distincts dans le discours (« v1 ou v2 ») — **v3 doit jouer les deux
+rôles dans le même produit**.
+
+**Ce qui existe déjà, vérifié dans le code** : le réglage `monoposte` /
+`poste` ([reseau.rs](../../src-tauri/src/reseau.rs)), persisté dans
+`poste.json`, lu une fois, jamais deviné — « une installation
+existante qui se met à jour ne change pas de mode toute seule un
+matin ». En `monoposte` la fenêtre ouvre sa base SQLite locale, aucun
+réseau ; en `poste` elle ne parle qu'au serveur, sans repli silencieux
+(la correction de septembre 2026 sur le bug du cache vidé). Les deux
+rôles jouent donc déjà dans le même exécutable.
+
+**Ce que D24 ajoute** : le choix se fait **à l'installation** — un
+écran « Une seule caisse » / « Plusieurs caisses ou boutiques » qui
+écrit `poste.json` une fois pour toutes — plutôt qu'un réglage
+découvert après coup dans Paramètres → Réseau. Changer de rôle plus
+tard reste possible, mais c'est un geste volontaire, comme migrer une
+base (PLAN-MULTISOCIETE), jamais une bascule automatique. Le rôle
+« complet » embarque le multi-dossier (D13/D22, chantier D) ; le rôle
+« simple » reste à un seul dossier, invisible à l'écran.
+
+**Ce qu'on ne fait pas** : reconstruire l'architecture. Le mécanisme
+existe et est éprouvé ; D24 le rend explicite au bon moment, sans rien
+casser de ce qui tourne. (21/09/2026) → [PLAN-V3.md](PLAN-V3.md) § 6.
+
+## D25 — Le serveur gagne une fenêtre
+
+Le serveur n'a aujourd'hui qu'une console web
+([console.rs](../../src-tauri/serveur/src/console.rs), déjà construite
+et testée) et le service Windows invisible (D12). Pour le rôle
+« complet » d'un produit qu'on vend, quelqu'un doit pouvoir double-
+cliquer une icône et voir un tableau de bord — pas ouvrir un navigateur
+sur `localhost:7300`, pas taper `sc start`.
+
+**Décision : une coque, pas une reconstruction.** Une application Tauri
+fine qui affiche la **même page** que la console web (le HTML ne
+change pas, le format des données non plus) — pour que rien ne soit
+maintenu en double. Le service Windows (D12) reste disponible pour qui
+préfère l'invisible-au-démarrage ; la fenêtre est la façon normale d'y
+toucher. (21/09/2026) → [PLAN-V3.md](PLAN-V3.md) § 6.

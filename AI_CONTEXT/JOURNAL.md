@@ -1553,3 +1553,23 @@ SQLite multi-dossier (item 9) passe en tête du chantier D.
 D23 tient en une règle : le plan SYSCOHADA en base, les opérations
 affectées, les journaux **lus** et exportés — **rien de stocké**. Une
 écriture à côté de la vente serait une seconde vérité.
+
+## 21/09/2026 (suite 3) — deux rôles, un seul produit (D24, D25)
+
+« Ce que je prévois : le logiciel qui convient à mon client, v1 ou v2
+— mais v3 serait un complet pour jouer les deux rôles. » Le réflexe a
+été de vérifier avant de proposer : le mécanisme existe déjà.
+[reseau.rs](../../src-tauri/src/reseau.rs) porte depuis la v2 un
+réglage `monoposte` / `poste` dans `poste.json`, lu une fois, jamais
+deviné — c'est exactement le garde-fou qu'on allait redemander contre
+le bug du cache vidé de septembre. Les deux rôles jouent déjà dans le
+même exécutable.
+
+Ce qui manquait n'était pas une architecture : trois finitions. **D24**
+— le choix se fait à l'installation (« une seule caisse » ou
+« plusieurs »), pas dans un réglage qu'on découvre après coup. **D25**
+— le serveur gagne une fenêtre : une coque Tauri fine autour de la
+console web déjà construite, pas une interface refaite. Le rôle
+« complet » embarque le multi-dossier (D13/D22, déjà au chantier D).
+
+Recommandé et confirmé : réutiliser plutôt que reconstruire.

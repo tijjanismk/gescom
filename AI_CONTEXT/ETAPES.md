@@ -208,10 +208,13 @@ droits par dossier ; plafonds de remise / remboursement / crédit ;
 sessions visibles et révocables) ; **D** plusieurs dossiers, ci-dessous
 — dates de travail données à la création et prolongeables (D21),
 SQLite reste et le multi-dossier demande le serveur, pas PostgreSQL
-(D22) ; **E** le plan comptable SYSCOHADA en base, opérations
-affectées, journaux lus et exportés, rien de stocké (D23). Tout est
-tranché : → [PLAN-V3.md](PLAN-V3.md). Première étape : A-1, les
-réglages Documents en base.
+(D22), et **deux rôles dans un seul produit** : simple (monoposte,
+déjà là) ou complet, choisis à l'installation, jamais devinés (D24),
+le serveur gagnant une fenêtre — une coque sur sa console existante,
+pas une reconstruction (D25) ; **E** le plan comptable SYSCOHADA en
+base, opérations affectées, journaux lus et exportés, rien de stocké
+(D23). Tout est tranché : → [PLAN-V3.md](PLAN-V3.md). Première
+étape : A-1, les réglages Documents en base.
 
 ### D — la fondation multi-dossier, posée, dormante
 

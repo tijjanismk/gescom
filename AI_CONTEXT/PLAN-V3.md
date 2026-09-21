@@ -351,7 +351,59 @@ depuis le début.
 
 ---
 
-## 5 bis. Chantier E — le plan comptable, comme fondation
+## 6. Deux rôles, un seul produit (D24, D25)
+
+> « Ce que je prévois : le logiciel qui convient à mon client, v1 ou
+> v2 — mais v3 serait un complet pour jouer les deux rôles. » Puis, en
+> précisant : le serveur tournerait dans sa propre fenêtre, et on peut
+> utiliser SQLite sans serveur. — le propriétaire, 21/09/2026.
+
+### Ce qui existe déjà
+
+Vérifié dans le code, pas supposé : [reseau.rs](../../src-tauri/src/reseau.rs)
+porte depuis la v2 un réglage `monoposte` / `poste`, dans `poste.json`,
+lu une fois et jamais deviné. En `monoposte`, la fenêtre ouvre sa base
+SQLite locale — aucun réseau, aucun serveur à installer, le
+comportement du v1. En `poste`, elle ne parle **qu'**au serveur, sans
+repli silencieux sur du local — c'est la correction de septembre 2026
+qui a fermé le bug du cache vidé (un poste qui se croyait monoposte et
+ouvrait une base locale vide). **Les deux rôles jouent donc déjà dans
+le même exécutable.** Ce qui manque n'est pas une architecture, c'est
+trois finitions.
+
+### Décision D24 — le choix se fait à l'installation, jamais deviné
+
+Aujourd'hui le mode se règle après coup, dans Paramètres → Réseau —
+un réglage qu'on découvre, pas un choix qu'on fait. Un écran
+d'installation demande : « Une seule caisse » ou « Plusieurs caisses
+ou boutiques », et écrit `poste.json` une fois pour toutes. Changer de
+rôle plus tard reste possible mais volontaire, jamais automatique — le
+même principe que D21 pour les dates, ou que la migration d'un dossier
+existant (PLAN-MULTISOCIETE). Le rôle « complet » embarque le
+multi-dossier (D13/D22) ; le rôle « simple » reste à un seul dossier,
+invisible à l'écran — c'est déjà le cas aujourd'hui.
+
+### Décision D25 — le serveur gagne une fenêtre, pas une reconstruction
+
+Le serveur a une console web (`console.rs`, déjà construite, testée)
+et le service Windows (D12) — rien qu'on double-clique. Pour le rôle
+« complet » d'un produit vendu, il faut une icône et une fenêtre.
+**Une coque Tauri fine qui affiche la même page que la console** : le
+HTML ne change pas, rien n'est maintenu en double. Le service Windows
+reste pour qui préfère l'invisible-au-démarrage ; la fenêtre devient
+la façon normale d'y toucher — démarrer/arrêter, voir les postes
+connectés, lancer une sauvegarde, lire le journal technique (B3).
+
+### Ce que ça ne change PAS
+
+Le mécanisme monoposte/poste, les façades `Connection`, le pont
+(`src/lib/pont.ts`) — rien de tout cela ne bouge. D24 et D25 sont de
+la présentation et un ordre d'installation, pas une nouvelle
+architecture.
+
+---
+
+## 7. Chantier E — le plan comptable, comme fondation
 
 > « Inclure les plans comptables comme prévision dans le futur, mais
 > inclus dans v3. » — le propriétaire, 21/09/2026.
@@ -405,7 +457,7 @@ rien de E ne devra être refait pour l'accueillir — c'est le sens de
 
 ---
 
-## 6. Ce qui a été décidé le 21/09/2026
+## 8. Ce qui a été décidé le 21/09/2026
 
 Quatre questions posées au propriétaire, quatre réponses — toutes
 suivent la recommandation. Numérotées dans
@@ -423,7 +475,7 @@ suivent la recommandation. Numérotées dans
 
 Il ne reste **rien** à décider pour commencer A.
 
-## 7. L'ordre des travaux
+## 9. L'ordre des travaux
 
 | étape | contenu | ce qui le prouve |
 |---|---|---|
