@@ -5,12 +5,17 @@ Le récit daté de chaque avancée vit dans [JOURNAL.md](JOURNAL.md), les
 décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md).
 
-Dernière mise à jour : **20 septembre 2026** (la dette v2 qu'on pouvait
-payer sans le propriétaire : restauration, routes HTTP testées, chèque
-rejeté, filtres liés, codes-barres dessinés ; le retour d'une vente
-payée avec un avoir, D15 ; les anomalies dans le cahier du jour et le
-journal technique du serveur ; fondation v3 posée mais dormante — la v2
-d'abord).
+Dernière mise à jour : **21 septembre 2026 — la v2 est close.** Le
+code est fini (tout ce qui pouvait se faire sans le propriétaire
+devant sa machine l'a été : restauration, routes HTTP testées, chèque
+rejeté, filtres liés, codes-barres dessinés, retour d'une vente payée
+avec un avoir (D15), anomalies dans le cahier du jour, journal
+technique, coordonnées de l'en-tête au champ). **Les vérifications
+manuelles (installeur en élevé, impression papier, deux machines,
+restauration jouée pour de vrai) n'ont pas été déroulées** — décision
+du propriétaire : on ferme quand même, c'est de la dette connue, pas
+un blocage. Le bon de livraison partiel reste un document à quantité
+pleine (D16), assumé. **La v3 commence à la prochaine séance.**
 État : **463 tests workspace SQLite** (`--workspace`, mesuré le
 20/09, 0 échec, 0 avertissement) ; sur **PostgreSQL** (`gescom_test`) :
 suite complète 394/394 le 13/09, puis rejoués sans échec les fichiers
@@ -55,7 +60,15 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | Modèles de documents, atelier, import/export | [modeles-documents](modules/modeles-documents.md) |
 | **PostgreSQL : 202/202 commandes servies sur `Base`**, sauvegarde `pg_dump`, filet `schema_commun` | [postgresql](modules/postgresql.md) |
 
-## v2 — ce qui reste
+## v2 — close le 21/09/2026
+
+Le code est fini ; les quatre lignes ci-dessous restent **dette connue,
+pas testées**, décision du propriétaire de fermer sans les dérouler.
+Elles se vérifient le jour où l'occasion se présente (une vraie
+installation, une vraie imprimante, un deuxième poste) — rien dans le
+code n'empêche de le faire alors.
+
+## v2 — ce qui reste (dette assumée, pas bloquante)
 
 | # | quoi | pourquoi ça compte |
 |---|---|---|
@@ -65,9 +78,10 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | 4 | ~~Écriture des images depuis une caisse~~ **fait le 13/09/2026** : la caisse lit le fichier et envoie le **contenu** en base64 ; le serveur le range dans son dossier d'images et enregistre le chemin. Refus net : format inconnu, base64 illisible, plus de 10 Mo. La suppression efface aussi le fichier (D8) | la commande recevait un *chemin* local, qui ne désigne rien chez le serveur (D8) |
 | 5 | ~~`entretenir_base` reste locale~~ **fait le 13/09/2026** : la route `POST /entretien` du serveur (permission `sauvegarde:lancer`) vérifie l'intégrité, réaffecte les règlements fournisseur globaux, copie avant (VACUUM INTO / pg_dump), compacte (REINDEX+VACUUM / VACUUM ANALYZE) — bouton « Entretien » dans la console ; la caisse garde le diagnostic, perd le bouton | c'est un travail de serveur (D9) |
 | 6 | ~~La restauration `pg_restore` jamais jouée~~ **jouée le 13/09/2026** : dump de `gescom_essai` → `gescom_restaure`, serveur redémarré dessus | D4 le demande ; la commande est dans [postgresql.md](modules/postgresql.md) |
-| 7 | Une **vraie impression papier**, le glisser-déposer du pied | jamais vérifiés à la main — **reste ouvert à la clôture de la v2** |
+| 7 | Une **vraie impression papier**, le glisser-déposer du pied | jamais vérifiés à la main — **la v2 a fermé sans, le 21/09/2026** |
 | 8 | ~~La fenêtre en **mode caisse**~~ **essayée le 16/09/2026** : `gescom.exe` branché au serveur PostgreSQL (`gescom_essai`), tableau de bord, POS et atelier vus à l'écran avec de vraies données. Elle a révélé le glisser-déposer cassé (`dragDropEnabled`), invisible depuis un navigateur. Reste l'impression papier (item 7) | tous les essais passaient par HTTP ; **un essai par navigateur ne remplace pas la fenêtre** |
 | 9 | Le déclencheur de stock sur SQLite multi-dossier | un mouvement de `dossier-b` crée sa ligne de stock dans `defaut` ; sans effet tant qu'une base SQLite n'a qu'un dossier — à régler avec la v3 |
+| 10 | **L'installeur en élevé, deux machines, restauration réelle** : jamais déroulés (TESTS-MANUELS §A, B, J3) | code prêt, geste non fait — dette assumée à la clôture (21/09/2026) |
 
 ## Séance du 17/09/2026 — ce qui reste ouvert
 
@@ -96,6 +110,7 @@ pannes réelles ont appris que le repli silencieux est pire que l'arrêt.
 | K6 | **POS : remise globale en % ou en francs**, répartie sur les lignes au prorata (la dernière prend le reste) ; l'invariant `SUM(prix_pratique × quantité) = dû` tient, HT/TVA se relisent sur les lignes remisées | `src/pages/Ventes.tsx` |
 | K7 | **Avoir sans marchandise depuis « Nouvelle pièce »** : type Avoir, aucune ligne, un montant + le motif dans Note → `accorder_avoir_client` (permission `avoirs:accorder`, sinon l'écran le dit). Le crédit se consomme sur une vente ou se rembourse | `src/components/ModalNouvellePiece.tsx` |
 | K8 | **Impression « parfois » cassée** : le fichier temporaire portait le nom demandé tel quel — le même deux fois (cache ou fichier encore tenu par la webview : ancien document ou page blanche), parfois **sans `.html`** (le numéro de pièce nu, WebView2 devinait le type). Nom unique + `.html` garantis, dossier `gescom_impression` nettoyé après 24 h, second essai de label si la fenêtre précédente n'a pas fini de se fermer | `src-tauri/src/commandes/impression.rs` |
+| K15 | **Choisir quelles coordonnées afficher dans l'en-tête** : la case « Afficher les coordonnées de la société » était tout-ou-rien (nom + adresse + téléphone + email + NIF + RCCM) — impossible de garder le téléphone et enlever le RCCM sur un modèle précis. Six cases (le nom reste toujours affiché, c'est l'ancre du bloc) ; **téléphone 2** ajouté, il existait dans Paramètres → Société sans apparaître sur aucun document. `champsSociete?: string[]` sur le bloc, absent = les cinq d'origine (rétro-compatible, aucune migration) | `lib/modeles/types.ts`, `rendu.ts`, `src/pages/Modeles.tsx` |
 | K14 | **Un système de traces, enfin** : (a) les **anomalies** du noyau (montant ni imputable ni remboursable, lien vente→pièce non écrit) étaient des `eprintln!` sur une console que personne ne regarde — elles sont des événements `anomalie` du `journal`, écrits dans la transaction du geste (annulée avec lui), et le **cahier du jour** les montre en rouge en tête ; (b) le **journal technique du serveur** (`serveur/src/journal_technique.rs`, sans crate) : une ligne horodatée par refus (401/403/404/409 avec le message), par erreur (5xx), par commande lente (> 2 s), par démarrage/arrêt/sauvegarde, avec le contexte `ip METHODE /route · commande · utilisateur@poste` ; rotation à 5 Mo × 3 ; `--journal FICHIER` ou clé `journal` de `serveur.json`, sinon `gescom.log` à côté de la base fichier / `ProgramData` en service ; jamais de mot de passe (D10). Le test de routes vérifie les lignes et l'absence du mot de passe. Ce qui reste (v3) : les erreurs de la fenêtre remontées au serveur | `noyau/src/journal.rs`, `retours.rs`, `argent.rs`, `serveur/src/journal_technique.rs`, `api.rs`, `main.rs`, `src/pages/Journal.tsx` |
 | K13 | **Rendre ce qu'on a payé avec un avoir rend l'avoir** (D15) : le plafond « jamais plus que versé » excluait les paiements par avoir (« pas d'argent reçu ») — un client qui achetait avec son avoir puis rendait la marchandise perdait tout, une ligne dans le journal et rien pour lui. Règle pure `coeur::calcul::repartir_retour` : l'argent revient en argent, l'avoir en avoir, le surplus est signalé ; appliquée au remboursement (espèces + avoir en un geste, l'écran dit combien ouvrir le tiroir) et au reliquat d'échange. Deux scénarios | `coeur/calcul.rs`, `noyau/src/retours.rs`, `src/components/ModalsRetour.tsx` |
 | K12 | **La dette v2 payable sans le propriétaire** (20/09) : (a) **restaurer** — `sauvegarde::restaurer` + `gescom-serveur --restaurer FICHIER`, hors ligne : `pg_restore --clean --if-exists` sur PostgreSQL, sur SQLite contrôle d'intégrité + table `vente` exigée, copie `.avant-restauration-<date>` gardée, `-wal`/`-shm` retirés ; (b) **trois tests de routes HTTP** qui lancent le vrai binaire sur une base temporaire : 401/403/404, la livraison avec le JSON de l'écran (snake et camel), sauvegarde → `--restaurer` → redémarrage ; (c) **chèque rejeté** : plus de suppression, une contre-passation (`paiement` négatif `origine = 'rejet_cheque'`, sortie de caisse `cheque_rejete`) — D14 ; (d) les cinq listes filtrées du poste (`lire_toutes_pieces_client/fournisseur`, clients, stocks, fournisseurs paginés) **lient** leurs filtres au lieu de coller du texte échappé — scénario `filtres_lies` avec apostrophe et `%` ; (e) `ModalImpression` retiré, le POS ouvre `ApercuPiece` (modèles, formats) ; (f) **étiquettes EAN-13 dessinées** en SVG (`lib/ean13.ts`, 95 modules, 31 mm), le numéro en clair dessous | `noyau/src/sauvegarde.rs`, `cheques.rs`, `pieces.rs`, `pagination.rs`, `serveur/src/main.rs`, `serveur/tests/routes.rs`, `noyau/tests/filtres_lies.rs`, `src/lib/ean13.ts`, `src/pages/Ventes.tsx` |
@@ -163,8 +178,9 @@ Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
 - ~~**Un chèque rejeté ne défait pas son mouvement de caisse**~~
   **corrigé le 20/09/2026** : contre-passation, pas suppression ; un
   rejet n'exige pas de caisse ouverte (D14).
-- **Bon de livraison partiel** : le suivi gère le partiel, le document
-  non — la conversion copie toutes les lignes à quantité pleine.
+- ~~**Bon de livraison partiel**~~ **tranché le 21/09/2026 (D16)** : le
+  suivi gère le partiel (stock, créance, statut, juste) ; le document
+  reste à quantité pleine, assumé, pas dans le chemin critique.
 - ~~`lire_fournisseurs_pagines` construit son `WHERE` par `format!()`~~
   **liés le 20/09/2026**, ainsi que les quatre autres listes du poste.
 - ~~`ModalImpression` fait doublon avec `ApercuPiece` ; codes-barres non
@@ -175,7 +191,10 @@ Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
   du même tic ont le même horodatage. Départage `cree_le, id` dans les
   deux requêtes, et le scénario cherche chaque règlement par son
   montant, pas par sa position.
-- Hors code : signature de l'installeur (D5), impression papier réelle.
+- Hors code : signature de l'installeur (D5), impression papier réelle,
+  installeur en élevé, deux machines, restauration réelle — **TESTS-
+  MANUELS.md non déroulé à la clôture de la v2 (21/09/2026)**, décision
+  du propriétaire.
 
 ## v3 — fondation posée, pas commencée
 

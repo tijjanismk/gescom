@@ -427,6 +427,7 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D16 | le bon de livraison partiel reste un document à quantité pleine ; seul le suivi (et le stock) connaît le partiel |
 | D15 | un retour rend l'argent en argent et l'avoir en avoir ; ce qui a été payé avec un avoir ne devient jamais des espèces |
 | D14 | un chèque rejeté se contre-passe (paiement négatif + sortie de caisse), sans exiger une caisse ouverte |
 | D13 | le dossier (v3) se choisit **à la connexion**, mémorisé **par personne** côté serveur ; en changer, c'est se déconnecter ; plusieurs dossiers **demandent PostgreSQL** — **dormante** : la v3 n'est pas commencée, un seul dossier = comportement d'avant |
@@ -512,3 +513,20 @@ l'écran combien rendre en espèces et combien part en avoir. Sur un
 
 La règle est pure (`coeur::calcul::repartir_retour`) : espèces,
 avoir, non attribuable — ce dernier reste signalé, jamais rendu.
+
+---
+
+## D16 — Le bon de livraison partiel reste un document à quantité pleine
+
+Le suivi d'une livraison (non livré / partiel / livré) est exact et
+gouverne le stock (K11) : c'est lui qui répond à « payé, pas livré ».
+Le DOCUMENT imprimé, lui, copie toutes les lignes de la commande à
+quantité pleine, même quand la livraison réelle est partielle.
+
+**Décision (21/09/2026, à la clôture de la v2) : on laisse tel quel.**
+Ce qui compte pour la gestion — le stock, la créance, le statut — est
+juste. Le document qui suit le camion resterait à corriger un jour,
+mais rien n'y oblige avant que le terrain le demande : un BL partiel
+imprimé à quantité pleine se corrige à la main sur la copie papier, ce
+qui est déjà la pratique boutique avant Gescom. Reste noté dans la
+dette connue, pas dans le chemin critique.

@@ -1469,3 +1469,40 @@ les refus, le contexte, et **pas** le mot de passe.
 
 La fenêtre, elle, ne remonte toujours rien : ce sera avec la v3.
 463 tests.
+## 20/09/2026 (suite 3) — l'en-tête choisit ses coordonnées
+
+Question du propriétaire, en regardant l'atelier de modèles : l'adresse
+d'exemple (« Hamdallaye… ») qu'on voit dans l'aperçu ne se cliquait
+pas, et il n'y avait aucun moyen de dire « garder le téléphone, enlever
+le RCCM » sur un modèle — la case « Afficher les coordonnées » était
+tout ou rien.
+
+Six cases remplacent la case unique (le nom reste toujours affiché,
+c'est l'ancre du bloc) : adresse, téléphone, **téléphone 2** (existait
+dans Paramètres → Société sans jamais apparaître sur un document),
+e-mail, NIF, RCCM. `champsSociete?: string[]` sur le bloc en-tête ;
+absent, un modèle enregistré avant ce réglage retombe sur les cinq
+champs d'origine — aucune migration, vérifié par un script headless
+(rendu avec et sans `champsSociete`).
+
+## 21/09/2026 — la v2 est close
+
+« v2 est fini ? », puis « fin v2 ». Le code l'était déjà : ce qui
+restait à fermer, c'était quatre vérifications qui demandent d'être
+devant la machine — l'installeur en élevé, une vraie impression
+papier, deux postes sur le réseau, une restauration jouée pour de vrai
+— et une décision en suspens sur le bon de livraison partiel.
+
+**Décidé : on ferme sans dérouler les quatre vérifications.** Elles
+restent dans TESTS-MANUELS.md, dette connue et non bloquante — à faire
+le jour où l'occasion se présente (une vraie installation, une vraie
+imprimante), rien dans le code n'y fait obstacle.
+
+**D16 — le bon de livraison partiel reste un document à quantité
+pleine.** Le suivi (stock, créance, statut) connaît le partiel et c'est
+lui qui gouverne la gestion ; le document imprimé copie toutes les
+lignes de la commande, même quand la livraison réelle est partielle.
+Assumé, pas dans le chemin critique — se corrige à la main sur la
+copie papier, comme avant Gescom.
+
+**La v3 commence à la prochaine séance.**
