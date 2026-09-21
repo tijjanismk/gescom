@@ -1506,3 +1506,32 @@ Assumé, pas dans le chemin critique — se corrige à la main sur la
 copie papier, comme avant Gescom.
 
 **La v3 commence à la prochaine séance.**
+
+## 21/09/2026 (suite) — la v3 posée avant d'être codée
+
+Le propriétaire : « pour v3 quelles fonctionnalités ; simplifier les
+pièces commerciales avec en-tête et pied téléversables et seulement
+les signatures personnalisables ; un système de log ; un RBAC plus
+complet ; on pose les bases avant de coder. »
+
+[PLAN-V3.md](PLAN-V3.md), dans l'esprit du plan multi-société : des
+décisions avec leur exemple et leur coût, pas des tâches. Quatre
+chantiers — **A** pièces simplifiées, **B** journal, **C** droits,
+**D** dossiers (déjà tranché en septembre).
+
+Le point qui coûte : **l'atelier de modèles part** (D17). 4 700 lignes
+écrites ce mois-ci, un retour du terrain par jour depuis le 16/09. Le
+générateur historique (`genererPDF.ts`), qui imprime la même facture
+depuis des mois et sait déjà poser logo, en-tête et pied, devient le
+seul ; il gagne des cases à cocher par genre et trois signatures avec
+image (D18). Rien à migrer : aucun modèle en production.
+
+Et un constat qui a pesé sur le chantier B : le journal métier
+(trente types d'événements) est écrit partout et **lu nulle part** —
+aucun écran ne répond à « qui a annulé ce règlement ». L'Historique
+sera la première permission de lecture ; il y en aura cinq (D19), et
+l'employé ne verra plus les prix d'achat.
+
+Quatre questions posées, quatre réponses dans le sens des
+recommandations (D17–D20). Il ne reste rien à décider pour commencer
+A-1.

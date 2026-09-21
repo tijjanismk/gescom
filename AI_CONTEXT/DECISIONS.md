@@ -427,6 +427,10 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D20 | la v3 se fait dans l'ordre A (pièces simplifiées), B (journal), C (droits), D (dossiers) — [PLAN-V3.md](PLAN-V3.md) |
+| D19 | cinq permissions de **lecture** (prix d'achat, rapports, soldes, historique, autres caisses) ; `employe` n'en porte aucune |
+| D18 | trois signatures au plus par genre de document, libellé + image facultative (cachet) |
+| D17 | **l'atelier de modèles part** : un seul générateur, mise en page fixe par genre, réglages en cases ; `modele_document` et `image_document` supprimées — révoque les décisions de l'atelier des 17–18/09 |
 | D16 | le bon de livraison partiel reste un document à quantité pleine ; seul le suivi (et le stock) connaît le partiel |
 | D15 | un retour rend l'argent en argent et l'avoir en avoir ; ce qui a été payé avec un avoir ne devient jamais des espèces |
 | D14 | un chèque rejeté se contre-passe (paiement négatif + sortie de caisse), sans exiger une caisse ouverte |
@@ -530,3 +534,53 @@ mais rien n'y oblige avant que le terrain le demande : un BL partiel
 imprimé à quantité pleine se corrige à la main sur la copie papier, ce
 qui est déjà la pratique boutique avant Gescom. Reste noté dans la
 dette connue, pas dans le chemin critique.
+
+---
+
+## D17 — L'atelier de modèles part
+
+L'atelier de septembre (blocs, glisser-déposer, flottants, export et
+import, images posées — 4 700 lignes) a coûté un retour du terrain
+par jour depuis le 16/09. Le propriétaire veut **simple** : un en-tête
+et un pied qu'on téléverse, des signatures qu'on règle, et une facture
+qui sort toujours pareille.
+
+**Décision (21/09/2026) : un seul générateur, une mise en page fixe
+par genre, quelques cases à cocher.** L'atelier, `lib/modeles/*`, les
+tables `modele_document` et `image_document` et leurs commandes sont
+retirés par la v3 (migration qui supprime, rien à reprendre : aucun
+modèle en production). Pas de « mode avancé » caché : du code que
+personne ne maintient casse au premier changement de TVA sans qu'on
+le voie. Les décisions prises pour l'atelier les 17 et 18 septembre
+(blocs flottants, images posées, export depuis une caisse) sont
+révoquées par celle-ci. D8 (les images voyagent par leur contenu)
+reste : c'est ainsi que l'en-tête, le pied et les cachets arrivent au
+serveur. → [PLAN-V3.md](PLAN-V3.md) § 2.
+
+## D18 — Trois signatures, avec image
+
+Par genre de document, de zéro à **trois** emplacements de signature,
+chacun avec son libellé (« Le client », « Pour la société », « Reçu
+par ») et **une image facultative** — le cachet de la société, une
+signature scannée — imprimée au-dessus du trait. C'est ce que les
+« images posées » de l'atelier servaient vraiment à faire. Stockées
+en JSON dans `parametres_societe.signatures`. (21/09/2026)
+
+## D19 — Cinq permissions de lecture, et l'employé ne voit pas les prix d'achat
+
+Les lectures n'étaient pas filtrées, et c'était une décision. Elle
+change, **sans** créer une permission `:lire` par commande : cinq
+seulement, celles qu'un patron veut vraiment cacher — `achats:lire_prix`
+(prix d'achat, marges, valeur du stock), `rapports:lire`,
+`tiers:lire_solde`, `journal:lire`, `caisse:lire_autres`. Sans la
+permission, la commande rend la donnée **sans le champ** (`null`,
+jamais un zéro qui ressemble à une valeur) ou refuse. Le rôle
+`employe` — celui des vendeurs, le plus répandu — **n'en porte
+aucune** ; le patron rend un droit à une personne par le sur-mesure.
+(21/09/2026) → [PLAN-V3.md](PLAN-V3.md) § 4.
+
+## D20 — L'ordre de la v3 : A, B, C, D
+
+Pièces simplifiées d'abord (ce qui se voit tous les jours), le journal
+ensuite (pour corriger le reste avec des traces), les droits, puis les
+dossiers (un seul commerce tourne). (21/09/2026)

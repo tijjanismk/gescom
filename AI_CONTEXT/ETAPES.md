@@ -196,7 +196,20 @@ Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
   MANUELS.md non déroulé à la clôture de la v2 (21/09/2026)**, décision
   du propriétaire.
 
-## v3 — fondation posée, pas commencée
+## v3 — plan posé le 21/09/2026, le code n'a pas commencé
+
+Quatre chantiers, dans cet ordre (D20) : **A** pièces commerciales
+simplifiées (l'atelier part, D17 ; en-tête et pied téléversés ;
+trois signatures avec image, D18 ; cases à cocher par genre) ; **B** le
+journal jusqu'au bout (Historique lisible, erreurs des caisses
+remontées, onglet Journal de la console, anomalies au tableau de
+bord) ; **C** droits plus complets (cinq permissions de lecture, D19 ;
+droits par dossier ; plafonds de remise / remboursement / crédit ;
+sessions visibles et révocables) ; **D** plusieurs dossiers, ci-dessous.
+Tout est tranché : → [PLAN-V3.md](PLAN-V3.md). Première étape : A-1,
+les réglages Documents en base.
+
+### D — la fondation multi-dossier, posée, dormante
 
 Un dossier = **une société × un exercice**. Forme retenue : une colonne
 `dossier_id` sur les 23 tables cloisonnées, `Base` porte son dossier, un
@@ -208,9 +221,9 @@ Pas cloisonnés, et c'est voulu : `utilisateur`, `role`, `poste`,
 
 Posé le 19/09/2026 (D13), **sans le lancer** : le choix du dossier à la
 connexion, la création d'un dossier, les commandes d'exercices — tout
-reste dormant tant qu'il n'y a qu'un dossier, et c'est le cas. La v3
-ne commence pas avant le feu vert du propriétaire ; on finit la v2.
-Ce qui restera alors : l'écran de
+reste dormant tant qu'il n'y a qu'un dossier, et c'est le cas. C'est
+le chantier **D** du plan v3, le dernier des quatre (D20). Ce qui
+reste : l'écran de
 gestion (créer un dossier, ouvrir / prolonger / clore un exercice —
 les commandes existent), le garde-fou `verifier_date_sur` branché
 avant chaque écriture, et la migration d'une base existante vers
