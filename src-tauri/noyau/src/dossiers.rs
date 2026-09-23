@@ -52,6 +52,38 @@
 /// constante.
 pub const DOSSIER_DEFAUT: &str = "00000000-0000-0000-0000-000000000001";
 
+/// Le declencheur qui fait suivre le stock aux mouvements, sur SQLite
+/// (v3, D-1 — ETAPES item 9).
+///
+/// L'ancien ne posait pas `dossier_id` : la ligne de stock d'un
+/// magasin de `dossier-b` naissait avec la valeur par defaut de la
+/// colonne — le dossier d'origine — et `dossier-b` ne voyait jamais
+/// son stock. Sur PostgreSQL le defaut suivait la session ; on ne s'y
+/// fie plus non plus : le dossier est celui du MOUVEMENT.
+///
+/// `DROP` puis `CREATE` : un `CREATE ... IF NOT EXISTS` aurait garde
+/// l'ancien corps sur toutes les bases deja installees.
+pub const DECLENCHEUR_STOCK_SQLITE: &str = "
+DROP TRIGGER IF EXISTS stock_suit_les_mouvements;
+CREATE TRIGGER stock_suit_les_mouvements
+AFTER INSERT ON mouvement_stock
+BEGIN
+  INSERT INTO stock_depot (id, article_id, depot_id, quantite, dossier_id)
+  VALUES (lower(hex(randomblob(16))), NEW.article_id, NEW.depot_id,
+          NEW.quantite_delta, NEW.dossier_id)
+  ON CONFLICT(article_id, depot_id)
+  DO UPDATE SET quantite = quantite + NEW.quantite_delta;
+END;";
+
+/// Les lignes de stock posees dans le mauvais dossier par l'ancien
+/// declencheur reviennent au dossier de leur magasin. Rejouable : ne
+/// touche que ce qui est faux.
+pub const REPARER_STOCK_DOSSIER: &str = "
+UPDATE stock_depot
+SET dossier_id = (SELECT d.dossier_id FROM depot d WHERE d.id = stock_depot.depot_id)
+WHERE EXISTS (SELECT 1 FROM depot d
+              WHERE d.id = stock_depot.depot_id AND d.dossier_id <> stock_depot.dossier_id)";
+
 /// Les tables dont chaque ligne appartient a un dossier.
 ///
 /// Cette liste est la reference : le DDL la parcourt pour poser les

@@ -494,9 +494,9 @@ fn trigger_stock(base: &mut Base) {
             "CREATE OR REPLACE FUNCTION gescom_stock_suit_les_mouvements()
              RETURNS trigger LANGUAGE plpgsql AS $$
              BEGIN
-                 INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+                 INSERT INTO stock_depot (id, article_id, depot_id, quantite, dossier_id)
                  VALUES (md5(random()::text || clock_timestamp()::text),
-                         NEW.article_id, NEW.depot_id, NEW.quantite_delta)
+                         NEW.article_id, NEW.depot_id, NEW.quantite_delta, NEW.dossier_id)
                  ON CONFLICT (article_id, depot_id)
                  DO UPDATE SET quantite = stock_depot.quantite + NEW.quantite_delta;
                  RETURN NEW;
@@ -508,18 +508,10 @@ fn trigger_stock(base: &mut Base) {
                  FOR EACH ROW EXECUTE FUNCTION gescom_stock_suit_les_mouvements();",
         );
     } else {
-        let _ = base.executer_lot(
-            "CREATE TRIGGER IF NOT EXISTS stock_suit_les_mouvements
-             AFTER INSERT ON mouvement_stock
-             BEGIN
-               INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-               VALUES (lower(hex(randomblob(16))), NEW.article_id, NEW.depot_id,
-                       NEW.quantite_delta)
-               ON CONFLICT(article_id, depot_id)
-               DO UPDATE SET quantite = quantite + NEW.quantite_delta;
-             END;",
-        );
+        // D-1 : le dossier du mouvement, pas la valeur par defaut.
+        let _ = base.executer_lot(crate::dossiers::DECLENCHEUR_STOCK_SQLITE);
     }
+    let _ = base.executer(crate::dossiers::REPARER_STOCK_DOSSIER, &[]);
 }
 
 /// Amorce une base neuve. Ne fait rien si elle ne l'est pas.

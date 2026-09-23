@@ -562,6 +562,12 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         .ok();
     }
 
+    // D-1 : le declencheur de stock pose le dossier du MOUVEMENT — pose
+    // ici, apres les colonnes `dossier_id`, qu'il lit. Et les lignes
+    // deja mal rangees reviennent au dossier de leur magasin.
+    conn.execute_batch(crate::dossiers::DECLENCHEUR_STOCK_SQLITE)?;
+    conn.execute(crate::dossiers::REPARER_STOCK_DOSSIER, []).ok();
+
     // Les compteurs deja en place portent une cle sans dossier. Sans
     // cette migration, la numerotation repartirait a 1 et refabriquerait
     // un numero deja emis — la contrainte UNIQUE bloquerait alors la
