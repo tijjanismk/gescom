@@ -66,6 +66,14 @@ pub fn registre() -> Registre {
         )?;
         Ok(serde_json::Value::Null)
     });
+    // v3, D-5 : le dossier d'origine prend le nom que le patron lui donne.
+    r.sur_base("renommer_dossier", Some("dossiers:gerer"), true, |c, p| {
+        gescom_noyau::dossiers::renommer_dossier_sur(
+            c.base,
+            arg(&p, "dossierId", "dossier_id")?,
+            arg(&p, "societe", "societe")?,
+        )
+    });
     r.sur_base("clore_exercice", Some("dossiers:gerer"), true, |c, p| {
         gescom_noyau::dossiers::clore_exercice_sur(c.base, arg(&p, "exerciceId", "exercice_id")?)?;
         Ok(serde_json::Value::Null)

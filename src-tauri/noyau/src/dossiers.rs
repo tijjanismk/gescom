@@ -1154,3 +1154,211 @@ mod tests_code_dossier {
         assert!(valider_code_dossier(&"X".repeat(21)).is_err());
     }
 }
+
+// =====================================================================
+//  LE DOSSIER D'ORIGINE — la migration d'une base existante (v3, D-5)
+// =====================================================================
+//
+// Tout ce qu'une base v2 contient porte `dossier_id = defaut` (la
+// colonne est posee avec ce defaut) : c'est deja le premier dossier.
+// Deux choses manquaient pour qu'il soit le SIEN : son nom — il
+// s'appelait « Ma boutique » quel que soit le commerce — et ses dates —
+// un exercice de l'annee en cours, alors que les ventes remontent
+// parfois a deux ans : un reglement tardif d'une vente de 2024 aurait
+// ete refuse par le garde-fou.
+
+/// Le nom pose d'office au dossier d'origine.
+pub const NOM_D_USINE: &str = "Ma boutique";
+
+/// Le nom du dossier d'origine a la migration : celui que le patron a
+/// deja donne a sa societe (Parametres -> Societe), si le dossier porte
+/// encore le nom d'usine et que la societe en a un vrai. Pure.
+pub fn nom_d_origine(societe_actuelle: &str, nom_societe: Option<&str>) -> Option<String> {
+    if societe_actuelle != NOM_D_USINE {
+        return None;
+    }
+    let nom = nom_societe.map(str::trim).filter(|n| !n.is_empty())?;
+    if ["Ma Société", "Ma Societe", NOM_D_USINE].iter().any(|u| u.eq_ignore_ascii_case(nom)) {
+        return None;
+    }
+    Some(nom.to_string())
+}
+
+/// Le debut du premier exercice a la migration : le 1er janvier de
+/// l'annee de la plus ancienne ecriture, si elle precede le debut
+/// actuel. Pure.
+pub fn debut_d_origine(debut_actuel: &str, plus_ancienne: Option<&str>) -> Option<String> {
+    let jour = crate::coeur::dates::jour(plus_ancienne?)?;
+    let debut = format!("{}-01-01", jour.format("%Y"));
+    (debut.as_str() < debut_actuel).then_some(debut)
+}
+
+/// Les ecritures datees dont la plus ancienne fixe le debut du dossier
+/// d'origine. `SUBSTR(MIN(..))` : un seul aller-retour par table, et le
+/// meme SQL sur les deux moteurs.
+const DATES_ECRITES: &[(&str, &str)] = &[
+    ("vente", "date_vente"),
+    ("piece_commerciale", "date_piece"),
+    ("paiement", "date_paiement"),
+    ("mouvement_caisse", "date_mouvement"),
+    ("mouvement_stock", "date_mouvement"),
+    ("retour", "date_retour"),
+    ("paiement_fournisseur", "date_paiement"),
+];
+
+/// La migration du dossier d'origine, une fois par base (marque
+/// `migration_v3_dossier_origine`). Nomme le dossier comme la societe,
+/// et recule le debut de son exercice unique jusqu'a couvrir la plus
+/// ancienne ecriture. Rend ce qu'elle a fait (`None` : deja faite).
+///
+/// Appelee par `amorcage::amorcer` (PostgreSQL, base neuve) et par le
+/// serveur au demarrage sur un fichier SQLite ; la fenetre monoposte
+/// n'en a pas besoin (un dossier, pas de garde-fou de dates).
+pub fn migrer_dossier_d_origine_sur(base: &mut Base) -> Result<Option<serde_json::Value>, String> {
+    let deja = base
+        .lire_une(
+            "SELECT valeur FROM config_app WHERE cle = 'migration_v3_dossier_origine'",
+            &[],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?;
+    if deja.is_some() {
+        return Ok(None);
+    }
+    let precedent = base.dossier().to_string();
+    base.choisir_dossier(DOSSIER_DEFAUT).map_err(|e| e.0)?;
+    let r = migrer_dans_le_dossier_d_origine(base);
+    let _ = base.choisir_dossier(&precedent);
+    r.map(Some)
+}
+
+fn migrer_dans_le_dossier_d_origine(base: &mut Base) -> Result<serde_json::Value, String> {
+    let now = crate::utils::maintenant_iso();
+    let societe: Option<String> = base
+        .lire_une("SELECT societe FROM dossier WHERE id = ?1", &parametres![DOSSIER_DEFAUT], |r| r.get::<String>(0))
+        .map_err(|e| e.0)?;
+    let nom_societe: Option<String> = base
+        .lire_une("SELECT nom FROM parametres_societe WHERE id = 1", &[], |r| r.get::<String>(0))
+        .ok()
+        .flatten();
+    let nouveau_nom = societe.as_deref().and_then(|s| nom_d_origine(s, nom_societe.as_deref()));
+
+    let mut plus_ancienne: Option<String> = None;
+    for (table, colonne) in DATES_ECRITES {
+        let sql = format!("SELECT SUBSTR(MIN({colonne}), 1, 10) FROM {table} WHERE dossier_id = ?1");
+        let d: Option<String> = base
+            .lire_une(&sql, &parametres![DOSSIER_DEFAUT], |r| r.get::<Option<String>>(0))
+            .map_err(|e| e.0)?
+            .flatten();
+        if let Some(d) = d.filter(|d| crate::coeur::dates::jour(d).is_some()) {
+            if plus_ancienne.as_deref().is_none_or(|p| d.as_str() < p) {
+                plus_ancienne = Some(d);
+            }
+        }
+    }
+    // Un exercice unique et ouvert : celui que la migration a pose. S'il
+    // y en a plusieurs, le patron a deja decide ; on n'y touche pas.
+    let exercices = lire_les_exercices(base, DOSSIER_DEFAUT)?;
+    let recul = match exercices.as_slice() {
+        [seul] if !seul.clos => debut_d_origine(&seul.date_debut, plus_ancienne.as_deref()).map(|d| (seul.id.clone(), d)),
+        _ => None,
+    };
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    if let Some(nom) = &nouveau_nom {
+        tx.executer(
+            "UPDATE dossier SET societe = ?1, modifie_le = ?2 WHERE id = ?3",
+            &parametres![nom.clone(), now.clone(), DOSSIER_DEFAUT],
+        )
+        .map_err(|e| e.0)?;
+    }
+    if let Some((id, debut)) = &recul {
+        tx.executer(
+            "UPDATE exercice SET date_debut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
+            &parametres![debut.clone(), now.clone(), id.clone(), DOSSIER_DEFAUT],
+        )
+        .map_err(|e| e.0)?;
+    }
+    let fait = serde_json::json!({
+        "societe": nouveau_nom,
+        "debut": recul.as_ref().map(|(_, d)| d.clone()),
+        "plus_ancienne_ecriture": plus_ancienne,
+    });
+    if nouveau_nom.is_some() || recul.is_some() {
+        tx.executer(
+            "INSERT INTO journal
+               (id, type_evenement, entite_type, entite_id, nouveau_valeur, origine, date_evenement, dossier_id)
+             VALUES (?1, 'dossier_d_origine', 'dossier', ?2, ?3, 'migration', ?4, ?2)",
+            &parametres![uuid::Uuid::new_v4().to_string(), DOSSIER_DEFAUT, fait.to_string(), now.clone()],
+        )
+        .map_err(|e| e.0)?;
+    }
+    tx.executer(
+        "INSERT INTO config_app (cle, valeur) VALUES ('migration_v3_dossier_origine', ?1)
+         ON CONFLICT (cle) DO NOTHING",
+        &parametres![now],
+    )
+    .map_err(|e| e.0)?;
+    tx.valider().map_err(|e| e.0)?;
+    Ok(fait)
+}
+
+/// Renomme un dossier (sa societe). Le code ne change pas : il prefixe
+/// deja les codes de ses tiers. Au journal du dossier renomme.
+pub fn renommer_dossier_sur(base: &mut Base, dossier_id: String, societe: String) -> Result<serde_json::Value, String> {
+    let societe = societe.trim().to_string();
+    if societe.is_empty() {
+        return Err("Le nom de la société est vide.".to_string());
+    }
+    let ancien: String = base
+        .lire_une("SELECT societe FROM dossier WHERE id = ?1", &parametres![dossier_id.clone()], |r| r.get::<String>(0))
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Dossier introuvable.".to_string())?;
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let now = crate::utils::maintenant_iso();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE dossier SET societe = ?1, modifie_le = ?2 WHERE id = ?3",
+        &parametres![societe.clone(), now.clone(), dossier_id.clone()],
+    )
+    .map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO journal
+           (id, type_evenement, entite_type, entite_id, auteur_id,
+            ancien_valeur, nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'dossier_renomme', 'dossier', ?2, ?3, ?4, ?5, 'app', ?6, ?2)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            dossier_id.clone(),
+            auteur,
+            serde_json::json!({ "societe": ancien }).to_string(),
+            serde_json::json!({ "societe": societe }).to_string(),
+            now
+        ],
+    )
+    .map_err(|e| e.0)?;
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({ "id": dossier_id, "societe": societe }))
+}
+
+#[cfg(test)]
+mod tests_dossier_d_origine {
+    use super::*;
+
+    #[test]
+    fn le_dossier_prend_le_nom_de_la_societe_s_il_porte_encore_celui_d_usine() {
+        assert_eq!(nom_d_origine("Ma boutique", Some(" Quincaillerie Traoré ")).as_deref(), Some("Quincaillerie Traoré"));
+        assert_eq!(nom_d_origine("Ma boutique", Some("Ma Société")), None, "un nom d'usine n'en remplace pas un autre");
+        assert_eq!(nom_d_origine("Ma boutique", Some("  ")), None);
+        assert_eq!(nom_d_origine("Ma boutique", None), None);
+        assert_eq!(nom_d_origine("Déjà nommé", Some("Autre")), None, "le patron a déjà décidé");
+    }
+
+    #[test]
+    fn le_premier_exercice_recule_au_premier_janvier_de_la_plus_ancienne_ecriture() {
+        assert_eq!(debut_d_origine("2026-01-01", Some("2024-06-15")).as_deref(), Some("2024-01-01"));
+        assert_eq!(debut_d_origine("2026-01-01", Some("2026-03-02")), None, "déjà couverte");
+        assert_eq!(debut_d_origine("2026-01-01", None), None, "une base vide");
+        assert_eq!(debut_d_origine("2026-01-01", Some("n'importe quoi")), None);
+    }
+}

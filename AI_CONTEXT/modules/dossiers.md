@@ -15,6 +15,7 @@ une période de travail d'un dossier.
 | Stock | `dossiers::DECLENCHEUR_STOCK_SQLITE`, `REPARER_STOCK_DOSSIER` | D-1 : la ligne de stock suit le dossier du **mouvement** |
 | Garde-fou | [serveur/src/api.rs](../../src-tauri/serveur/src/api.rs) `rpc` + `dossiers::date_d_ecriture` | D-4 : toute écriture datée (date donnée, ou aujourd'hui) passe `verifier_date_sur` avant la poignée ; refus = 409 `Metier`. Une commande qui écrit de l'argent ou du stock s'ajoute à `date_d_ecriture` |
 | Écran | [components/OngletDossiers.tsx](../../src/components/OngletDossiers.tsx), [ExercicesDossier.tsx](../../src/components/ExercicesDossier.tsx) | Paramètres → Dossiers (`dossiers:gerer`) : la liste (« ouvert ici »), la création avec ses dates de travail ; les exercices du dossier ouvert — prolonger, clore, ouvrir le suivant |
+| Migration | `dossiers::migrer_dossier_d_origine_sur` | D-5 : une fois par base, le dossier d'origine prend le nom de la société et un exercice qui couvre la plus ancienne écriture ; appelée par `amorcer` et `serveur::main` (fichier) |
 | Connexion | `pages/PageLogin.tsx` | plusieurs dossiers, aucun mémorisé : « Quel dossier ouvrir ? » (mémoriser coché par défaut) |
 
 **D22** : plusieurs dossiers demandent **le serveur**, pas PostgreSQL.
@@ -34,6 +35,12 @@ chevauchement ; une prolongation va plus loin et s'arrête avant le
 suivant ; un exercice clos ne se rouvre ni ne se prolonge. Chaque geste
 au journal : `exercice_ouvert`, `exercice_prolonge`, `exercice_clos`.
 
-Preuves : `dossiers_base.rs` (9 scénarios, deux moteurs, dont
+**Le dossier d'origine** (D-5) : une base d'avant la v3 est le dossier
+`PRINCIPAL`. Il s'appelait « Ma boutique » et n'avait que l'année en
+cours : la migration le nomme comme la société et recule son début au
+1er janvier de la plus ancienne écriture. `renommer_dossier` et
+l'invitation de l'écran font le reste.
+
+Preuves : `dossier_d_origine.rs` (4), `dossiers_base.rs` (9 scénarios, deux moteurs, dont
 `un_dossier_nait_avec_ses_dates_de_travail_et_refuse_ce_qui_en_sort`),
-`cloisonnement.rs` (20), route `une_ecriture_hors_des_dates_de_travail_est_refusee_avant_d_ecrire`, banc `d3-dossiers.mjs`, `d4-exercices.mjs`.
+`cloisonnement.rs` (20), route `une_ecriture_hors_des_dates_de_travail_est_refusee_avant_d_ecrire`, banc `d3-dossiers.mjs`, `d4-exercices.mjs`, `d5-dossier-d-origine.mjs`.

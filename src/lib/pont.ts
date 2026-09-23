@@ -350,6 +350,13 @@ export function dossierCourant(): { id: string; societe: string } | null {
   return etat.dossierId ? { id: etat.dossierId, societe: etat.dossierSociete ?? "" } : null;
 }
 
+/** Le dossier ouvert ici vient d'être renommé : la barre suit. */
+export function renommerDossierCourant(societe: string): void {
+  if (!etat.dossierId) return;
+  etat = { ...etat, dossierSociete: societe };
+  enregistrer();
+}
+
 /**
  * Choisit le dossier d'une session ouverte sans (plusieurs dossiers,
  * aucun mémorisé). Une fois : changer de dossier, c'est se déconnecter.

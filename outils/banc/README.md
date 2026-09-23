@@ -21,7 +21,7 @@ installé.
 |---|---|---|
 | `a1-documents.mjs` | A-1 | Paramètres → Documents : en-tête, coordonnées, réglage, cachet, exemple en direct, rechargement, usine |
 | `a2-rendu.mjs` | A-2 | chaque genre rendu par le vrai générateur avec les vraies données : colonnes, récap TVA, lettres, signatures, cachet, coordonnées, ticket, reçu fournisseur |
-| `a2-apercu.mjs` | A-2 | l'aperçu d'une pièce s'ouvre au format réglé du genre, sans choix de modèle |
+| `a2b-apercu.mjs` | A-2 | l'aperçu d'une pièce s'ouvre au format réglé du genre, sans choix de modèle — après `a2-rendu`, qui pose les réglages et les pièces |
 | `a3-atelier.mjs` | A-3 | l'atelier est parti : ni onglet, ni commande ; la Société renvoie à Documents |
 | `b1-historique.mjs` | B-1 | un règlement annulé retrouvé par le nom du client ; filtres type / dates / tout effacer ; ouvert depuis une fiche client (puce, retour), une pièce, un article ; l'employé n'a ni menu ni réponse du serveur |
 | `b2-journal-poste.mjs` | B-2 | une erreur et une promesse rejetée de la fenêtre arrivent `[POSTE ]` dans le journal du serveur, avec le poste, l'écran et la pile ; une boucle n'envoie qu'une ligne |
@@ -33,3 +33,4 @@ installé.
 | `d2-tous-les-ecrans.mjs` | D-2 | chaque entrée du menu et chaque onglet de Paramètres s'ouvre, servi par `Base` sur SQLite, sans erreur dans la console ni message d'erreur à l'écran |
 | `d3-dossiers.mjs` | D-3 | Paramètres → Dossiers : créer avec ses dates de travail (dites en lettres), refus du même code ; se reconnecter dans le nouveau dossier : son client de passage, son magasin, le stock à zéro (articles communs), son exercice |
 | `d4-exercices.mjs` | D-4 | un dossier aux dates passées : une dépense refusée avec le remède ; Prolonger (plus court refusé), Clore en deux temps, le lendemain refusé, Ouvrir l'exercice suivant ; la dépense n'est plus refusée pour ses dates ; l'Historique nomme les trois gestes |
+| `d5-dossier-d-origine.mjs` | D-5 | le dossier au nom d'usine invite à être nommé ; « Le nommer » (vide refusé), même code, la barre suit après rechargement, l'Historique dit le renommage ; rendu à « Ma boutique » par le crayon, l'invitation revient |

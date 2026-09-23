@@ -7,8 +7,8 @@
 // c'est se déconnecter (plan multi-société, décision 3).
 
 import { useState, useEffect, useCallback } from "react";
-import { appeler as invoke, dossierCourant } from "@/lib/pont";
-import { Loader2, Plus, FolderOpen } from "lucide-react";
+import { appeler as invoke, dossierCourant, renommerDossierCourant } from "@/lib/pont";
+import { Loader2, Plus, FolderOpen, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,8 @@ export function OngletDossiers() {
   const [enCours, setEnCours] = useState(false);
   const [avis, setAvis] = useState<{ texte: string; erreur?: boolean } | null>(null);
   const courant = dossierCourant();
+  // Le dossier qu'on renomme, et son nouveau nom.
+  const [renomme, setRenomme] = useState<{ id: string; societe: string } | null>(null);
 
   const charger = useCallback(async () => {
     try {
@@ -63,11 +65,43 @@ export function OngletDossiers() {
     }
   }
 
+  async function renommer() {
+    if (!renomme) return;
+    setEnCours(true);
+    setAvis(null);
+    try {
+      const r = await invoke<{ id: string; societe: string }>("renommer_dossier",
+        { dossierId: renomme.id, societe: renomme.societe });
+      if (courant?.id === r.id) renommerDossierCourant(r.societe);
+      setAvis({ texte: `Dossier renommé : ${r.societe}.` });
+      setRenomme(null);
+      await charger();
+    } catch (e) {
+      setAvis({ texte: String(e), erreur: true });
+    } finally {
+      setEnCours(false);
+    }
+  }
+
+  // Une base d'avant la v3 : son dossier porte encore le nom d'usine.
+  const aNommer = dossiers?.find(d => d.societe === "Ma boutique");
+
   if (erreur) return <p className="text-sm text-red-600 py-4">{erreur}</p>;
   if (!dossiers) return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />;
 
   return (
     <div className="space-y-6 max-w-3xl">
+      {aNommer && !renomme && (
+        <div className="border border-amber-300 bg-amber-50 dark:bg-amber-950/30 rounded-lg px-4 py-3 text-sm flex items-center justify-between gap-3"
+          data-testid="a-nommer">
+          <span>
+            Tout ce que vous aviez avant est dans le dossier « {aNommer.societe} ». Donnez-lui le nom
+            de votre société : c'est lui qu'on choisit à la connexion.
+          </span>
+          <Button size="sm" onClick={() => setRenomme({ id: aNommer.id, societe: "" })}>Le nommer</Button>
+        </div>
+      )}
+
       <div className="space-y-2">
         <p className="text-sm text-muted-foreground">
           Un dossier est une société : ses clients, son stock, sa caisse, ses
@@ -83,11 +117,26 @@ export function OngletDossiers() {
                 {courant?.id === d.id && <Badge variant="secondary">ouvert ici</Badge>}
                 {d.clos && <Badge variant="outline">clos</Badge>}
               </div>
-              <span className="text-xs text-muted-foreground">
-                {d.exercices_ouverts} exercice{d.exercices_ouverts > 1 ? "s" : ""} ouvert{d.exercices_ouverts > 1 ? "s" : ""}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground">
+                  {d.exercices_ouverts} exercice{d.exercices_ouverts > 1 ? "s" : ""} ouvert{d.exercices_ouverts > 1 ? "s" : ""}
+                </span>
+                <Button size="sm" variant="ghost" aria-label={`Renommer ${d.societe}`}
+                  onClick={() => setRenomme({ id: d.id, societe: d.societe })}>
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
           ))}
+          {renomme && (
+            <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/40">
+              <Input value={renomme.societe} autoFocus aria-label="Nouveau nom du dossier" className="h-9"
+                onChange={e => setRenomme({ ...renomme, societe: e.target.value })}
+                onKeyDown={e => { if (e.key === "Enter") renommer(); }} />
+              <Button size="sm" onClick={renommer} disabled={enCours || !renomme.societe.trim()}>Renommer</Button>
+              <Button size="sm" variant="ghost" onClick={() => setRenomme(null)}>Annuler</Button>
+            </div>
+          )}
         </div>
       </div>
 

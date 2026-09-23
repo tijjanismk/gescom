@@ -526,6 +526,11 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
     etiquette_magasin(base);
     cloisonnement(base);
     trigger_stock(base);
+    // v3, D-5 : une base qui existait devient un dossier a son nom, et
+    // a ses dates. Une base neuve : rien a faire, la marque est posee.
+    if let Err(e) = crate::dossiers::migrer_dossier_d_origine_sur(base) {
+        eprintln!("Migration du dossier d'origine : {e}");
+    }
 
     if !base_est_vide(base)? {
         return Ok(false);
