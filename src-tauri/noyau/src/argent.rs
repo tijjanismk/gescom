@@ -172,6 +172,21 @@ fn date_saisie(now: &str, date: Option<&str>, geste: &str) -> Result<(String, Op
     Ok((date_affaire, libelle))
 }
 
+/// Une vente sans ligne, a quantite negative ou a prix negatif ne
+/// s'ecrit pas (D27) : le sens du stock est porte par le geste.
+fn verifier_lignes_de_vente(lignes: &[ParamsLigneInput]) -> Result<(), String> {
+    if lignes.is_empty() {
+        return Err("Une vente sans ligne ne s'enregistre pas.".to_string());
+    }
+    for l in lignes {
+        crate::coeur::saisie::verifier_ligne(l.quantite, l.facteur, l.prix_pratique)?;
+        if l.prix_reference < 0 {
+            return Err(format!("Prix de référence négatif refusé ({} F).", l.prix_reference));
+        }
+    }
+    Ok(())
+}
+
 pub fn creer_vente_sur(
     conn: &mut rusqlite::Connection,
     client_id: String,
@@ -211,6 +226,13 @@ pub fn creer_vente_datee_sur(
     let vente_id = uuid::Uuid::new_v4().to_string();
 
     let client_generique = crate::utils::est_client_generique(&conn, &client_id);
+
+    // D27 — la saisie se juge ici, pas a l'ecran : la commande
+    // s'appelle aussi sans lui.
+    verifier_lignes_de_vente(&lignes)?;
+    if montant_paye.unwrap_or(0) > 0 {
+        crate::coeur::saisie::verifier_mode_encaissement(mode_paiement.as_deref().unwrap_or("especes"))?;
+    }
 
     // Un encaissement reel exige une caisse ouverte : sans session,
     // l'argent entre dans le tiroir sans `mouvement_caisse`, et la
@@ -913,6 +935,12 @@ pub fn creer_facture_depuis_vente_sur(
     }))
 }
 
+/// Ancienne porte d'encaissement, gardee pour ses appelants (D27).
+///
+/// Elle acceptait tout : montant negatif (une « entree » de caisse
+/// negative), aucun plafond au reste du, le mode « avoir » sans avoir
+/// consomme, et elle reglait une creance irrecouvrable en douce. Elle
+/// passe desormais par `regler_creance_datee`, qui porte ces gardes.
 pub fn enregistrer_paiement(
     conn: &rusqlite::Connection,
     vente_id: String,
@@ -920,71 +948,8 @@ pub fn enregistrer_paiement(
     mode: String,
     utilisateur_role: Option<String>,
 ) -> Result<(), String> {
-    let role = utilisateur_role.as_deref().unwrap_or("employe");
-    let auteur_id = id_utilisateur_par_role(&conn, role);
-    let now = maintenant_iso();
-
-    // AVANT l'insert : cette fonction n'ouvre pas de transaction, un
-    // refus plus bas laisserait un paiement sans mouvement de caisse.
-    if mode != "avoir" {
-        crate::utils::exiger_session_caisse(&conn)?;
-    }
-
-    // Insérer le paiement
-    conn.execute(
-        "INSERT INTO paiement
-         (id, vente_id, montant, mode, date_paiement, auteur_id, cree_le, cree_par, origine)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'app')",
-        rusqlite::params![
-            uuid::Uuid::new_v4().to_string(), vente_id, montant,
-            mode, now, auteur_id, now, auteur_id
-        ],
-    ).map_err(|e| e.to_string())?;
-
-    // Mettre à jour le statut de la vente
-    let total: i64 = conn.query_row(
-        "SELECT CAST(COALESCE(SUM(prix_pratique * quantite), 0) AS INTEGER)
-         FROM ligne_vente WHERE vente_id = ?1",
-        rusqlite::params![vente_id], |r| r.get(0),
-    ).unwrap_or(0);
-
-    let total_paye: i64 = conn.query_row(
-        "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
-         FROM paiement WHERE vente_id = ?1",
-        rusqlite::params![vente_id], |r| r.get(0),
-    ).unwrap_or(0);
-
-    let statut = if total_paye >= total { "payee" }
-        else if total_paye > 0 { "partiellement_payee" }
-        else { "creance_ouverte" };
-
-    conn.execute(
-        "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
-        rusqlite::params![statut, now, vente_id],
-    ).map_err(|e| e.to_string())?;
-
-    // Alimenter la caisse si session ouverte et mode espèces/mobile
-    if mode != "avoir" {
-        let session_id: Option<String> = conn.query_row(
-            "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
-            [], |r| r.get(0),
-        ).ok();
-
-        if let Some(sid) = session_id {
-            conn.execute(
-                "INSERT INTO mouvement_caisse
-                 (id, session_id, sens, moyen, montant, motif,
-                  operation_id, date_mouvement, cree_le, cree_par, origine)
-                 VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?7,?8,'app')",
-                rusqlite::params![
-                    uuid::Uuid::new_v4().to_string(), sid, mode, montant,
-                    vente_id, now, now, auteur_id
-                ],
-            ).ok();
-        }
-    }
-
-    Ok(())
+    crate::creances::regler_creance_datee(conn, vente_id, montant, mode, utilisateur_role, None)
+        .map(|_| ())
 }
 
 pub fn regler_dette_fournisseur(
@@ -1010,6 +975,9 @@ pub fn regler_dette_fournisseur_datee(
     piece_id: Option<String>,
     date_paiement: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    // D27 : un montant negatif serait une sortie de caisse negative —
+    // de l'argent qui apparait dans le tiroir.
+    crate::coeur::saisie::verifier_montant(montant)?;
     let auteur = id_utilisateur_courant_pub(&conn);
     let now = maintenant_iso();
     let (date_affaire, libelle_caisse) = date_du_reglement(&now, date_paiement.as_deref())?;
@@ -1463,6 +1431,13 @@ pub fn creer_vente_datee_sur_base(
     let vente_id = uuid::Uuid::new_v4().to_string();
 
     let client_generique = est_client_generique_sur(base, &dossier, &client_id);
+
+    // D27 — la saisie se juge ici, pas a l'ecran : la commande
+    // s'appelle aussi sans lui.
+    verifier_lignes_de_vente(&lignes)?;
+    if montant_paye.unwrap_or(0) > 0 {
+        crate::coeur::saisie::verifier_mode_encaissement(mode_paiement.as_deref().unwrap_or("especes"))?;
+    }
 
     // Un encaissement reel exige une caisse ouverte : sans session,
     // l'argent entre dans le tiroir sans `mouvement_caisse`, et la
@@ -2455,6 +2430,7 @@ pub fn regler_dette_fournisseur_datee_sur_base(
     piece_id: Option<String>,
     date_paiement: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    crate::coeur::saisie::verifier_montant(montant)?; // D27
     let dossier = base.dossier().to_string();
     let auteur = id_utilisateur_courant_sur(base);
     let now = maintenant_iso();
@@ -2516,6 +2492,7 @@ pub fn regler_dette_fournisseur_datee_sur_base(
 
 /// Un paiement sur une vente existante, dans une transaction : le
 /// paiement, le statut et la caisse vont ensemble ou pas du tout.
+/// Meme porte, sur `Base` : passe par `regler_creance_datee_sur_base` (D27).
 pub fn enregistrer_paiement_sur_base(
     base: &mut Base,
     vente_id: String,
@@ -2523,60 +2500,6 @@ pub fn enregistrer_paiement_sur_base(
     mode: String,
     utilisateur_role: Option<String>,
 ) -> Result<(), String> {
-    let dossier = base.dossier().to_string();
-    let role = utilisateur_role.as_deref().unwrap_or("employe");
-    let auteur_id = id_utilisateur_par_role_sur(base, role);
-    let now = maintenant_iso();
-    // Un avoir ne touche pas au tiroir ; tout le reste exige une caisse.
-    let session_id = if mode != "avoir" { Some(crate::caisses::exiger_sur(base, None)?) } else { None };
-
-    let mut tx = base.transaction().map_err(|e| e.0)?;
-    tx.executer(
-        "INSERT INTO paiement
-         (id, vente_id, montant, mode, date_paiement, auteur_id, cree_le, cree_par, origine, dossier_id)
-         VALUES (?1,?2,?3,?4,?5,?6,?5,?6,'app',?7)",
-        &parametres![uuid::Uuid::new_v4().to_string(), vente_id.clone(), montant, mode.clone(), now.clone(), auteur_id.clone(), dossier.clone()],
-    )
-    .map_err(|e| e.0)?;
-
-    let total: i64 = tx
-        .lire_une(
-            "SELECT CAST(COALESCE(SUM(prix_pratique * quantite), 0) AS BIGINT)
-             FROM ligne_vente WHERE vente_id = ?1 AND dossier_id = ?2",
-            &parametres![vente_id.clone(), dossier.clone()],
-            |r| r.get::<i64>(0),
-        )
-        .map_err(|e| e.0)?
-        .unwrap_or(0);
-    let total_paye: i64 = tx
-        .lire_une(
-            "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
-             FROM paiement WHERE vente_id = ?1 AND dossier_id = ?2",
-            &parametres![vente_id.clone(), dossier.clone()],
-            |r| r.get::<i64>(0),
-        )
-        .map_err(|e| e.0)?
-        .unwrap_or(0);
-    let statut = match crate::coeur::calcul::statut_vente(total, total_paye) {
-        crate::coeur::calcul::StatutVente::Payee => "payee",
-        crate::coeur::calcul::StatutVente::PartiellementPayee => "partiellement_payee",
-        crate::coeur::calcul::StatutVente::CreanceOuverte => "creance_ouverte",
-    };
-    tx.executer(
-        "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
-        &parametres![statut, now.clone(), vente_id.clone(), dossier.clone()],
-    )
-    .map_err(|e| e.0)?;
-
-    if let Some(sid) = session_id {
-        tx.executer(
-            "INSERT INTO mouvement_caisse
-             (id, session_id, sens, moyen, montant, motif,
-              operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
-             VALUES (?1,?2,'entree',?3,?4,'vente',?5,?6,?6,?7,'app',?8)",
-            &parametres![uuid::Uuid::new_v4().to_string(), sid, mode, montant, vente_id, now, auteur_id, dossier],
-        )
-        .map_err(|e| e.0)?;
-    }
-    tx.valider().map_err(|e| e.0)
+    crate::creances::regler_creance_datee_sur_base(base, vente_id, montant, mode, utilisateur_role, None)
+        .map(|_| ())
 }

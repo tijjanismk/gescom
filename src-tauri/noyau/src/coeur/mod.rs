@@ -6,3 +6,4 @@ pub mod pieces;
 pub mod codebarre;
 pub mod dates;
 pub mod tiers;
+pub mod saisie;

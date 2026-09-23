@@ -80,6 +80,11 @@ pub fn enregistrer_achat_date(
     if lignes.is_empty() {
         return Err("Aucune ligne à enregistrer".to_string());
     }
+    // D27 : une quantite negative ferait d'une reception une sortie
+    // de stock sans retour fournisseur.
+    for l in &lignes {
+        crate::coeur::saisie::verifier_ligne(l.quantite, l.facteur, l.prix_achat)?;
+    }
     let now = maintenant_iso();
     let (date_affaire, libelle_caisse) =
         crate::argent::date_de_la_reception(&now, date_reception.as_deref())?;
@@ -1254,6 +1259,11 @@ pub fn enregistrer_achat_date_sur_base(
 ) -> Result<serde_json::Value, String> {
     if lignes.is_empty() {
         return Err("Aucune ligne à enregistrer".to_string());
+    }
+    // D27 : une quantite negative ferait d'une reception une sortie
+    // de stock sans retour fournisseur.
+    for l in &lignes {
+        crate::coeur::saisie::verifier_ligne(l.quantite, l.facteur, l.prix_achat)?;
     }
     let dossier = base.dossier().to_string();
     let now = maintenant_iso();

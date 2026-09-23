@@ -598,9 +598,8 @@ pub fn regler_creance_datee(
     let (date_affaire, libelle_caisse) =
         crate::argent::date_du_reglement(&maintenant, date_paiement.as_deref())?;
 
-    if montant <= 0 {
-        return Err("Le montant doit être positif".to_string());
-    }
+    crate::coeur::saisie::verifier_montant(montant)?;
+    crate::coeur::saisie::verifier_mode_encaissement(&mode)?;
 
     // Vérifier que la vente existe et a un reste dû
     let (total, total_paye_avant): (i64, i64) = conn.query_row(
@@ -625,9 +624,9 @@ pub fn regler_creance_datee(
 
     // Encaissement reel : la caisse doit etre ouverte. Un avoir ne
     // touche pas au tiroir et reste autorise.
-    if mode != "avoir" {
-        crate::utils::exiger_session_caisse(&conn)?;
-    }
+    // `mode` ne peut plus valoir « avoir » (D27) : tout reglement
+    // ordinaire passe par le tiroir, ou par un moyen qui y est trace.
+    let session_id = crate::utils::exiger_session_caisse(&conn)?;
 
     let reste_avant = crate::coeur::calcul::reste_exigible(total, total_paye_avant);
     if reste_avant <= 0 {
@@ -637,8 +636,13 @@ pub fn regler_creance_datee(
     // Limiter le paiement au reste dû (pas de surpayement)
     let montant_effectif = montant.min(reste_avant);
 
+    // D27 : paiement, statut, piece, caisse et journal — tout ou rien.
+    // Avant, une coupure entre deux ordres laissait un paiement sans
+    // son mouvement de caisse.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
     // Insérer le paiement
-    conn.execute(
+    tx.execute(
         "INSERT INTO paiement
          (id, vente_id, montant, mode, date_paiement, auteur_id, cree_le, cree_par, origine)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'app')",
@@ -660,7 +664,7 @@ pub fn regler_creance_datee(
     let residu = total - total_paye_apres;
 
     // Mettre à jour le statut de la vente
-    conn.execute(
+    tx.execute(
         "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
         rusqlite::params![nouveau_statut, maintenant, vente_id],
     ).map_err(|e| e.to_string())?;
@@ -670,7 +674,7 @@ pub fn regler_creance_datee(
     // réglée — impossible de distinguer un impayé d'une facture soldée.
     // Symétrique de l'imputation côté fournisseur.
     if nouveau_statut == "payee" {
-        conn.execute(
+        tx.execute(
             "UPDATE piece_commerciale
              SET statut = 'paye', modifie_le = ?1
              WHERE id = (SELECT piece_id FROM vente WHERE id = ?2)
@@ -679,32 +683,23 @@ pub fn regler_creance_datee(
         ).ok();
     }
 
-    // Alimenter la caisse si session ouverte
-    if mode != "avoir" {
-        let session_id: Option<String> = conn.query_row(
-            "SELECT id FROM session_caisse WHERE statut = 'ouverte' LIMIT 1",
-            [], |r| r.get(0),
-        ).ok();
-
-        if let Some(sid) = session_id {
-            conn.execute(
-                "INSERT INTO mouvement_caisse
-                 (id, session_id, sens, moyen, montant, motif, libelle,
-                  operation_id, date_mouvement, cree_le, cree_par, origine)
-                 VALUES (?1, ?2, 'entree', ?3, ?4, 'vente', ?9, ?5, ?6, ?7, ?8, 'app')",
-                rusqlite::params![
-                    uuid::Uuid::new_v4().to_string(),
-                    sid, mode, montant_effectif, vente_id,
-                    maintenant, maintenant, auteur_id, libelle_caisse
-                ],
-            ).ok();
-        }
-    }
+    // Alimenter la caisse : la session a ete exigee plus haut.
+    tx.execute(
+        "INSERT INTO mouvement_caisse
+         (id, session_id, sens, moyen, montant, motif, libelle,
+          operation_id, date_mouvement, cree_le, cree_par, origine)
+         VALUES (?1, ?2, 'entree', ?3, ?4, 'vente', ?9, ?5, ?6, ?7, ?8, 'app')",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(),
+            session_id, mode, montant_effectif, vente_id,
+            maintenant, maintenant, auteur_id, libelle_caisse
+        ],
+    ).map_err(|e| e.to_string())?;
 
     // Trace obligatoire : sans elle, l'ecart entre CA et encaisse
     // devient inexplicable au rapprochement (D41).
     if nouveau_statut == "payee" && residu > 0 {
-        conn.execute(
+        tx.execute(
             "INSERT INTO journal
              (id, type_evenement, entite_type, entite_id, auteur_id,
               nouveau_valeur, origine, date_evenement)
@@ -719,7 +714,7 @@ pub fn regler_creance_datee(
     }
 
     // Journal
-    conn.execute(
+    tx.execute(
         "INSERT INTO journal
          (id, type_evenement, entite_type, entite_id, auteur_id,
           nouveau_valeur, origine, date_evenement)
@@ -727,11 +722,14 @@ pub fn regler_creance_datee(
         rusqlite::params![
             uuid::Uuid::new_v4().to_string(),
             vente_id, auteur_id,
-            format!(r#"{{"montant":{},"mode":"{}","statut":"{}"}}"#,
-                montant_effectif, mode, nouveau_statut),
+            serde_json::json!({
+                "montant": montant_effectif, "mode": mode, "statut": nouveau_statut,
+            }).to_string(),
             maintenant
         ],
     ).ok();
+
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "montant_encaisse":  montant_effectif,
@@ -1549,9 +1547,8 @@ pub fn regler_creance_datee_sur_base(
     utilisateur_role: Option<String>,
     date_paiement: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    if montant <= 0 {
-        return Err("Le montant doit être positif".to_string());
-    }
+    crate::coeur::saisie::verifier_montant(montant)?;
+    crate::coeur::saisie::verifier_mode_encaissement(&mode)?;
     let dossier = base.dossier().to_string();
     let role = utilisateur_role.as_deref().unwrap_or("patron");
     let auteur_id = crate::argent::id_utilisateur_par_role_sur(base, role);
@@ -1561,8 +1558,8 @@ pub fn regler_creance_datee_sur_base(
 
     let (total, total_paye_avant) = total_et_paye(base, &vente_id)?.ok_or_else(|| "Vente introuvable".to_string())?;
     crate::coeur::calcul::peut_regler(&statut_vente_de(base, &vente_id)?)?;
-    // Encaissement reel : caisse ouverte. Un avoir ne touche pas au tiroir.
-    let session_id = if mode != "avoir" { Some(crate::caisses::exiger_sur(base, None)?) } else { None };
+    // Encaissement reel : caisse ouverte (« avoir » n'est plus un mode, D27).
+    let session_id = Some(crate::caisses::exiger_sur(base, None)?);
 
     let reste_avant = crate::coeur::calcul::reste_exigible(total, total_paye_avant);
     if reste_avant <= 0 {
@@ -1624,7 +1621,7 @@ pub fn regler_creance_datee_sur_base(
          VALUES (?1, 'creance_reglee', 'vente', ?2, ?3, ?4, 'app', ?5, ?6)",
         &parametres![
             uuid::Uuid::new_v4().to_string(), vente_id, auteur_id,
-            format!(r#"{{"montant":{},"mode":"{}","statut":"{}"}}"#, montant_effectif, mode, nouveau_statut),
+            serde_json::json!({"montant": montant_effectif, "mode": mode, "statut": nouveau_statut}).to_string(),
             maintenant, dossier
         ],
     );
