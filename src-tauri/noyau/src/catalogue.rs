@@ -94,12 +94,17 @@ pub fn lire_depot_defaut(conn: &Connection) -> Result<Value, String> {
 }
 
 /// Le catalogue du point de vente, avec le stock du dépôt demandé.
+///
+/// `voir_prix_achat` : l'appelant decide. La fenetre monoposte (v1) le
+/// donne au role `patron` ; le serveur le donne toujours, puis masque
+/// selon la PERMISSION `achats:lire_prix` (`coeur::lecture`) — un
+/// comptable qui l'a le lit, un role taille sur mesure aussi.
 pub fn lire_articles_avec_unites(
     conn: &Connection,
-    role: Option<String>,
+    voir_prix_achat: bool,
     depot_id: Option<String>,
 ) -> Result<Vec<Value>, String> {
-    let est_patron = role.as_deref() == Some("patron");
+    let est_patron = voir_prix_achat;
 
     // Un depot inconnu ou desactive retombe sur le defaut plutot que
     // d'echouer : l'ecran doit s'ouvrir meme apres desactivation du
@@ -318,10 +323,10 @@ fn depot_a_servir(base: &mut Base, demande: Option<String>) -> Resultat<String> 
 
 pub fn lire_articles_avec_unites_sur(
     base: &mut Base,
-    role: Option<String>,
+    voir_prix_achat: bool,
     depot_id: Option<String>,
 ) -> Result<Vec<Value>, String> {
-    let est_patron = role.as_deref() == Some("patron");
+    let est_patron = voir_prix_achat;
     let depot_id = depot_a_servir(base, depot_id).map_err(|e| e.0)?;
     let dossier = base.dossier().to_string();
 

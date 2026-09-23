@@ -548,13 +548,16 @@ export function FicheFournisseur({ fournisseurId, onRetour, onHistorique }: Fich
             onClick={() => setModalModifier(true)}>
             <Pencil className="h-4 w-4 mr-1" /> Modifier
           </Button>
-          <Button size="sm" variant="outline" onClick={imprimerReleve}
-            disabled={releveEnCours}>
-            {releveEnCours
-              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              : <Printer className="h-4 w-4 mr-1" />}
-            État de dette
-          </Button>
+          {/* v3, C-1 : la dette se lit avec `tiers:lire_solde`. */}
+          {peut("tiers:lire_solde") && (
+            <Button size="sm" variant="outline" onClick={imprimerReleve}
+              disabled={releveEnCours}>
+              {releveEnCours
+                ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                : <Printer className="h-4 w-4 mr-1" />}
+              État de dette
+            </Button>
+          )}
           {stats.dette > 0 && (
             <Button size="sm" onClick={() => setModalDette(true)}
               className="gap-1.5 bg-orange-600 hover:bg-orange-700">
@@ -644,7 +647,14 @@ export function FicheFournisseur({ fournisseurId, onRetour, onHistorique }: Fich
                   val: stats.derniere_commande ? fmtDate(stats.derniere_commande) : "—",
                   icone: Clock, variante: "clear" as const,
                   inactif: !stats.derniere_commande },
-              ].map(k => (
+              ]
+                // Sans `tiers:lire_solde`, achats, dette et payé arrivent
+                // à null : la tuile part plutôt que d'afficher un zéro.
+                .filter(k => !(
+                  (k.label === "Total achats" && stats.total_achats === null) ||
+                  (k.label === "Dette actuelle" && stats.dette === null) ||
+                  (k.label === "Total payé" && stats.total_paye === null)))
+                .map(k => (
                 <KpiLigne key={k.label} label={k.label} valeur={k.val}
                   icone={k.icone} variante={k.variante} inactif={k.inactif} />
               ))}

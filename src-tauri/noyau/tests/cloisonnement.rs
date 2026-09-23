@@ -235,7 +235,7 @@ fn tout_ce_qui_est_porte_passe_le_detecteur() {
     catalogue::lire_client_generique_sur(&mut base).expect("client générique");
     catalogue::lire_depots_sur(&mut base).expect("magasins");
     catalogue::lire_depot_defaut_sur(&mut base).expect("magasin par défaut");
-    catalogue::lire_articles_avec_unites_sur(&mut base, Some("patron".into()), None)
+    catalogue::lire_articles_avec_unites_sur(&mut base, true, None)
         .expect("catalogue");
 
     let client = comptoir::creer_client_rapide_sur(&mut base, "Awa".into(), None)
@@ -332,7 +332,7 @@ fn un_dossier_neuf_reclame_son_magasin_avant_de_vendre() {
     base.auditer(true);
     base.choisir_dossier("dossier-b").unwrap();
 
-    let erreur = catalogue::lire_articles_avec_unites_sur(&mut base, None, None)
+    let erreur = catalogue::lire_articles_avec_unites_sur(&mut base, false, None)
         .expect_err("un dossier sans magasin ne peut pas servir de catalogue");
     assert!(
         erreur.contains("magasin"),

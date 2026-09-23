@@ -433,9 +433,10 @@ pub fn registre() -> Registre {
             .or_else(|| p.get("depot_id"))
             .and_then(Value::as_str)
             .map(str::to_string);
-        let v = catalogue::lire_articles_avec_unites(
-            c.conn, Some(c.appelant.role.clone()), depot,
-        )?;
+        // Le noyau rend le prix d'achat ; `coeur::lecture` le masque a
+        // qui n'a pas `achats:lire_prix` (v3, C-1). La permission, lue
+        // de la SESSION, et plus le nom du role.
+        let v = catalogue::lire_articles_avec_unites(c.conn, true, depot)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
     r.aussi_sur_base("lire_articles_avec_unites", |c, p| {
@@ -443,9 +444,7 @@ pub fn registre() -> Registre {
             .or_else(|| p.get("depot_id"))
             .and_then(Value::as_str)
             .map(str::to_string);
-        let v = catalogue::lire_articles_avec_unites_sur(
-            c.base, Some(c.appelant.role.clone()), depot,
-        )?;
+        let v = catalogue::lire_articles_avec_unites_sur(c.base, true, depot)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 

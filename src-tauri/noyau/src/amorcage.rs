@@ -121,7 +121,7 @@ fn roles() -> Vec<(&'static str, &'static str, bool, bool, &'static str)> {
             "Créances, chèques, TVA, règlements fournisseurs.",
             false,
             false,
-            r#"["creances:gerer","cheques:gerer","fournisseurs:regler","avoirs:gerer","chantiers:gerer","journal:lire"]"#,
+            r#"["creances:gerer","cheques:gerer","fournisseurs:regler","avoirs:gerer","chantiers:gerer","journal:lire","achats:lire_prix","rapports:lire","tiers:lire_solde"]"#,
         ),
     ]
 }
@@ -272,6 +272,53 @@ fn acces_total_toujours_reaffirme(base: &mut Base) {
     let _ = base.executer(
         "UPDATE role SET acces_total = 1 WHERE nom IN ('patron', 'superadmin')",
         &[],
+    );
+}
+
+/// v3, C-1 : le comptable d'une base DEJA installee recoit les
+/// permissions de lecture que son role porte sur une base neuve
+/// (`journal:lire`, `achats:lire_prix`, `rapports:lire`,
+/// `tiers:lire_solde`) — sans quoi la mise a jour lui retirerait le
+/// tableau de bord et les releves qu'il lisait la veille.
+///
+/// Appelee par `amorcer` (PostgreSQL, bases neuves) ET par le serveur
+/// sur une base fichier, qui passe par `persistance::initialiser_tables`
+/// et jamais par `amorcer` : sans ce second appel, le comptable d'une
+/// base SQLite installee perdait son tableau de bord a la mise a jour
+/// (trouve par le banc).
+///
+/// **Une seule fois** (marque `migration_v3_lectures` dans
+/// `config_app`) : si le patron les lui retire ensuite, le prochain
+/// demarrage ne les lui rend pas.
+pub fn lectures_du_comptable(base: &mut Base) {
+    let deja = base
+        .lire_une("SELECT valeur FROM config_app WHERE cle = 'migration_v3_lectures'", &[], |r| r.get::<String>(0))
+        .ok()
+        .flatten()
+        .is_some();
+    if deja {
+        return;
+    }
+    let actuelles = base
+        .lire_une("SELECT permissions FROM role WHERE nom = 'comptable'", &[], |r| r.get::<String>(0))
+        .ok()
+        .flatten();
+    if let Some(json) = actuelles {
+        let mut liste: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+        for p in ["journal:lire", "achats:lire_prix", "rapports:lire", "tiers:lire_solde"] {
+            if !liste.iter().any(|x| x == p) {
+                liste.push(p.to_string());
+            }
+        }
+        let _ = base.executer(
+            "UPDATE role SET permissions = ?1, modifie_le = ?2 WHERE nom = 'comptable'",
+            &parametres![serde_json::to_string(&liste).unwrap_or_else(|_| json.clone()), maintenant_iso()],
+        );
+    }
+    let _ = base.executer(
+        "INSERT INTO config_app (cle, valeur) VALUES ('migration_v3_lectures', ?1)
+         ON CONFLICT (cle) DO NOTHING",
+        &parametres![maintenant_iso()],
     );
 }
 
@@ -479,6 +526,7 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
     tables_v2(base);
     colonnes_roles(base);
     acces_total_toujours_reaffirme(base);
+    lectures_du_comptable(base);
     etiquette_magasin(base);
     cloisonnement(base);
     trigger_stock(base);

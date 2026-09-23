@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { peut } from "@/lib/droits";
 import { message, save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 import {
@@ -100,7 +101,10 @@ export function OngletImportExport() {
               Tous les articles actifs, avec catégorie, unité, prix de
               vente, prix d'achat, TVA, code-barres et stock.
             </p>
-            <Button onClick={exporter} disabled={travail} className="w-full">
+            {/* Le fichier porte les prix d'achat : il demande
+                `achats:lire_prix` (v3, C-1), le serveur refuse sinon. */}
+            <Button onClick={exporter} disabled={travail || !peut("achats:lire_prix")} className="w-full"
+              title={peut("achats:lire_prix") ? undefined : "Demande la permission de voir les prix d'achat"}>
               {travail
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : <><Download className="h-4 w-4 mr-2" /> Exporter en CSV</>}

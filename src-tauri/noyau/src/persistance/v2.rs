@@ -398,7 +398,7 @@ pub fn migrer(conn: &Connection) -> Result<()> {
                 0,
                 0,
                 r#"["creances:gerer","cheques:gerer","fournisseurs:regler",
-                    "avoirs:gerer","chantiers:gerer","journal:lire"]"#,
+                    "avoirs:gerer","chantiers:gerer","journal:lire","achats:lire_prix","rapports:lire","tiers:lire_solde"]"#,
             ),
         ];
         for (nom, description, acces, protege, permissions) in nouveaux {

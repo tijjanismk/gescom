@@ -254,7 +254,7 @@ fn le_catalogue_se_lit_sur_postgresql() {
     assert_eq!(depots[0]["est_defaut"], true);
 
     let articles =
-        catalogue::lire_articles_avec_unites_sur(&mut base, Some("patron".into()), None)
+        catalogue::lire_articles_avec_unites_sur(&mut base, true, None)
             .unwrap();
     assert_eq!(articles.len(), 8);
 
@@ -272,7 +272,7 @@ fn le_prix_d_achat_ne_sort_que_pour_le_patron_sur_postgresql() {
     let Some(mut base) = base_peuplee() else { return };
 
     let employe =
-        catalogue::lire_articles_avec_unites_sur(&mut base, Some("employe".into()), None)
+        catalogue::lire_articles_avec_unites_sur(&mut base, false, None)
             .unwrap();
     assert!(
         employe.iter().all(|a| a.get("dernier_prix_achat").is_none()),
@@ -287,7 +287,7 @@ fn un_depot_inconnu_retombe_sur_le_defaut_sur_postgresql() {
     use gescom_noyau::catalogue;
     let Some(mut base) = base_peuplee() else { return };
     let a = catalogue::lire_articles_avec_unites_sur(
-        &mut base, None, Some("depot-fantome".into()),
+        &mut base, false, Some("depot-fantome".into()),
     )
     .expect("l'écran doit s'ouvrir");
     assert_eq!(a.len(), 8);
@@ -558,7 +558,7 @@ fn tout_ce_qui_est_porte_passe_le_detecteur_sur_postgresql() {
     catalogue::lire_client_generique_sur(&mut base).expect("client générique");
     catalogue::lire_depots_sur(&mut base).expect("magasins");
     catalogue::lire_depot_defaut_sur(&mut base).expect("magasin par défaut");
-    catalogue::lire_articles_avec_unites_sur(&mut base, Some("patron".into()), None)
+    catalogue::lire_articles_avec_unites_sur(&mut base, true, None)
         .expect("catalogue");
 
     let client = comptoir::creer_client_rapide_sur(&mut base, "Awa".into(), None)

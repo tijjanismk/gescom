@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { peut } from "@/lib/droits";
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight,
   Loader2, RefreshCw,
@@ -154,7 +155,23 @@ export function Dashboard({ onAnomalies }: {
 
   const estPatron = UTILISATEUR_ACTIF?.role === "patron";
 
+  // v3, C-1 : les chiffres de la boutique demandent `rapports:lire`.
+  // Sans elle, le serveur refuse chaque lecture du tableau de bord : on
+  // ne les demande pas, et l'accueil se réduit au bonjour (et aux
+  // anomalies, qui relèvent de `journal:lire`).
+  const voitChiffres = peut("rapports:lire");
+
   async function charger() {
+    if (!voitChiffres) {
+      setChargement(true);
+      const ano = onAnomalies
+        ? await invoke<{ nombre: number }>("lire_anomalies_a_verifier").catch(() => ({ nombre: 0 }))
+        : { nombre: 0 };
+      setNbAnomalies(ano.nombre);
+      setDerniereActu(new Date());
+      setChargement(false);
+      return;
+    }
     setChargement(true);
     setErreur(null);
     try {
@@ -193,6 +210,7 @@ export function Dashboard({ onAnomalies }: {
   // tableau de bord pour passer de la journée à la semaine ferait
   // clignoter des chiffres qui, eux, n'ont pas bougé.
   useEffect(() => {
+    if (!voitChiffres) return;
     let annule = false;
     setChargeGraphe(true);
     invoke<VentesPeriode>("lire_ventes_periode", {
@@ -203,6 +221,36 @@ export function Dashboard({ onAnomalies }: {
       .finally(() => { if (!annule) setChargeGraphe(false); });
     return () => { annule = true; };
   }, [periode, derniereActu]);
+
+  if (!voitChiffres) {
+    return (
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-3xl mx-auto space-y-6">
+          <div>
+            <h1 className="text-2xl font-semibold">
+              Bonjour, {UTILISATEUR_ACTIF?.nom?.split(" ")[0] ?? "..."}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {new Date().toLocaleDateString("fr-ML", {
+                weekday: "long", day: "numeric", month: "long", year: "numeric",
+              })}
+            </p>
+          </div>
+          {nbAnomalies > 0 && onAnomalies && (
+            <button onClick={onAnomalies} data-testid="compteur-anomalies"
+              className="px-3 py-2 bg-red-600 border border-red-700 text-sm text-white hover:bg-red-700">
+              <strong>{nbAnomalies}</strong> anomalie{nbAnomalies > 1 ? "s" : ""} à vérifier
+            </button>
+          )}
+          <p className="text-sm text-muted-foreground" data-testid="accueil-sans-chiffres">
+            Les chiffres de la boutique (ventes, encaissements, stock,
+            créances) ne sont pas ouverts à votre compte. Le menu à gauche
+            mène à votre travail.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (chargement && !resume) {
     return (

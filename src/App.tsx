@@ -224,7 +224,10 @@ function App() {
    * l'être. C'est tout l'intérêt de la fonction.
    */
   useEffect(() => {
-    if (!utilisateur) return;
+    // Seulement pour qui peut sauvegarder : pour les autres, le serveur
+    // refusait à chaque connexion — une ligne REFUS au journal et une
+    // erreur dans la console, pour rien (trouvé par le banc, v3 C-1).
+    if (!utilisateur || !peut("sauvegarde:lancer")) return;
     invoke<{ effectuee: boolean; chemin?: string; erreur?: string }>(
       "sauvegarde_auto_si_necessaire",
     )

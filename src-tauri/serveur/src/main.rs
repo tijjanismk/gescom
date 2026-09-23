@@ -228,6 +228,11 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
             std::process::exit(1);
         }
     };
+    if !est_postgres {
+        // Le chemin fichier ne passe pas par `amorcer` : les migrations
+        // qui vivent sur `Base` s'appellent ici (v3, C-1).
+        amorcage::lectures_du_comptable(&mut base);
+    }
     if est_postgres {
         match amorcage::amorcer(&mut base) {
             Ok(true) => amorcage_fait = true,

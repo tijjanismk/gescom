@@ -18,7 +18,7 @@ du noyau, **à chaque appel** ; l'écran ne fait que cacher des boutons.
 
 | | où | qui le change |
 |---|---|---|
-| le **catalogue** — 29 permissions (`modeles:gerer` retirée avec l'atelier, v3 A-3 ; `journal:lire` ajoutée, v3 B-1), celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`, `r.sur_base(nom, Some(permission), …)`) | code | personne |
+| le **catalogue** — 33 permissions (`modeles:gerer` retirée avec l'atelier, v3 A-3 ; cinq de lecture ajoutées, v3 B-1 et C-1), celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`, `r.sur_base(nom, Some(permission), …)`) | code | personne |
 | les **rôles** — `role.permissions` (JSON), `role.acces_total` | base | le patron |
 | le **sur-mesure** — `utilisateur_permission(utilisateur, permission, accorde)` | base | le patron, par personne |
 
@@ -53,6 +53,53 @@ reçoit `journal:lire` pour son comptable avec la migration des rôles
 de C-1 (les quatre autres permissions de lecture) ; d'ici là, le
 patron la donne par le sur-mesure. L'entrée de menu et les boutons
 « Historique » des fiches suivent `peut("journal:lire")`.
+
+## Les cinq permissions de LECTURE (23/09/2026, v3 C-1)
+
+Les lectures n'étaient pas filtrées. Il y en a maintenant cinq, pas
+une par commande (D19) : `achats:lire_prix`, `rapports:lire`,
+`tiers:lire_solde`, `journal:lire`, `caisse:lire_autres`.
+
+**Une table, un endroit** : [coeur/lecture.rs](../../src-tauri/noyau/src/coeur/lecture.rs)
+dit, commande par commande, ce qui se **refuse** (`Refus`), ce qui se
+**masque** (`Masque` : ces clés à `null`, à toute profondeur — jamais
+un zéro), les **paramètres neutralisés** (`Neutre` : le filtre « avec
+dette seulement » et le tri par dette de la liste des clients), ce qui
+se **réduit à soi** (`AMoi` : les sessions de caisse) et ce qui se
+**vérifie en base** (`SessionCaisseAMoi` : les mouvements d'une
+session). `api::rpc` l'applique à chaque appel : refus avant, filtre
+après. Aucune fonction du noyau ne teste un nom de rôle pour ça — la
+seule qui le faisait (`lire_articles_avec_unites`, `role == "patron"`)
+prend désormais `voir_prix_achat: bool` : la fenêtre v1 le donne au
+patron, le serveur toujours, puis masque selon la permission.
+
+Deux lignes de partage :
+- `tiers:lire_solde` cache ce que **doit un tiers** (état, relevé,
+  encours, listes de dettes). Le reste d'**une** pièce ou d'**un** reçu
+  reste lisible : c'est le document en main.
+- `achats:lire_prix` cache le coût là où il est incident (catalogue,
+  stock, magasins, rapports) ; sur les documents d'achat (fiche
+  fournisseur, factures à retourner, pièces fournisseur),
+  `achats:creer` suffit.
+
+Rôles livrés : patron tout (`acces_total`) ; comptable tout sauf
+`caisse:lire_autres` ; caissier, magasinier, employé aucune. Une base
+**installée** : `amorcage::lectures_du_comptable` ajoute au comptable
+les quatre qui lui reviennent, **une fois** (marque
+`migration_v3_lectures`) — appelée par `amorcer` et par le serveur sur
+une base fichier.
+
+Écrans : menu (Journal, Rapports : `rapports:lire` ; Historique :
+`journal:lire`), accueil sans chiffres, onglets Créances et états de
+dette, onglet Pièces fournisseur, onglet Retour fournisseur, valeur du
+stock et des magasins, export CSV du catalogue, écarts de caisse — tous
+suivent `peut(...)` et ne demandent pas ce qui serait refusé.
+
+Reste ouvert, écrit : `lire_lignes_piece` d'une pièce fournisseur rend
+ses prix sans condition (la réponse ne dit pas le type de la pièce).
+Avec une seule caisse partagée par dossier, la session ouverte et les
+mouvements du jour restent lisibles par tous les caissiers :
+`caisse:lire_autres` porte sur l'historique des sessions.
 
 ## Une permission qui dépend des ARGUMENTS : `pieces:antidater`
 

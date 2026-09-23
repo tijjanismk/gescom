@@ -43,7 +43,7 @@ interface Client {
   cree_le: string;
 }
 interface Stats {
-  ca_total: number; nb_ventes: number; encours: number;
+  ca_total: number; nb_ventes: number; encours: number | null;
   avoirs_total: number; nb_pieces: number; derniere_vente?: string;
 }
 interface Piece {
@@ -704,6 +704,8 @@ interface FicheClientProps {
 }
 
 export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientProps) {
+  // v3, C-1 : ce que doit ce client demande `tiers:lire_solde`.
+  const voitSoldes = peut("tiers:lire_solde");
   const [fiche, setFiche] = useState<{ client: Client; stats: Stats } | null>(null);
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [creances, setCreances] = useState<CreanceVente[]>([]);
@@ -852,7 +854,11 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
       const [ficheData, piecesData, creancesData, avoirsData] = await Promise.all([
         invoke<{ client: Client; stats: Stats }>("lire_fiche_client", { clientId }),
         invoke<Piece[]>("lire_pieces_client", { clientId, typeFiltre: null }),
-        invoke<CreanceOuverteApi[]>("lire_creances_ouvertes")
+        // Refusé sans `tiers:lire_solde` (v3, C-1) : on ne le demande
+        // pas, sinon toute la fiche tomberait avec lui.
+        (voitSoldes
+          ? invoke<CreanceOuverteApi[]>("lire_creances_ouvertes")
+          : Promise.resolve([] as CreanceOuverteApi[]))
           .then(all => all.filter((c: any) =>
             (c.client_id ?? c.vente_id) && true
           )),
@@ -954,13 +960,13 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
             onClick={() => setModalModifier(true)}>
             <Pencil className="h-4 w-4 mr-1" /> Modifier
           </Button>
-          <Button size="sm" variant="outline" onClick={imprimerReleve}
+          {voitSoldes && <Button size="sm" variant="outline" onClick={imprimerReleve}
             disabled={releveEnCours}>
             {releveEnCours
               ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
               : <Printer className="h-4 w-4 mr-1" />}
             État de créance
-          </Button>
+          </Button>}
           <Button size="sm" onClick={() => setModalNouv(true)}>
             <Plus className="h-4 w-4 mr-1" /> Nouvelle pièce
           </Button>
@@ -972,7 +978,7 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
         {[
           { key: "resume", label: "Résumé" },
           { key: "pieces", label: `Pièces (${pieces.length})` },
-          { key: "creances", label: `Créances (${creances.length})` },
+          ...(voitSoldes ? [{ key: "creances", label: `Créances (${creances.length})` }] : []),
           { key: "reglements", label: `Règlements (${reglements.length})` },
           { key: "avoirs", label: `Avoirs` },
         ].map(o => (
@@ -1038,10 +1044,12 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
                   icone: TrendingUp, variante: "tinted" as const, inactif: false },
                 { label: "Nb ventes", val: stats.nb_ventes.toString(),
                   icone: Receipt, variante: "neutral" as const, inactif: false },
-                { label: "Encours", val: fmt(stats.encours),
+                // Null sans `tiers:lire_solde` : la tuile part, plutôt
+                // qu'un zéro qui dirait « rien à devoir ».
+                ...(stats.encours === null ? [] : [{ label: "Encours", val: fmt(stats.encours),
                   icone: AlertTriangle,
                   variante: stats.encours > 0 ? ("tinted" as const) : ("clear" as const),
-                  inactif: false },
+                  inactif: false }]),
                 { label: "Avoirs disponibles", val: fmt(stats.avoirs_total),
                   icone: Gift, variante: "neutral" as const, inactif: false },
                 { label: "Pièces", val: stats.nb_pieces.toString(),

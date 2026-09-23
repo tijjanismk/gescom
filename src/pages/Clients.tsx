@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { peut } from "@/lib/droits";
 import {
   Users, TrendingUp, Loader2, Plus, X,
   Search, Wallet, ChevronDown, ChevronRight,
@@ -295,7 +296,12 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
   const [recherche, setRecherche] = useState("");
   const [avecCreancesSeulement, setAvecCreancesSeulement] = useState(false);
   const [ventesFiltre, setVentesFiltre] = useState<"tous" | "avec" | "sans">("tous");
-  const [tri, setTri] = useState<"creance" | "nom" | "ventes">("creance");
+  // v3, C-1 : ce que DOIVENT les clients demande `tiers:lire_solde`.
+  // Sans elle, le serveur masque les soldes et refuse les états : on
+  // n'affiche ni l'onglet Créances, ni le filtre, ni le tri par dette.
+  const voitSoldes = peut("tiers:lire_solde");
+  const triDefaut = voitSoldes ? "creance" : "nom";
+  const [tri, setTri] = useState<"creance" | "nom" | "ventes">(triDefaut);
   const [releveEnCours, setReleveEnCours] = useState<string | null>(null);
 
   /**
@@ -412,13 +418,15 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
         <h1 className="text-2xl font-semibold">Clients</h1>
         <div className="flex items-center gap-2">
           <Badge variant="secondary">{resultat.total} clients</Badge>
-          <Button size="sm" variant="outline" onClick={imprimerReleveGlobal}
-            disabled={releveEnCours === "global"}>
-            {releveEnCours === "global"
-              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              : <Printer className="h-4 w-4 mr-1" />}
-            État des créances
-          </Button>
+          {voitSoldes && (
+            <Button size="sm" variant="outline" onClick={imprimerReleveGlobal}
+              disabled={releveEnCours === "global"}>
+              {releveEnCours === "global"
+                ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                : <Printer className="h-4 w-4 mr-1" />}
+              État des créances
+            </Button>
+          )}
           <Button size="sm" onClick={() => setModalNouveauClient(true)}>
             <Plus className="h-4 w-4 mr-1" /> Nouveau
           </Button>
@@ -435,20 +443,22 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
           }`}>
           <Users className="h-4 w-4" /> Clients
         </button>
-        <button onClick={() => setOnglet("creances")}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            onglet === "creances"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}>
-          <TrendingUp className="h-4 w-4" />
-          Créances
-          {creances.length > 0 && (
-            <Badge variant="destructive" className="text-xs ml-1">
-              {creances.length}
-            </Badge>
-          )}
-        </button>
+        {voitSoldes && (
+          <button onClick={() => setOnglet("creances")}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              onglet === "creances"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}>
+            <TrendingUp className="h-4 w-4" />
+            Créances
+            {creances.length > 0 && (
+              <Badge variant="destructive" className="text-xs ml-1">
+                {creances.length}
+              </Badge>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Filtres */}
@@ -461,7 +471,7 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
         </div>
         {onglet === "clients" && (
           <>
-            <button
+            {voitSoldes && <button
               onClick={() => setAvecCreancesSeulement(!avecCreancesSeulement)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
                 avecCreancesSeulement
@@ -469,7 +479,7 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
                   : "border-border text-muted-foreground hover:bg-muted"
               }`}>
               <TrendingUp className="h-3 w-3" /> Avec créances
-            </button>
+            </button>}
             <button
               onClick={() => setVentesFiltre(f => f === "avec" ? "tous" : "avec")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
@@ -493,18 +503,18 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="creance">Trier : créance</SelectItem>
+                {voitSoldes && <SelectItem value="creance">Trier : créance</SelectItem>}
                 <SelectItem value="nom">Trier : nom</SelectItem>
                 <SelectItem value="ventes">Trier : nb ventes</SelectItem>
               </SelectContent>
             </Select>
           </>
         )}
-        {(recherche || avecCreancesSeulement || ventesFiltre !== "tous" || tri !== "creance") && (
+        {(recherche || avecCreancesSeulement || ventesFiltre !== "tous" || tri !== triDefaut) && (
           <Button variant="ghost" size="sm" className="h-8 text-xs"
             onClick={() => {
               setRecherche(""); setAvecCreancesSeulement(false);
-              setVentesFiltre("tous"); setTri("creance");
+              setVentesFiltre("tous"); setTri(triDefaut);
             }}>
             <X className="h-3 w-3 mr-1" /> Réinitialiser
           </Button>

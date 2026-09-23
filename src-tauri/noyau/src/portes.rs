@@ -104,9 +104,16 @@ pub const CATALOGUE: &[Permission] = &[
     Permission { code: "sauvegarde:lancer", libelle: "Lancer une sauvegarde", groupe: "Administration" },
     Permission { code: "chantiers:gerer", libelle: "TVA, irrécouvrables, expiration des avoirs", groupe: "Administration" },
     // --- Lecture (v3, C1) ---
-    // Qui a fait quoi : l'Historique (B-1). Le patron l'a par
-    // `acces_total`, le comptable par son role ; pas le caissier.
+    // Ce qu'un patron veut vraiment cacher, et rien de plus : cinq
+    // permissions, pas une par commande. La table de ce que chacune
+    // refuse ou masque est dans `coeur::lecture`. Le patron les a par
+    // `acces_total` ; le comptable toutes sauf `caisse:lire_autres` ;
+    // caissier, magasinier, employe aucune (D19).
+    Permission { code: "achats:lire_prix", libelle: "Voir les prix d'achat, les marges et la valeur du stock", groupe: "Lecture" },
+    Permission { code: "rapports:lire", libelle: "Voir le tableau de bord chiffré, les rapports et le cahier du jour", groupe: "Lecture" },
+    Permission { code: "tiers:lire_solde", libelle: "Voir ce que doivent les clients et ce qu'on doit aux fournisseurs", groupe: "Lecture" },
     Permission { code: "journal:lire", libelle: "Lire l'historique (qui a fait quoi)", groupe: "Lecture" },
+    Permission { code: "caisse:lire_autres", libelle: "Voir les sessions de caisse ouvertes par les autres", groupe: "Lecture" },
 ];
 
 /// Cette permission existe-t-elle ?

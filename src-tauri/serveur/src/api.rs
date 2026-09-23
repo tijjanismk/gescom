@@ -336,7 +336,7 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         Err(m) => return erreur(flux, 400, CodeErreur::Technique, &m),
     };
     let nom = corps.get("commande").and_then(Value::as_str).unwrap_or("");
-    let params = corps.get("params").cloned().unwrap_or(Value::Null);
+    let mut params = corps.get("params").cloned().unwrap_or(Value::Null);
     journal::contexte_ajouter(&format!(
         "{nom} · {}@{}",
         court(&appelant.utilisateur_id),
@@ -387,6 +387,51 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         );
     }
 
+    // v3, C-1 : les permissions de LECTURE (`coeur::lecture`). Refuser
+    // avant d'appeler, neutraliser les parametres qui trahiraient, puis
+    // masquer la reponse. Lu en base a chaque appel, comme le reste.
+    let lectures = if gescom_noyau::coeur::lecture::regles(nom).is_empty() {
+        None
+    } else {
+        let mut base = match srv.base.lock() {
+            Ok(b) => b,
+            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+        };
+        if !appelant.dossier_id.is_empty() {
+            let _ = base.choisir_dossier(&appelant.dossier_id);
+        }
+        let perms = gescom_noyau::portes::permissions_de_sur(&mut base, &appelant.utilisateur_id, &appelant.role);
+        let a = |p: &str| perms.contains(p);
+        if let Some(manque) = gescom_noyau::coeur::lecture::refus(nom, a) {
+            let e = gescom_noyau::portes::ErreurPermission::Refuse {
+                role: appelant.role.clone(),
+                permission: manque.to_string(),
+            };
+            return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
+        }
+        if gescom_noyau::coeur::lecture::session_caisse_a_verifier(nom, a) {
+            let session = params
+                .get("sessionId")
+                .or_else(|| params.get("session_id"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let a_moi = gescom_noyau::caisse::session_ouverte_par_sur(&mut base, &session)
+                .ok()
+                .flatten()
+                .is_some_and(|u| u == appelant.utilisateur_id);
+            if !a_moi {
+                let e = gescom_noyau::portes::ErreurPermission::Refuse {
+                    role: appelant.role.clone(),
+                    permission: gescom_noyau::coeur::lecture::CAISSE_LIRE_AUTRES.to_string(),
+                };
+                return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
+            }
+        }
+        gescom_noyau::coeur::lecture::neutraliser(nom, a, &mut params);
+        Some(perms)
+    };
+
     // D11 : sur une cible fichier, `conn` existe toujours — le chemin
     // ne change pas d'un octet. Sur PostgreSQL, `conn` est absent ; la
     // commande passe par `poignee_base` quand elle est portee, sinon
@@ -432,6 +477,14 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
             CodeErreur::Technique,
             "Cette opération n'est pas encore disponible sur PostgreSQL.",
         );
+    };
+
+    let resultat = match &lectures {
+        Some(perms) => resultat.map(|mut v| {
+            gescom_noyau::coeur::lecture::filtrer(nom, |p| perms.contains(p), &appelant.utilisateur_id, &mut v);
+            v
+        }),
+        None => resultat,
     };
 
     // L'evenement n'est publie que si la commande a REUSSI. Prevenir

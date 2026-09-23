@@ -403,7 +403,8 @@ pub fn lire_sessions_caisse(
                 CAST(COALESCE((SELECT SUM(mc.montant) FROM mouvement_caisse mc
                    WHERE mc.session_id = sc.id AND mc.sens = 'sortie'
                      AND mc.moyen = 'especes'), 0) AS INTEGER),
-                (SELECT COUNT(*) FROM mouvement_caisse mc WHERE mc.session_id = sc.id)
+                (SELECT COUNT(*) FROM mouvement_caisse mc WHERE mc.session_id = sc.id),
+                sc.ouvert_par
          FROM session_caisse sc
          LEFT JOIN utilisateur uo ON uo.id = sc.ouvert_par
          ORDER BY sc.cree_le DESC
@@ -424,6 +425,9 @@ pub fn lire_sessions_caisse(
             "entrees_especes":  r.get::<_, i64>(9)?,
             "sorties_especes":  r.get::<_, i64>(10)?,
             "nb_mouvements":    r.get::<_, i64>(11)?,
+            // Qui l'a ouverte, par identifiant : c'est lui que filtre
+            // `caisse:lire_autres` (v3, C-1).
+            "ouvert_par_id":    r.get::<_, Option<String>>(12)?,
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
@@ -917,7 +921,8 @@ pub fn lire_sessions_caisse_sur_base(base: &mut Base, limite: Option<i64>) -> Re
                 CAST(COALESCE((SELECT SUM(mc.montant) FROM mouvement_caisse mc
                    WHERE mc.session_id = sc.id AND mc.sens = 'sortie'
                      AND mc.moyen = 'especes'), 0) AS BIGINT),
-                (SELECT COUNT(*) FROM mouvement_caisse mc WHERE mc.session_id = sc.id)
+                (SELECT COUNT(*) FROM mouvement_caisse mc WHERE mc.session_id = sc.id),
+                sc.ouvert_par
          FROM session_caisse sc
          LEFT JOIN utilisateur uo ON uo.id = sc.ouvert_par
          WHERE sc.dossier_id = ?2
@@ -938,6 +943,7 @@ pub fn lire_sessions_caisse_sur_base(base: &mut Base, limite: Option<i64>) -> Re
                 "entrees_especes":  r.get::<i64>(9)?,
                 "sorties_especes":  r.get::<i64>(10)?,
                 "nb_mouvements":    r.get::<i64>(11)?,
+                "ouvert_par_id":    r.get::<Option<String>>(12)?,
             }))
         },
     )
@@ -1053,4 +1059,17 @@ pub fn modifier_depense_sur_base(
             .map_err(|e| e.0)?;
     }
     tx.valider().map_err(|e| e.0)
+}
+
+/// Qui a ouvert cette session de caisse (v3, C-1) : sans
+/// `caisse:lire_autres`, on ne lit que les siennes.
+pub fn session_ouverte_par_sur(base: &mut Base, session_id: &str) -> Result<Option<String>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_une(
+        "SELECT ouvert_par FROM session_caisse WHERE id = ?1 AND dossier_id = ?2",
+        &parametres![session_id, dossier],
+        |r| r.get::<Option<String>>(0),
+    )
+    .map_err(|e| e.0)
+    .map(Option::flatten)
 }

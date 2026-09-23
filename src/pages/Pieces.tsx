@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { peut } from "@/lib/droits";
+import { peut, peutUne } from "@/lib/droits";
 import { appeler as invoke } from "@/lib/pont";
 import {
   Plus, Printer, Loader2, Search, X, Wallet, PackageCheck, MoreHorizontal, Eye,
@@ -1213,7 +1213,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
         <div className="flex gap-1">
           {[
             { key: "client",      label: "Pièces client",      icone: Receipt    },
-            { key: "fournisseur", label: "Pièces fournisseur", icone: ShoppingBag },
+            // Les montants d'une pièce fournisseur sont des prix
+            // d'achat : sans `achats:creer` ni `achats:lire_prix`, le
+            // serveur les rend à null (v3, C-1). L'onglet ne s'offre pas.
+            ...(peutUne("achats:creer", "achats:lire_prix")
+              ? [{ key: "fournisseur", label: "Pièces fournisseur", icone: ShoppingBag }]
+              : []),
           ].map(o => {
             const Icone = o.icone;
             return (

@@ -457,6 +457,52 @@ fn le_journal_technique_se_lit_depuis_la_console_avec_la_permission_de_sauvegard
 }
 
 #[test]
+fn le_caissier_recoit_prix_achat_null_et_pas_le_tableau_de_bord() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+    let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+        "nom": "Fanta", "pseudo": "fanta", "email": null, "motDePasse": "fanta-secret", "roleNom": "caissier"
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "fanta", "mot_de_passe": "fanta-secret", "poste_nom": "c", "poste_empreinte": "routes-c1", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let caissier = v["jeton"].as_str().unwrap().to_string();
+
+    // Le patron lit le coût ; le caissier reçoit null — pas un zéro.
+    let (code, v) = rpc(port, &admin, "lire_etat_stock", json!({}));
+    assert_eq!(code, 200, "{v}");
+    assert!(v["donnee"]["lignes"][0]["prix_achat"].is_i64(), "{v}");
+    let (code, v) = rpc(port, &caissier, "lire_etat_stock", json!({}));
+    assert_eq!(code, 200, "{v}");
+    assert!(v["donnee"]["lignes"][0]["prix_achat"].is_null(), "{v}");
+    assert!(v["donnee"]["valeur_totale"].is_null(), "{v}");
+    assert!(v["donnee"]["lignes"][0]["quantite"].is_number(), "le stock se lit : {v}");
+    let (_, v) = rpc(port, &caissier, "lire_articles_avec_unites", json!({}));
+    assert!(v["donnee"].as_array().unwrap().iter().all(|a| a["dernier_prix_achat"].is_null()), "{v}");
+
+    // Le tableau de bord chiffré : refusé, et le refus nomme la permission.
+    let (code, v) = rpc(port, &caissier, "lire_resume_dashboard", json!({}));
+    assert_eq!(code, 403, "{v}");
+    assert!(v.to_string().contains("rapports:lire"), "{v}");
+    let (code, _) = rpc(port, &admin, "lire_resume_dashboard", json!({}));
+    assert_eq!(code, 200);
+
+    // Ce que doivent les clients : masqué dans la liste, refusé en relevé.
+    let (code, v) = rpc(port, &caissier, "lire_clients_pagines", json!({ "page": 0, "limite": 20, "avecCreancesSeulement": true, "tri": "creance" }));
+    assert_eq!(code, 200, "{v}");
+    let donnees = v["donnee"]["donnees"].as_array().unwrap();
+    assert!(!donnees.is_empty(), "le filtre « avec dette seulement » est neutralisé : {v}");
+    assert!(donnees.iter().all(|c| c["total_creances"].is_null()), "{v}");
+    let (code, v) = rpc(port, &caissier, "lire_etat_creances_global", json!({}));
+    assert_eq!(code, 403, "{v}");
+}
+
+#[test]
 fn une_sauvegarde_se_restaure_hors_ligne_et_le_serveur_repart_dessus() {
     // Le diagnostic disait « restaurer la dernière sauvegarde » et rien ne
     // le faisait. Ici : on sauvegarde, on écrit encore, on restaure

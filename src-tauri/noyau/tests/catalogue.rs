@@ -98,7 +98,7 @@ fn le_stock_lu_est_celui_du_depot_demande() {
     poser_stock(&conn, "a1", "d2", 300.0);
 
     let lire = |d: &str| -> f64 {
-        catalogue::lire_articles_avec_unites(&conn, None, Some(d.to_string()))
+        catalogue::lire_articles_avec_unites(&conn, false, Some(d.to_string()))
             .unwrap()[0]["stock"]
             .as_f64()
             .unwrap()
@@ -119,7 +119,7 @@ fn un_depot_inconnu_retombe_sur_le_defaut() {
     // au lieu du catalogue.
     let v = catalogue::lire_articles_avec_unites(
         &conn,
-        None,
+        false,
         Some("depot-efface".to_string()),
     )
     .unwrap();
@@ -133,14 +133,14 @@ fn le_prix_dachat_ne_sort_que_pour_le_patron() {
     article(&conn, "a1", "Ciment", 4000);
 
     let employe =
-        catalogue::lire_articles_avec_unites(&conn, Some("employe".into()), None).unwrap();
+        catalogue::lire_articles_avec_unites(&conn, false, None).unwrap();
     // §7 — un employé n'a pas à connaître la marge du patron parce
     // qu'il sait ouvrir les outils du navigateur. Le filtre est côté
     // serveur, pas côté écran.
     assert!(employe[0].get("dernier_prix_achat").is_none());
 
     let patron =
-        catalogue::lire_articles_avec_unites(&conn, Some("patron".into()), None).unwrap();
+        catalogue::lire_articles_avec_unites(&conn, true, None).unwrap();
     assert_eq!(patron[0]["dernier_prix_achat"], serde_json::json!(4000));
 }
 
@@ -159,7 +159,7 @@ fn les_unites_dun_article_sont_regroupees() {
     )
     .unwrap();
 
-    let v = catalogue::lire_articles_avec_unites(&conn, None, None).unwrap();
+    let v = catalogue::lire_articles_avec_unites(&conn, false, None).unwrap();
     assert_eq!(v.len(), 1, "un seul article, deux unités");
     let unites = v[0]["unites"].as_array().unwrap();
     assert_eq!(unites.len(), 2);

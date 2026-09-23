@@ -110,7 +110,7 @@ pub(crate) fn lire_articles_avec_unites_sur(
     role: Option<String>,
     depot_id: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    crate::coeur_catalogue::lire_articles_avec_unites(conn, role, depot_id)
+    crate::coeur_catalogue::lire_articles_avec_unites(conn, role.as_deref() == Some("patron"), depot_id)
 }
 
 #[tauri::command]

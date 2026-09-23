@@ -26,9 +26,10 @@ import { ONGLETS_PARAMETRES } from "@/lib/onglets-parametres";
 // LIRE : le noyau ne filtre pas les lectures, les cacher ici ne serait
 // donc qu'un decor. Mieux vaut une regle vraie qu'une regle qui fait
 // semblant.
-// Exception depuis la v3 : l'Historique est une lecture que le SERVEUR
-// refuse sans `journal:lire` (la premiere permission de lecture, C1) ;
-// le montrer serait promettre un ecran qui repondra « refuse ».
+// Exceptions depuis la v3 : les lectures que le SERVEUR refuse sans
+// permission (C1) — l'Historique (`journal:lire`), le cahier du jour et
+// les rapports (`rapports:lire`). Les montrer serait promettre un ecran
+// qui repondra « refuse ».
 const NAV = [
   { nom: "Tableau de bord", icone: BarChart3,      href: "dashboard"                                },
   { nom: "Ventes",          icone: ShoppingCart,   href: "ventes",       droit: "ventes:creer"       },
@@ -42,9 +43,9 @@ const NAV = [
   { nom: "Transferts",      icone: ArrowLeftRight, href: "transferts",   droit: "stock:transferer"   },
   { nom: "Chèques",         icone: FileCheck,      href: "cheques",      droit: "cheques:gerer"      },
   { nom: "Relances",        icone: MessageCircle,  href: "relances",     droit: "creances:gerer"     },
-  { nom: "Journal",         icone: BookOpen,       href: "journal"                                  },
+  { nom: "Journal",         icone: BookOpen,       href: "journal",      droit: "rapports:lire"      },
   { nom: "Historique",      icone: History,        href: "historique",   droit: "journal:lire"       },
-  { nom: "Rapports",        icone: BarChart2,      href: "rapports"                                 },
+  { nom: "Rapports",        icone: BarChart2,      href: "rapports",     droit: "rapports:lire"      },
   { nom: "Paramètres",      icone: Settings,       href: "parametres"                               },
 ];
 
