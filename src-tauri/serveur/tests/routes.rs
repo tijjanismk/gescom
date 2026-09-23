@@ -240,6 +240,70 @@ fn une_livraison_passe_avec_le_json_de_l_ecran_et_le_stock_suit() {
     assert_eq!(v["code"], "permission");
 }
 
+/// D26 et D27, par le vrai chemin : deux comptes du même rôle vendent,
+/// chacun signe sa vente ; une quantité négative est refusée par le
+/// serveur même si l'écran ne l'enverrait jamais.
+#[test]
+fn deux_comptes_du_meme_role_signent_chacun_leur_vente() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+
+    // Awa, un second compte « employe » à côté de celui de l'amorçage.
+    let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+        "nom": "Awa", "pseudo": "awa", "email": null, "motDePasse": "awa-secret", "roleNom": "employe"
+    }));
+    assert_eq!(code, 200, "{v}");
+    let se_connecter = |identifiant: &str, mdp: &str, poste: &str| -> (String, String) {
+        let (code, v) = requete(
+            port, "POST", "/connexion",
+            Some(&json!({ "identifiant": identifiant, "mot_de_passe": mdp, "poste_nom": poste, "poste_empreinte": poste, "version_protocole": 1 })),
+            None,
+        ).unwrap();
+        assert_eq!(code, 200, "{v}");
+        (v["jeton"].as_str().unwrap().to_string(), v["utilisateur_id"].as_str().unwrap().to_string())
+    };
+    let (jeton_employe, id_employe) = se_connecter("employe", "employe123", "routes-e");
+    let (jeton_awa, id_awa) = se_connecter("awa", "awa-secret", "routes-a");
+    assert_ne!(id_employe, id_awa);
+
+    let (_, a) = rpc(port, &admin, "lire_articles_avec_unites", json!({}));
+    let article = &a["donnee"][0];
+    let unite = &article["unites"][0];
+    let (_, d) = rpc(port, &admin, "lire_depot_defaut", json!({}));
+    let depot = d["donnee"]["id"].as_str().unwrap().to_string();
+    let (_, c) = rpc(port, &admin, "lire_client_generique", json!({}));
+    let client = c["donnee"]["id"].as_str().unwrap().to_string();
+    let vente = |quantite: f64| json!({
+        "clientId": client, "depotId": depot, "modeReglement": "comptant",
+        "lignes": [{
+            "article_id": article["id"], "unite_vente_id": unite["id"], "depot_source_id": depot,
+            "source_approvisionnement": "stock", "quantite": quantite, "facteur": unite["facteur"],
+            "prix_reference": unite["prix_reference"], "prix_pratique": unite["prix_reference"]
+        }]
+    });
+
+    // Awa vend en premier, puis le compte de l'amorçage.
+    let (code, v) = rpc(port, &jeton_awa, "creer_vente", vente(1.0));
+    assert_eq!(code, 200, "{v}");
+    let vente_awa = v["donnee"]["vente_id"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &jeton_employe, "creer_vente", vente(1.0));
+    assert_eq!(code, 200, "{v}");
+    let vente_employe = v["donnee"]["vente_id"].as_str().unwrap().to_string();
+
+    // D27 : une quantité négative, envoyée à la main, est refusée.
+    let (code, v) = rpc(port, &jeton_awa, "creer_vente", vente(-3.0));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap_or("").contains("Quantité"), "{v}");
+
+    let base = rusqlite::Connection::open(&srv.base).unwrap();
+    let auteur = |vente: &str| -> String {
+        base.query_row("SELECT auteur_id FROM vente WHERE id = ?1", [vente], |r| r.get(0)).unwrap()
+    };
+    assert_eq!(auteur(&vente_awa), id_awa, "la vente d'Awa est signée par Awa");
+    assert_eq!(auteur(&vente_employe), id_employe);
+}
+
 #[test]
 fn une_sauvegarde_se_restaure_hors_ligne_et_le_serveur_repart_dessus() {
     // Le diagnostic disait « restaurer la dernière sauvegarde » et rien ne
