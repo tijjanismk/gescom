@@ -12,7 +12,7 @@
 import {
   Package, Tag, Building2, Users, HardDrive, ShoppingCart,
   Percent, Banknote, XCircle, Clock, Warehouse, Barcode,
-  LayoutTemplate, FileSpreadsheet, Network, Shield, FileText,
+  FileSpreadsheet, Network, Shield, FileText,
 } from "lucide-react";
 
 export const ONGLETS_PARAMETRES = [
@@ -33,8 +33,4 @@ export const ONGLETS_PARAMETRES = [
   { key: "dettes",        label: "Dettes fourn.", icone: Banknote,        droit: "fournisseurs:regler" },
   { key: "irrecouvrable", label: "Irrécouvrable", icone: XCircle,         droit: "chantiers:gerer" },
   { key: "avoirs",        label: "Avoirs",        icone: Clock,           droit: "avoirs:gerer" },
-  // Les modèles ouvrent l'atelier EN PLEIN ÉCRAN : il lui faut les
-  // trois colonnes et l'aperçu à taille réelle. L'onglet n'est donc
-  // qu'une porte — les autres onglets s'effacent derrière.
-  { key: "modeles",       label: "Modèles de documents", icone: LayoutTemplate, droit: "modeles:gerer" },
 ];

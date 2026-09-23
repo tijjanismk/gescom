@@ -78,7 +78,6 @@ pub const CATALOGUE: &[Permission] = &[
     // `acces_total` ou se donne a la main.
     Permission { code: "avoirs:accorder", libelle: "Accorder un avoir sans marchandise (geste commercial)", groupe: "Pièces" },
     Permission { code: "livraisons:enregistrer", libelle: "Enregistrer livraisons et réceptions", groupe: "Pièces" },
-    Permission { code: "modeles:gerer", libelle: "Modifier les modèles de documents", groupe: "Pièces" },
     // Antidater une vente en especes est la facon de masquer un trou
     // dans le tiroir : ce droit se donne, il ne s'herite pas du role
     // « caissier ».

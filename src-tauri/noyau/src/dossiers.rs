@@ -24,7 +24,7 @@
 //! ## Ce qui n'est PAS cloisonne
 //!
 //! Les personnes et les machines : `utilisateur`, `role`, `poste`,
-//! `session_reseau`, `modele_document`. Un caissier qui change de
+//! `session_reseau`. Un caissier qui change de
 //! societe reste le meme caissier ; l'obliger a un compte par dossier
 //! multiplierait les mots de passe sans rien proteger.
 //!

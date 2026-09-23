@@ -18,7 +18,7 @@ du noyau, **à chaque appel** ; l'écran ne fait que cacher des boutons.
 
 | | où | qui le change |
 |---|---|---|
-| le **catalogue** — 29 permissions, celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`) | code | personne |
+| le **catalogue** — 28 permissions (`modeles:gerer` retirée avec l'atelier, v3 A-3), celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`) | code | personne |
 | les **rôles** — `role.permissions` (JSON), `role.acces_total` | base | le patron |
 | le **sur-mesure** — `utilisateur_permission(utilisateur, permission, accorde)` | base | le patron, par personne |
 

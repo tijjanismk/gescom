@@ -201,3 +201,23 @@ fn la_piece_a_imprimer_porte_reference_et_coordonnees() {
         assert_eq!(d["societe"]["site_web"], "www.boutique.ml");
     }
 }
+
+/// A-3 : l'atelier part, ses tables aussi — sur une base qui les avait,
+/// et sans casser un second passage (la migration se rejoue).
+#[test]
+fn les_tables_de_l_atelier_partent_a_l_amorcage() {
+    let mut base = base_avec_demo();
+    base.executer_lot(
+        "CREATE TABLE IF NOT EXISTS modele_document (id TEXT PRIMARY KEY, genre TEXT);
+         CREATE TABLE IF NOT EXISTS image_document (id TEXT PRIMARY KEY, nom TEXT);
+         INSERT INTO modele_document (id, genre) VALUES ('m1', 'facture');",
+    )
+    .unwrap();
+    gescom_noyau::amorcage::amorcer(&mut base).expect("second amorçage");
+    gescom_noyau::amorcage::amorcer(&mut base).expect("troisième, idempotent");
+    let reste = |base: &mut gescom_noyau::base::Base, t: &str| {
+        base.lire_une(&format!("SELECT COUNT(*) FROM {t}"), &[], |r| r.get::<i64>(0)).is_ok()
+    };
+    assert!(!reste(&mut base, "modele_document"), "modele_document supprimée");
+    assert!(!reste(&mut base, "image_document"), "image_document supprimée");
+}

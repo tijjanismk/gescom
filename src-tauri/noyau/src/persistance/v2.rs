@@ -87,49 +87,16 @@ pub fn migrer(conn: &Connection) -> Result<()> {
     .ok();
 
     // -----------------------------------------------------------------
-    //  Modeles de documents
+    //  Modeles de documents : partis avec la v3 (D17)
     // -----------------------------------------------------------------
-    // Le modele est une DONNEE, pas du code : le commercant qui veut
-    // son logo a droite et sa colonne « reference » en plus ne doit pas
-    // attendre une version de Gescom. Et parce que c'est une donnee,
-    // le serveur la distribue a toutes les caisses.
+    // L'atelier de modeles (septembre 2026) est retire : un generateur
+    // par genre, regle dans Parametres -> Documents (`documents.rs`).
+    // Ses deux tables partent, sur toute base qui les a eues. Idempotent :
+    // la migration se rejoue a chaque ouverture sans rien casser. Meme
+    // geste dans amorcage.rs (`tests/schema_commun.rs` compare).
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS modele_document (
-            id          TEXT PRIMARY KEY,
-            genre       TEXT NOT NULL,
-            nom         TEXT NOT NULL,
-            format      TEXT NOT NULL DEFAULT 'a4',
-            contenu     TEXT NOT NULL,
-            est_defaut  INTEGER NOT NULL DEFAULT 0,
-            actif       INTEGER NOT NULL DEFAULT 0,
-            cree_le     TEXT NOT NULL,
-            modifie_le  TEXT NOT NULL,
-            modifie_par TEXT
-         );
-         CREATE INDEX IF NOT EXISTS idx_modele_genre ON modele_document(genre);",
-    )?;
-
-    // Un seul modele actif par genre. En base et pas seulement dans
-    // l'ecran : deux actifs, et le document imprime depend de l'ordre
-    // de lecture — donc change sans raison visible.
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_modele_actif_par_genre
-         ON modele_document(genre) WHERE actif = 1",
-        [],
-    )
-    .ok();
-
-    // Les images posees sur un document (cachet, signature, QR), a part
-    // des trois images de la societe. Meme DDL que dans amorcage.rs :
-    // `tests/schema_commun.rs` compare les deux chemins.
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS image_document (
-            id           TEXT PRIMARY KEY,
-            nom          TEXT NOT NULL,
-            chemin       TEXT NOT NULL,
-            taille       INTEGER NOT NULL DEFAULT 0,
-            cree_le      TEXT NOT NULL
-         );",
+        "DROP TABLE IF EXISTS modele_document;
+         DROP TABLE IF EXISTS image_document;",
     )?;
 
     // -----------------------------------------------------------------

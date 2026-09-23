@@ -160,30 +160,10 @@ fn tables_v2(base: &mut Base) {
             derniere_vue    TEXT,
             dossier_id      TEXT
          )",
-        "CREATE TABLE IF NOT EXISTS modele_document (
-            id           TEXT PRIMARY KEY,
-            genre        TEXT NOT NULL,
-            nom          TEXT NOT NULL,
-            format       TEXT NOT NULL,
-            contenu      TEXT NOT NULL,
-            est_defaut   INTEGER NOT NULL DEFAULT 0,
-            actif        INTEGER NOT NULL DEFAULT 0,
-            cree_le      TEXT NOT NULL,
-            modifie_le   TEXT NOT NULL,
-            modifie_par  TEXT
-         )",
-        // Les images POSEES sur un document — cachet, signature, QR — par
-        // opposition aux trois images de la societe (logo, en-tete, pied).
-        // Une identite par image : vingt blocs Image ne pointent plus sur
-        // trois fichiers. Le fichier vit chez le serveur, comme D8 ; la
-        // table ne garde que de quoi le retrouver et le nommer.
-        "CREATE TABLE IF NOT EXISTS image_document (
-            id           TEXT PRIMARY KEY,
-            nom          TEXT NOT NULL,
-            chemin       TEXT NOT NULL,
-            taille       INTEGER NOT NULL DEFAULT 0,
-            cree_le      TEXT NOT NULL
-         )",
+        // L'atelier de modeles est parti avec la v3 (D17) : ses deux
+        // tables aussi, sur les bases qui les ont eues.
+        "DROP TABLE IF EXISTS modele_document",
+        "DROP TABLE IF EXISTS image_document",
         "ALTER TABLE session_caisse ADD COLUMN poste_id TEXT",
         "ALTER TABLE session_caisse ADD COLUMN utilisateur_id TEXT",
         // Le poste qui a saisi le mouvement — pose par v2.rs cote

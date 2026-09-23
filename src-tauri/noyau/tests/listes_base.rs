@@ -1,4 +1,4 @@
-//! `pagination`, `livraisons` (saisie ligne à ligne), `modeles`,
+//! `pagination`, `livraisons` (saisie ligne à ligne),
 //! `catalogue_csv` — sur `Base`. Testé sur SQLite par défaut, sur
 //! PostgreSQL avec `GESCOM_PG`.
 
@@ -7,7 +7,7 @@ mod commun;
 use commun::*;
 use gescom_noyau::argent::{self, ParamsLigneInput};
 use gescom_noyau::base::Base;
-use gescom_noyau::{catalogue_csv, livraisons, modeles, pagination, pieces};
+use gescom_noyau::{catalogue_csv, livraisons, pagination, pieces};
 
 fn vendre(base: &mut Base, quantite: f64, paye: bool) -> i64 {
     let depot = depot_defaut(base);
@@ -133,41 +133,6 @@ fn une_livraison_se_saisit_ligne_a_ligne_et_bouge_le_stock_de_l_ecart() {
 }
 
 #[test]
-fn les_modeles_se_gerent_avec_un_seul_actif_par_genre() {
-    let mut base = base_avec_demo();
-    let m = |id: &str, nom: &str, defaut: bool| modeles::Modele {
-        id: id.into(), genre: "facture".into(), nom: nom.into(), format: "A4".into(),
-        contenu: serde_json::json!({"blocs": []}), est_defaut: defaut, actif: false, modifie_le: String::new(),
-    };
-    modeles::enregistrer_sur_base(&mut base, &m("m1", "Usine", true), "test").unwrap();
-    assert_eq!(modeles::lire_actif_sur_base(&mut base, "facture").unwrap().id, "m1", "le premier devient actif");
-    modeles::enregistrer_sur_base(&mut base, &m("m2", "Perso", false), "test").unwrap();
-    assert_eq!(modeles::lire_actif_sur_base(&mut base, "facture").unwrap().id, "m1", "le second ne prend pas la place");
-    assert!(modeles::enregistrer_sur_base(&mut base, &m("m3", " ", false), "test").is_err());
-
-    modeles::definir_actif_sur_base(&mut base, "m2").unwrap();
-    let liste = modeles::lister_sur_base(&mut base, Some("facture")).unwrap();
-    assert_eq!(liste.len(), 2);
-    assert_eq!(liste.iter().filter(|x| x.actif).count(), 1);
-    assert_eq!(modeles::lire_sur_base(&mut base, "m2").unwrap().nom, "Perso");
-    assert!(modeles::lire_sur_base(&mut base, "zz").is_err());
-    assert!(modeles::lister_sur_base(&mut base, Some("recu")).unwrap().is_empty());
-
-    assert!(modeles::supprimer_sur_base(&mut base, "m1").is_err(), "un modèle d'usine ne se supprime pas");
-    modeles::supprimer_sur_base(&mut base, "m2").unwrap();
-    assert_eq!(modeles::lire_actif_sur_base(&mut base, "facture").unwrap().id, "m1", "l'usine reprend la main");
-
-    let lot = modeles::exporter_sur_base(&mut base, None).unwrap();
-    assert_eq!(lot.modeles.len(), 1);
-    let mut lot2 = lot.clone();
-    lot2.modeles.push(m("m9", "Importé", false));
-    let bilan = modeles::importer_sur_base(&mut base, &lot2, "test").unwrap();
-    assert_eq!(bilan.ajoutes, 1);
-    assert_eq!(bilan.remplaces, 1);
-    assert_eq!(modeles::lire_actif_sur_base(&mut base, "facture").unwrap().id, "m1", "l'import ne change pas l'actif");
-}
-
-#[test]
 fn le_catalogue_s_exporte_et_se_reimporte() {
     let mut base = base_avec_demo();
     let sucre = article_unite(&mut base, "Sucre");
@@ -221,13 +186,6 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     let lid = l["lignes"][0]["id"].as_str().unwrap().to_string();
     pieces::changer_statut_piece_sur_base(&mut base, bl_id.clone(), "emis".into()).expect("émettre le bon");
     livraisons::enregistrer_livraison_sur_base(&mut base, bl_id, vec![livraisons::LigneLivraison { ligne_id: lid, quantite_livree: 1.0 }]).expect("livrer");
-    let m = modeles::Modele { id: "t".into(), genre: "g".into(), nom: "n".into(), format: "A4".into(), contenu: serde_json::json!({}), est_defaut: false, actif: false, modifie_le: String::new() };
-    modeles::enregistrer_sur_base(&mut base, &m, "t").expect("modèle");
-    modeles::lister_sur_base(&mut base, None).expect("lister");
-    modeles::lire_sur_base(&mut base, "t").expect("lire");
-    modeles::lire_actif_sur_base(&mut base, "g");
-    modeles::definir_actif_sur_base(&mut base, "t").expect("actif");
-    modeles::supprimer_sur_base(&mut base, "t").expect("supprimer");
     catalogue_csv::exporter_articles_csv_sur_base(&mut base).expect("export");
     catalogue_csv::importer_articles_csv_sur_base(&mut base, "Nom;Categorie;Unite;Prix\nX;C;u;10".into(), None).expect("import");
     catalogue_csv::lire_etat_stock_sur_base(&mut base, None, Some(true)).expect("état");

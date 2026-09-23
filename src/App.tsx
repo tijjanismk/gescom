@@ -16,8 +16,6 @@ import { Fournisseurs } from "@/pages/Fournisseurs";
 import { FicheFournisseur } from "@/pages/FicheFournisseur";
 import { Caisse } from "@/pages/Caisse";
 import { Parametres } from "@/pages/Parametres";
-import { Modeles } from "@/pages/Modeles";
-import { assurerModelesParDefaut } from "@/lib/modeles/service";
 import {
   synchroniserConfig, ecouterCanal, enReseau,
   surSessionPerdue, sessionUtilisable, serveurConfigure,
@@ -161,14 +159,6 @@ function App() {
     if (utilisateur?.doit_changer_mdp) setModalMdp(true);
   }, []);
 
-  // Les modeles d'usine sont poses au premier demarrage, jamais
-  // reecrits ensuite. Ici et pas dans l'ecran Modeles : une facture
-  // doit pouvoir s'imprimer par un modele sans que personne ne soit
-  // jamais alle voir l'atelier.
-  //
-  // L'echec est silencieux et volontairement : une base en lecture
-  // seule ou un disque plein ne doit pas empecher d'ouvrir la caisse.
-  // L'impression retombe alors sur le generateur historique.
   // Le mode reseau vit dans `poste.json`, pas dans le navigateur. On
   // aligne le pont AVANT tout le reste : un poste caisse dont le cache
   // a ete vide se croirait sinon monoposte, ouvrirait sa base locale
@@ -181,19 +171,6 @@ function App() {
   useEffect(() => {
     synchroniserConfig().finally(() => setPontPret(true));
   }, []);
-
-  // Les modeles d'usine s'installent APRES la connexion.
-  //
-  // C'etait des le demarrage : en mode caisse, avant que quiconque se
-  // soit identifie, l'appel partait au serveur sans jeton et revenait
-  // « Jeton absent ». L'ecran Modeles affichait alors cette erreur a la
-  // place de ses modeles.
-  useEffect(() => {
-    if (!pontPret || !utilisateur || !sessionUtilisable()) return;
-    assurerModelesParDefaut().catch((e) =>
-      console.error("Modeles par defaut :", e),
-    );
-  }, [pontPret, utilisateur?.id]);
 
   // Le jeton du serveur est la SOURCE.
   //
@@ -340,7 +317,6 @@ function App() {
       case "transferts": return <Transferts />;
       case "cheques":    return <Cheques />;
       case "rapports":   return <Rapports />;
-      case "modeles":    return <Modeles />;
       case "parametres": return <Parametres ongletInitial={navParams?.onglet} />;
       default:           return <Dashboard />;
     }

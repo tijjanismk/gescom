@@ -52,7 +52,6 @@ pub mod argent;
 pub mod catalogue;
 pub mod catalogue_csv;
 pub mod comptoir;
-pub mod modeles;
 pub mod images;
 pub mod installation;
 pub mod registre;

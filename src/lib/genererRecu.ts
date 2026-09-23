@@ -111,18 +111,26 @@ export function genererRecuHTML(
   const titre = annulation ? "ANNULATION DE RÈGLEMENT" : m.titre;
   const montant = Math.abs(d.montant);
 
+  // Avec un en-tête image, l'image remplace le NOM et les coordonnées —
+  // pas le titre ni la date : sans eux, le reçu ne disait plus ce qu'il
+  // était (trouvé par le banc d'écran, 23/09).
+  const titreEtDate = `
+         <div style="text-align:right">
+           <div class="titre${annulation ? " annule" : ""}">${titre}</div>
+           <div class="det">${fmtDateHeure(d.date)}</div>
+         </div>`;
   const entete = enteteBase64
-    ? `<img src="${enteteBase64}" alt=""
-            style="width:100%;height:auto;display:block;margin-bottom:8px"/>`
+    ? `<div class="entete" style="justify-content:flex-end">${titreEtDate}</div>`
     : `<div class="entete">
          <div>
            ${blocSociete(d.societe as Record<string, unknown>, h, 15)}
          </div>
-         <div style="text-align:right">
-           <div class="titre${annulation ? " annule" : ""}">${titre}</div>
-           <div class="det">${fmtDateHeure(d.date)}</div>
-         </div>
+         ${titreEtDate}
        </div>`;
+  const bandeau = enteteBase64
+    ? `<img src="${enteteBase64}" alt=""
+            style="width:100%;height:auto;display:block;margin-bottom:8px"/>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="fr"><head><meta charset="UTF-8">
@@ -176,9 +184,9 @@ export function genererRecuHTML(
 </style></head>
 <body>
 <div class="page">
-  ${enteteBase64 ? entete : ""}
+  ${bandeau}
   <div class="corps">
-    ${enteteBase64 ? "" : entete}
+    ${entete}
 
     <div class="tiers">
       <div class="lbl">${m.tiers}</div>

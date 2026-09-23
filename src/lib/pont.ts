@@ -241,9 +241,7 @@ function racine(): string {
  * - **ouvrir un fichier** avec l'application du système ;
  * - **le réglage réseau lui-même** : il vit dans le `poste.json` de
  *   cette machine. Le demander au serveur serait circulaire — et
- *   `tester_serveur` doit justement pouvoir échouer sans réseau ;
- * - **import/export de modèles** : ils passent par un chemin de fichier
- *   local, qui ne désigne rien chez le serveur.
+ *   `tester_serveur` doit justement pouvoir échouer sans réseau.
  *
  * Cette liste est **fermée**. Une commande absente part au serveur :
  * c'est le bon défaut, parce qu'une commande métier oubliée ici

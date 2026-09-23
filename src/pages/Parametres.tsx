@@ -33,7 +33,6 @@ import { OngletDocuments } from "@/components/OngletDocuments";
 import {
   ModalPermissionsUtilisateur,
 } from "@/components/ModalPermissionsUtilisateur";
-import { Modeles } from "@/pages/Modeles";
 import { peut } from "@/lib/droits";
 import { UTILISATEUR_ACTIF } from "@/App";
 
@@ -1005,13 +1004,6 @@ export function Parametres({ ongletInitial }: { ongletInitial?: string } = {}) {
     if (ongletInitial && onglets.some(o => o.key === ongletInitial)) setOnglet(ongletInitial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ongletInitial]);
-
-  // L'atelier des modèles prend TOUT l'écran : on rend avant la barre
-  // d'onglets, qui disparaît donc le temps qu'on y est. Le bouton
-  // « Paramètres » de l'atelier ramène ici.
-  if (onglet === "modeles") {
-    return <Modeles onFermer={() => setOnglet(onglets[0]?.key ?? "")} />;
-  }
 
   // Aucun onglet : dire POURQUOI, pas seulement « non ».
   //

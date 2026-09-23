@@ -175,11 +175,13 @@ export function genererReleveGlobalHTML(
       <td class="d fort">${fmt(l.total_du)}</td>
     </tr>`).join("");
 
-  const entete = enteteBase64
+  // Avec un en-tête image, l'image remplace le nom et les coordonnées,
+  // pas le titre (trouvé par le banc d'écran, 23/09).
+  const entete = (enteteBase64
     ? `<img src="${enteteBase64}" style="width:100%;display:block;margin-bottom:10px">`
-    : `<div class="entete">
+    : "") + `<div class="entete">
          <div>
-           ${blocSociete(d.societe as Record<string, unknown>, h, 16)}
+           ${enteteBase64 ? "" : `${blocSociete(d.societe as Record<string, unknown>, h, 16)}`}
          </div>
          <div style="text-align:right">
            <div class="titre">${titre}</div>
@@ -314,11 +316,13 @@ export function genererHistoriqueReglementsHTML(
       <td class="d det">${fmt(l.reste_apres)}</td>
     </tr>`).join("");
 
-  const entete = enteteBase64
+  // Avec un en-tête image, l'image remplace le nom et les coordonnées,
+  // pas le titre (trouvé par le banc d'écran, 23/09).
+  const entete = (enteteBase64
     ? `<img src="${enteteBase64}" style="width:100%;display:block;margin-bottom:10px">`
-    : `<div class="entete">
+    : "") + `<div class="entete">
          <div>
-           ${blocSociete(societe as Record<string, unknown>, h, 16)}
+           ${enteteBase64 ? "" : `${blocSociete(societe as Record<string, unknown>, h, 16)}`}
          </div>
          <div style="text-align:right">
            <div class="titre">${m.titre}</div>
@@ -438,11 +442,13 @@ export function genererReleveHTML(
   // Bandeau à en-tête s'il existe : il porte déjà nom, adresse et
   // téléphone, les répéter ferait doublon sur le papier (cf. D4 et le
   // même choix dans genererPDF).
-  const entete = enteteBase64
+  // Avec un en-tête image, l'image remplace le nom et les coordonnées,
+  // pas le titre (trouvé par le banc d'écran, 23/09).
+  const entete = (enteteBase64
     ? `<img src="${enteteBase64}" style="width:100%;display:block;margin-bottom:10px">`
-    : `<div class="entete">
+    : "") + `<div class="entete">
          <div>
-           ${blocSociete(d.societe as Record<string, unknown>, h, 16)}
+           ${enteteBase64 ? "" : `${blocSociete(d.societe as Record<string, unknown>, h, 16)}`}
          </div>
          <div style="text-align:right">
            <div class="titre">${m.titre}</div>

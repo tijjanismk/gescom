@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 
 use gescom_noyau::registre::{Contexte, Registre};
 use gescom_noyau::{
-    achats, argent, auth, avoirs, caisse, caisses, catalogue, catalogue_csv, chantiers, cheques, codebarre, comptoir, creances, depots, fournisseurs, journal, livraisons, modeles, pagination, parametres, pieces, pieces_pos, postes, rapports, relances, retours, sauvegarde, sessions, societe, tableau_bord, transferts,
+    achats, argent, auth, avoirs, caisse, caisses, catalogue, catalogue_csv, chantiers, cheques, codebarre, comptoir, creances, depots, fournisseurs, journal, livraisons, pagination, parametres, pieces, pieces_pos, postes, rapports, relances, retours, sauvegarde, sessions, societe, tableau_bord, transferts,
 };
 
 pub fn registre() -> Registre {
@@ -490,70 +490,6 @@ pub fn registre() -> Registre {
         Ok(json!({ "revoquees": n }))
     });
 
-    // Les modeles : c'est par la que le poste principal habille toutes
-    // les caisses. Un modele corrige ici est vu par tout le magasin au
-    // rechargement suivant — sans clef USB, sans reinstallation.
-    r.lecture("lire_modeles", |c, p| {
-        let genre = p.get("genre").and_then(Value::as_str);
-        let v = modeles::lister(c.conn, genre).map_err(|e| e.to_string())?;
-        serde_json::to_value(v).map_err(|e| e.to_string())
-    });
-    r.aussi_sur_base("lire_modeles", |c, p| {
-        let genre = p.get("genre").and_then(Value::as_str);
-        let v = modeles::lister_sur_base(c.base, genre).map_err(|e| e.to_string())?;
-        serde_json::to_value(v).map_err(|e| e.to_string())
-    });
-
-    r.lecture("lire_modele_actif", |c, p| {
-        let genre = texte(&p, "genre")?;
-        serde_json::to_value(modeles::lire_actif(c.conn, &genre))
-            .map_err(|e| e.to_string())
-    });
-    r.aussi_sur_base("lire_modele_actif", |c, p| {
-        let genre = texte(&p, "genre")?;
-        serde_json::to_value(modeles::lire_actif_sur_base(c.base, &genre))
-            .map_err(|e| e.to_string())
-    });
-
-    r.ecriture("enregistrer_modele", "modeles:gerer", |c, p| {
-        let m: modeles::Modele = serde_json::from_value(
-            p.get("modele").cloned().unwrap_or(Value::Null),
-        )
-        .map_err(|e| format!("Modèle illisible : {e}"))?;
-        modeles::enregistrer(c.conn, &m, &c.appelant.utilisateur_id)?;
-        Ok(json!({ "id": m.id }))
-    });
-    r.aussi_sur_base("enregistrer_modele", |c, p| {
-        let m: modeles::Modele = serde_json::from_value(
-            p.get("modele").cloned().unwrap_or(Value::Null),
-        )
-        .map_err(|e| format!("Modèle illisible : {e}"))?;
-        modeles::enregistrer_sur_base(c.base, &m, &c.appelant.utilisateur_id)?;
-        Ok(json!({ "id": m.id }))
-    });
-
-    r.ecriture("definir_modele_actif", "modeles:gerer", |c, p| {
-        let id = texte(&p, "id")?;
-        modeles::definir_actif(c.conn, &id)?;
-        Ok(json!({ "id": id }))
-    });
-    r.aussi_sur_base("definir_modele_actif", |c, p| {
-        let id = texte(&p, "id")?;
-        modeles::definir_actif_sur_base(c.base, &id)?;
-        Ok(json!({ "id": id }))
-    });
-
-    r.ecriture("supprimer_modele", "modeles:gerer", |c, p| {
-        let id = texte(&p, "id")?;
-        modeles::supprimer(c.conn, &id)?;
-        Ok(json!({ "id": id }))
-    });
-    r.aussi_sur_base("supprimer_modele", |c, p| {
-        let id = texte(&p, "id")?;
-        modeles::supprimer_sur_base(c.base, &id)?;
-        Ok(json!({ "id": id }))
-    });
-
     r.lecture("lire_mode_caisse", |c, _| {
         Ok(json!({ "par_utilisateur": caisses::par_utilisateur(c.conn) }))
     });
@@ -742,19 +678,6 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
-    r.lecture("lire_modele", |c, p| {
-        let id: String = arg(&p, "id", "id")?;
-        let v = gescom_noyau::modeles::lire(c.conn, &id)
-            .map_err(|_| "Modèle introuvable.".to_string())?;
-        serde_json::to_value(v).map_err(|e| e.to_string())
-    });
-    r.aussi_sur_base("lire_modele", |c, p| {
-        let id: String = arg(&p, "id", "id")?;
-        let v = gescom_noyau::modeles::lire_sur_base(c.base, &id)
-            .map_err(|_| "Modèle introuvable.".to_string())?;
-        serde_json::to_value(v).map_err(|e| e.to_string())
-    });
-
     r.lecture("lire_logo_base64", |c, _| {
         let v = gescom_noyau::images::lire_base64(
             c.conn, "logo", dossier_des_images(c.conn).as_deref(),
@@ -861,77 +784,6 @@ pub fn registre() -> Registre {
         let octets = gescom_noyau::images::decoder_base64(&contenu)?;
         let dossier = dossier_des_images_base(c.base);
         gescom_noyau::images::ecrire_sur_base(c.base, "pied", &nom, &octets, dossier.as_deref())?;
-        Ok(Value::Null)
-    });
-
-    // Les images POSEES sur un document (I1) : cachet, signature, QR.
-    // Une identite par image, a part des trois emplacements de la
-    // societe. Poser et retirer demandent le droit sur les modeles ;
-    // lire est ouvert, comme les images de la societe.
-    // I5 : l'export et l'import des modeles PARLENT AU SERVEUR pour le
-    // contenu ; le fichier, lui, se lit et s'ecrit sur le poste (plugin
-    // fs). Avant, les deux etaient des commandes locales qui touchaient
-    // la base vide de la caisse.
-    r.lecture("exporter_modeles", |c, p| {
-        let ids: Option<Vec<String>> = arg(&p, "ids", "ids")?;
-        let lot = modeles::exporter(c.conn, ids)?;
-        serde_json::to_value(lot).map_err(|e| e.to_string())
-    });
-    r.aussi_sur_base("exporter_modeles", |c, p| {
-        let ids: Option<Vec<String>> = arg(&p, "ids", "ids")?;
-        let lot = modeles::exporter_sur_base(c.base, ids)?;
-        serde_json::to_value(lot).map_err(|e| e.to_string())
-    });
-    r.ecriture("importer_modeles", "modeles:gerer", |c, p| {
-        let lot: modeles::Lot = arg(&p, "lot", "lot")?;
-        let dossier = dossier_des_images(c.conn);
-        let bilan = modeles::importer_avec_images(c.conn, &lot, &c.appelant.utilisateur_id, dossier.as_deref())?;
-        serde_json::to_value(bilan).map_err(|e| e.to_string())
-    });
-    r.aussi_sur_base("importer_modeles", |c, p| {
-        let lot: modeles::Lot = arg(&p, "lot", "lot")?;
-        let dossier = dossier_des_images_base(c.base);
-        let bilan = modeles::importer_avec_images_sur_base(c.base, &lot, &c.appelant.utilisateur_id, dossier.as_deref())?;
-        serde_json::to_value(bilan).map_err(|e| e.to_string())
-    });
-
-    r.ecriture("importer_image", "modeles:gerer", |c, p| {
-        let nom: String = arg(&p, "nom", "nom")?;
-        let contenu: String = arg(&p, "contenu", "contenu")?;
-        let octets = gescom_noyau::images::decoder_base64(&contenu)?;
-        let dossier = dossier_des_images(c.conn).ok_or_else(|| {
-            "Impossible d'écrire l'image : aucun dossier d'images sur ce moteur.".to_string()
-        })?;
-        let id = gescom_noyau::images::importer_libre(c.conn, &nom, &octets, &dossier)?;
-        Ok(json!({ "id": id }))
-    });
-    r.aussi_sur_base("importer_image", |c, p| {
-        let nom: String = arg(&p, "nom", "nom")?;
-        let contenu: String = arg(&p, "contenu", "contenu")?;
-        let octets = gescom_noyau::images::decoder_base64(&contenu)?;
-        let dossier = dossier_des_images_base(c.base);
-        let id = gescom_noyau::images::importer_libre_sur_base(c.base, &nom, &octets, dossier.as_deref())?;
-        Ok(json!({ "id": id }))
-    });
-
-    r.lecture("lister_images", |c, _| {
-        serde_json::to_value(gescom_noyau::images::lister_libres(c.conn)?).map_err(|e| e.to_string())
-    });
-    r.aussi_sur_base("lister_images", |c, _| {
-        serde_json::to_value(gescom_noyau::images::lister_libres_sur_base(c.base)?).map_err(|e| e.to_string())
-    });
-
-    r.lecture("lire_images_base64", |c, _| gescom_noyau::images::lire_libres_base64(c.conn));
-    r.aussi_sur_base("lire_images_base64", |c, _| gescom_noyau::images::lire_libres_base64_sur_base(c.base));
-
-    r.ecriture("supprimer_image", "modeles:gerer", |c, p| {
-        let id: String = arg(&p, "id", "id")?;
-        gescom_noyau::images::supprimer_libre(c.conn, &id)?;
-        Ok(Value::Null)
-    });
-    r.aussi_sur_base("supprimer_image", |c, p| {
-        let id: String = arg(&p, "id", "id")?;
-        gescom_noyau::images::supprimer_libre_sur_base(c.base, &id)?;
         Ok(Value::Null)
     });
 

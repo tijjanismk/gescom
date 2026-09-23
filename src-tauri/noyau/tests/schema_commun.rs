@@ -75,7 +75,7 @@ fn le_serveur_n_invente_que_le_cloisonnement_et_le_reseau() {
     amorcage::amorcer(&mut base).unwrap();
     let du_serveur = colonnes(base.sqlite().unwrap());
 
-    let tables_reseau = ["poste", "session_reseau", "modele_document", "dossier", "exercice"];
+    let tables_reseau = ["poste", "session_reseau", "dossier", "exercice"];
     let colonnes_serveur = ["dossier_id", "poste_id", "utilisateur_id", "acces_total", "protege", "description"];
     let inattendues: Vec<String> = du_serveur
         .difference(&de_la_fenetre)
