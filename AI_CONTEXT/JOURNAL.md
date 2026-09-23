@@ -1618,3 +1618,34 @@ Tests : `noyau/tests/revue_v2_base.rs` (11 scénarios, SQLite et
 PostgreSQL), un test de route HTTP, 12 tests unitaires. Suite :
 466 tests SQLite, 461 sur PostgreSQL, 0 échec hors `installation.rs`
 (propre à Windows, la mesure a été faite sous Linux).
+
+## 23/09/2026 (suite) — v3, chantier A : les documents simplifiés
+
+« Commence la v3, fais des tests sur l'interface et fais toutes les
+étapes. » Branche `v3`, partie de `correctif/revue-v2`. Un banc d'écran
+d'abord (`outils/banc/`) : le vrai serveur sur une base jetable, l'écran
+servi par Vite, Playwright qui clique — les scénarios Rust ne voient pas
+un bouton qui n'enregistre rien.
+
+**A-1** — les réglages en base, par genre (sept), dans `config_app` ;
+l'écran Paramètres → Documents. En-tête et pied reviennent de l'atelier
+avec le choix des coordonnées. **A-2** — un seul habillage
+(`lib/impression.ts`) pour tous les générateurs ; l'aperçu s'ouvre au
+format du genre ; l'onglet Documents redessine un exemple à chaque case.
+Deux choses apprises en route : écrire tous les genres à chaque
+enregistrement figeait les défauts d'usine (un genre jamais réglé ne
+s'écrit plus) ; un TTC par taux contredisait d'un franc le total
+arrondi (retiré du récapitulatif). **A-3** — l'atelier part, tables
+comprises. Le banc a trouvé que le reçu et les relevés perdaient leur
+titre sous un en-tête image — corrigé.
+
+Décision prise sans le propriétaire, notée : les signatures d'usine du
+reçu et du relevé sont celles du générateur historique (« Le caissier »,
+« Le client / Pour l'entreprise »), pas « rien » comme l'exemple du plan
+(§ A3) — la règle « libellés d'usine = générateur historique » du même
+paragraphe l'emporte, et évite qu'un reçu perde sa signature à la mise
+à jour.
+
+Mesuré : workspace 490 tests (la fenêtre Tauri compile et teste sous
+Linux depuis cette séance) ; `documents_base` 13 scénarios sur SQLite
+et PostgreSQL ; banc : 42 vérifications d'une base neuve.
