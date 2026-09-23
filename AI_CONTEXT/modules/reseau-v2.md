@@ -47,7 +47,7 @@ Trois crates : `noyau` (lib, sans Tauri), `serveur` (`gescom-serveur.exe`),
 - [CONFIRMÉ] Désactiver un poste ou un utilisateur coupe ses sessions ; un poste `serveur` ou `console` **ne se désactive pas** (plus de chemin pour le rallumer) — [postes.rs](../../src-tauri/noyau/src/postes.rs).
 - [CONFIRMÉ] `caisse_par_utilisateur` vaut 0 par défaut (un tiroir, D46) ; en nominatif, un index partiel interdit deux caisses au même nom, et une opération sans utilisateur est refusée (`CAISSE_SANS_UTILISATEUR`) ; on ne change pas de mode caisse ouverte — [caisses.rs](../../src-tauri/noyau/src/caisses.rs).
 - [CONFIRMÉ] Le canal ne renvoie jamais un événement au poste qui l'a provoqué, et seulement si la commande a **réussi** — [canal.rs](../../src-tauri/serveur/src/canal.rs), `api.rs::rpc`.
-- [CONFIRMÉ] Sur PostgreSQL, une commande sans poignée `Base` **refuse** (« pas encore disponible ») au lieu de retomber sur SQLite — D11. Aujourd'hui : 193/193 en ont une.
+- [CONFIRMÉ] **Depuis la v3 (D-2, D22), le serveur sert TOUT par `Base`**, sur SQLite comme sur PostgreSQL : le registre n'a plus qu'une poignée par commande (`Registre::sur_base`), le chemin `Connection` (D11) est parti avec ses ~190 poignées, `Serveur.conn` aussi (la connexion brute prépare le fichier au démarrage puis se ferme ; intégrité et `VACUUM INTO` passent par `Base::sqlite()`). Plusieurs dossiers se servent donc sur une base fichier.
 - [CONFIRMÉ] Le mot de passe de l'URL ne s'affiche jamais : masqué au démarrage (`main.rs::sans_mot_de_passe`), passé à `pg_dump` par `PGPASSWORD` — D10.
 - [CONFIRMÉ] `portes::verifier_permission` est une liste **blanche** : une commande nouvelle est refusée aux rôles restreints par défaut.
 

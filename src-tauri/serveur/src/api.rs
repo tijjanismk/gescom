@@ -10,7 +10,7 @@ use gescom_noyau::protocole::{
     CodeErreur, DemandeConnexion, DossierOuvrable, Identite, LotEvenements, Reponse, Sante,
 };
 use gescom_noyau::VERSION_PROTOCOLE;
-use gescom_noyau::registre::{Appelant, Contexte, ContexteBase};
+use gescom_noyau::registre::{Appelant, ContexteBase};
 use gescom_noyau::{caisses, parametres, persistance, postes, sessions};
 
 use crate::etat::Serveur;
@@ -73,14 +73,15 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
 fn sante(srv: &Arc<Serveur>, flux: &mut TcpStream) -> std::io::Result<()> {
     // Le controle d'integrite est une PRAGMA SQLite : pas de pendant
     // PostgreSQL pour l'instant, donc pas de controle sur ce moteur.
-    let base_saine = match &srv.conn {
-        Some(m) => m
-            .lock()
-            .ok()
-            .map(|conn| persistance::verifier_integrite(&conn).map(|o| o.is_none()).unwrap_or(false))
-            .unwrap_or(false),
-        None => true,
-    };
+    let base_saine = srv
+        .base
+        .lock()
+        .ok()
+        .map(|b| match b.sqlite() {
+            Some(conn) => persistance::verifier_integrite(conn).map(|o| o.is_none()).unwrap_or(false),
+            None => true,
+        })
+        .unwrap_or(false);
     // Les sessions, elles, sont portees (D11) : le compte est exact sur
     // les deux moteurs.
     let connectes = srv
@@ -235,20 +236,9 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         None if ouverts.len() == 1 => Some(ouverts[0].id.clone()),
         None => memorise,
     };
-    // Sur une cible fichier, les commandes `Connection` ne servent que
-    // le dossier d'origine : un autre dossier y serait servi de travers.
-    if srv.conn.is_some() {
-        if let Some(d) = dossier_choisi.as_deref() {
-            if d != gescom_noyau::dossiers::DOSSIER_DEFAUT {
-                return erreur(
-                    flux,
-                    409,
-                    CodeErreur::Technique,
-                    "Plusieurs dossiers demandent un serveur PostgreSQL.",
-                );
-            }
-        }
-    }
+    // D22 : plusieurs dossiers demandent le SERVEUR, pas PostgreSQL.
+    // Tout passe par `Base` (D-2) : un dossier choisi est servi sur
+    // SQLite comme sur PostgreSQL.
     if demande.memoriser_dossier == Some(true) {
         if let Some(d) = dossier_choisi.as_deref() {
             gescom_noyau::dossiers::memoriser_dossier_sur(&mut base, &utilisateur_id, Some(d)).ok();
@@ -432,25 +422,13 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         Some(perms)
     };
 
-    // D11 : sur une cible fichier, `conn` existe toujours — le chemin
-    // ne change pas d'un octet. Sur PostgreSQL, `conn` est absent ; la
-    // commande passe par `poignee_base` quand elle est portee, sinon
-    // elle refuse clairement plutot que de retomber en silence sur un
-    // fichier SQLite vide. Une commande `base_seulement` (v3) passe par
-    // `Base` sur les deux moteurs.
-    let resultat = if let (Some(conn_mutex), false) = (srv.conn.as_ref(), entree.base_seulement) {
-        let mut conn = match conn_mutex.lock() {
-            Ok(c) => c,
-            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
-        };
-        (entree.poignee)(
-            &mut Contexte {
-                conn: &mut conn,
-                appelant: &appelant,
-            },
-            params,
-        )
-    } else if let Some(poignee_base) = entree.poignee_base {
+    // D22 (v3, D-2) : le serveur sert TOUT par `Base`, sur les deux
+    // moteurs. Le chemin `Connection` (D11) est parti : sur SQLite comme
+    // sur PostgreSQL, une seule facon d'executer une commande, celle que
+    // les scenarios `*_base.rs` eprouvent. `socle::tests_d2` garantit
+    // que chaque commande a sa version `Base`.
+    let poignee_base = entree.poignee_base;
+    let resultat = {
         let mut base = match srv.base.lock() {
             Ok(b) => b,
             Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
@@ -470,13 +448,6 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
             },
             params,
         )
-    } else {
-        return erreur(
-            flux,
-            409,
-            CodeErreur::Technique,
-            "Cette opération n'est pas encore disponible sur PostgreSQL.",
-        );
     };
 
     let resultat = match &lectures {

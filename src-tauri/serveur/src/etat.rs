@@ -3,38 +3,20 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use rusqlite::Connection;
 use gescom_noyau::base::Base;
 use gescom_noyau::registre::Registre;
 
 use crate::canal::Canal;
 
 pub struct Serveur {
-    /// La connexion SQLite brute, pour les 186 commandes pas encore
-    /// portees sur `Base` (voir D11 dans AI_CONTEXT/DECISIONS.md).
-    ///
-    /// `None` quand la cible est PostgreSQL : il n'y a alors AUCUNE
-    /// connexion SQLite a donner a ces commandes, et il ne faut surtout
-    /// pas en ouvrir une quand meme sous un nom bizarre — c'est
-    /// exactement le piege que D11 nomme : « il créerait un fichier
-    /// SQLite portant ce nom, l'amorcerait, et tout marcherait — sur
-    /// une base vide ». Chaque appelant de ce champ doit donc refuser
-    /// clairement au lieu de suivre ce chemin.
-    pub conn: Option<Mutex<Connection>>,
-    /// La base, sur l'un ou l'autre moteur. C'est elle que les
-    /// commandes PORTEES appellent — `catalogue::*_sur`,
-    /// `comptoir::*_sur`, `argent::*_sur_base`, `dossiers::*_sur`, et
-    /// depuis le portage de l'authentification, TOUT `/connexion`,
-    /// `/deconnexion` et le controle de permission de `/rpc`.
-    ///
-    /// Sur une cible fichier, c'est une SECONDE connexion vers le meme
-    /// fichier que `conn` (SQLite en WAL le permet) : la transition
-    /// prevue par D11, une `Base` pour ce qui est porte, une
-    /// `Connection` pour le reste, jusqu'a ce que tout le soit.
-    ///
-    /// Ce que les commandes de `registre` (les 186 restantes) appellent
-    /// encore, c'est `conn` — leur brancher `base` a leur tour est la
-    /// suite de D11, pas cette etape-ci.
+    /// La cible est-elle PostgreSQL ? Decide ou poser les sauvegardes
+    /// et comment les faire (VACUUM INTO ou pg_dump).
+    pub est_postgres: bool,
+    /// La base, sur l'un ou l'autre moteur. Depuis la v3 (D-2, D22),
+    /// c'est la SEULE : chaque commande, `/connexion`, `/deconnexion`,
+    /// les permissions et la sauvegarde passent par elle. La connexion
+    /// SQLite brute d'avant (D11) ne sert plus qu'au demarrage, pour
+    /// preparer le fichier, puis se ferme.
     pub base: Mutex<Base>,
     pub chemin_base: String,
     pub canal: Canal,

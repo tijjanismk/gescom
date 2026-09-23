@@ -24,9 +24,12 @@ export async function navigateur() {
 
 /** Les erreurs qui comptent : ni le 401 du jeton perime au demarrage,
  *  ni les scripts bloques (voulu) des apercus sandboxes, ni les appels
- *  Tauri absents d'un navigateur. */
+ *  Tauri absents d'un navigateur, ni les commandes locales. */
 export function erreursUtiles(erreurs) {
-  return erreurs.filter(e => !e.includes("reading 'invoke'") && !e.includes("401") && !e.includes("sandboxed"));
+  return erreurs.filter(e => !e.includes("reading 'invoke'") && !e.includes("401") && !e.includes("sandboxed")
+    // Les commandes locales de la fenetre (poste.json…) le disent
+    // franchement dans un navigateur : ce n'est pas une panne d'ecran.
+    && !e.includes("n'est disponible que dans l'application installée"));
 }
 
 export async function capture(page, nom) {

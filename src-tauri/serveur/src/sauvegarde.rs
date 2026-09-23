@@ -43,7 +43,7 @@ pub fn dossier(srv: &Arc<Serveur>) -> PathBuf {
         Some(d) => PathBuf::from(d),
         // A cote du fichier SQLite ; a cote de l'executable quand la
         // cible est une URL, qui n'a pas de « a cote ».
-        None if srv.conn.is_some() => {
+        None if !srv.est_postgres => {
             let base = PathBuf::from(&srv.chemin_base);
             base.parent()
                 .unwrap_or_else(|| std::path::Path::new("."))
@@ -68,19 +68,20 @@ pub fn maintenant(srv: &Arc<Serveur>) -> Result<String, String> {
     std::fs::create_dir_all(&dest_dir)
         .map_err(|e| format!("Impossible de créer le dossier de sauvegarde : {e}"))?;
 
-    let dest_texte = match &srv.conn {
-        Some(conn_mutex) => {
+    let dest_texte = match srv.est_postgres {
+        false => {
             let horodatage = chrono::Local::now().format("%Y-%m-%d_%H-%M").to_string();
             let dest = dest_dir.join(format!("gescom_backup_{horodatage}.db"));
             let dest_texte = dest.to_string_lossy().to_string();
-            let conn = conn_mutex.lock().map_err(|_| "Base indisponible.".to_string())?;
+            let base = srv.base.lock().map_err(|_| "Base indisponible.".to_string())?;
+            let conn = base.sqlite().ok_or_else(|| "Base SQLite attendue.".to_string())?;
             // Chemin en parametre lie, jamais interpole : une apostrophe
             // dans un nom d'utilisateur Windows casserait la requete.
             conn.execute("VACUUM INTO ?1", rusqlite::params![dest_texte.clone()])
                 .map_err(|e| format!("Sauvegarde impossible : {e}"))?;
             dest_texte
         }
-        None => {
+        true => {
             // Le verrou tient le temps de pg_dump : quelques secondes
             // sur une boutique, pendant lesquelles les caisses
             // attendent. Acceptable une fois par jour, la nuit.

@@ -271,8 +271,12 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
         }
     }
 
+    // D-2 : la connexion brute a prepare le fichier (migrations,
+    // integrite, sessions) ; elle ne sert plus rien ensuite — tout passe
+    // par `Base`. On la ferme ici plutot que de la garder en double.
+    drop(conn);
     let srv = Arc::new(Serveur {
-        conn: conn.map(Mutex::new),
+        est_postgres,
         base: Mutex::new(base),
         chemin_base: cible.clone(),
         canal: Canal::nouveau(),
@@ -285,13 +289,12 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
     });
 
     if let Some(d) = options.sauvegardes {
-        if let Some(conn) = srv.conn.as_ref().and_then(|m| m.lock().ok()) {
-            conn.execute(
+        if let Ok(mut base) = srv.base.lock() {
+            let _ = base.executer(
                 "INSERT INTO config_app (cle, valeur) VALUES ('dossier_sauvegarde', ?1)
                  ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
-                rusqlite::params![d],
-            )
-            .ok();
+                &gescom_noyau::parametres![d],
+            );
         }
     }
     // Sur les deux moteurs : VACUUM INTO pour SQLite, pg_dump pour
@@ -362,7 +365,7 @@ fn boucle(srv: Arc<Serveur>, ecouteur: TcpListener, arret: Arc<AtomicBool>) {
                 flux.set_nonblocking(false).ok();
                 let srv = Arc::clone(&srv);
                 // Un fil par connexion. SQLite serialise de toute facon
-                // les ecritures derriere le verrou de `srv.conn` ; le
+                // les ecritures derriere le verrou de `srv.base` ; le
                 // parallelisme sert ici a ne pas faire attendre une
                 // caisse pendant qu'une autre imprime.
                 std::thread::spawn(move || servir(&srv, flux));
