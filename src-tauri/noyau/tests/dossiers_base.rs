@@ -182,7 +182,21 @@ fn tout_ce_qui_est_porte_dans_dossiers_passe_le_detecteur() {
     dossiers::memoriser_dossier_sur(&mut base, &utilisateur, Some(dossiers::DOSSIER_DEFAUT)).expect("mémoriser");
     dossiers::dossier_memorise_sur(&mut base, &utilisateur).expect("lire");
     dossiers::memoriser_dossier_sur(&mut base, &utilisateur, None).expect("oublier");
-    dossiers::creer_dossier_sur(&mut base, "AUDIT".into(), "Audit".into(), None, None).expect("créer");
+    let audit = dossiers::creer_dossier_sur(
+        &mut base,
+        "AUDIT".into(),
+        "Audit".into(),
+        Some("2020-01-01".into()),
+        Some("2020-12-31".into()),
+    )
+    .expect("créer");
+    base.choisir_dossier(audit["id"].as_str().unwrap()).unwrap();
+    let premier = dossiers::lire_exercices_sur(&mut base).unwrap()[0]["id"].as_str().unwrap().to_string();
+    dossiers::prolonger_exercice_sur(&mut base, premier.clone(), "2021-01-31".into()).expect("prolonger");
+    dossiers::ouvrir_exercice_sur(&mut base, "2021-02-01".into(), "2022-01-31".into()).expect("ouvrir");
+    dossiers::clore_exercice_sur(&mut base, premier).expect("clore");
+    dossiers::verifier_date_sur(&mut base, "2021-06-01").expect("vérifier");
+    base.choisir_dossier(dossiers::DOSSIER_DEFAUT).unwrap();
     let poste = postes::inscrire_ou_retrouver_sur(&mut base, "Caisse 1", "emp-1", "caisse", None).unwrap();
     let (sid, ..) = sessions::ouvrir_dans_dossier_sur(&mut base, &poste.id, &utilisateur, None).unwrap();
     sessions::choisir_dossier_session_sur(&mut base, &sid, dossiers::DOSSIER_DEFAUT).expect("choisir");
@@ -234,4 +248,131 @@ fn un_dossier_nait_avec_ses_dates_de_travail_et_refuse_ce_qui_en_sort() {
         &parametres![dossiers::DOSSIER_DEFAUT],
     );
     assert_eq!(n, 1);
+}
+
+fn exercices_de(base: &mut Base, dossier: &str) -> Vec<serde_json::Value> {
+    base.choisir_dossier(dossier).unwrap();
+    dossiers::lire_exercices_sur(base).unwrap()
+}
+
+fn au_journal(base: &mut Base, dossier: &str, type_evenement: &str) -> i64 {
+    compter(
+        base,
+        "SELECT CAST(COUNT(*) AS BIGINT) FROM journal WHERE type_evenement = ?1 AND dossier_id = ?2",
+        &parametres![type_evenement, dossier],
+    )
+}
+
+/// D21 : « En janvier 2027 tu n'as pas fini les papiers : tu prolonges
+/// jusqu'au 31 mars. » La prolongation va plus loin, jamais jusque dans
+/// l'exercice suivant, et jamais pour l'exercice d'une autre societe.
+#[test]
+fn prolonger_repousse_la_borne_et_ne_mord_jamais_sur_la_suite() {
+    let mut base = base_avec_demo();
+    let r = dossiers::creer_dossier_sur(
+        &mut base,
+        "QUINC".into(),
+        "Quincaillerie".into(),
+        Some("2026-03-01".into()),
+        Some("2027-02-28".into()),
+    )
+    .unwrap();
+    let quinc = r["id"].as_str().unwrap().to_string();
+    let ex = exercices_de(&mut base, &quinc);
+    let premier = ex[0]["id"].as_str().unwrap().to_string();
+
+    assert!(dossiers::verifier_date_sur(&mut base, "2027-03-15").is_err(), "avant la prolongation");
+    dossiers::prolonger_exercice_sur(&mut base, premier.clone(), "2027-03-31".into()).expect("prolonger");
+    assert!(dossiers::verifier_date_sur(&mut base, "2027-03-15").is_ok(), "après : le 15 mars s'écrit");
+    let ex = dossiers::lire_exercices_sur(&mut base).unwrap();
+    assert_eq!(ex[0]["date_fin"], "2027-02-28", "la fin donnée reste lisible");
+    assert_eq!(ex[0]["fin_effective"], "2027-03-31");
+    assert!(
+        dossiers::verifier_date_sur(&mut base, "2027-04-05").unwrap_err().contains("prolongation comprise"),
+        "au-delà, le refus dit que la prolongation compte"
+    );
+
+    // Une prolongation plus courte n'est pas une prolongation.
+    assert_eq!(
+        dossiers::prolonger_exercice_sur(&mut base, premier.clone(), "2027-03-20".into()).unwrap_err(),
+        "L'exercice va déjà jusqu'au 31 mars 2027 : une prolongation va plus loin."
+    );
+    // L'exercice suivant commence le lendemain ; on ne prolonge plus dedans.
+    dossiers::ouvrir_exercice_sur(&mut base, "2027-04-01".into(), "2028-03-31".into()).expect("le suivant");
+    assert_eq!(
+        dossiers::prolonger_exercice_sur(&mut base, premier.clone(), "2027-04-10".into()).unwrap_err(),
+        "L'exercice suivant commence le 1er avril 2027 : la prolongation doit s'arrêter avant."
+    );
+    assert!(dossiers::prolonger_exercice_sur(&mut base, premier.clone(), "10/04/2027".into())
+        .unwrap_err()
+        .contains("illisible"));
+
+    // Depuis le dossier d'origine, l'exercice de la quincaillerie n'existe pas.
+    base.choisir_dossier(dossiers::DOSSIER_DEFAUT).unwrap();
+    assert_eq!(
+        dossiers::prolonger_exercice_sur(&mut base, premier.clone(), "2027-03-31".into()).unwrap_err(),
+        "Exercice introuvable."
+    );
+    assert_eq!(dossiers::clore_exercice_sur(&mut base, premier).unwrap_err(), "Exercice introuvable.");
+
+    assert_eq!(au_journal(&mut base, &quinc, "exercice_prolonge"), 1, "une seule prolongation a eu lieu");
+    assert_eq!(au_journal(&mut base, &quinc, "exercice_ouvert"), 1);
+}
+
+/// Le comptable clot 2026. Le 15 juin 2026 ne s'ecrit plus ; le 1er
+/// janvier 2027 — le lendemain — non plus, tant que l'exercice suivant
+/// n'est pas ouvert ; et il s'ouvre le lendemain, sans trou.
+#[test]
+fn apres_la_cloture_le_lendemain_attend_l_exercice_suivant() {
+    let mut base = base_avec_demo();
+    let r = dossiers::creer_dossier_sur(
+        &mut base,
+        "BOUT".into(),
+        "Boutique".into(),
+        Some("2026-01-01".into()),
+        Some("2026-12-31".into()),
+    )
+    .unwrap();
+    let bout = r["id"].as_str().unwrap().to_string();
+    let ex2026 = exercices_de(&mut base, &bout)[0]["id"].as_str().unwrap().to_string();
+
+    dossiers::clore_exercice_sur(&mut base, ex2026.clone()).expect("clore");
+    assert_eq!(
+        dossiers::verifier_date_sur(&mut base, "2026-06-15").unwrap_err(),
+        "Les dates de travail du 1er janvier 2026 au 31 décembre 2026 sont closes : on n'y écrit plus."
+    );
+    assert!(
+        dossiers::verifier_date_sur(&mut base, "2027-01-01").unwrap_err().contains("aucun exercice ouvert"),
+        "le lendemain de la clôture : rien ne le couvre encore"
+    );
+    assert_eq!(dossiers::clore_exercice_sur(&mut base, ex2026.clone()).unwrap_err(), "Cet exercice est déjà clos.");
+    assert!(dossiers::prolonger_exercice_sur(&mut base, ex2026.clone(), "2027-01-31".into())
+        .unwrap_err()
+        .contains("clos"));
+
+    // Pas de trou, pas de chevauchement.
+    assert_eq!(
+        dossiers::ouvrir_exercice_sur(&mut base, "2027-01-05".into(), "2027-12-31".into()).unwrap_err(),
+        "Un exercice commence le lendemain du précédent : le 1er janvier 2027. Pas de trou dans les dates de travail."
+    );
+    assert!(dossiers::ouvrir_exercice_sur(&mut base, "2026-12-01".into(), "2027-11-30".into())
+        .unwrap_err()
+        .starts_with("Chevauche l'exercice du 1er janvier 2026"));
+    assert!(dossiers::ouvrir_exercice_sur(&mut base, "2027-01-01".into(), "2026-12-31".into())
+        .unwrap_err()
+        .contains("précède"));
+
+    let r = dossiers::ouvrir_exercice_sur(&mut base, "2027-01-01".into(), "2027-12-31".into()).expect("le suivant");
+    assert_eq!(r["date_debut"], "2027-01-01");
+    assert!(dossiers::verifier_date_sur(&mut base, "2027-01-01").is_ok(), "le lendemain s'écrit enfin");
+    assert!(dossiers::verifier_date_sur(&mut base, "2026-06-15").is_err(), "2026 reste clos");
+
+    let ex = dossiers::lire_exercices_sur(&mut base).unwrap();
+    assert_eq!(ex.len(), 2);
+    assert_eq!(ex[0]["clos"], true);
+    assert_eq!(ex[1]["clos"], false);
+    assert_eq!(au_journal(&mut base, &bout, "exercice_clos"), 1);
+    assert_eq!(au_journal(&mut base, &bout, "exercice_ouvert"), 1);
+    // Le dossier d'origine n'a rien vu.
+    assert_eq!(au_journal(&mut base, dossiers::DOSSIER_DEFAUT, "exercice_clos"), 0);
 }

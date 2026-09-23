@@ -629,3 +629,56 @@ fn une_sauvegarde_se_restaure_hors_ligne_et_le_serveur_repart_dessus() {
     }
     let _ = std::fs::remove_dir_all(std::env::temp_dir().join(format!("gescom_routes_sauv_{port}")));
 }
+
+#[test]
+fn une_ecriture_hors_des_dates_de_travail_est_refusee_avant_d_ecrire() {
+    // v3, D-4 (D21) : le garde-fou juge la date de l'écriture — donnée,
+    // ou aujourd'hui — contre les exercices du dossier de la session.
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+
+    let (_, a) = rpc(port, &admin, "lire_articles_avec_unites", json!({}));
+    let article = &a["donnee"][0];
+    let unite = &article["unites"][0];
+    let (_, d) = rpc(port, &admin, "lire_depot_defaut", json!({}));
+    let depot = d["donnee"]["id"].as_str().unwrap().to_string();
+    let (_, c) = rpc(port, &admin, "lire_clients", json!({}));
+    let client = c["donnee"][0]["id"].as_str().unwrap().to_string();
+    let vente = |date: Option<&str>| json!({
+        "clientId": client, "depotId": depot, "modeReglement": "credit", "dateVente": date,
+        "lignes": [{
+            "article_id": article["id"], "unite_vente_id": unite["id"], "depot_source_id": depot,
+            "source_approvisionnement": "stock", "quantite": 1.0, "facteur": unite["facteur"],
+            "prix_reference": unite["prix_reference"], "prix_pratique": unite["prix_reference"]
+        }]
+    });
+
+    // Une date donnée, avant l'exercice : le refus nomme le début.
+    let (code, v) = rpc(port, &admin, "creer_vente", vente(Some("2020-05-01")));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap().starts_with("Le 1er mai 2020 est avant les dates de travail"), "{v}");
+
+    // L'exercice en cours clos : aujourd'hui ne s'écrit plus.
+    let (_, ex) = rpc(port, &admin, "lire_exercices", json!({}));
+    let id = ex["donnee"][0]["id"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &admin, "clore_exercice", json!({ "exerciceId": id }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = rpc(port, &admin, "creer_vente", vente(None));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap().contains("sont closes : on n'y écrit plus"), "{v}");
+    let (code, v) = rpc(port, &admin, "enregistrer_depense", json!({ "montant": 1000, "motif": "x", "categorie": "divers" }));
+    assert_eq!(code, 409, "même sans date donnée : {v}");
+
+    // Ce qui n'est pas une écriture datée passe toujours.
+    let (code, v) = rpc(port, &admin, "creer_client_rapide", json!({ "nom": "Toujours possible" }));
+    assert_eq!(code, 200, "{v}");
+
+    let base = rusqlite::Connection::open(&srv.base).unwrap();
+    let n: i64 = base.query_row("SELECT COUNT(*) FROM vente", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 0, "rien n'a été écrit");
+    let n: i64 = base
+        .query_row("SELECT COUNT(*) FROM journal WHERE type_evenement = 'exercice_clos'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1, "la clôture est au journal");
+}

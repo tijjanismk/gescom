@@ -12,6 +12,8 @@ import { Loader2, Plus, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { jourEnLettres } from "@/lib/utils";
+import { ExercicesDossier } from "@/components/ExercicesDossier";
 
 interface Dossier {
   id: string;
@@ -19,14 +21,6 @@ interface Dossier {
   societe: string;
   clos: boolean;
   exercices_ouverts: number;
-}
-
-function jourLisible(iso: string): string {
-  const d = new Date(iso + "T12:00:00");
-  if (isNaN(d.getTime())) return iso;
-  const texte = d.toLocaleDateString("fr-ML", { day: "numeric", month: "long", year: "numeric" });
-  // « 1er mars », comme le serveur l'écrit dans ses refus.
-  return d.getDate() === 1 ? texte.replace(/^1 /, "1er ") : texte;
 }
 
 export function OngletDossiers() {
@@ -57,7 +51,7 @@ export function OngletDossiers() {
       const r = await invoke<{ code: string; societe: string; date_debut: string; date_fin: string }>(
         "creer_dossier", { code, societe, dateDebut: du || null, dateFin: au || null });
       setAvis({
-        texte: `Dossier ${r.code} créé — dates de travail du ${jourLisible(r.date_debut)} au ${jourLisible(r.date_fin)}. ` +
+        texte: `Dossier ${r.code} créé — dates de travail du ${jourEnLettres(r.date_debut)} au ${jourEnLettres(r.date_fin)}. ` +
           "Pour y travailler : se déconnecter, puis le choisir à la connexion.",
       });
       setCode(""); setSociete("");
@@ -96,6 +90,8 @@ export function OngletDossiers() {
           ))}
         </div>
       </div>
+
+      <ExercicesDossier />
 
       <div className="border border-border rounded-lg p-4 space-y-3">
         <h3 className="text-sm font-semibold">Nouveau dossier</h3>

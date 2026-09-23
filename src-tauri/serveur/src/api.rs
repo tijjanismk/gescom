@@ -441,6 +441,21 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
                 return erreur(flux, 500, CodeErreur::Technique, &e.0);
             }
         }
+        // v3, D-4 (D21) : une ecriture datee tombe dans un exercice
+        // ouvert du dossier, ou elle ne s'ecrit pas. Juge ici, une fois,
+        // plutot que dans chacune des trente commandes qui datent.
+        if let Some(cles) = gescom_noyau::dossiers::date_d_ecriture(nom) {
+            let date = cles
+                .iter()
+                .find_map(|c| params.get(*c).and_then(Value::as_str))
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(gescom_noyau::utils::maintenant_iso);
+            if let Err(m) = gescom_noyau::dossiers::verifier_date_sur(&mut base, &date) {
+                return erreur(flux, 409, CodeErreur::Metier, &m);
+            }
+        }
         poignee_base(
             &mut ContexteBase {
                 base: &mut base,

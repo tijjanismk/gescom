@@ -508,6 +508,75 @@ pub fn dossier_accepte(exercices: &[Exercice], date: &str) -> Result<(), String>
     }
 }
 
+/// Le jour ou commence l'exercice suivant : le lendemain de la fin
+/// (prolongation comprise) du dernier. `None` sans exercice. D21 : un
+/// dossier n'a jamais de trou.
+pub fn debut_suivant(exercices: &[Exercice]) -> Option<String> {
+    let fin = exercices.iter().map(|e| e.fin_effective()).max()?;
+    let jour = crate::coeur::dates::jour(fin)?;
+    Some((jour + chrono::Duration::days(1)).format("%Y-%m-%d").to_string())
+}
+
+/// Les ecritures DATEES, et le parametre qui porte leur date (v3, D-4).
+/// Absent ou vide, c'est aujourd'hui. Le serveur les juge contre les
+/// dates de travail du dossier (`verifier_date_sur`) avant de les
+/// executer. Ni les reglages, ni les comptes, ni l'ouverture ou la
+/// fermeture de la caisse : on peut toujours fermer son tiroir.
+pub fn date_d_ecriture(commande: &str) -> Option<&'static [&'static str]> {
+    const AUJOURDHUI: &[&str] = &[];
+    match commande {
+        "creer_vente" => Some(&["dateVente", "date_vente"]),
+        "creer_piece" | "modifier_piece" | "creer_piece_fournisseur" => Some(&["datePiece", "date_piece"]),
+        "regler_creance" | "regler_dette_fournisseur" => Some(&["datePaiement", "date_paiement"]),
+        "enregistrer_achat" => Some(&["dateReception", "date_reception"]),
+        "accorder_avoir_client" | "annuler_facture_fournisseur_par_avoir" | "annuler_facture_par_avoir"
+        | "annuler_paiement_fournisseur" | "annuler_piece" | "annuler_reglement" | "appliquer_avoir_vente"
+        | "changer_statut_cheque" | "convertir_commande_en_livraison_et_facture" | "convertir_piece"
+        | "creer_facture_depuis_vente" | "dupliquer_piece" | "enregistrer_ajustement_inventaire" | "enregistrer_cheque"
+        | "enregistrer_depense" | "enregistrer_entree_stock" | "enregistrer_livraison"
+        | "enregistrer_paiement" | "enregistrer_retour" | "enregistrer_retour_fournisseur"
+        | "enregistrer_retour_sans_facture" | "enregistrer_transfert" | "marquer_irrecouvrable"
+        | "modifier_depense" | "modifier_facture_pos" | "regler_creance_exceptionnel"
+        | "rembourser_avoir" | "solder_residus_creances"
+        | "valider_facture" | "valider_facture_credit" | "valider_facture_fournisseur" => Some(AUJOURDHUI),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests_debut_suivant {
+    use super::*;
+
+    fn ex(debut: &str, fin: &str, prolonge: Option<&str>) -> Exercice {
+        Exercice {
+            id: debut.into(),
+            dossier_id: DOSSIER_DEFAUT.into(),
+            date_debut: debut.into(),
+            date_fin: fin.into(),
+            prolonge_jusqu_au: prolonge.map(str::to_string),
+            clos: false,
+        }
+    }
+
+    #[test]
+    fn le_suivant_commence_le_lendemain_prolongation_comprise() {
+        assert_eq!(debut_suivant(&[]), None);
+        assert_eq!(debut_suivant(&[ex("2026-03-01", "2027-02-28", None)]).as_deref(), Some("2027-03-01"));
+        assert_eq!(
+            debut_suivant(&[ex("2026-01-01", "2026-12-31", Some("2027-03-31"))]).as_deref(),
+            Some("2027-04-01")
+        );
+    }
+
+    #[test]
+    fn les_ecritures_datees_sont_nommees_et_les_reglages_non() {
+        assert_eq!(date_d_ecriture("creer_vente"), Some(&["dateVente", "date_vente"][..]));
+        assert_eq!(date_d_ecriture("enregistrer_depense"), Some(&[][..]));
+        assert_eq!(date_d_ecriture("fermer_session_caisse"), None, "on ferme toujours son tiroir");
+        assert_eq!(date_d_ecriture("creer_client_rapide"), None);
+    }
+}
+
 #[cfg(test)]
 mod tests_dossier_accepte {
     use super::*;
@@ -573,10 +642,9 @@ mod tests_dossier_accepte {
 //  LES EXERCICES, EN BASE
 // =====================================================================
 //
-// Sur l'un ou l'autre moteur, comme `catalogue` et `comptoir`. Pas
-// encore appele par un ecran — celui-ci attend que le serveur tienne
-// une `Base` (D11) — mais deja teste et pret a l'etre : c'est le meme
-// garde-fou qu'appellera `creer_vente_sur` avant d'ecrire.
+// Sur l'un ou l'autre moteur. Le serveur appelle `verifier_date_sur`
+// avant chaque ecriture datee (`date_d_ecriture`, v3 D-4) ; l'ecran
+// Parametres -> Dossiers ouvre, prolonge et clot.
 
 use crate::base::Base;
 use crate::parametres;
@@ -644,11 +712,18 @@ pub fn ouvrir_exercice_sur(
     date_debut: String,
     date_fin: String,
 ) -> Result<serde_json::Value, String> {
-    if date_fin < date_debut {
-        return Err("La date de fin précède la date de début.".to_string());
-    }
+    let (date_debut, date_fin) = dates_de_travail(Some(&date_debut), Some(&date_fin), &date_debut)?;
     let dossier = base.dossier().to_string();
     let existants = lire_les_exercices(base, &dossier)?;
+    // D21 : pas de trou — le suivant commence le lendemain du dernier.
+    if let Some(attendu) = debut_suivant(&existants) {
+        if date_debut > attendu {
+            return Err(format!(
+                "Un exercice commence le lendemain du précédent : le {}. Pas de trou dans les dates de travail.",
+                crate::coeur::dates::en_lettres(&attendu)
+            ));
+        }
+    }
     if let Some(chevauche) = existants
         .iter()
         .find(|e| {
@@ -657,65 +732,155 @@ pub fn ouvrir_exercice_sur(
     {
         return Err(format!(
             "Chevauche l'exercice du {} au {}.",
-            chevauche.date_debut,
-            chevauche.fin_effective()
+            crate::coeur::dates::en_lettres(&chevauche.date_debut),
+            crate::coeur::dates::en_lettres(chevauche.fin_effective())
         ));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = crate::utils::maintenant_iso();
-    base.executer(
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
         "INSERT INTO exercice
            (id, dossier_id, date_debut, date_fin, clos, cree_le, modifie_le)
          VALUES (?1,?2,?3,?4,0,?5,?5)",
         &parametres![id.clone(), dossier, date_debut.clone(), date_fin.clone(), now],
     )
     .map_err(|e| e.0)?;
+    noter_exercice(
+        &mut tx,
+        "exercice_ouvert",
+        &id,
+        None,
+        serde_json::json!({ "du": date_debut, "au": date_fin }),
+    )?;
+    tx.valider().map_err(|e| e.0)?;
 
     Ok(serde_json::json!({
         "id": id, "date_debut": date_debut, "date_fin": date_fin, "clos": false
     }))
 }
 
-/// Repousse la fin d'un exercice DU DOSSIER COURANT.
+/// L'exercice `id` du dossier courant, ou un refus qui le dit.
 ///
 /// Le filtre de dossier compte ici autant que l'identifiant : sans lui,
-/// un identifiant devine ou vole permettrait de prolonger l'exercice
-/// d'une autre societe.
+/// un identifiant devine ou vole permettrait de prolonger ou de clore
+/// l'exercice d'une autre societe.
+fn exercice_du_dossier(base: &mut Base, exercice_id: &str) -> Result<(Exercice, Vec<Exercice>), String> {
+    let dossier = base.dossier().to_string();
+    let tous = lire_les_exercices(base, &dossier)?;
+    let ex = tous
+        .iter()
+        .find(|e| e.id == exercice_id)
+        .cloned()
+        .ok_or_else(|| "Exercice introuvable.".to_string())?;
+    Ok((ex, tous))
+}
+
+/// Au journal : qui a ouvert, prolonge, clos quel exercice (v3, D-4).
+fn noter_exercice(
+    acces: &mut impl crate::base::Acces,
+    type_evenement: &str,
+    exercice_id: &str,
+    ancien: Option<serde_json::Value>,
+    nouveau: serde_json::Value,
+) -> Result<(), String> {
+    let auteur = crate::argent::id_utilisateur_courant_sur(acces);
+    let dossier = acces.dossier().to_string();
+    acces
+        .executer(
+            "INSERT INTO journal
+               (id, type_evenement, entite_type, entite_id, auteur_id,
+                ancien_valeur, nouveau_valeur, origine, date_evenement, dossier_id)
+             VALUES (?1, ?2, 'exercice', ?3, ?4, ?5, ?6, 'app', ?7, ?8)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                type_evenement,
+                exercice_id,
+                auteur,
+                ancien.map(|v| v.to_string()),
+                nouveau.to_string(),
+                crate::utils::maintenant_iso(),
+                dossier
+            ],
+        )
+        .map(|_| ())
+        .map_err(|e| e.0)
+}
+
+/// Repousse la fin d'un exercice DU DOSSIER COURANT.
+///
+/// On prolonge un exercice ouvert, vers l'avant, et jamais jusque dans
+/// le suivant : deux exercices qui se recouvrent rendraient le choix de
+/// `exercice_pour_date` arbitraire.
 pub fn prolonger_exercice_sur(
     base: &mut Base,
     exercice_id: String,
     prolonge_jusqu_au: String,
 ) -> Result<(), String> {
-    let dossier = base.dossier().to_string();
-    let now = crate::utils::maintenant_iso();
-    let touche = base
-        .executer(
-            "UPDATE exercice SET prolonge_jusqu_au = ?1, modifie_le = ?2
-             WHERE id = ?3 AND dossier_id = ?4",
-            &parametres![prolonge_jusqu_au, now, exercice_id, dossier],
-        )
-        .map_err(|e| e.0)?;
-    if touche == 0 {
-        return Err("Exercice introuvable.".to_string());
+    let (ex, tous) = exercice_du_dossier(base, &exercice_id)?;
+    if ex.clos {
+        return Err("Cet exercice est clos : on ne le prolonge plus.".to_string());
     }
-    Ok(())
+    let jusqu_au = crate::coeur::dates::jour(prolonge_jusqu_au.trim())
+        .map(|d| d.format("%Y-%m-%d").to_string())
+        .ok_or_else(|| format!("Date illisible : « {} »", prolonge_jusqu_au.trim()))?;
+    if jusqu_au.as_str() <= ex.fin_effective() {
+        return Err(format!(
+            "L'exercice va déjà jusqu'au {} : une prolongation va plus loin.",
+            crate::coeur::dates::en_lettres(ex.fin_effective())
+        ));
+    }
+    if let Some(suivant) = tous.iter().find(|e| e.date_debut > ex.date_debut) {
+        if jusqu_au >= suivant.date_debut {
+            return Err(format!(
+                "L'exercice suivant commence le {} : la prolongation doit s'arrêter avant.",
+                crate::coeur::dates::en_lettres(&suivant.date_debut)
+            ));
+        }
+    }
+    let now = crate::utils::maintenant_iso();
+    let dossier = base.dossier().to_string();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE exercice SET prolonge_jusqu_au = ?1, modifie_le = ?2
+         WHERE id = ?3 AND dossier_id = ?4",
+        &parametres![jusqu_au.clone(), now, exercice_id.clone(), dossier],
+    )
+    .map_err(|e| e.0)?;
+    noter_exercice(
+        &mut tx,
+        "exercice_prolonge",
+        &exercice_id,
+        Some(serde_json::json!({ "jusqu_au": ex.fin_effective() })),
+        serde_json::json!({ "jusqu_au": jusqu_au }),
+    )?;
+    tx.valider().map_err(|e| e.0)
 }
 
-/// Clot un exercice DU DOSSIER COURANT. On n'y ecrit plus ensuite.
+/// Clot un exercice DU DOSSIER COURANT. On n'y ecrit plus ensuite, et
+/// on ne le rouvre pas : c'est ce que le comptable a arrete.
 pub fn clore_exercice_sur(base: &mut Base, exercice_id: String) -> Result<(), String> {
-    let dossier = base.dossier().to_string();
-    let now = crate::utils::maintenant_iso();
-    let touche = base
-        .executer(
-            "UPDATE exercice SET clos = 1, modifie_le = ?1 WHERE id = ?2 AND dossier_id = ?3",
-            &parametres![now, exercice_id, dossier],
-        )
-        .map_err(|e| e.0)?;
-    if touche == 0 {
-        return Err("Exercice introuvable.".to_string());
+    let (ex, _) = exercice_du_dossier(base, &exercice_id)?;
+    if ex.clos {
+        return Err("Cet exercice est déjà clos.".to_string());
     }
-    Ok(())
+    let now = crate::utils::maintenant_iso();
+    let dossier = base.dossier().to_string();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE exercice SET clos = 1, modifie_le = ?1 WHERE id = ?2 AND dossier_id = ?3",
+        &parametres![now, exercice_id.clone(), dossier],
+    )
+    .map_err(|e| e.0)?;
+    noter_exercice(
+        &mut tx,
+        "exercice_clos",
+        &exercice_id,
+        None,
+        serde_json::json!({ "du": ex.date_debut, "au": ex.fin_effective() }),
+    )?;
+    tx.valider().map_err(|e| e.0)
 }
 
 // =====================================================================
