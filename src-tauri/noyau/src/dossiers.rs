@@ -335,26 +335,31 @@ impl Exercice {
     /// seul oblige le commercant a deviner de quel cote il deborde, et
     /// il corrigera au hasard.
     pub fn accepte(&self, date: &str) -> Result<(), String> {
-        if self.clos {
-            return Err("Cet exercice est clos : on n'y écrit plus.".to_string());
-        }
+        use crate::coeur::dates::en_lettres;
         let jour = &date[..date.len().min(10)];
+        if self.clos {
+            return Err(format!(
+                "Les dates de travail du {} au {} sont closes : on n'y écrit plus.",
+                en_lettres(&self.date_debut),
+                en_lettres(self.fin_effective())
+            ));
+        }
         if jour < self.date_debut.as_str() {
             return Err(format!(
-                "Le {jour} précède l'exercice, qui commence le {}.",
-                self.date_debut
+                "Le {} est avant les dates de travail (à partir du {}).",
+                en_lettres(jour),
+                en_lettres(&self.date_debut)
             ));
         }
         if jour > self.fin_effective() {
-            let fin = self.fin_effective();
-            return Err(if self.prolonge_jusqu_au.is_some() {
-                format!("Le {jour} dépasse l'exercice, prolongé jusqu'au {fin}.")
-            } else {
-                format!(
-                    "Le {jour} dépasse l'exercice, qui finit le {fin}. \
-                     Le prolonger, ou ouvrir l'exercice suivant."
-                )
-            });
+            // D21 : le refus dit la borne ET quoi faire.
+            return Err(format!(
+                "Le {} est hors des dates de travail (jusqu'au {}{}). \
+                 Prolonger l'exercice ou en ouvrir un nouveau.",
+                en_lettres(jour),
+                en_lettres(self.fin_effective()),
+                if self.prolonge_jusqu_au.is_some() { ", prolongation comprise" } else { "" }
+            ));
         }
         Ok(())
     }
@@ -395,14 +400,17 @@ mod tests_exercice {
     #[test]
     fn avant_l_exercice_le_refus_nomme_le_debut() {
         let e = exercice_2026().accepte("2025-12-31").unwrap_err();
-        assert!(e.contains("2026-01-01"), "le refus dit jusqu'où reculer");
+        assert!(e.contains("1er janvier 2026"), "le refus dit jusqu'où reculer : {e}");
     }
 
     #[test]
     fn apres_l_exercice_le_refus_propose_la_suite() {
         let e = exercice_2026().accepte("2027-01-01").unwrap_err();
-        assert!(e.contains("2026-12-31"));
-        assert!(e.contains("prolonger"), "le refus dit quoi faire");
+        assert_eq!(
+            e,
+            "Le 1er janvier 2027 est hors des dates de travail (jusqu'au 31 décembre 2026). \
+             Prolonger l'exercice ou en ouvrir un nouveau."
+        );
     }
 
     #[test]
@@ -427,7 +435,7 @@ mod tests_exercice {
         let mut e = exercice_2026();
         e.prolonge_jusqu_au = Some("2027-03-31".into());
         let err = e.accepte("2027-04-01").unwrap_err();
-        assert!(err.contains("2027-03-31"));
+        assert!(err.contains("31 mars 2027, prolongation comprise"), "{err}");
     }
 
     #[test]
@@ -476,10 +484,26 @@ pub fn dossier_accepte(exercices: &[Exercice], date: &str) -> Result<(), String>
         Some(e) => e.accepte(date),
         None => {
             let jour = &date[..date.len().min(10)];
-            Err(format!(
-                "Le {jour} ne tombe dans aucun exercice ouvert pour ce dossier. \
-                 Ouvrir un exercice qui le couvre."
-            ))
+            // D21 : le cas courant est une date APRES la fin des dates de
+            // travail — le refus nomme cette fin et dit quoi faire, comme
+            // `accepte`. Un dernier exercice clos : il faut en ouvrir un.
+            let dernier = exercices
+                .iter()
+                .filter(|e| e.fin_effective() < jour)
+                .max_by(|a, b| a.fin_effective().cmp(b.fin_effective()));
+            // Avant le tout premier exercice : le refus nomme le debut.
+            let premier = exercices.iter().min_by(|a, b| a.date_debut.cmp(&b.date_debut));
+            if let Some(p) = premier.filter(|p| jour < p.date_debut.as_str()) {
+                return p.accepte(date);
+            }
+            match dernier {
+                Some(e) if !e.clos => e.accepte(date),
+                _ => Err(format!(
+                    "Le {} ne tombe dans aucun exercice ouvert pour ce dossier. \
+                     Ouvrir un exercice qui le couvre.",
+                    crate::coeur::dates::en_lettres(jour)
+                )),
+            }
         }
     }
 }
@@ -521,9 +545,21 @@ mod tests_dossier_accepte {
     }
 
     #[test]
-    fn aucun_exercice_ne_couvrant_la_date_le_dit() {
+    fn apres_les_dates_de_travail_le_refus_nomme_la_fin_et_dit_quoi_faire() {
         let err = dossier_accepte(&deux_exercices(), "2027-01-05").unwrap_err();
-        assert!(err.contains("aucun exercice"), "{err}");
+        assert_eq!(
+            err,
+            "Le 5 janvier 2027 est hors des dates de travail (jusqu'au 31 décembre 2026). \
+             Prolonger l'exercice ou en ouvrir un nouveau."
+        );
+    }
+
+    #[test]
+    fn apres_un_dernier_exercice_clos_il_faut_en_ouvrir_un() {
+        let mut ex = deux_exercices();
+        ex[1].clos = true;
+        let err = dossier_accepte(&ex, "2027-01-05").unwrap_err();
+        assert!(err.contains("aucun exercice ouvert"), "{err}");
     }
 
     #[test]
@@ -693,6 +729,54 @@ pub fn clore_exercice_sur(base: &mut Base, exercice_id: String) -> Result<(), St
 // sinon la premiere vente echoue sur un « aucun depot » que personne
 // ne comprend.
 
+/// Les dates de travail d'un dossier neuf (D21) : donnees, ou l'annee
+/// civile d'`aujourd_hui` par defaut. Lisibles, et la fin apres le
+/// debut. Pure : la regle se teste sans horloge.
+pub fn dates_de_travail(
+    debut: Option<&str>,
+    fin: Option<&str>,
+    aujourd_hui: &str,
+) -> Result<(String, String), String> {
+    let annee = &aujourd_hui[..4.min(aujourd_hui.len())];
+    let lire = |v: Option<&str>, defaut: String| -> Result<String, String> {
+        match v.map(str::trim).filter(|v| !v.is_empty()) {
+            None => Ok(defaut),
+            Some(t) => crate::coeur::dates::jour(t)
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .ok_or_else(|| format!("Date illisible : « {t} »")),
+        }
+    };
+    let d = lire(debut, format!("{annee}-01-01"))?;
+    let f = lire(fin, format!("{annee}-12-31"))?;
+    if f < d {
+        return Err("La fin des dates de travail précède leur début.".to_string());
+    }
+    Ok((d, f))
+}
+
+#[cfg(test)]
+mod tests_dates_de_travail {
+    use super::dates_de_travail;
+
+    #[test]
+    fn par_defaut_l_annee_civile() {
+        assert_eq!(
+            dates_de_travail(None, Some(" "), "2026-03-15T10:00:00").unwrap(),
+            ("2026-01-01".to_string(), "2026-12-31".to_string())
+        );
+    }
+
+    #[test]
+    fn des_dates_donnees_se_gardent_et_se_jugent() {
+        assert_eq!(
+            dates_de_travail(Some("2026-03-01"), Some("2027-02-28"), "2026-03-15").unwrap(),
+            ("2026-03-01".to_string(), "2027-02-28".to_string())
+        );
+        assert!(dates_de_travail(Some("2026-03-01"), Some("2026-02-01"), "2026-03-15").is_err());
+        assert!(dates_de_travail(Some("mars"), None, "2026-03-15").unwrap_err().contains("illisible"));
+    }
+}
+
 /// Le code d'un dossier : ce qu'on tape, ce qui figure dans les
 /// compteurs de numerotation. Majuscules, chiffres, tiret, souligne.
 fn valider_code_dossier(code: &str) -> Result<String, String> {
@@ -756,22 +840,18 @@ pub fn dossier_ouvert_sur(base: &mut Base, dossier_id: &str) -> Result<Dossier, 
 /// de passage. Tout dans UNE transaction — un dossier a moitie ne, sans
 /// magasin, ne vaut rien.
 ///
-/// Sur SQLite, refus : les commandes de la fenetre (`Connection`) ne
-/// savent servir que le dossier d'origine, et un second dossier y
-/// recevrait des ecritures rangees dans le premier. Plusieurs dossiers
-/// demandent PostgreSQL (D11, plan §10).
+/// Ses dates de travail sont DONNEES (D21), proposees a l'annee
+/// civile : c'est son premier exercice. Sur SQLite comme sur
+/// PostgreSQL (D22) — le serveur sert tout par `Base` (D-2). La fenetre
+/// monoposte, elle, n'a pas de commande pour creer un dossier : elle
+/// reste a un seul.
 pub fn creer_dossier_sur(
     base: &mut Base,
     code: String,
     societe: String,
+    date_debut: Option<String>,
+    date_fin: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    if !base.est_postgres() {
-        return Err(
-            "Plusieurs dossiers demandent un serveur PostgreSQL : sur une base fichier, \
-             seul le dossier d'origine se sert correctement."
-                .to_string(),
-        );
-    }
     let code = valider_code_dossier(&code)?;
     let societe = societe.trim().to_string();
     if societe.is_empty() {
@@ -786,7 +866,9 @@ pub fn creer_dossier_sur(
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = crate::utils::maintenant_iso();
-    let annee: String = now.chars().take(4).collect();
+    let (debut, fin) = dates_de_travail(date_debut.as_deref(), date_fin.as_deref(), &now)?;
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let dossier_courant = base.dossier().to_string();
 
     let mut tx = base.transaction().map_err(|e| e.0)?;
     tx.executer(
@@ -798,13 +880,7 @@ pub fn creer_dossier_sur(
     tx.executer(
         "INSERT INTO exercice (id, dossier_id, date_debut, date_fin, clos, cree_le, modifie_le)
          VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)",
-        &parametres![
-            uuid::Uuid::new_v4().to_string(),
-            id.clone(),
-            format!("{annee}-01-01"),
-            format!("{annee}-12-31"),
-            now.clone()
-        ],
+        &parametres![uuid::Uuid::new_v4().to_string(), id.clone(), debut.clone(), fin.clone(), now.clone()],
     )
     .map_err(|e| e.0)?;
     // Le magasin et le client de passage portent EXPLICITEMENT le
@@ -825,14 +901,30 @@ pub fn creer_dossier_sur(
         &parametres![
             uuid::Uuid::new_v4().to_string(),
             format!("{code}-CLIENT00000"),
-            now,
+            now.clone(),
             id.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+    // Au journal du dossier ou l'on est : c'est la qu'on a agi.
+    tx.executer(
+        "INSERT INTO journal
+           (id, type_evenement, entite_type, entite_id, auteur_id,
+            nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'dossier_cree', 'dossier', ?2, ?3, ?4, 'app', ?5, ?6)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            id.clone(),
+            auteur,
+            serde_json::json!({ "code": code, "societe": societe, "du": debut, "au": fin }).to_string(),
+            now,
+            dossier_courant
         ],
     )
     .map_err(|e| e.0)?;
     tx.valider().map_err(|e| e.0)?;
 
-    Ok(serde_json::json!({ "id": id, "code": code, "societe": societe }))
+    Ok(serde_json::json!({ "id": id, "code": code, "societe": societe, "date_debut": debut, "date_fin": fin }))
 }
 
 /// Le prefixe des codes de tiers du dossier courant : rien pour le

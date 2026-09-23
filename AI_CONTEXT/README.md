@@ -28,7 +28,7 @@ de 5 à 8 k.
 | installer, empaqueter, un binaire bloqué (4551) | [modules/installation.md](modules/installation.md), [modules/installeur.md](modules/installeur.md), [modules/environnement-windows.md](modules/environnement-windows.md) |
 | comprendre une règle avant de la changer | [DOMAINE.md](DOMAINE.md) (règles avec `fichier:ligne`), [DECISIONS.md](DECISIONS.md) (D1…D11 + le récap en fin) |
 | la v3 — ce qu'elle contient, dans quel ordre, ce qui est tranché | [PLAN-V3.md](PLAN-V3.md) |
-| le multi-société (v3, chantier D) | [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md) |
+| le multi-société (v3, chantier D) | [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md) ; le code : [modules/dossiers.md](modules/dossiers.md) |
 
 Vue d'ensemble en une page : [ARCHITECTURE.md](ARCHITECTURE.md).
 

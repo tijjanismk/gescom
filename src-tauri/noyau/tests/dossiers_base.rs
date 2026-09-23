@@ -1,8 +1,8 @@
 //! `dossiers::*_sur` — la v3 commence : lister et créer des dossiers,
 //! une session qui porte son dossier, le dossier mémorisé d'une
 //! personne. Testé sur SQLite par défaut, sur PostgreSQL avec
-//! `GESCOM_PG` — et c'est là que la création d'un dossier passe : sur
-//! SQLite, elle refuse, exprès.
+//! `GESCOM_PG`. Depuis D-2/D-3 (D22), la création passe sur les DEUX
+//! moteurs, avec ses dates de travail (D21).
 
 mod commun;
 
@@ -39,18 +39,8 @@ fn au_depart_un_seul_dossier_avec_l_exercice_de_l_annee() {
 #[test]
 fn creer_un_dossier_lui_donne_son_exercice_son_magasin_et_son_client_de_passage() {
     let mut base = base_avec_demo();
-    let r = dossiers::creer_dossier_sur(&mut base, " quinc ".into(), " Quincaillerie du Fleuve ".into());
-
-    if !base.est_postgres() {
-        // Sur une base fichier, un second dossier serait servi de travers
-        // par les commandes de la fenêtre : refus net, rien d'écrit.
-        let e = r.unwrap_err();
-        assert!(e.contains("PostgreSQL"), "{e}");
-        assert_eq!(compter(&mut base, "SELECT COUNT(*) FROM dossier", &[]), 1);
-        return;
-    }
-
-    let r = r.expect("dossier créé");
+    let r = dossiers::creer_dossier_sur(&mut base, " quinc ".into(), " Quincaillerie du Fleuve ".into(), None, None)
+        .expect("dossier créé, sur SQLite comme sur PostgreSQL (D22)");
     assert_eq!(r["code"], "QUINC", "le code se normalise en majuscules");
     assert_eq!(r["societe"], "Quincaillerie du Fleuve");
     let id = r["id"].as_str().unwrap().to_string();
@@ -83,11 +73,13 @@ fn creer_un_dossier_lui_donne_son_exercice_son_magasin_et_son_client_de_passage(
     assert_eq!(chez_l_autre, 1, "le dossier d'origine garde son seul magasin");
 
     // Le même code, deux fois : refus.
-    let e = dossiers::creer_dossier_sur(&mut base, "quinc".into(), "Autre".into()).unwrap_err();
+    let e = dossiers::creer_dossier_sur(&mut base, "quinc".into(), "Autre".into(), None, None).unwrap_err();
     assert!(e.contains("pris"), "{e}");
     // Un code impossible, un nom vide : refus, rien d'écrit.
-    assert!(dossiers::creer_dossier_sur(&mut base, "a b".into(), "X".into()).is_err());
-    assert!(dossiers::creer_dossier_sur(&mut base, "OK".into(), "  ".into()).is_err());
+    assert!(dossiers::creer_dossier_sur(&mut base, "a b".into(), "X".into(), None, None).is_err());
+    assert!(dossiers::creer_dossier_sur(&mut base, "OK".into(), "  ".into(), None, None).is_err());
+    assert!(dossiers::creer_dossier_sur(&mut base, "OK".into(), "X".into(), Some("2026-05-01".into()), Some("2026-04-01".into()))
+        .is_err(), "une fin avant le début");
     assert_eq!(compter(&mut base, "SELECT COUNT(*) FROM dossier", &[]), 2);
 
     // Une fois dessus, ses exercices sont les siens.
@@ -190,11 +182,56 @@ fn tout_ce_qui_est_porte_dans_dossiers_passe_le_detecteur() {
     dossiers::memoriser_dossier_sur(&mut base, &utilisateur, Some(dossiers::DOSSIER_DEFAUT)).expect("mémoriser");
     dossiers::dossier_memorise_sur(&mut base, &utilisateur).expect("lire");
     dossiers::memoriser_dossier_sur(&mut base, &utilisateur, None).expect("oublier");
-    if base.est_postgres() {
-        dossiers::creer_dossier_sur(&mut base, "AUDIT".into(), "Audit".into()).expect("créer");
-    }
+    dossiers::creer_dossier_sur(&mut base, "AUDIT".into(), "Audit".into(), None, None).expect("créer");
     let poste = postes::inscrire_ou_retrouver_sur(&mut base, "Caisse 1", "emp-1", "caisse", None).unwrap();
     let (sid, ..) = sessions::ouvrir_dans_dossier_sur(&mut base, &poste.id, &utilisateur, None).unwrap();
     sessions::choisir_dossier_session_sur(&mut base, &sid, dossiers::DOSSIER_DEFAUT).expect("choisir");
     sessions::etat_sur(&mut base, &sid);
+}
+
+/// D21 : « Tu ouvres le dossier Quincaillerie le 15 mars, tu dis : je
+/// travaille dedans du 1er mars 2026 au 28 fevrier 2027. » Les dates
+/// sont son premier exercice ; une ecriture hors de ces dates est
+/// refusee avec la borne et ce qu'il faut faire.
+#[test]
+fn un_dossier_nait_avec_ses_dates_de_travail_et_refuse_ce_qui_en_sort() {
+    let mut base = base_avec_demo();
+    let r = dossiers::creer_dossier_sur(
+        &mut base,
+        "QUINC".into(),
+        "Quincaillerie".into(),
+        Some("2026-03-01".into()),
+        Some("2027-02-28".into()),
+    )
+    .unwrap();
+    assert_eq!(r["date_debut"], "2026-03-01");
+    assert_eq!(r["date_fin"], "2027-02-28");
+    let id = r["id"].as_str().unwrap().to_string();
+
+    base.choisir_dossier(&id).unwrap();
+    let ex = dossiers::lire_exercices_sur(&mut base).unwrap();
+    assert_eq!(ex.len(), 1);
+    assert_eq!(ex[0]["date_debut"], "2026-03-01");
+    assert_eq!(ex[0]["date_fin"], "2027-02-28");
+
+    assert!(dossiers::verifier_date_sur(&mut base, "2026-03-01").is_ok(), "le premier jour compte");
+    assert!(dossiers::verifier_date_sur(&mut base, "2027-02-28T18:00:00").is_ok(), "le dernier aussi");
+    assert_eq!(
+        dossiers::verifier_date_sur(&mut base, "2027-04-05").unwrap_err(),
+        "Le 5 avril 2027 est hors des dates de travail (jusqu'au 28 février 2027). \
+         Prolonger l'exercice ou en ouvrir un nouveau."
+    );
+    assert!(
+        dossiers::verifier_date_sur(&mut base, "2026-02-27").unwrap_err().contains("1er mars 2026"),
+        "avant : le refus nomme le début"
+    );
+
+    // Le journal du dossier ou l'on a agi dit qui l'a cree.
+    base.choisir_dossier(dossiers::DOSSIER_DEFAUT).unwrap();
+    let n = compter(
+        &mut base,
+        "SELECT CAST(COUNT(*) AS BIGINT) FROM journal WHERE type_evenement = 'dossier_cree' AND dossier_id = ?1",
+        &parametres![dossiers::DOSSIER_DEFAUT],
+    );
+    assert_eq!(n, 1);
 }

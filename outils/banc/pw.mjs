@@ -47,7 +47,7 @@ export function verifieur() {
 }
 
 /** Connexion ; change le mot de passe d'usine si l'ecran l'exige. */
-export async function connecter(page, id = "admin", mdp = "admin123", nouveau = "Admin-2026!") {
+export async function connecter(page, id = "admin", mdp = "admin123", nouveau = "Admin-2026!", dossier = "Ma boutique") {
   await page.goto(URL);
   await page.waitForTimeout(1500);
   const essayer = async (m) => {
@@ -57,7 +57,19 @@ export async function connecter(page, id = "admin", mdp = "admin123", nouveau = 
     await page.waitForTimeout(2500);
     return !(await page.getByText("Identifiant ou mot de passe incorrect").count());
   };
-  if (!(await essayer(mdp))) { await essayer(nouveau); return; }
+  // v3 (D-3) : plusieurs dossiers, aucun memorise — l'ecran demande
+  // lequel ouvrir. Par defaut, le dossier d'origine.
+  const choisirDossier = async () => {
+    if (await page.getByText("Quel dossier ouvrir ?").count()) {
+      // Ne pas memoriser : sinon le compte rouvrirait ce dossier d'office
+      // a chaque connexion des parcours suivants.
+      await page.getByLabel(/directement la prochaine fois/).uncheck();
+      await page.getByRole("button", { name: new RegExp(dossier) }).first().click();
+      await page.waitForTimeout(2000);
+    }
+  };
+  if (!(await essayer(mdp))) { await essayer(nouveau); await choisirDossier(); return; }
+  await choisirDossier();
   // La fenetre « changer le mot de passe » peut arriver apres l'accueil.
   const pw = page.locator('input[type="password"]');
   for (let i = 0; i < 10 && await pw.count() < 2; i++) await page.waitForTimeout(500);
@@ -76,6 +88,7 @@ export async function connecter(page, id = "admin", mdp = "admin123", nouveau = 
       await page.evaluate(() => localStorage.clear());
       await page.goto(URL); await page.waitForTimeout(1500);
       await essayer(nouveau);
+      await choisirDossier();
     }
   }
 }

@@ -407,7 +407,8 @@ fn verifier_date_sur_suit_l_exercice_ouvert() {
 
     let hors = dossiers::verifier_date_sur(&mut base, "2019-01-01")
         .expect_err("une date hors de tout exercice doit être refusée");
-    assert!(hors.contains("aucun exercice"), "{hors}");
+    // D21 : le refus nomme la borne — ici, le debut des dates de travail.
+    assert!(hors.contains("avant les dates de travail") && hors.contains("1er janvier"), "{hors}");
 }
 
 #[test]

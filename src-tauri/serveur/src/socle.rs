@@ -25,6 +25,9 @@ pub fn registre() -> Registre {
             c.base,
             arg(&p, "code", "code")?,
             arg(&p, "societe", "societe")?,
+            // D21 : les dates de travail ; absentes, l'annee civile.
+            arg(&p, "dateDebut", "date_debut")?,
+            arg(&p, "dateFin", "date_fin")?,
         )
     });
     // Choisir le dossier d'une session ouverte sans : une fois, pas

@@ -29,6 +29,7 @@ import { SessionsOuvertes } from "@/components/SessionsOuvertes";
 import { OngletCodesBarres } from "@/components/OngletCodesBarres";
 import { OngletImportExport } from "@/components/OngletImportExport";
 import { OngletReseau } from "@/components/OngletReseau";
+import { OngletDossiers } from "@/components/OngletDossiers";
 import { OngletRoles } from "@/components/OngletRoles";
 import { OngletDocuments } from "@/components/OngletDocuments";
 import {
@@ -1114,6 +1115,7 @@ export function Parametres({ ongletInitial }: { ongletInitial?: string } = {}) {
       {onglet === "roles"         && <OngletRoles />}
       {onglet === "sauvegarde"    && <OngletSauvegarde />}
       {onglet === "reseau"        && <OngletReseau />}
+      {onglet === "dossiers"      && <OngletDossiers />}
       {onglet === "tva"           && <OngletTVA />}
       {onglet === "dettes"        && <OngletDettes />}
       {onglet === "irrecouvrable" && <OngletIrrecouvrable />}
