@@ -240,6 +240,16 @@ Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
   MANUELS.md non déroulé à la clôture de la v2 (21/09/2026)**, décision
   du propriétaire.
 
+## v3 — en cours (branche `v3`, depuis `correctif/revue-v2`)
+
+Une ligne par étape de [PLAN-V3.md](PLAN-V3.md) § 9, dans l'ordre.
+Chaque écran est essayé dans un Chromium piloté (banc : le vrai
+serveur sur une base jetable + l'écran Vite), captures à l'appui.
+
+| étape | fait | preuve |
+|---|---|---|
+| A-1 | **Réglages Documents en base + écran** (23/09) : `coeur/documents.rs` (7 genres, défauts d'usine repris des paires de signatures v2, validation : 3 signatures, format, ticket sans signature ; un réglage abîmé retombe sur l'usine), `documents.rs` (dans `config_app` : `documents_reglages`, `documents_coordonnees`, images de signature en data URL ≤ 512 ko). Cinq commandes **nées sur `Base`** (D22). Paramètres → **Documents** : en-tête et pied téléversés (de retour de l'atelier), coordonnées cochées, par genre format / colonnes auto-toujours-jamais / montant en lettres / référence / mention / trois signatures avec cachet | `documents_base.rs` (10 scénarios, SQLite et PostgreSQL), 11 unitaires ; parcours écran `banc/a1.mjs` (13 vérifications : téléverser, régler, cachet, recharger, usine) |
+
 ## v3 — plan posé le 21/09/2026, le code n'a pas commencé
 
 Quatre chantiers, dans cet ordre (D20) : **A** pièces commerciales

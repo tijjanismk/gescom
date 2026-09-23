@@ -29,6 +29,7 @@ import { OngletCodesBarres } from "@/components/OngletCodesBarres";
 import { OngletImportExport } from "@/components/OngletImportExport";
 import { OngletReseau } from "@/components/OngletReseau";
 import { OngletRoles } from "@/components/OngletRoles";
+import { OngletDocuments } from "@/components/OngletDocuments";
 import {
   ModalPermissionsUtilisateur,
 } from "@/components/ModalPermissionsUtilisateur";
@@ -1069,6 +1070,7 @@ export function Parametres({ ongletInitial }: { ongletInitial?: string } = {}) {
 
       {/* Contenu */}
       {onglet === "societe"       && <ParametresSociete />}
+      {onglet === "documents"     && <OngletDocuments />}
       {onglet === "depots"        && <OngletDepots />}
       {onglet === "codesbarres"   && <OngletCodesBarres />}
       {onglet === "importexport"  && <OngletImportExport />}

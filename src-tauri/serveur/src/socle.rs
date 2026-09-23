@@ -73,6 +73,33 @@ pub fn registre() -> Registre {
         Ok(serde_json::Value::Null)
     });
 
+    // ---- v3, A-1 : les reglages des documents imprimes (D17, D18).
+    // Lus par toute caisse avant d'imprimer ; regles par qui modifie les
+    // parametres. ----
+    r.sur_base("lire_reglages_documents", None, false, |c, _| {
+        gescom_noyau::documents::lire_reglages_sur(c.base)
+    });
+    r.sur_base("enregistrer_reglage_document", Some("parametres:modifier"), true, |c, p| {
+        let genre: String = arg(&p, "genre", "genre")?;
+        let reglage: Value = arg(&p, "reglage", "reglage")?;
+        gescom_noyau::documents::enregistrer_reglage_sur(c.base, &genre, reglage)
+    });
+    r.sur_base("retablir_reglage_document", Some("parametres:modifier"), true, |c, p| {
+        let genre: String = arg(&p, "genre", "genre")?;
+        gescom_noyau::documents::retablir_defaut_sur(c.base, &genre)
+    });
+    r.sur_base("enregistrer_coordonnees_documents", Some("parametres:modifier"), true, |c, p| {
+        let choix: Vec<String> = arg(&p, "coordonnees", "coordonnees")?;
+        serde_json::to_value(gescom_noyau::documents::enregistrer_coordonnees_sur(c.base, choix)?)
+            .map_err(|e| e.to_string())
+    });
+    r.sur_base("poser_image_signature", Some("parametres:modifier"), true, |c, p| {
+        let genre: String = arg(&p, "genre", "genre")?;
+        let rang: usize = arg(&p, "rang", "rang")?;
+        let image: Option<String> = arg(&p, "image", "image")?;
+        gescom_noyau::documents::poser_image_signature_sur(c.base, &genre, rang, image)
+    });
+
     r.lecture("lire_stock_multi_depots", |c, _| {
         serde_json::to_value(comptoir::lire_stock_multi_depots_sur(c.conn)?)
             .map_err(|e| e.to_string())

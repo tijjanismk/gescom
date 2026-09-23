@@ -12,11 +12,13 @@
 import {
   Package, Tag, Building2, Users, HardDrive, ShoppingCart,
   Percent, Banknote, XCircle, Clock, Warehouse, Barcode,
-  LayoutTemplate, FileSpreadsheet, Network, Shield,
+  LayoutTemplate, FileSpreadsheet, Network, Shield, FileText,
 } from "lucide-react";
 
 export const ONGLETS_PARAMETRES = [
   { key: "societe",       label: "Société",       icone: Building2,       droit: "parametres:modifier" },
+  // v3 (D17) : en-tête, pied, colonnes et signatures des documents.
+  { key: "documents",     label: "Documents",     icone: FileText,        droit: "parametres:modifier" },
   { key: "depots",        label: "Magasins",        icone: Warehouse,       droit: "depots:gerer" },
   { key: "articles",      label: "Articles",      icone: Package,         droit: "articles:creer" },
   { key: "codesbarres",   label: "Codes-barres",  icone: Barcode,         droit: "articles:creer" },

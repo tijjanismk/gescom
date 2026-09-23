@@ -11,6 +11,7 @@
 
 pub mod utils;
 pub mod auteur;
+pub mod documents;
 pub mod coeur;
 pub mod persistance;
 pub mod portes;
