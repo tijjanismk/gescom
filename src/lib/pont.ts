@@ -515,3 +515,56 @@ export function ecouterCanal(surEvenements: (e: Evenement[]) => void): () => voi
     vivant = false;
   };
 }
+
+// =====================================================================
+//  Les erreurs de la fenêtre remontent au serveur (v3, B-2)
+// =====================================================================
+//
+// 61 `console.error` que personne ne voyait : une caisse affichait
+// « erreur technique » et le soir il n'en restait rien. `window.onerror`
+// et `unhandledrejection` envoient désormais l'erreur au serveur, qui
+// l'écrit `[POSTE ]` dans son journal technique avec le nom du poste.
+// Le serveur borne (4 Ko, 10 par minute et par poste) ; ici on évite
+// seulement de renvoyer dix fois la même erreur de suite, et on
+// n'envoie rien sans session. Pas de télémétrie : seulement les erreurs.
+
+let pageCourante = "";
+let derniereErreur = { texte: "", quand: 0 };
+
+/** L'écran ouvert, pour que la ligne du journal dise où c'était. */
+export function noterPage(page: string) {
+  pageCourante = page;
+}
+
+export function signalerErreur(genre: "erreur" | "promesse", message: string, pile?: string) {
+  if (!enReseau() || !etat.jeton) return;
+  const maintenant = Date.now();
+  if (message === derniereErreur.texte && maintenant - derniereErreur.quand < 10_000) return;
+  derniereErreur = { texte: message, quand: maintenant };
+  const corps = JSON.stringify({
+    genre,
+    page: pageCourante.slice(0, 40),
+    message: message.slice(0, 600),
+    pile: (pile ?? "").split("\n").slice(0, 8).join("\n").slice(0, 1500),
+  });
+  // Jamais d'erreur sur l'erreur : un envoi raté ne doit pas relancer
+  // `unhandledrejection` et tourner en rond.
+  fetch(`${racine()}/journal-poste`, { method: "POST", headers: entetes(), body: corps })
+    .catch(() => undefined);
+}
+
+let remonteeInstallee = false;
+
+export function installerRemonteeErreurs() {
+  if (remonteeInstallee || typeof window === "undefined") return;
+  remonteeInstallee = true;
+  window.addEventListener("error", (e: ErrorEvent) => {
+    const lieu = e.filename ? ` (${e.filename.split("/").pop()}:${e.lineno})` : "";
+    signalerErreur("erreur", `${e.message}${lieu}`, e.error?.stack);
+  });
+  window.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
+    const r = e.reason;
+    const message = r instanceof Error ? `${r.name}: ${r.message}` : String(r);
+    signalerErreur("promesse", message, r instanceof Error ? r.stack : undefined);
+  });
+}

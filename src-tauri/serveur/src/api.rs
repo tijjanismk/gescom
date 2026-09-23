@@ -51,6 +51,7 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
         ("GET", "/canal") => canal(srv, req, flux),
         ("POST", "/sauvegarde") => sauvegarde_manuelle(srv, req, flux),
         ("POST", "/entretien") => entretien(srv, req, flux),
+        ("POST", "/journal-poste") => journal_poste(srv, req, flux),
         _ => erreur(
             flux,
             404,
@@ -624,6 +625,54 @@ fn entretien(
         }
         Err(e) => erreur(flux, 500, CodeErreur::Technique, &e),
     }
+}
+
+// =====================================================================
+//  Journal des postes — les erreurs des caisses (v3, B-2)
+// =====================================================================
+
+fn journal_poste(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Result<()> {
+    use crate::journal_poste::{self as jp, Verdict};
+    let appelant = match authentifier(srv, req) {
+        Ok(a) => a,
+        Err((code, message)) => return erreur(flux, 401, code, &message),
+    };
+    if req.corps.len() > jp::TAILLE_MAX {
+        return erreur(flux, 413, CodeErreur::Technique, "Signalement trop long (4 Ko au plus).");
+    }
+    // Le poste en boucle d'erreur : on jette. Une ligne le dit, une fois
+    // par minute ; le reste ne laisse aucune trace (c'est le but).
+    let verdict = srv
+        .limiteur_postes
+        .lock()
+        .map(|mut l| l.juger(&appelant.poste_id, std::time::Instant::now()))
+        .unwrap_or(Verdict::Refuse);
+    let nom = srv
+        .base
+        .lock()
+        .ok()
+        .and_then(|mut b| postes::lire_sur(&mut b, &appelant.poste_id).ok())
+        .map(|p| p.nom)
+        .unwrap_or_else(|| court(&appelant.poste_id).to_string());
+    match verdict {
+        Verdict::Accepte => {}
+        Verdict::PremierRefus => {
+            journal::avertissement(format!(
+                "{nom} envoie plus de {} erreurs par minute : les suivantes sont jetées.",
+                jp::PAR_MINUTE
+            ));
+            return repondre_json(flux, 429, &json!({ "etat": "jete" }));
+        }
+        Verdict::Refuse => return repondre_json(flux, 429, &json!({ "etat": "jete" })),
+    }
+    let signalement: jp::Signalement = match req.json().and_then(|v| {
+        serde_json::from_value(v).map_err(|e| format!("Signalement illisible : {e}"))
+    }) {
+        Ok(s) => s,
+        Err(m) => return erreur(flux, 400, CodeErreur::Technique, &m),
+    };
+    journal::poste(jp::ligne(&nom, &signalement));
+    repondre_json(flux, 200, &json!({ "etat": "ok" }))
 }
 
 /// Les huit premiers caracteres d'un identifiant : assez pour retrouver

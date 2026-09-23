@@ -366,6 +366,49 @@ fn l_historique_se_lit_avec_journal_lire_et_nomme_qui_a_vendu() {
 }
 
 #[test]
+fn les_erreurs_d_une_caisse_arrivent_au_journal_et_la_onzieme_est_jetee() {
+    let srv = lancer();
+    let port = srv.port;
+    let (jeton, _) = connexion(port);
+
+    // Sans jeton : refusé, et rien d'écrit sous [POSTE ].
+    let (code, _) = requete(port, "POST", "/journal-poste", Some(&json!({ "message": "anonyme" })), None).unwrap();
+    assert_eq!(code, 401);
+
+    // Plus de 4 Ko : refusé sans être lu.
+    let gros = json!({ "page": "ventes", "message": "x".repeat(5000) });
+    let (code, _) = requete(port, "POST", "/journal-poste", Some(&gros), Some(&jeton)).unwrap();
+    assert_eq!(code, 413);
+
+    // Dix passent — dont une qui essaie d'écrire une fausse ligne.
+    for i in 0..10 {
+        let message = if i == 0 {
+            "TypeError: boum\n2026-01-01T00:00:00 [ERREUR] ligne fabriquée".to_string()
+        } else {
+            format!("erreur n°{i}")
+        };
+        let (code, v) = requete(port, "POST", "/journal-poste",
+            Some(&json!({ "page": "ventes", "message": message, "pile": "at f (Ventes.tsx:12)", "genre": "erreur" })),
+            Some(&jeton)).unwrap();
+        assert_eq!(code, 200, "envoi {i} : {v}");
+    }
+    // La onzième de la minute est jetée ; la douzième aussi, sans ligne.
+    let (code, v) = requete(port, "POST", "/journal-poste", Some(&json!({ "message": "onze" })), Some(&jeton)).unwrap();
+    assert_eq!(code, 429, "{v}");
+    let (code, _) = requete(port, "POST", "/journal-poste", Some(&json!({ "message": "douze" })), Some(&jeton)).unwrap();
+    assert_eq!(code, 429);
+
+    let journal = std::fs::read_to_string(srv.base.with_extension("log")).expect("journal technique");
+    let postes: Vec<&str> = journal.lines().filter(|l| l.contains("[POSTE ]")).collect();
+    assert_eq!(postes.len(), 10, "{journal}");
+    assert!(postes[0].contains("POST /journal-poste · Caisse test · ventes · TypeError: boum"), "{}", postes[0]);
+    assert!(postes[0].contains("pile : at f (Ventes.tsx:12)"), "{}", postes[0]);
+    assert!(!journal.lines().any(|l| l.starts_with("2026-01-01")), "aucune fausse ligne : {journal}");
+    assert_eq!(journal.matches("les suivantes sont jetées").count(), 1, "le trop-plein est dit une fois : {journal}");
+    assert!(!journal.contains("onze") && !journal.contains("douze"), "{journal}");
+}
+
+#[test]
 fn une_sauvegarde_se_restaure_hors_ligne_et_le_serveur_repart_dessus() {
     // Le diagnostic disait « restaurer la dernière sauvegarde » et rien ne
     // le faisait. Ici : on sauvegarde, on écrit encore, on restaure

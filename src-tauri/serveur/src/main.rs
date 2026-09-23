@@ -30,6 +30,7 @@ mod canal;
 mod console;
 mod etat;
 mod http;
+mod journal_poste;
 mod journal_technique;
 mod reseau_local;
 mod sauvegarde;
@@ -275,6 +276,7 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
         port: options.port,
         demarre_le: maintenant_iso(),
         derniere_sauvegarde: Mutex::new(None),
+        limiteur_postes: Mutex::new(journal_poste::Limiteur::default()),
     });
 
     if let Some(d) = options.sauvegardes {

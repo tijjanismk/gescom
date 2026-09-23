@@ -91,6 +91,11 @@ pub fn avertissement(message: impl AsRef<str>) {
     ecrire("AVERT", message.as_ref());
 }
 
+/// Une erreur remontee par une caisse (`POST /journal-poste`, v3 B-2).
+pub fn poste(message: impl AsRef<str>) {
+    ecrire("POSTE", message.as_ref());
+}
+
 /// Ce qui n'aurait pas du arriver : base indisponible, reponse coupee.
 pub fn erreur(message: impl AsRef<str>) {
     ecrire("ERREUR", message.as_ref());

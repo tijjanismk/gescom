@@ -45,3 +45,17 @@ filtres, la pagination sans perte ni doublon, la permission, le
 détecteur) ; `serveur/tests/routes.rs::l_historique_se_lit_avec_journal_lire_et_nomme_qui_a_vendu`
 (JSON de l'écran, auteur nommé, refus de l'employé) ; banc
 `b1-historique.mjs` (23 vérifications).
+
+## Les erreurs des caisses (B-2)
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Fenêtre | [lib/pont.ts](../../src/lib/pont.ts) | `installerRemonteeErreurs` (appelé par `main.tsx` avant le premier rendu) : `window.onerror` + `unhandledrejection` → `signalerErreur` ; `noterPage` (posé par `App`) ; rien sans session ; la même erreur une fois par 10 s ; un envoi raté est avalé (pas de boucle) |
+| Route | [serveur/src/api.rs](../../src-tauri/serveur/src/api.rs) `journal_poste` | `POST /journal-poste` : jeton exigé (401), 4 Ko au plus (413), 10 par minute et par poste (429 au-delà, **une** ligne `AVERT` par minute le dit, le reste est jeté sans trace) |
+| Règle | [serveur/src/journal_poste.rs](../../src-tauri/serveur/src/journal_poste.rs) | `Limiteur` (minute glissante), `nettoyer` (une seule ligne : un `\n` venu de la fenêtre fabriquerait une fausse ligne `[ERREUR]` ; caractères de contrôle retirés ; longueur bornée), `ligne` |
+| Journal | [serveur/src/journal_technique.rs](../../src-tauri/serveur/src/journal_technique.rs) | niveau `POSTE` : `… [POSTE ] ip POST /journal-poste · CAISSE-1 · ventes · TypeError: … · pile : …` |
+
+Pas de télémétrie, pas de clics : seulement les erreurs. Preuves : 3
+unitaires (`journal_poste`), route
+`les_erreurs_d_une_caisse_arrivent_au_journal_et_la_onzieme_est_jetee`,
+banc `b2-journal-poste.mjs`.

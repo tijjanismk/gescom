@@ -215,10 +215,10 @@ Reprise de l'ancien `deepseek-context/RESTE.md`, vérifiée le 16/09 —
   « missing field ligne_id » du 19/09.
 - **Les commandes Tauri n'ont aucun test** — à commencer par
   `creer_vente`, `valider_facture`, `regler_dette_fournisseur`.
-- **Les erreurs de la fenêtre ne remontent pas** : `window.onerror` et
-  les rejets non gérés du front n'arrivent nulle part (61
-  `console.error` dans la webview). À faire avec la v3 : `POST
-  /journal-poste` vers le journal technique du serveur (K14).
+- ~~**Les erreurs de la fenêtre ne remontent pas**~~ — fait en v3
+  B-2 : `window.onerror` et `unhandledrejection` → `POST
+  /journal-poste` → `[POSTE ]` dans le journal technique. Les
+  `console.error` d'une erreur *attrapée* restent locaux.
 - ~~**Un chèque rejeté ne défait pas son mouvement de caisse**~~
   **corrigé le 20/09/2026** : contre-passation, pas suppression ; un
   rejet n'exige pas de caisse ouverte (D14).
@@ -252,6 +252,7 @@ serveur sur une base jetable + l'écran Vite), captures à l'appui.
 | A-2 | **Le générateur unique lit les réglages** (23/09) : `lib/impression.ts` (l'habillage commun : en-tête image ou nom + coordonnées cochées, pied image ou mention, jusqu'à trois signatures avec cachet, montant en lettres), `genererPDF.ts` réécrit dessus (colonnes remise / TVA / référence, récapitulatif TVA par taux, sans TTC par taux pour ne pas contredire l'arrondi du total), reçu et relevés aussi (le côté fournisseur retourne « Le caissier » → « Le bénéficiaire »). `lire_donnees_piece` (deux versions) rend `article_reference` et `societe.site_web`. L'aperçu (`ApercuPiece`) s'ouvre au format réglé du genre et **perd le choix du modèle**. Paramètres → Documents montre un **exemple redessiné à chaque case**, avant d'enregistrer. Un genre jamais réglé **n'est pas enregistré** : il suit l'usine | rendu genre par genre dans la vraie page (`banc/a2.mjs`, 13 vérifications, captures A4 / A5 / ticket / reçu) ; aperçu par l'écran (`a2ui.mjs`, 7) ; exemple (`a2doc.mjs`, 3) ; `documents_base.rs` +2 |
 | A-3 | **L'atelier part** (23/09, D17) : `pages/Modeles.tsx`, `lib/modeles/*` (2 330 l.), `EditeurPiedPage`, `noyau/src/modeles.rs`, les images « posées » (`images.rs`, façades Tauri), 12 commandes du serveur, la permission `modeles:gerer` (28 au catalogue), l'onglet et la route. Tables `modele_document` et `image_document` **supprimées par migration idempotente** (deux chemins). Au passage : le **reçu et les relevés perdaient leur titre** dès qu'un en-tête image était posé — l'image remplace le nom, plus le titre. Le banc d'écran entre au dépôt (`outils/banc/`) | `documents_base::les_tables_de_l_atelier_partent_a_l_amorcage` (deux moteurs) ; `schema_commun` vert ; workspace **490 tests** (Tauri compris) ; banc `a1…a3` : **42 vérifications** d'une base neuve |
 | B-1 | **L'Historique** (23/09) : le journal métier se lit enfin. `coeur/historique.rs` (types en français, page bornée 1…200, date illisible refusée), `historique.rs` (`lire_historique_sur` paginé, « sur quoi » résolu à la lecture : tiers, pièce, article depuis `entite_type` ; recherche sur nom, numéro, article, auteur, détail ; `filtres_sur`). Deux commandes **nées sur `Base`**, permission **`journal:lire`** (la première de lecture, 29 au catalogue ; comptable sur base neuve, bases installées avec C-1). Écran **Historique** (menu, filtres Du/Au/Personne/Type/Recherche, avant → après, 50 par page) ouvert aussi depuis la fiche client, la fiche fournisseur, une pièce, un article (puce retirable, retour). Index `idx_journal_date`. Le banc a trouvé une course : la réponse lente d'un ancien filtre écrasait la bonne — seule la dernière s'affiche | `historique_base.rs` (5 scénarios, SQLite et PostgreSQL) ; route `l_historique_se_lit_avec_journal_lire_et_nomme_qui_a_vendu` ; banc `b1-historique.mjs` (**23 vérifications**, base neuve et relancée) |
+| B-2 | **Les erreurs des caisses remontent au serveur** (23/09) : `window.onerror` et `unhandledrejection` → `POST /journal-poste` (jeton exigé, 4 Ko, 10 par minute et par poste, au-delà jeté et dit une fois) ; le serveur écrit `[POSTE ]` avec le nom du poste, l'écran ouvert et la pile. Un message venu de la fenêtre tient sur **une** ligne : un retour à la ligne aurait fabriqué une fausse ligne `[ERREUR]` du journal | 3 unitaires `journal_poste` ; route `les_erreurs_d_une_caisse_arrivent_au_journal_et_la_onzieme_est_jetee` (401, 413, dix acceptées, la onzième 429, aucune fausse ligne) ; banc `b2-journal-poste.mjs` (6) |
 
 ## v3 — plan posé le 21/09/2026, le code n'a pas commencé
 

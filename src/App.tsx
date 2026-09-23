@@ -18,7 +18,7 @@ import { Caisse } from "@/pages/Caisse";
 import { Parametres } from "@/pages/Parametres";
 import {
   synchroniserConfig, ecouterCanal, enReseau,
-  surSessionPerdue, sessionUtilisable, serveurConfigure,
+  surSessionPerdue, sessionUtilisable, serveurConfigure, noterPage,
 } from "@/lib/pont";
 import { Retours } from "@/pages/Retours";
 import { Relances } from "@/pages/Relances";
@@ -139,6 +139,9 @@ function App() {
 
   // ⚠️ NE PAS remettre cette affectation dans un useEffect.
   //
+  // La page ouverte accompagne les erreurs envoyees au serveur (B-2).
+  useEffect(() => { noterPage(pageActive); }, [pageActive]);
+
   // Les effets des ENFANTS s'executent avant ceux du parent. Parametres
   // lisait donc UTILISATEUR_ACTIF encore null au premier rendu et
   // concluait « employe » : seuls 4 onglets apparaissaient, et il

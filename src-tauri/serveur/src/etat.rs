@@ -49,6 +49,8 @@ pub struct Serveur {
     pub port: u16,
     pub demarre_le: String,
     pub derniere_sauvegarde: Mutex<Option<String>>,
+    /// Les erreurs des caisses : dix par minute et par poste (B-2).
+    pub limiteur_postes: Mutex<crate::journal_poste::Limiteur>,
 }
 
 impl Serveur {
