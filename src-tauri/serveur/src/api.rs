@@ -52,6 +52,7 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
         ("POST", "/sauvegarde") => sauvegarde_manuelle(srv, req, flux),
         ("POST", "/entretien") => entretien(srv, req, flux),
         ("POST", "/journal-poste") => journal_poste(srv, req, flux),
+        ("GET", "/journal") => lire_journal(srv, req, flux),
         _ => erreur(
             flux,
             404,
@@ -673,6 +674,49 @@ fn journal_poste(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std
     };
     journal::poste(jp::ligne(&nom, &signalement));
     repondre_json(flux, 200, &json!({ "etat": "ok" }))
+}
+
+// =====================================================================
+//  Journal technique — lu depuis la console (v3, B-3)
+// =====================================================================
+
+/// Les dernieres lignes du journal technique. Meme permission que la
+/// sauvegarde : c'est la console du serveur qui la lit, pas la fenetre
+/// d'une caisse.
+fn lire_journal(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Result<()> {
+    let appelant = match authentifier(srv, req) {
+        Ok(a) => a,
+        Err((code, message)) => return erreur(flux, 401, code, &message),
+    };
+    let ctx = ContexteUtilisateur { id: appelant.utilisateur_id, role: appelant.role };
+    {
+        let mut base = match srv.base.lock() {
+            Ok(b) => b,
+            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+        };
+        if let Err(e) = verifier_permission_sur(&mut base, &ctx, "sauvegarde:lancer") {
+            return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
+        }
+    }
+    let niveau = req.parametres.get("niveau").map(String::as_str).filter(|n| !n.is_empty() && *n != "tout");
+    let n = req
+        .parametres
+        .get("n")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(200)
+        .clamp(1, 1000);
+    match journal::dernieres_lignes(n, niveau) {
+        Ok(lignes) => repondre_json(
+            flux,
+            200,
+            &json!({
+                "fichier": journal::chemin().map(|c| c.display().to_string()),
+                "niveaux": journal::NIVEAUX,
+                "lignes": lignes,
+            }),
+        ),
+        Err(m) => erreur(flux, 400, CodeErreur::Technique, &m),
+    }
 }
 
 /// Les huit premiers caracteres d'un identifiant : assez pour retrouver

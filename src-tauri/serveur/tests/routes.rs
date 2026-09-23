@@ -409,6 +409,54 @@ fn les_erreurs_d_une_caisse_arrivent_au_journal_et_la_onzieme_est_jetee() {
 }
 
 #[test]
+fn le_journal_technique_se_lit_depuis_la_console_avec_la_permission_de_sauvegarde() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+
+    // Un refus, pour avoir une ligne REFUS.
+    let (code, _) = rpc(port, &admin, "commande_qui_n_existe_pas", json!({}));
+    assert_eq!(code, 404);
+
+    let (code, v) = requete(port, "GET", "/journal", None, None).unwrap();
+    assert_eq!(code, 401, "{v}");
+
+    let (code, v) = requete(port, "GET", "/journal?n=200", None, Some(&admin)).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let lignes = v["lignes"].as_array().unwrap();
+    assert!(lignes.iter().any(|l| l.as_str().unwrap().contains("Serveur démarré")), "{v}");
+    assert!(lignes.len() <= 200);
+
+    let (code, v) = requete(port, "GET", "/journal?niveau=REFUS", None, Some(&admin)).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let refus = v["lignes"].as_array().unwrap();
+    assert!(!refus.is_empty());
+    assert!(refus.iter().all(|l| l.as_str().unwrap().contains("[REFUS ]")), "{v}");
+    assert!(refus.iter().any(|l| l.as_str().unwrap().contains("commande_qui_n_existe_pas")), "{v}");
+
+    let (code, _) = requete(port, "GET", "/journal?niveau=BAVARD", None, Some(&admin)).unwrap();
+    assert_eq!(code, 400);
+
+    // L'employé n'a pas `sauvegarde:lancer` : pas de journal.
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "employe", "mot_de_passe": "employe123", "poste_nom": "j", "poste_empreinte": "routes-j", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let employe = v["jeton"].as_str().unwrap().to_string();
+    let (code, v) = requete(port, "GET", "/journal", None, Some(&employe)).unwrap();
+    assert_eq!(code, 403, "{v}");
+
+    // La console porte l'onglet, et écrit les lignes en texte.
+    let mut flux = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    flux.write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap();
+    let mut page = String::new();
+    flux.read_to_string(&mut page).unwrap();
+    assert!(page.contains("id=\"carte-journal\"") && page.contains("d.textContent = l"), "la console a son journal");
+}
+
+#[test]
 fn une_sauvegarde_se_restaure_hors_ligne_et_le_serveur_repart_dessus() {
     // Le diagnostic disait « restaurer la dernière sauvegarde » et rien ne
     // le faisait. Ici : on sauvegarde, on écrit encore, on restaure

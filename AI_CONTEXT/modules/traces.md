@@ -59,3 +59,26 @@ Pas de télémétrie, pas de clics : seulement les erreurs. Preuves : 3
 unitaires (`journal_poste`), route
 `les_erreurs_d_une_caisse_arrivent_au_journal_et_la_onzieme_est_jetee`,
 banc `b2-journal-poste.mjs`.
+
+## Le journal technique dans la console (B-3)
+
+`GET /journal?n=200&niveau=ERREUR|REFUS|AVERT|POSTE|INFO|tout` —
+jeton exigé, permission **`sauvegarde:lancer`** (comme la sauvegarde
+et l'entretien : c'est la console du serveur, pas la fenêtre d'une
+caisse), 1 à 1 000 lignes, niveau inconnu refusé (400). Lit le
+fichier courant et, s'il n'a pas assez de lignes, la copie `.1`
+([journal_technique.rs](../../src-tauri/serveur/src/journal_technique.rs)
+`dernieres_lignes`, `filtrer` : le niveau se lit **à sa place** après
+l'horodatage — un message qui contient « [ERREUR] » n'est pas une
+erreur).
+
+La console ([console.rs](../../src-tauri/serveur/src/console.rs)) gagne
+la carte **Journal**, visible une fois identifié : boutons Tout /
+Erreurs / Refus / Avertissements / Caisses / Infos, « Actualiser »,
+plus récentes en haut, couleur par niveau. Les lignes s'écrivent par
+`textContent` : un message venu d'une caisse ne peut rien injecter
+dans la page du patron.
+
+Preuves : unitaire `le_filtre_lit_le_niveau_a_sa_place` ; route
+`le_journal_technique_se_lit_depuis_la_console_avec_la_permission_de_sauvegarde`
+(401, 200, filtre, 400, 403 employé) ; banc `b3-console-journal.mjs` (10).
