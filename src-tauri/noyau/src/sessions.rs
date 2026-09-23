@@ -33,6 +33,9 @@ pub struct SessionReseau {
     pub ouvert_le: String,
     pub expire_le: String,
     pub derniere_vue: Option<String>,
+    /// La derniere commande servie a cette session (v3, C-4) : ce que
+    /// la personne fait en ce moment, vu de Parametres -> Utilisateurs.
+    pub derniere_commande: Option<String>,
 }
 
 /// Un jeton d'authentification : 256 bits d'alea.
@@ -137,10 +140,14 @@ pub fn etat(conn: &Connection, session_id: &str) -> Etat {
     Etat::Valide { utilisateur_id, role, poste_id, dossier_id: None }
 }
 
-pub fn toucher(conn: &Connection, session_id: &str) {
+/// Une session vient de servir. `commande` : celle de `/rpc`, gardee
+/// pour l'ecran des sessions ; les autres routes ne l'effacent pas.
+pub fn toucher(conn: &Connection, session_id: &str, commande: Option<&str>) {
     conn.execute(
-        "UPDATE session_reseau SET derniere_vue = ?1 WHERE id = ?2",
-        params![maintenant_iso(), session_id],
+        "UPDATE session_reseau SET derniere_vue = ?1,
+                derniere_commande = COALESCE(?2, derniere_commande)
+         WHERE id = ?3",
+        params![maintenant_iso(), commande, session_id],
     )
     .ok();
 }
@@ -167,7 +174,7 @@ pub fn revoquer_toutes(conn: &Connection, motif: &str) -> ResSql<usize> {
 pub fn lister_actives(conn: &Connection) -> ResSql<Vec<SessionReseau>> {
     let mut stmt = conn.prepare(
         "SELECT s.id, s.poste_id, p.nom, s.utilisateur_id, u.nom, r.nom,
-                s.ouvert_le, s.expire_le, s.derniere_vue
+                s.ouvert_le, s.expire_le, s.derniere_vue, s.derniere_commande
          FROM session_reseau s
          JOIN poste p       ON p.id = s.poste_id
          JOIN utilisateur u ON u.id = s.utilisateur_id
@@ -187,6 +194,7 @@ pub fn lister_actives(conn: &Connection) -> ResSql<Vec<SessionReseau>> {
                 ouvert_le: r.get(6)?,
                 expire_le: r.get(7)?,
                 derniere_vue: r.get(8)?,
+                derniere_commande: r.get(9)?,
             })
         })?
         .collect::<ResSql<Vec<_>>>()?;
@@ -332,11 +340,28 @@ pub fn etat_sur(base: &mut Base, session_id: &str) -> Etat {
     Etat::Valide { utilisateur_id, role, poste_id, dossier_id }
 }
 
-pub fn toucher_sur(base: &mut Base, session_id: &str) {
+pub fn toucher_sur(base: &mut Base, session_id: &str, commande: Option<&str>) {
     let _ = base.executer(
-        "UPDATE session_reseau SET derniere_vue = ?1 WHERE id = ?2",
-        &parametres![maintenant_iso(), session_id],
+        "UPDATE session_reseau SET derniere_vue = ?1,
+                derniere_commande = COALESCE(CAST(?2 AS TEXT), derniere_commande)
+         WHERE id = ?3",
+        &parametres![maintenant_iso(), commande.map(str::to_string), session_id],
     );
+}
+
+/// Ferme toutes les sessions ouvertes d'une personne (v3, C-4) : un
+/// compte desactive ne garde aucun poste connecte, et la liste des
+/// sessions ne le montre plus. Rend le nombre de sessions fermees.
+pub fn revoquer_utilisateur_sur(
+    acces: &mut impl crate::base::Acces,
+    utilisateur_id: &str,
+    par: &str,
+) -> Resultat<u64> {
+    acces.executer(
+        "UPDATE session_reseau SET revoque_le = ?1, revoque_par = ?2
+         WHERE utilisateur_id = ?3 AND revoque_le IS NULL",
+        &parametres![maintenant_iso(), par, utilisateur_id],
+    )
 }
 
 pub fn revoquer_sur(base: &mut Base, session_id: &str, par: &str) -> Resultat<u64> {
@@ -358,7 +383,7 @@ pub fn revoquer_toutes_sur(base: &mut Base, motif: &str) -> Resultat<u64> {
 pub fn lister_actives_sur(base: &mut Base) -> Resultat<Vec<SessionReseau>> {
     base.lire_plusieurs(
         "SELECT s.id, s.poste_id, p.nom, s.utilisateur_id, u.nom, r.nom,
-                s.ouvert_le, s.expire_le, s.derniere_vue
+                s.ouvert_le, s.expire_le, s.derniere_vue, s.derniere_commande
          FROM session_reseau s
          JOIN poste p       ON p.id = s.poste_id
          JOIN utilisateur u ON u.id = s.utilisateur_id
@@ -377,6 +402,7 @@ pub fn lister_actives_sur(base: &mut Base) -> Resultat<Vec<SessionReseau>> {
                 ouvert_le: r.get(6)?,
                 expire_le: r.get(7)?,
                 derniere_vue: r.get(8)?,
+                derniere_commande: r.get(9)?,
             })
         },
     )

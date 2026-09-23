@@ -39,6 +39,8 @@ pub const TYPES: &[(&str, &str)] = &[
     ("depot_desactive_avec_stock", "Magasin désactivé"),
     ("depot_reactive", "Magasin réactivé"),
     ("utilisateur_cree", "Utilisateur créé"),
+    ("utilisateur_desactive", "Compte désactivé"),
+    ("utilisateur_reactive", "Compte réactivé"),
     ("role_change", "Rôle changé"),
     ("sauvegarde", "Sauvegarde"),
     ("entretien", "Entretien de la base"),

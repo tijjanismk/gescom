@@ -186,6 +186,7 @@ fn tables_v2(base: &mut Base) {
         "ALTER TABLE piece_commerciale ADD COLUMN reference TEXT",
         // v3 : le dossier ouvert par la session (NULL = dossier d'origine).
         "ALTER TABLE session_reseau ADD COLUMN dossier_id TEXT",
+        "ALTER TABLE session_reseau ADD COLUMN derniere_commande TEXT",
     ] {
         let _ = base.executer(&adapter(sql), &[]);
     }

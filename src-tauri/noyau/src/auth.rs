@@ -448,3 +448,97 @@ pub fn promouvoir_superadmin_sur(base: &mut Base, pseudo: &str) -> Result<String
     tx.valider().map_err(|e| e.0)?;
     Ok(format!("{nom} porte maintenant le rôle superadmin."))
 }
+
+/// Desactive ou reactive un compte (v3, C-4).
+///
+/// Desactiver ferme ses sessions **dans le meme geste**. Avant, un
+/// compte mis a `actif = 0` gardait ses sessions « ouvertes » en base :
+/// le jeton etait refuse a l'appel suivant, mais la liste des sessions
+/// le montrait toujours connecte, et rien ne disait qu'il avait ete
+/// coupe. Ici, la desactivation, la fermeture des sessions et la ligne
+/// du journal s'ecrivent ensemble ou pas du tout.
+///
+/// Refuse : son propre compte (on ne s'enferme pas dehors), un compte
+/// au role protege (superadmin, le compte de secours), et le dernier
+/// compte actif a qui son role donne tout — sans lui, plus personne ne
+/// peut rien reactiver.
+pub fn activer_utilisateur_sur(
+    base: &mut Base,
+    utilisateur_id: &str,
+    actif: bool,
+) -> Result<serde_json::Value, String> {
+    let par = crate::argent::id_utilisateur_courant_sur(base);
+    let (nom, role, protege, acces_total, etait_actif): (String, String, bool, bool, bool) = base
+        .lire_une(
+            "SELECT u.nom, r.nom, COALESCE(r.protege, 0), COALESCE(r.acces_total, 0), u.actif
+             FROM utilisateur u JOIN role r ON r.id = u.role_id
+             WHERE u.id = ?1",
+            &parametres![utilisateur_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get::<i64>(2)? != 0, r.get::<i64>(3)? != 0, r.get::<i64>(4)? != 0)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Compte introuvable.".to_string())?;
+
+    if !actif {
+        if utilisateur_id == par {
+            return Err("On ne désactive pas son propre compte.".to_string());
+        }
+        if protege || role == crate::portes::SUPERADMIN {
+            return Err(format!(
+                "Le compte « {nom} » porte le rôle protégé {role} : il ne se désactive pas."
+            ));
+        }
+        if acces_total {
+            let autres: i64 = base
+                .lire_une(
+                    "SELECT CAST(COUNT(*) AS BIGINT) FROM utilisateur u JOIN role r ON r.id = u.role_id
+                     WHERE u.actif = 1 AND r.acces_total = 1 AND u.id <> ?1",
+                    &parametres![utilisateur_id],
+                    |r| r.get::<i64>(0),
+                )
+                .map_err(|e| e.0)?
+                .unwrap_or(0);
+            if autres == 0 {
+                return Err(format!(
+                    "« {nom} » est le dernier compte {role} actif : sans lui, plus personne ne \
+                     pourrait réactiver les autres."
+                ));
+            }
+        }
+    }
+    if actif == etait_actif {
+        return Ok(serde_json::json!({ "actif": actif, "sessions_fermees": 0 }));
+    }
+
+    let maintenant = maintenant_iso();
+    let dossier = base.dossier().to_string();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE utilisateur SET actif = ?1, modifie_le = ?2 WHERE id = ?3",
+        &parametres![actif as i64, maintenant.clone(), utilisateur_id],
+    )
+    .map_err(|e| e.0)?;
+    let fermees = if actif {
+        0
+    } else {
+        crate::sessions::revoquer_utilisateur_sur(&mut tx, utilisateur_id, &par).map_err(|e| e.0)?
+    };
+    tx.executer(
+        "INSERT INTO journal
+           (id, type_evenement, entite_type, entite_id, auteur_id,
+            nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, ?2, 'utilisateur', ?3, ?4, ?5, 'app', ?6, ?7)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            if actif { "utilisateur_reactive" } else { "utilisateur_desactive" },
+            utilisateur_id,
+            par,
+            serde_json::json!({ "nom": nom, "sessions_fermees": fermees }).to_string(),
+            maintenant,
+            dossier
+        ],
+    )
+    .map_err(|e| e.0)?;
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({ "actif": actif, "sessions_fermees": fermees }))
+}

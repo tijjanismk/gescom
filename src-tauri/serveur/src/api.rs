@@ -485,7 +485,21 @@ fn authentifier(srv: &Arc<Serveur>, req: &Requete) -> Result<Appelant, (CodeErre
             poste_id,
             dossier_id,
         } => {
-            sessions::toucher_sur(&mut base, &session_id);
+            // La commande de `/rpc`, pour l'ecran des sessions (C-4) :
+            // lue sans echouer — un corps illisible sera refuse plus
+            // loin, avec le bon message.
+            // Un struct a un seul champ : serde saute le reste sans le
+            // construire (une image de 10 Mo ne se lit pas deux fois).
+            #[derive(serde::Deserialize)]
+            struct Tete {
+                commande: Option<String>,
+            }
+            let commande = if req.chemin == "/rpc" {
+                serde_json::from_slice::<Tete>(&req.corps).ok().and_then(|t| t.commande)
+            } else {
+                None
+            };
+            sessions::toucher_sur(&mut base, &session_id, commande.as_deref());
             Ok(Appelant {
                 utilisateur_id,
                 role,

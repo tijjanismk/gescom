@@ -27,3 +27,4 @@ installé.
 | `b2-journal-poste.mjs` | B-2 | une erreur et une promesse rejetée de la fenêtre arrivent `[POSTE ]` dans le journal du serveur, avec le poste, l'écran et la pile ; une boucle n'envoie qu'une ligne |
 | `b3-console-journal.mjs` | B-3 | la console du serveur (`:7300`) montre son journal après identification, les plus récentes en haut ; filtres Caisses / Erreurs / Tout ; une ligne piégée venue d'une caisse s'affiche en texte, rien n'est injecté |
 | `b4-anomalies.mjs` | B-4 | le compteur rouge du tableau de bord ouvre l'Historique sur les anomalies à vérifier ; « Marquer vue » la retire, « Vue par Patron le … » s'affiche, le compteur redescend |
+| `c4-sessions.mjs` | C-4 | deux navigateurs, deux postes : la session de la caisse B listée avec sa dernière commande ; « Déconnecter » la renvoie à la connexion ; « Désactiver » ferme sa session dans le même geste et le compte ne se reconnecte plus ; réactiver |

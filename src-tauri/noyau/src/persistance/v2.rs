@@ -71,6 +71,7 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         // d'origine). Pose ici aussi : sur une cible fichier, c'est ce
         // chemin qui prepare la base du serveur, pas `amorcage`.
         "ALTER TABLE session_reseau ADD COLUMN dossier_id TEXT",
+        "ALTER TABLE session_reseau ADD COLUMN derniere_commande TEXT",
     ] {
         conn.execute(sql, []).ok();
     }

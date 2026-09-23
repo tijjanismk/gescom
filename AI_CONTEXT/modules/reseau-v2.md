@@ -86,6 +86,27 @@ de même. Commandes : `lire_dossiers`,
 demande « Quel dossier ouvrir ? » quand il y en a plusieurs ;
 `Layout` affiche le dossier ouvert sous le nom.
 
+## Qui est connecté, et le couper (v3, C-4)
+
+- `session_reseau.derniere_commande` (deux chemins de migration) :
+  `api::authentifier` la pose avec `derniere_vue` en **une** écriture
+  (`sessions::toucher_sur(base, id, commande)`), lue d'un struct à un
+  champ — le corps n'est pas reconstruit deux fois. Les routes sans
+  commande (canal) ne l'effacent pas.
+- `auth::activer_utilisateur_sur(base, id, actif)` — commande
+  `activer_utilisateur` (`utilisateurs:gerer`, née sur `Base`).
+  **Désactiver ferme les sessions du compte dans la même transaction**
+  (`sessions::revoquer_utilisateur_sur`, `revoque_par` = la session qui
+  agit) et écrit `utilisateur_desactive` au journal. Refus : son propre
+  compte, un rôle protégé (superadmin), le dernier compte actif dont le
+  rôle donne tout. Réactiver ne rouvre aucune session.
+- Écran : Paramètres → Utilisateurs, bouton Désactiver / Réactiver
+  (absent sur son propre compte) et `components/SessionsOuvertes.tsx`
+  (qui, poste, depuis, dernière action et commande, « Déconnecter »
+  avec `postes:gerer` ; les sessions de ce poste disent « ce poste »).
+- Preuves : `noyau/tests/sessions_base.rs` (3 scénarios, deux moteurs),
+  banc `c4-sessions.mjs` (deux navigateurs, deux postes).
+
 ## Ce qui reste
 
 - Les routes sont testées sur SQLite ; le même fichier contre PostgreSQL demanderait une base jetable par test (schéma à créer et détruire), pas fait.

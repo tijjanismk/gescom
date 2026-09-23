@@ -988,6 +988,13 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
+    // C-4 : desactiver un compte ferme ses sessions dans le meme geste.
+    r.sur_base("activer_utilisateur", Some("utilisateurs:gerer"), true, |c, p| {
+        let id: String = arg(&p, "utilisateurId", "utilisateur_id")?;
+        let actif: bool = arg(&p, "actif", "actif")?;
+        auth::activer_utilisateur_sur(c.base, &id, actif)
+    });
+
     r.lecture("lire_utilisateurs", |c, _p| {
         let v = auth::lire_utilisateurs(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())

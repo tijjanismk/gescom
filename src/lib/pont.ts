@@ -568,3 +568,9 @@ export function installerRemonteeErreurs() {
     signalerErreur("promesse", message, r instanceof Error ? r.stack : undefined);
   });
 }
+
+/** Le poste de cette fenêtre, tel que le serveur l'a inscrit — pour
+ *  reconnaître sa propre session dans la liste (C-4). */
+export function posteCourant(): string | null {
+  return etat.posteId;
+}

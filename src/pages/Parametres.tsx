@@ -25,6 +25,7 @@ import { genererManuelHTML } from "@/lib/genererManuel";
 import { SelectUnite } from "@/components/SelectUnite";
 import { OngletTVA, OngletDettes, OngletIrrecouvrable, OngletAvoirs } from "@/components/OngletChantiers";
 import { OngletDepots } from "@/components/OngletDepots";
+import { SessionsOuvertes } from "@/components/SessionsOuvertes";
 import { OngletCodesBarres } from "@/components/OngletCodesBarres";
 import { OngletImportExport } from "@/components/OngletImportExport";
 import { OngletReseau } from "@/components/OngletReseau";
@@ -222,6 +223,29 @@ function OngletUtilisateurs() {
   // (superadmin) n'offrent rien à ajuster : le sur-mesure n'y
   // s'applique pas. Un bouton qui échoue est pire que pas de bouton.
   const [rolesComplets, setRolesComplets] = useState<Set<string>>(new Set());
+  // C-4 : désactiver ferme les sessions — la liste des sessions se
+  // relit après chaque geste.
+  const [revision, setRevision] = useState(0);
+  const [avis, setAvis] = useState<{ texte: string; erreur?: boolean } | null>(null);
+
+  async function basculerActif(u: Utilisateur) {
+    setAvis(null);
+    try {
+      const r = await invoke<{ actif: boolean; sessions_fermees: number }>(
+        "activer_utilisateur", { utilisateurId: u.id, actif: !u.actif });
+      setAvis({
+        texte: r.actif
+          ? `${u.nom} est réactivé.`
+          : `${u.nom} est désactivé${r.sessions_fermees
+              ? ` — ${r.sessions_fermees} session${r.sessions_fermees > 1 ? "s" : ""} fermée${r.sessions_fermees > 1 ? "s" : ""}`
+              : ""}.`,
+      });
+      await charger();
+      setRevision(n => n + 1);
+    } catch (e) {
+      setAvis({ texte: String(e), erreur: true });
+    }
+  }
 
   async function charger() {
     setChargement(true);
@@ -250,7 +274,7 @@ function OngletUtilisateurs() {
   );
 
   return (
-    <div className="space-y-4 max-w-lg">
+    <div className="space-y-4 max-w-2xl">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {utilisateurs.length} utilisateur{utilisateurs.length > 1 ? "s" : ""}
@@ -285,6 +309,15 @@ function OngletUtilisateurs() {
                 {u.role}
               </Badge>
               {!u.actif && <Badge variant="outline">Inactif</Badge>}
+              {u.id !== UTILISATEUR_ACTIF?.id && (
+                <Button variant="ghost" size="sm" onClick={() => basculerActif(u)}
+                  aria-label={`${u.actif ? "Désactiver" : "Réactiver"} ${u.nom}`}
+                  title={u.actif
+                    ? "Le compte ne peut plus se connecter ; ses sessions ouvertes sont fermées"
+                    : "Le compte peut de nouveau se connecter"}>
+                  {u.actif ? "Désactiver" : "Réactiver"}
+                </Button>
+              )}
               {!rolesComplets.has(u.role) && (
                 <Button variant="outline" size="sm"
                   onClick={() => setModalPermissions(u)}
@@ -296,6 +329,14 @@ function OngletUtilisateurs() {
           </div>
         ))}
       </div>
+
+      {avis && (
+        <p className={`text-sm ${avis.erreur ? "text-red-600" : "text-emerald-700"}`} role="status">
+          {avis.texte}
+        </p>
+      )}
+
+      <SessionsOuvertes revision={revision} />
 
       <p className="text-xs text-muted-foreground">
         Une personne à qui le rôle donne tout (patron) ou au rôle
