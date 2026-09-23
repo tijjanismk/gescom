@@ -472,6 +472,15 @@ CREATE TABLE IF NOT EXISTS journal (
     annule_paiement_id TEXT
 );
 
+-- Une anomalie VUE (v3, B-4) : par qui, quand. Le journal reste tel
+-- qu'il a ete ecrit ; le « vu » vit a cote. Sans lui, le compteur du
+-- tableau de bord ne redescendrait jamais.
+CREATE TABLE IF NOT EXISTS anomalie_vue (
+    journal_id  TEXT PRIMARY KEY,
+    vue_par     TEXT NOT NULL,
+    vue_le      TEXT NOT NULL
+);
+
 
 -- =====================================================================
 --  INDEX

@@ -82,3 +82,28 @@ dans la page du patron.
 Preuves : unitaire `le_filtre_lit_le_niveau_a_sa_place` ; route
 `le_journal_technique_se_lit_depuis_la_console_avec_la_permission_de_sauvegarde`
 (401, 200, filtre, 400, 403 employé) ; banc `b3-console-journal.mjs` (10).
+
+## Les anomalies sur le tableau de bord (B-4)
+
+Une anomalie (`journal.type_evenement = 'anomalie'`, écrite par
+`journal::anomalie_sur` dans la transaction du geste) se **marque
+vue** : table `anomalie_vue (journal_id PK, vue_par, vue_le,
+dossier_id)` — cloisonnée (`TABLES_CLOISONNEES`), à côté du journal
+qui reste tel qu'il a été écrit. `historique.rs` :
+`anomalies_a_verifier_sur` (le compteur), `marquer_anomalie_vue_sur`
+(signée par la session, D26 ; déjà vue → la **première** personne
+reste ; refus sur un événement qui n'est pas une anomalie ou
+introuvable). `lire_historique_sur` rend `vue: {le, par_nom}` pour
+une anomalie vue, et le filtre `a_verifier` ne garde que les anomalies
+non vues.
+
+Commandes `lire_anomalies_a_verifier`, `marquer_anomalie_vue` —
+permission `journal:lire` (marquer « vu » est un accusé de lecture, pas
+une écriture métier). Le **tableau de bord** montre un bouton rouge
+« N anomalies à vérifier » en tête des alertes, seulement s'il y en a
+et seulement avec `journal:lire` ; il ouvre l'Historique filtré
+(« Anomalies à vérifier ») ; chaque anomalie y a « Marquer vue » ou
+« Vue par X le … ».
+
+Preuves : `historique_base::une_anomalie_vue_dit_par_qui_et_le_compteur_redescend`
+(deux moteurs) ; banc `b4-anomalies.mjs` (10).

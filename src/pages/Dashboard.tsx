@@ -126,11 +126,18 @@ function MiniBar({ valeur, max, couleur = "bg-primary" }: {
 //  Dashboard
 // =====================================================================
 
-export function Dashboard() {
+export function Dashboard({ onAnomalies }: {
+  /** Ouvre l'Historique sur les anomalies à vérifier. Absent sans
+   *  `journal:lire` : ni compteur, ni lecture. */
+  onAnomalies?: () => void;
+} = {}) {
   const [resume, setResume] = useState<ResumeDashboard | null>(null);
   // Ventes à découvert : marchandise sortie au-delà du stock connu.
   // Chacune signale soit un stock faux, soit une entrée non saisie.
   const [nbDecouverts, setNbDecouverts] = useState(0);
+  // Les anomalies que personne n'a encore marquées vues (B-4). Rouge,
+  // et seulement s'il y en a.
+  const [nbAnomalies, setNbAnomalies] = useState(0);
   // Graphe : échelle choisie par l'utilisateur, rechargée seule quand
   // elle change — inutile de refaire tout le tableau de bord pour
   // passer de la journée à la semaine.
@@ -152,14 +159,18 @@ export function Dashboard() {
     setErreur(null);
     try {
       const auj = new Date().toISOString().slice(0, 10);
-      const [res, tc, ta, dec] = await Promise.all([
+      const [res, tc, ta, dec, ano] = await Promise.all([
         invoke<ResumeDashboard>("lire_resume_dashboard", { depotId: DEPOT_ACTIF }),
         estPatron ? invoke<TopClient[]>("lire_top_clients") : Promise.resolve([]),
         estPatron ? invoke<TopArticle[]>("lire_top_articles") : Promise.resolve([]),
         invoke<{ nb: number }>("lire_ventes_a_decouvert", {
           dateDebut: auj, dateFin: auj,
         }).catch(() => ({ nb: 0 })),
+        onAnomalies
+          ? invoke<{ nombre: number }>("lire_anomalies_a_verifier").catch(() => ({ nombre: 0 }))
+          : Promise.resolve({ nombre: 0 }),
       ]);
+      setNbAnomalies(ano?.nombre ?? 0);
       setResume(res);
       setNbDecouverts(dec?.nb ?? 0);
       setTopClients(tc);
@@ -275,8 +286,17 @@ export function Dashboard() {
 
         {/* ── Alertes ── */}
         {(r.nb_creances_en_retard > 0 || r.stock_ruptures > 0 ||
-          r.factures_brouillon > 0 || nbDecouverts > 0) && (
+          r.factures_brouillon > 0 || nbDecouverts > 0 || nbAnomalies > 0) && (
           <div className="flex gap-2 flex-wrap">
+            {/* En tête : une anomalie, c'est le logiciel qui dit
+                « je n'ai pas su faire » — à regarder avant le reste. */}
+            {nbAnomalies > 0 && onAnomalies && (
+              <button onClick={onAnomalies} data-testid="compteur-anomalies"
+                className="px-3 py-2 bg-red-600 border border-red-700 text-sm text-white
+                           hover:bg-red-700 transition-colors">
+                <span><strong>{nbAnomalies}</strong> anomalie{nbAnomalies > 1 ? "s" : ""} à vérifier</span>
+              </button>
+            )}
             {r.nb_creances_en_retard > 0 && (
               <div className="px-3 py-2
                               bg-red-50 border border-red-200 text-sm text-red-700">

@@ -1673,3 +1673,20 @@ dernière requête affiche désormais.
 
 Plan : `lire_journal_sur` s'appelle `lire_historique_sur` (le module
 `journal.rs` existe déjà et écrit les anomalies).
+
+**B-2** — les erreurs de la fenêtre (`onerror`, `unhandledrejection`)
+arrivent `[POSTE ]` dans le journal technique, bornées (4 Ko, 10 par
+minute et par poste). Le message est ramené à une ligne : un `\n` venu
+d'une caisse aurait fabriqué une fausse ligne `[ERREUR]`. **B-3** — la
+console du serveur lit ce journal (même permission que la sauvegarde),
+lignes écrites en texte : le banc vérifie qu'une ligne piégée
+`<img onerror>` n'injecte rien. **B-4** — les anomalies se marquent
+vues dans une table à côté du journal (qui reste append-only) ; le
+tableau de bord les compte en rouge.
+
+Choix faits sans le propriétaire : marquer une anomalie vue demande
+`journal:lire` (c'est un accusé de lecture, pas une écriture métier) ;
+quand deux personnes la marquent, la première reste.
+
+Mesuré : `historique_base` 6 scénarios (deux moteurs), 4 routes
+nouvelles ou étendues, banc complet 91 vérifications d'une base neuve.

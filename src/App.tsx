@@ -269,7 +269,16 @@ function App() {
   function rendrePage() {
     if (!utilisateur) return null;
     switch (pageActive) {
-      case "dashboard":  return <Dashboard />;
+      case "dashboard":
+        return (
+          <Dashboard
+            onAnomalies={peut("journal:lire") ? () =>
+              ouvrirHistorique(
+                { type_evenement: "anomalie", a_verifier: true, libelle: "Anomalies à vérifier" },
+                "dashboard", null)
+              : undefined}
+          />
+        );
       case "ventes":     return <Ventes />;
       case "pieces":
         return (

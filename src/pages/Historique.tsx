@@ -26,6 +26,8 @@ export interface FiltreHistorique {
   type_evenement?: string;
   du?: string;
   au?: string;
+  /** Seulement les anomalies que personne n'a marquées vues (B-4). */
+  a_verifier?: boolean;
   /** Ce que dit la puce du filtre : « Client : Coulibaly ». */
   libelle?: string;
 }
@@ -47,6 +49,8 @@ interface Ligne {
   article_nom: string | null;
   ancien: unknown;
   nouveau: unknown;
+  /** Une anomalie marquée vue : par qui, quand. */
+  vue: { le: string; par_nom: string | null } | null;
 }
 
 interface Page {
@@ -186,6 +190,7 @@ export function Historique({ filtreInitial, onRetour }: HistoriqueProps) {
           tiers_id: contexte?.tiers_id ?? null,
           piece_id: contexte?.piece_id ?? null,
           article_id: contexte?.article_id ?? null,
+          a_verifier: contexte?.a_verifier ?? false,
           recherche: recherche || null,
           page,
           par_page: PAR_PAGE,
@@ -203,6 +208,15 @@ export function Historique({ filtreInitial, onRetour }: HistoriqueProps) {
   }, [du, au, auteur, type, contexte, recherche, page]);
 
   useEffect(() => { charger(); }, [charger]);
+
+  async function marquerVue(id: string) {
+    try {
+      await invoke("marquer_anomalie_vue", { journalId: id });
+      await charger();
+    } catch (e) {
+      setErreur(String(e));
+    }
+  }
 
   const aDesFiltres = !!(du || au || auteur || type || saisie || contexte?.libelle);
 
@@ -319,7 +333,21 @@ export function Historique({ filtreInitial, onRetour }: HistoriqueProps) {
                     {l.libelle_type}
                   </td>
                   <td className={TD}><SurQuoi l={l} /></td>
-                  <td className={`${TD} text-xs`}><Detail ancien={l.ancien} nouveau={l.nouveau} /></td>
+                  <td className={`${TD} text-xs`}>
+                    <Detail ancien={l.ancien} nouveau={l.nouveau} />
+                    {l.type === "anomalie" && (l.vue ? (
+                      <div className="mt-1 text-muted-foreground" data-testid="anomalie-vue">
+                        Vue par {l.vue.par_nom ?? "?"} le {quand(l.vue.le)}
+                      </div>
+                    ) : (
+                      <div className="mt-1">
+                        <Button size="sm" variant="outline" className="h-7 text-xs"
+                          onClick={() => marquerVue(l.id)}>
+                          Marquer vue
+                        </Button>
+                      </div>
+                    ))}
+                  </td>
                 </tr>
               ))}
               {donnees && donnees.lignes.length === 0 && (

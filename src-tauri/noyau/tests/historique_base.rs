@@ -2,7 +2,8 @@
 //!
 //! La preuve du plan : « qui a annule le reglement de Coulibaly
 //! mardi ? » se trouve en tapant le nom du client. Puis les filtres, la
-//! pagination, la permission, et le detecteur de cloisonnement.
+//! pagination, la permission, et le detecteur de cloisonnement. B-4 :
+//! une anomalie se marque vue (par qui, quand) et le compteur redescend.
 
 mod commun;
 
@@ -194,6 +195,67 @@ fn le_journal_se_lit_avec_sa_permission() {
     assert!(portes::permissions_de_sur(&mut base, "x", "patron").contains("journal:lire"));
 }
 
+/// Un utilisateur de la demo, par son nom de connexion.
+fn utilisateur(base: &mut Base, pseudo: &str) -> (String, String) {
+    base.lire_une(
+        "SELECT u.id, u.nom FROM utilisateur u JOIN utilisateur_auth a ON a.utilisateur_id = u.id WHERE a.pseudo = ?1",
+        &parametres![pseudo],
+        |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?)),
+    )
+    .unwrap()
+    .unwrap()
+}
+
+#[test]
+fn une_anomalie_vue_dit_par_qui_et_le_compteur_redescend() {
+    let mut base = base_avec_demo();
+    let client = client_reel(&mut base);
+    let avant = historique::anomalies_a_verifier_sur(&mut base).unwrap();
+    gescom_noyau::journal::anomalie_sur(&mut base, "client", &client, None, serde_json::json!({ "message": "premiere" }));
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    gescom_noyau::journal::anomalie_sur(&mut base, "client", &client, None, serde_json::json!({ "message": "seconde" }));
+    assert_eq!(historique::anomalies_a_verifier_sur(&mut base).unwrap(), avant + 2);
+
+    let a_voir = lire(&mut base, Filtre { a_verifier: true, ..Default::default() });
+    assert_eq!(a_voir["total"].as_i64().unwrap(), avant + 2);
+    let premiere = a_voir["lignes"].as_array().unwrap().iter()
+        .find(|l| l["nouveau"]["message"] == "premiere").unwrap()["id"].as_str().unwrap().to_string();
+
+    // L'admin la marque vue : c'est la session qui signe (D26).
+    let (admin, nom_admin) = utilisateur(&mut base, "admin");
+    {
+        let _g = gescom_noyau::auteur::poser(&admin);
+        let v = historique::marquer_anomalie_vue_sur(&mut base, &premiere).unwrap();
+        assert_eq!(v["par_nom"], nom_admin.as_str());
+    }
+    assert_eq!(historique::anomalies_a_verifier_sur(&mut base).unwrap(), avant + 1, "le compteur redescend");
+
+    // Une seconde personne ne la « reprend » pas : la premiere reste.
+    let (employe, _) = utilisateur(&mut base, "employe");
+    {
+        let _g = gescom_noyau::auteur::poser(&employe);
+        let v = historique::marquer_anomalie_vue_sur(&mut base, &premiere).unwrap();
+        assert_eq!(v["par_nom"], nom_admin.as_str(), "la premiere personne reste");
+    }
+
+    // L'Historique dit « vue par … le … » ; « à vérifier » ne la montre plus.
+    let toutes = lire(&mut base, Filtre { type_evenement: Some("anomalie".into()), ..Default::default() });
+    let l = toutes["lignes"].as_array().unwrap().iter().find(|l| l["id"] == premiere.as_str()).unwrap();
+    assert_eq!(l["vue"]["par_nom"], nom_admin.as_str());
+    assert!(l["vue"]["le"].as_str().unwrap().len() >= 10);
+    let restantes = lire(&mut base, Filtre { a_verifier: true, ..Default::default() });
+    assert!(restantes["lignes"].as_array().unwrap().iter().all(|l| l["id"] != premiere.as_str() && l["type"] == "anomalie"));
+    assert!(restantes["lignes"].as_array().unwrap().iter().all(|l| l["vue"].is_null()));
+
+    // Seule une anomalie se marque vue ; un identifiant inconnu est refusé.
+    reglement_annule(&mut base);
+    let autre = lire(&mut base, Filtre { type_evenement: Some("reglement_annule".into()), ..Default::default() });
+    let id = autre["lignes"][0]["id"].as_str().unwrap().to_string();
+    assert!(historique::marquer_anomalie_vue_sur(&mut base, &id).is_err());
+    assert_eq!(autre["lignes"][0]["vue"], serde_json::Value::Null);
+    assert!(historique::marquer_anomalie_vue_sur(&mut base, "inconnu").is_err());
+}
+
 #[test]
 fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     let mut base = base_avec_demo();
@@ -210,10 +272,13 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
             piece_id: Some("x".into()),
             article_id: Some("x".into()),
             recherche: Some("x".into()),
+            a_verifier: true,
             page: 1,
             par_page: 10,
         },
     );
+    historique::anomalies_a_verifier_sur(&mut base).expect("compteur");
+    assert!(historique::marquer_anomalie_vue_sur(&mut base, "x").is_err());
     let f = historique::filtres_sur(&mut base).expect("filtres");
     assert!(f["types"].as_array().unwrap().len() > 5);
     let auteurs = f["auteurs"].as_array().unwrap();

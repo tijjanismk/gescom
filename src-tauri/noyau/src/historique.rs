@@ -33,6 +33,10 @@ pub struct Filtre {
     /// Un morceau de nom de client, de numero de piece, d'article, ou du
     /// detail enregistre.
     pub recherche: Option<String>,
+    /// Seulement les anomalies que personne n'a encore marquees vues
+    /// (le compteur du tableau de bord ouvre l'Historique ainsi).
+    #[serde(default)]
+    pub a_verifier: bool,
     #[serde(default)]
     pub page: i64,
     #[serde(default)]
@@ -49,6 +53,7 @@ WITH h AS (
   SELECT j.id, j.date_evenement, j.type_evenement, j.entite_type, j.entite_id,
          j.ancien_valeur, j.nouveau_valeur, j.auteur_id,
          u.nom AS auteur_nom,
+         av.vue_le, uv.nom AS vue_par_nom,
          CASE
            WHEN j.entite_type IN ('client', 'fournisseur') THEN j.entite_id
            WHEN j.entite_type = 'vente' THEN
@@ -92,6 +97,8 @@ WITH h AS (
          END AS article_id
   FROM journal j
   LEFT JOIN utilisateur u ON u.id = j.auteur_id
+  LEFT JOIN anomalie_vue av ON av.journal_id = j.id AND av.dossier_id = ?1
+  LEFT JOIN utilisateur uv ON uv.id = av.vue_par
   WHERE j.dossier_id = ?1
 ),
 r AS (
@@ -115,7 +122,8 @@ WHERE (CAST(?2 AS TEXT) IS NULL OR SUBSTR(r.date_evenement, 1, 10) >= ?2)
          COALESCE(r.tiers_nom, '') || ' ' || COALESCE(r.piece_numero, '') || ' ' ||
          COALESCE(r.article_nom, '') || ' ' || COALESCE(r.auteur_nom, '') || ' ' ||
          COALESCE(r.nouveau_valeur, '') || ' ' || COALESCE(r.ancien_valeur, '')
-       ) LIKE LOWER(?9))";
+       ) LIKE LOWER(?9))
+  AND (CAST(?10 AS BIGINT) = 0 OR (r.type_evenement = 'anomalie' AND r.vue_le IS NULL))";
 
 fn vide(s: &Option<String>) -> Option<String> {
     s.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
@@ -139,7 +147,8 @@ pub fn lire_historique_sur(acces: &mut impl Acces, f: Filtre) -> Result<serde_js
         vide(&f.tiers_id),
         vide(&f.piece_id),
         vide(&f.article_id),
-        recherche
+        recherche,
+        f.a_verifier as i64
     ];
 
     let total: i64 = acces
@@ -161,10 +170,10 @@ pub fn lire_historique_sur(acces: &mut impl Acces, f: Filtre) -> Result<serde_js
                  SELECT r.id, r.date_evenement, r.type_evenement, r.entite_type, r.entite_id,
                         r.auteur_id, r.auteur_nom, r.tiers_id, r.tiers_nom,
                         r.piece_id, r.piece_numero, r.article_id, r.article_nom,
-                        r.ancien_valeur, r.nouveau_valeur
+                        r.ancien_valeur, r.nouveau_valeur, r.vue_le, r.vue_par_nom
                  FROM r {FILTRES}
                  ORDER BY r.date_evenement DESC, r.id DESC
-                 LIMIT ?10 OFFSET ?11"
+                 LIMIT ?11 OFFSET ?12"
             ),
             &avec_page,
             |r| {
@@ -186,6 +195,15 @@ pub fn lire_historique_sur(acces: &mut impl Acces, f: Filtre) -> Result<serde_js
                     "article_nom":    r.get::<Option<String>>(12)?,
                     "ancien":         detail(r.get::<Option<String>>(13)?),
                     "nouveau":        detail(r.get::<Option<String>>(14)?),
+                    // Une anomalie vue dit par qui et quand ; les autres
+                    // lignes n'ont rien a voir.
+                    "vue": match (t == "anomalie", r.get::<Option<String>>(15)?) {
+                        (true, Some(le)) => serde_json::json!({
+                            "le": le,
+                            "par_nom": r.get::<Option<String>>(16)?,
+                        }),
+                        _ => serde_json::Value::Null,
+                    },
                 }))
             },
         )
@@ -206,6 +224,61 @@ fn detail(v: Option<String>) -> serde_json::Value {
         None => serde_json::Value::Null,
         Some(t) => serde_json::from_str(&t).unwrap_or(serde_json::Value::String(t)),
     }
+}
+
+/// Combien d'anomalies personne n'a encore vues — le compteur rouge du
+/// tableau de bord (B-4).
+pub fn anomalies_a_verifier_sur(acces: &mut impl Acces) -> Result<i64, String> {
+    let dossier = acces.dossier().to_string();
+    acces
+        .lire_une(
+            "SELECT CAST(COUNT(*) AS BIGINT) FROM journal j
+             WHERE j.dossier_id = ?1 AND j.type_evenement = 'anomalie'
+               AND NOT EXISTS (SELECT 1 FROM anomalie_vue av
+                               WHERE av.journal_id = j.id AND av.dossier_id = ?1)",
+            &parametres![dossier],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)
+        .map(|n| n.unwrap_or(0))
+}
+
+/// Marque une anomalie vue, au nom de la personne de la session (D26).
+/// Deja vue : on garde la PREMIERE — c'est elle qui a pris
+/// l'anomalie en charge — et on la rend.
+pub fn marquer_anomalie_vue_sur(acces: &mut impl Acces, journal_id: &str) -> Result<serde_json::Value, String> {
+    let dossier = acces.dossier().to_string();
+    let genre = acces
+        .lire_une(
+            "SELECT type_evenement FROM journal WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![journal_id, dossier.clone()],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?;
+    match genre.as_deref() {
+        None => return Err("Événement introuvable.".to_string()),
+        Some("anomalie") => {}
+        Some(_) => return Err("Seule une anomalie se marque vue.".to_string()),
+    }
+    let par = crate::argent::id_utilisateur_courant_sur(acces);
+    acces
+        .executer(
+            "INSERT INTO anomalie_vue (journal_id, vue_par, vue_le, dossier_id)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (journal_id) DO NOTHING",
+            &parametres![journal_id, par, crate::utils::maintenant_iso(), dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
+    acces
+        .lire_une(
+            "SELECT av.vue_le, u.nom FROM anomalie_vue av
+             LEFT JOIN utilisateur u ON u.id = av.vue_par
+             WHERE av.journal_id = ?1 AND av.dossier_id = ?2",
+            &parametres![journal_id, dossier],
+            |r| Ok(serde_json::json!({ "le": r.get::<String>(0)?, "par_nom": r.get::<Option<String>>(1)? })),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "La marque ne s'est pas relue.".to_string())
 }
 
 /// Les types d'evenement, pour le filtre de l'ecran.

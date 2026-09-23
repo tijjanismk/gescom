@@ -98,6 +98,14 @@ pub fn registre() -> Registre {
     r.sur_base("lire_filtres_historique", Some("journal:lire"), false, |c, _| {
         gescom_noyau::historique::filtres_sur(c.base)
     });
+    // B-4 : le compteur rouge du tableau de bord, et « vu » par qui.
+    r.sur_base("lire_anomalies_a_verifier", Some("journal:lire"), false, |c, _| {
+        Ok(serde_json::json!({ "nombre": gescom_noyau::historique::anomalies_a_verifier_sur(c.base)? }))
+    });
+    r.sur_base("marquer_anomalie_vue", Some("journal:lire"), true, |c, p| {
+        let id: String = arg(&p, "journalId", "journal_id")?;
+        gescom_noyau::historique::marquer_anomalie_vue_sur(c.base, &id)
+    });
 
     r.sur_base("enregistrer_coordonnees_documents", Some("parametres:modifier"), true, |c, p| {
         let choix: Vec<String> = arg(&p, "coordonnees", "coordonnees")?;

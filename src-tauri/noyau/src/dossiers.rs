@@ -79,6 +79,7 @@ pub const TABLES_CLOISONNEES: &[&str] = &[
     "creance_irrecouvrable",
     "relance_creance",
     "journal",
+    "anomalie_vue",
 ];
 
 /// La cle d'un compteur, cloisonnee par dossier.
