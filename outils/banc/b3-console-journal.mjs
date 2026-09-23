@@ -22,7 +22,10 @@ ok(await page.locator("#carte-journal").isHidden(), "le journal est caché avant
 await page.fill("#identifiant", "admin");
 await page.fill("#motdepasse", "Admin-2026!");
 await page.click("#form-connexion button[type=submit]");
-await page.waitForTimeout(1500);
+// Attendre la carte plutot qu'un delai fixe : sous charge (une suite
+// cargo en parallele), 1,5 s ne suffisait pas.
+await page.locator("#carte-journal").waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+await page.locator("#journal div").first().waitFor({ timeout: 15000 }).catch(() => {});
 ok(await page.locator("#carte-journal").isVisible(), "l'onglet Journal apparaît");
 const lignes = page.locator("#journal div");
 ok(await lignes.count() > 1, `des lignes (${await lignes.count()})`);
