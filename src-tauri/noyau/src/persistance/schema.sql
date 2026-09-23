@@ -472,6 +472,17 @@ CREATE TABLE IF NOT EXISTS journal (
     annule_paiement_id TEXT
 );
 
+-- Les plafonds d'UNE personne (v3, C-3) : chaque valeur posee
+-- l'emporte sur celle de son role ; vide = celle du role.
+CREATE TABLE IF NOT EXISTS utilisateur_plafond (
+    utilisateur_id      TEXT PRIMARY KEY REFERENCES utilisateur(id),
+    remise_max_pct      REAL,
+    remboursement_max   INTEGER,
+    credit_max          INTEGER,
+    modifie_le          TEXT NOT NULL,
+    modifie_par         TEXT
+);
+
 -- Une anomalie VUE (v3, B-4) : par qui, quand. Le journal reste tel
 -- qu'il a ete ecrit ; le « vu » vit a cote. Sans lui, le compteur du
 -- tableau de bord ne redescendrait jamais.

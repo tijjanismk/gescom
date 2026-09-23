@@ -220,6 +220,10 @@ fn colonnes_roles(base: &mut Base) {
         "ALTER TABLE role ADD COLUMN acces_total INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE role ADD COLUMN protege INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE role ADD COLUMN description TEXT",
+        // v3, C-3 : les plafonds du role. Vide = pas de plafond.
+        "ALTER TABLE role ADD COLUMN remise_max_pct REAL",
+        "ALTER TABLE role ADD COLUMN remboursement_max INTEGER",
+        "ALTER TABLE role ADD COLUMN credit_max INTEGER",
         "CREATE TABLE IF NOT EXISTS utilisateur_permission (
             utilisateur_id TEXT NOT NULL REFERENCES utilisateur(id),
             permission     TEXT NOT NULL,

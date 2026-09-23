@@ -29,3 +29,4 @@ installé.
 | `b4-anomalies.mjs` | B-4 | le compteur rouge du tableau de bord ouvre l'Historique sur les anomalies à vérifier ; « Marquer vue » la retire, « Vue par Patron le … » s'affiche, le compteur redescend |
 | `c4-sessions.mjs` | C-4 | deux navigateurs, deux postes : la session de la caisse B listée avec sa dernière commande ; « Déconnecter » la renvoie à la connexion ; « Désactiver » ferme sa session dans le même geste et le compte ne se reconnecte plus ; réactiver |
 | `c1-lectures.mjs` | C-1 | un caissier : ni Journal, ni Rapports, ni Historique, accueil sans chiffres, fiche client sans encours ni état de créance, pas de pièces fournisseur, aucun prix d'achat, cahier refusé ; un comptable : tout, prix d'achat compris |
+| `c3-plafonds.mjs` | C-3 | Paramètres → Rôles : plafonds du caissier saisis, relus, 150 % refusé ; la caissière refusée à 40 % (« Demander au patron »), vendue à 10 % ; le patron passe ; sur-mesure à 25 % pour une personne |

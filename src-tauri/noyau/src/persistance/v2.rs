@@ -295,6 +295,14 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         [],
     )
     .ok();
+    // v3, C-3 : les plafonds du role (vide = pas de plafond).
+    for sql in [
+        "ALTER TABLE role ADD COLUMN remise_max_pct REAL",
+        "ALTER TABLE role ADD COLUMN remboursement_max INTEGER",
+        "ALTER TABLE role ADD COLUMN credit_max INTEGER",
+    ] {
+        conn.execute(sql, []).ok();
+    }
     conn.execute(
         "ALTER TABLE role ADD COLUMN description TEXT",
         [],

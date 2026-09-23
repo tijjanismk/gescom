@@ -13,6 +13,7 @@ pub mod utils;
 pub mod auteur;
 pub mod documents;
 pub mod historique;
+pub mod plafonds;
 pub mod coeur;
 pub mod persistance;
 pub mod portes;

@@ -10,3 +10,4 @@ pub mod saisie;
 pub mod documents;
 pub mod historique;
 pub mod lecture;
+pub mod plafonds;

@@ -589,6 +589,10 @@ pub fn enregistrer_sortie_caisse(
     utilisateur_id: &str,
     maintenant: &str,
 ) -> Result<(), String> {
+    // v3, C-3 : l'argent qui ressort du tiroir, sous le plafond de la
+    // personne qui agit. Ici, au point de sortie : le montant n'est
+    // connu qu'au fond du retour.
+    crate::plafonds::exiger_remboursement(conn, montant)?;
     // Refus plutot qu'ecriture manquante : rendre de l'argent sans
     // mouvement de caisse cree un manque inexplicable a la cloture.
     let sid = crate::utils::exiger_session_caisse(conn)?;
@@ -827,6 +831,7 @@ pub fn enregistrer_sortie_caisse_sur(
     maintenant: &str,
 ) -> Result<(), String> {
     let dossier = acces.dossier().to_string();
+    crate::plafonds::exiger_remboursement_sur(acces, montant)?;
     let sid = crate::caisses::exiger_sur(acces, None)?;
     acces
         .executer(

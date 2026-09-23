@@ -503,6 +503,62 @@ fn le_caissier_recoit_prix_achat_null_et_pas_le_tableau_de_bord() {
 }
 
 #[test]
+fn le_plafond_du_caissier_se_juge_sur_l_argument_de_la_vente() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+    let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+        "nom": "Fanta", "pseudo": "fanta", "email": null, "motDePasse": "fanta-secret", "roleNom": "caissier"
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = rpc(port, &admin, "definir_plafonds_role", json!({
+        "role": "caissier", "plafonds": { "remise_max_pct": 15.0, "remboursement_max": 50000, "credit_max": 1 }
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "fanta", "mot_de_passe": "fanta-secret", "poste_nom": "p", "poste_empreinte": "routes-c3", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let caissier = v["jeton"].as_str().unwrap().to_string();
+
+    let (_, a) = rpc(port, &admin, "lire_articles_avec_unites", json!({}));
+    let article = &a["donnee"][0];
+    let unite = &article["unites"][0];
+    let prix = unite["prix_reference"].as_i64().unwrap();
+    let (_, d) = rpc(port, &admin, "lire_depot_defaut", json!({}));
+    let depot = d["donnee"]["id"].as_str().unwrap().to_string();
+    let (_, c) = rpc(port, &admin, "lire_clients", json!({}));
+    let client = c["donnee"].as_array().unwrap().iter().find(|x| x["code"] != "CLIENT00000")
+        .map(|x| x["id"].as_str().unwrap().to_string()).unwrap();
+    let vente = |pratique: i64, mode: &str| json!({
+        "clientId": client, "depotId": depot, "modeReglement": mode,
+        "lignes": [{
+            "article_id": article["id"], "unite_vente_id": unite["id"], "depot_source_id": depot,
+            "source_approvisionnement": "stock", "quantite": 1.0, "facteur": unite["facteur"],
+            "prix_reference": prix, "prix_pratique": pratique
+        }]
+    });
+
+    // 40 % : refusé, le message dit le plafond et quoi faire.
+    let (code, v) = rpc(port, &caissier, "creer_vente", vente(prix * 60 / 100, "credit"));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap().contains("votre plafond est 15 %. Demander au patron."), "{v}");
+    // Crédit au-delà de 1 F : refusé aussi.
+    let (code, v) = rpc(port, &caissier, "creer_vente", vente(prix, "credit"));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap().starts_with("Crédit de"), "{v}");
+    // Le patron n'a pas de plafond.
+    let (code, v) = rpc(port, &admin, "creer_vente", vente(prix * 60 / 100, "credit"));
+    assert_eq!(code, 200, "{v}");
+    // Rien n'a été écrit pour la caissière.
+    let base = rusqlite::Connection::open(&srv.base).unwrap();
+    let n: i64 = base.query_row("SELECT COUNT(*) FROM vente", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 1, "seule la vente du patron");
+}
+
+#[test]
 fn une_sauvegarde_se_restaure_hors_ligne_et_le_serveur_repart_dessus() {
     // Le diagnostic disait « restaurer la dernière sauvegarde » et rien ne
     // le faisait. Ici : on sauvegarde, on écrit encore, on restaure

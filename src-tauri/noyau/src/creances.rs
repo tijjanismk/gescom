@@ -277,6 +277,12 @@ pub fn annuler_reglement(
     // Caisse ouverte exigee UNIQUEMENT si de l'argent bouge (D46) :
     // corriger une erreur de saisie sur une session close ne touche pas
     // au tiroir, et ne doit donc pas etre bloque par une caisse fermee.
+    // v3, C-3 : rendre l'argent au client est un remboursement, sous le
+    // plafond de la personne qui agit. Contre-passer une erreur de
+    // saisie (sans remboursement) ne l'est pas.
+    if sort_de_caisse && remboursement {
+        crate::plafonds::exiger_remboursement(conn, montant)?;
+    }
     let session_id = if sort_de_caisse {
         Some(crate::utils::exiger_session_caisse(&conn)?)
     } else {
@@ -1339,6 +1345,10 @@ pub fn annuler_reglement_sur_base(
         .unwrap_or(false);
     let effet = crate::coeur::calcul::effet_caisse_annulation(remboursement, dans_session_ouverte, mode != "avoir");
     let sort_de_caisse = effet == crate::coeur::calcul::EffetCaisse::ContrePassation;
+    // v3, C-3 : un remboursement, sous le plafond de qui agit.
+    if sort_de_caisse && remboursement {
+        crate::plafonds::exiger_remboursement_sur(base, montant)?;
+    }
     // Caisse ouverte exigee UNIQUEMENT si de l'argent bouge (D46).
     let session_id = if sort_de_caisse { Some(crate::caisses::exiger_sur(base, None)?) } else { None };
 

@@ -1690,3 +1690,30 @@ quand deux personnes la marquent, la première reste.
 
 Mesuré : `historique_base` 6 scénarios (deux moteurs), 4 routes
 nouvelles ou étendues, banc complet 91 vérifications d'une base neuve.
+
+## 23/09/2026 (suite 3) — v3, chantier C : des droits plus complets
+
+**C-4** — il n'existait aucune commande pour désactiver un compte.
+`activer_utilisateur` le fait et ferme ses sessions dans la même
+transaction ; refus : soi-même, le compte de secours, le dernier compte
+à accès total. Paramètres → Utilisateurs montre les sessions ouvertes
+avec la dernière commande.
+
+**C-1** — cinq permissions de lecture, en une table (`coeur/lecture.rs`)
+appliquée par `api::rpc` : refus, masque à `null`, paramètres
+neutralisés. Deux lignes de partage choisies : le reste d'**une**
+pièce reste lisible (c'est le document en main), le solde d'un **tiers**
+non ; sur les documents d'achat, `achats:creer` suffit à lire les prix.
+Le banc a trouvé que le serveur sur fichier SQLite ne passait pas par
+`amorcer` : la migration du comptable est appelée aussi là. Au
+passage, la sauvegarde automatique n'est plus demandée par qui ne peut
+pas sauvegarder (un 403 à chaque connexion).
+
+**C-3** — trois plafonds. Jugés dans la poignée quand l'argument suffit,
+au point où l'argent sort quand le montant se calcule au fond du noyau.
+
+Relevé, pas corrigé (ALERTES) : le mode « caisse par utilisateur »
+ferait échouer tout encaissement — dormant, aucun écran ne l'offre.
+
+C-2 (droits par dossier) se fait avec le chantier D, comme le plan le
+dit.

@@ -101,6 +101,39 @@ Avec une seule caisse partagée par dossier, la session ouverte et les
 mouvements du jour restent lisibles par tous les caissiers :
 `caisse:lire_autres` porte sur l'historique des sessions.
 
+## Des plafonds, pas seulement des portes (23/09/2026, v3 C-3)
+
+Trois plafonds par **rôle** (`role.remise_max_pct`, `remboursement_max`,
+`credit_max` ; vide = aucun), ajustables par **personne**
+(`utilisateur_plafond`, chaque valeur posée l'emporte). Un rôle à accès
+total n'en a jamais (on refuse même d'en poser).
+
+- La règle : [coeur/plafonds.rs](../../src-tauri/noyau/src/coeur/plafonds.rs)
+  — `fusionner`, `valider`, `remise_pct`, `verifier_vente`,
+  `verifier_piece`, `verifier_remboursement`, le message
+  « Remise de 40 % — votre plafond est 15 %. Demander au patron. »
+- La base : [plafonds.rs](../../src-tauri/noyau/src/plafonds.rs) —
+  `de` / `de_sur` (les plafonds d'une personne), `exiger_remboursement(_sur)`
+  (lit `auteur::courant()` ; hors serveur, pas de plafond),
+  `lire_sur`, `definir_role_sur`, `definir_utilisateur_sur` (journal
+  `plafonds_modifies`).
+- **Où se juge quoi** : l'argument suffit → **dans la poignée** du
+  serveur, comme `pieces:antidater` : `creer_vente` (remise de chaque
+  ligne, crédit laissé si `credit`), `creer_piece` / `modifier_piece`
+  (remises de ligne et globale), `rembourser_avoir` (montant). Le
+  montant n'est connu qu'au fond → **au point où l'argent sort**, dans
+  le noyau : `retours::enregistrer_sortie_caisse(_sur)` (retour,
+  reliquat) et `annuler_reglement(_sur)` quand l'argent est rendu
+  (`remboursement = true`) — une contre-passation d'erreur de saisie ne
+  se plafonne pas.
+- Commandes : `lire_plafonds`, `definir_plafonds_role`,
+  `definir_plafonds_utilisateur` (`utilisateurs:gerer`, nées sur `Base`).
+- Écran : `components/EditeurPlafonds.tsx`, dans Paramètres → Rôles
+  (chaque rôle sans accès total) et dans la fenêtre Permissions d'une
+  personne.
+- Limite écrite : un retour qui rend en deux sorties (part + reliquat)
+  juge chaque sortie, pas leur somme.
+
 ## Une permission qui dépend des ARGUMENTS : `pieces:antidater`
 
 Le registre vérifie la permission de base d'une commande avant de

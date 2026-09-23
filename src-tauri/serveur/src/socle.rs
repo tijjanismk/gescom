@@ -305,6 +305,8 @@ pub fn registre() -> Registre {
         // La date de l'affaire : antidater exige sa permission a part.
         let date_vente = option_texte(&p, "dateVente").or_else(|| option_texte(&p, "date_vente"));
         exiger_antidatage(c.conn, c.appelant, date_vente.as_deref())?;
+        // C-3 : la remise de chaque ligne, et le credit laisse.
+        exiger_plafonds_vente(&gescom_noyau::plafonds::de(c.conn, &c.appelant.utilisateur_id), &p, &lignes)?;
 
         argent::creer_vente_datee_sur(
             c.conn,
@@ -331,6 +333,7 @@ pub fn registre() -> Registre {
 
         let date_vente = option_texte(&p, "dateVente").or_else(|| option_texte(&p, "date_vente"));
         exiger_antidatage_base(c.base, c.appelant, date_vente.as_deref())?;
+        exiger_plafonds_vente(&gescom_noyau::plafonds::de_sur(c.base, &c.appelant.utilisateur_id), &p, &lignes)?;
 
         argent::creer_vente_datee_sur_base(
             c.base,
@@ -994,6 +997,25 @@ pub fn registre() -> Registre {
         auth::activer_utilisateur_sur(c.base, &id, actif)
     });
 
+    // C-3 : les plafonds, par role et par personne.
+    r.sur_base("lire_plafonds", Some("utilisateurs:gerer"), false, |c, _| {
+        gescom_noyau::plafonds::lire_sur(c.base)
+    });
+    r.sur_base("definir_plafonds_role", Some("utilisateurs:gerer"), true, |c, p| {
+        let role: String = arg(&p, "role", "role")?;
+        let plafonds: gescom_noyau::coeur::plafonds::Plafonds =
+            serde_json::from_value(p.get("plafonds").cloned().unwrap_or(Value::Null))
+                .map_err(|e| format!("Plafonds illisibles : {e}"))?;
+        gescom_noyau::plafonds::definir_role_sur(c.base, &role, plafonds)
+    });
+    r.sur_base("definir_plafonds_utilisateur", Some("utilisateurs:gerer"), true, |c, p| {
+        let id: String = arg(&p, "utilisateurId", "utilisateur_id")?;
+        let plafonds: gescom_noyau::coeur::plafonds::Plafonds =
+            serde_json::from_value(p.get("plafonds").cloned().unwrap_or(Value::Null))
+                .map_err(|e| format!("Plafonds illisibles : {e}"))?;
+        gescom_noyau::plafonds::definir_utilisateur_sur(c.base, &id, plafonds)
+    });
+
     r.lecture("lire_utilisateurs", |c, _p| {
         let v = auth::lire_utilisateurs(c.conn)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
@@ -1088,6 +1110,9 @@ pub fn registre() -> Registre {
         let piece_id: String = arg(&p, "pieceId", "piece_id")?;
         let montant: i64 = arg(&p, "montant", "montant")?;
         let mode: String = arg(&p, "mode", "mode")?;
+        // C-3 : l'argent qui ressort du tiroir, sous le plafond.
+        gescom_noyau::coeur::plafonds::verifier_remboursement(
+            montant, &gescom_noyau::plafonds::de(c.conn, &c.appelant.utilisateur_id))?;
         let v = avoirs::rembourser_avoir(c.conn, piece_id, montant, mode, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
@@ -1095,6 +1120,8 @@ pub fn registre() -> Registre {
         let piece_id: String = arg(&p, "pieceId", "piece_id")?;
         let montant: i64 = arg(&p, "montant", "montant")?;
         let mode: String = arg(&p, "mode", "mode")?;
+        gescom_noyau::coeur::plafonds::verifier_remboursement(
+            montant, &gescom_noyau::plafonds::de_sur(c.base, &c.appelant.utilisateur_id))?;
         let v = avoirs::rembourser_avoir_sur_base(c.base, piece_id, montant, mode, Some(c.appelant.role.clone()))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
@@ -2259,6 +2286,7 @@ pub fn registre() -> Registre {
         // saisit le soir. Absente, c'est la date du jour.
         let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
         exiger_antidatage(c.conn, c.appelant, date_piece.as_deref())?;
+        exiger_plafonds_piece(&gescom_noyau::plafonds::de(c.conn, &c.appelant.utilisateur_id), &p)?;
         let v = pieces::creer_piece(c.conn, client_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id, depot_id, date_piece)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
@@ -2346,6 +2374,7 @@ pub fn registre() -> Registre {
         // saisit le soir. Absente, celle de la piece ne bouge pas.
         let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
         exiger_antidatage(c.conn, c.appelant, date_piece.as_deref())?;
+        exiger_plafonds_piece(&gescom_noyau::plafonds::de(c.conn, &c.appelant.utilisateur_id), &p)?;
         let v = pieces::modifier_piece(c.conn, piece_id, note, date_echeance, remise_globale, lignes, date_piece)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
@@ -2417,6 +2446,7 @@ pub fn registre() -> Registre {
     r.aussi_sur_base("creer_piece", |c, p| {
         let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
         exiger_antidatage_base(c.base, c.appelant, date_piece.as_deref())?;
+        exiger_plafonds_piece(&gescom_noyau::plafonds::de_sur(c.base, &c.appelant.utilisateur_id), &p)?;
         pieces::creer_piece_sur_base(
             c.base,
             arg(&p, "clientId", "client_id")?,
@@ -2487,6 +2517,7 @@ pub fn registre() -> Registre {
     r.aussi_sur_base("modifier_piece", |c, p| {
         let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
         exiger_antidatage_base(c.base, c.appelant, date_piece.as_deref())?;
+        exiger_plafonds_piece(&gescom_noyau::plafonds::de_sur(c.base, &c.appelant.utilisateur_id), &p)?;
         pieces::modifier_piece_sur_base(
             c.base,
             arg(&p, "pieceId", "piece_id")?,
@@ -2932,6 +2963,48 @@ fn exiger_antidatage_base(
     };
     gescom_noyau::portes::verifier_permission_sur(base, &ctx, "pieces:antidater")
         .map_err(|e| e.to_string())
+}
+
+// ---- v3, C-3 : les plafonds, juges sur l'argument ----
+//
+// Meme mecanisme que `pieces:antidater` : la commande a sa permission,
+// l'ARGUMENT a son plafond. La regle est dans `coeur::plafonds` ; ici
+// on ne fait que lui apporter les plafonds de la personne de la session.
+
+/// (prix de reference, prix pratique, quantite) de chaque ligne.
+fn lignes_pour_plafond(lignes: &[argent::ParamsLigneInput]) -> Vec<(i64, i64, f64)> {
+    lignes.iter().map(|l| (l.prix_reference, l.prix_pratique, l.quantite)).collect()
+}
+
+fn exiger_plafonds_vente(
+    plafonds: &gescom_noyau::coeur::plafonds::Plafonds,
+    p: &Value,
+    lignes: &[argent::ParamsLigneInput],
+) -> Result<(), String> {
+    let mode = option_texte(p, "modeReglement").or_else(|| option_texte(p, "mode_reglement")).unwrap_or_default();
+    gescom_noyau::coeur::plafonds::verifier_vente(
+        &lignes_pour_plafond(lignes),
+        mode == "credit",
+        entier(p, "montantPaye").or_else(|| entier(p, "montant_paye")).unwrap_or(0),
+        entier(p, "avoirMontant").or_else(|| entier(p, "avoir_montant")).unwrap_or(0),
+        plafonds,
+    )
+}
+
+fn exiger_plafonds_piece(
+    plafonds: &gescom_noyau::coeur::plafonds::Plafonds,
+    p: &Value,
+) -> Result<(), String> {
+    let remises: Vec<f64> = p
+        .get("lignes")
+        .and_then(Value::as_array)
+        .map(|t| t.iter().filter_map(|l| l.get("remise_pct").and_then(Value::as_f64)).collect())
+        .unwrap_or_default();
+    let globale = p
+        .get("remiseGlobale")
+        .or_else(|| p.get("remise_globale"))
+        .and_then(Value::as_f64);
+    gescom_noyau::coeur::plafonds::verifier_piece(&remises, globale, plafonds)
 }
 
 fn dossier_des_images(conn: &rusqlite::Connection) -> Option<std::path::PathBuf> {
