@@ -76,7 +76,10 @@ même permission que la sauvegarde (D9).
 `CodeErreur::DossierAChoisir` sur toute commande d'une session sans
 dossier, sauf `lire_dossiers` et `choisir_dossier`. `Appelant` porte
 `dossier_id` et `session_id` ; `api::rpc` fait `base.choisir_dossier`
-avant chaque poignée `Base`. Commandes : `lire_dossiers`,
+avant chaque poignée `Base`, et **pose l'auteur** de la requête
+(`noyau::auteur::poser(&appelant.utilisateur_id)`, D26) — comme
+`/sauvegarde` et `/entretien`. Toute nouvelle route authentifiée fait
+de même. Commandes : `lire_dossiers`,
 `creer_dossier` (`dossiers:gerer`), `choisir_dossier`,
 `oublier_dossier_memorise`, `lire_exercices`, `ouvrir_exercice`,
 `prolonger_exercice`, `clore_exercice`. L'écran : `PageLogin.tsx`

@@ -22,9 +22,13 @@ avoirs, relances, chèques.
 `creer_client_rapide`, `modifier_client`, `lire_articles_avec_unites`,
 `lire_depots`, `lire_depot_defaut`, `creer_article_rapide`,
 `creer_vente` ([ventes.rs:407](../../src-tauri/src/commandes/ventes.rs#L407)),
-`enregistrer_paiement`, `lire_clients_avec_creances` *(jamais appelée)*.
+`enregistrer_paiement` *(plus appelée par l'écran ; depuis le 23/09
+une enveloppe de `regler_creance_datee`, D27)*,
+`lire_clients_avec_creances` *(jamais appelée)*.
 
-**creances.rs** — `lire_creances_ouvertes`, `regler_creance`,
+**creances.rs** — `lire_creances_ouvertes`, `regler_creance` (mode dans
+la liste de `coeur::saisie`, jamais `avoir` ; tout ou rien sur les deux
+moteurs — D27),
 `lire_etat_creances_client`, `lire_etat_creances_global`,
 `lire_reglements_client`,
 `annuler_reglement` ([creances.rs:233](../../src-tauri/src/commandes/creances.rs#L233)),

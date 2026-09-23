@@ -151,7 +151,13 @@ de la même façon :
 - les dates se comparent par `SUBSTR(x, 1, 10)` ; les durées
   (`julianday`) se calculent en Rust (`utils::jours_depuis`) ;
 - les écritures composées tournent dans une transaction, même là où la
-  version SQLite n'en ouvrait pas.
+  version SQLite n'en ouvrait pas ;
+- **une instruction en échec avorte la transaction PostgreSQL**, et
+  `COMMIT` répond alors `ROLLBACK` sans erreur. `Transaction::valider`
+  vérifie que la transaction vit encore (`SELECT 1`) et refuse sinon
+  (23/09/2026) : un `let _ = tx.executer(...)` qui échoue fait échouer
+  le geste au lieu de le faire disparaître en silence. Une trace
+  vraiment facultative s'écrit après `valider()`.
 
 ### Le trait `Acces`
 

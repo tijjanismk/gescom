@@ -43,6 +43,12 @@ Avant de corriger quoi que ce soit : [AI_CONTEXT/ALERTES.md](AI_CONTEXT/ALERTES.
    la constante vient de `coeur`.
 7. Les décisions numérotées (D1…D51) ne se rediscutent pas dans le code :
    [AI_CONTEXT/DECISIONS.md](AI_CONTEXT/DECISIONS.md).
+8. **Qui agit vient de la session, pas du rôle** (D26) : jamais de
+   `WHERE role = ? LIMIT 1` pour trouver un auteur — les aides
+   `argent::id_utilisateur_*` lisent `noyau::auteur::courant()`, que le
+   serveur pose pour chaque requête. **Le serveur juge la saisie**
+   (D27) : montant, mode, quantité, prix, remise passent par
+   `coeur/saisie.rs` dans les deux versions — l'écran ne protège rien.
 
 ## Tests
 

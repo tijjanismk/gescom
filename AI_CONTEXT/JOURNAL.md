@@ -1573,3 +1573,48 @@ console web déjà construite, pas une interface refaite. Le rôle
 « complet » embarque le multi-dossier (D13/D22, déjà au chantier D).
 
 Recommandé et confirmé : réutiliser plutôt que reconstruire.
+
+## 23/09/2026 — revue de la v2 : quatre défauts, une branche
+
+« Review le v2 s'il n'a pas un bug majeur. » La suite passait (442
+tests SQLite), la v2 était close. La revue a lu le serveur (`api.rs`,
+`http.rs`, `socle.rs`) puis les chemins d'argent (`argent.rs`,
+`creances.rs`, `caisses.rs`), et **chaque défaut a été reproduit par un
+test avant d'être corrigé** — sur la branche `correctif/revue-v2`,
+pas sur `main`.
+
+**Le majeur : l'auteur.** Le serveur connaissait l'utilisateur de la
+session et ne passait que son rôle ; le noyau prenait le premier compte
+actif de ce rôle. Test : Awa et Bakary, tous deux caissiers ; Bakary
+vend, la base dit Awa. Ventes, remises, règlements, ouverture de
+caisse : tout signé par le premier venu, dans ~100 appels. Correction
+sans toucher une signature — le serveur sert chaque requête sur son
+fil, il y pose l'utilisateur (`noyau::auteur`, garde qui se retire en
+tombant) et les cinq aides d'auteur le lisent d'abord (D26). Le test de
+route échoue si on retire la garde d'`api.rs` : vérifié.
+
+**Trois trous gardés par l'écran seul** (D27). `regler_creance` en mode
+« avoir » : 1 600 F de dette effacés, zéro avoir consommé, zéro franc
+en caisse. `enregistrer_paiement` à −50 000 F : la caisse à −49 200 F.
+Une vente de −5 sacs : le stock de 200 à 205, la vente « payée ». Au
+passage, la même chose côté réception, pièces et règlement fournisseur.
+Les règles sont dans `coeur/saisie.rs` ; `enregistrer_paiement` passe
+désormais par `regler_creance_datee`.
+
+**Deux défauts de transaction.** `regler_creance_datee` (SQLite, le
+chemin du serveur sur fichier) écrivait en trois ordres séparés et
+ignorait l'échec de l'écriture en caisse — maintenant tout ou rien,
+prouvé par un déclencheur qui fait échouer l'insertion en caisse. Et
+sur PostgreSQL, vérifié en direct (`BEGIN; SELECT 1/0; COMMIT;` répond
+`ROLLBACK`) : une écriture ignorée (`let _ =`) avorte la transaction et
+`COMMIT` ne dit rien — la vente disparaissait, la commande rendait
+`Ok`. `Transaction::valider` refuse désormais une transaction avortée.
+
+Vu et laissé : la caisse nominative, dormante et inutilisable en
+l'état (tous les `exiger*` passent `None`), à reprendre avec le
+chantier C de la v3 ; l'auteur en argument plutôt que par le fil.
+
+Tests : `noyau/tests/revue_v2_base.rs` (11 scénarios, SQLite et
+PostgreSQL), un test de route HTTP, 12 tests unitaires. Suite :
+466 tests SQLite, 461 sur PostgreSQL, 0 échec hors `installation.rs`
+(propre à Windows, la mesure a été faite sous Linux).

@@ -5,7 +5,10 @@ Le récit daté de chaque avancée vit dans [JOURNAL.md](JOURNAL.md), les
 décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md).
 
-Dernière mise à jour : **21 septembre 2026 — la v2 est close.** Le
+Dernière mise à jour : **23 septembre 2026 — revue de la v2, trois
+défauts corrigés sur la branche `correctif/revue-v2`** (à fusionner
+dans `main` ; § « Revue du 23/09/2026 » plus bas). Avant : **21
+septembre 2026 — la v2 est close.** Le
 code est fini (tout ce qui pouvait se faire sans le propriétaire
 devant sa machine l'a été : restauration, routes HTTP testées, chèque
 rejeté, filtres liés, codes-barres dessinés, retour d'une vente payée
@@ -132,6 +135,47 @@ caisse ne bouge pas. La caisse se lit **par session**, jamais par date —
 et on ne peut pas ouvrir la session d'un jour passé. Antidater une
 entrée changerait après coup une session close et comptée, et c'est
 aussi ainsi qu'on masque un trou dans le tiroir.
+
+## Revue du 23/09/2026 — branche `correctif/revue-v2`
+
+Relecture de la v2 close, à la recherche d'un défaut majeur. Quatre
+défauts **reproduits par un test avant d'être corrigés** ; le récit est
+dans [JOURNAL.md](JOURNAL.md) § 23/09/2026, les règles dans
+[ALERTES.md](ALERTES.md) et [DECISIONS.md](DECISIONS.md) D26–D27.
+
+| # | quoi | où |
+|---|---|---|
+| V1 | **L'auteur d'un geste était le premier compte de son rôle** (D26) : deux caissiers, toutes les ventes, remises, règlements et ouvertures de caisse signés par le premier. Le serveur pose l'utilisateur de la session sur le fil de la requête ; les cinq aides d'auteur le lisent d'abord. ~100 appels corrigés, aucune signature touchée | `noyau/src/auteur.rs`, `argent.rs`, `comptoir.rs`, `serveur/src/api.rs` |
+| V2 | **Le serveur ne jugeait pas la saisie** (D27) : `regler_creance` en mode « avoir » effaçait la dette sans avoir ni argent ; `enregistrer_paiement` acceptait un montant négatif (entrée de caisse négative) ; une vente, une réception ou une pièce acceptait une quantité négative (le stock remontait) ; un règlement fournisseur négatif faisait « apparaître » de l'argent. Règles pures dans `coeur/saisie.rs`, appelées par les deux versions ; `enregistrer_paiement` passe par `regler_creance_datee` | `coeur/saisie.rs`, `creances.rs`, `argent.rs` (dont `regler_dette_fournisseur*`), `achats.rs`, `pieces.rs` |
+| V3 | **Le règlement d'une créance sur SQLite n'était pas en transaction** (règle 4) — c'est le chemin du serveur sur fichier ; l'écriture en caisse pouvait échouer en silence. Tout ou rien, prouvé par une panne simulée | `creances.rs::regler_creance_datee` |
+| V4 | **PostgreSQL : une erreur ignorée dans une transaction faisait disparaître toute l'opération**, la commande rendant `Ok` (COMMIT d'une transaction avortée = ROLLBACK muet). `Transaction::valider` vérifie que la transaction vit encore et refuse sinon | `noyau/src/base.rs` |
+
+Tests : `noyau/tests/revue_v2_base.rs` (11 scénarios, les deux
+moteurs, dont 2 sur la version `Connection`), un test de route HTTP
+(`deux_comptes_du_meme_role_signent_chacun_leur_vente`, qui échoue si
+on retire la garde d'`api.rs`), 12 tests unitaires (`coeur::saisie`,
+`auteur`). Suite complète : **466 tests SQLite**
+(`-p gescom-noyau -p gescom-serveur`) et **461 sur PostgreSQL** (noyau,
+`GESCOM_PG`, `--test-threads=1`), mesurés le 23/09 sous Linux ; seul
+`installation.rs` échoue, il ne vaut que sous Windows.
+
+**Ce qui reste, vu pendant la revue, pas corrigé ici** :
+- la **caisse nominative** (`caisse_par_utilisateur`) est dormante et
+  cassée : tous les appels à `caisses::exiger*` passent `None` comme
+  utilisateur (l'activer bloquerait tout encaissement) et l'ouverture
+  refuse une seconde session. Aucun écran ne l'active ; la commande
+  `definir_mode_caisse` reste servie (`caisse:configurer`). À reprendre
+  avec la v3 (chantier C), en passant par `auteur::courant()` ;
+- l'auteur passé en **argument** plutôt que par le fil (D26, « ce qu'on
+  ne fait pas ») ;
+- les autres commandes d'argent n'ont pas été relues une à une contre
+  `coeur/saisie.rs` : avoirs, dépenses, chèques et retours ont déjà
+  leur garde `montant <= 0` ou `quantite <= 0`, mais aucune ne vérifie
+  le mode de paiement contre la liste ;
+- sur PostgreSQL, les écritures « non bloquantes » (`let _ =`) dans
+  une transaction font désormais échouer le geste si elles échouent
+  (V4) : c'est voulu, mais une trace facultative devrait s'écrire
+  après `valider()`.
 
 ## Revue du 16/09/2026 — les cinq écarts, tous corrigés
 
