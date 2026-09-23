@@ -85,11 +85,17 @@ fn tous(acces: &mut impl Acces) -> Result<Vec<(String, ReglageGenre)>, String> {
         .collect())
 }
 
-fn ecrire_tous(acces: &mut impl Acces, tous: &[(String, ReglageGenre)]) -> Result<(), String> {
-    let mut m = serde_json::Map::new();
-    for (g, r) in tous {
-        m.insert(g.clone(), serde_json::to_value(r).map_err(|e| e.to_string())?);
-    }
+/// Ce qui est enregistre, tel quel : SEULS les genres que la boutique a
+/// regles. Un genre jamais touche suit les defauts d'usine, y compris
+/// quand une version de Gescom les ameliore.
+fn enregistres(acces: &mut impl Acces) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    Ok(lire_cle(acces, CLE_REGLAGES)?
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default())
+}
+
+fn ecrire_enregistres(acces: &mut impl Acces, m: serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
     ecrire_cle(acces, CLE_REGLAGES, &serde_json::Value::Object(m).to_string())
 }
 
@@ -153,13 +159,9 @@ pub fn enregistrer_reglage_sur(
     let r = regles::normaliser(r);
     let garde = r.signatures.len();
 
-    let mut tout = tous(acces)?;
-    for (g, x) in tout.iter_mut() {
-        if g == genre {
-            *x = r.clone();
-        }
-    }
-    ecrire_tous(acces, &tout)?;
+    let mut m = enregistres(acces)?;
+    m.insert(genre.to_string(), serde_json::to_value(&r).map_err(|e| e.to_string())?);
+    ecrire_enregistres(acces, m)?;
     for rang in garde..regles::SIGNATURES_MAX {
         effacer_cle(acces, &cle_image(genre, rang))?;
     }
@@ -171,15 +173,11 @@ pub fn retablir_defaut_sur(acces: &mut impl Acces, genre: &str) -> Result<serde_
     if !regles::GENRES.contains(&genre) {
         return Err(format!("Genre de document inconnu : « {genre} »."));
     }
-    let v2 = anciennes(acces)?;
-    let d = regles::defaut(genre, &|cle: &str| v2.get(cle).cloned());
-    let mut tout = tous(acces)?;
-    for (g, x) in tout.iter_mut() {
-        if g == genre {
-            *x = d.clone();
-        }
-    }
-    ecrire_tous(acces, &tout)?;
+    // Retirer le genre suffit : il retombe sur l'usine (et suit ses
+    // evolutions), les libelles v2 compris.
+    let mut m = enregistres(acces)?;
+    m.remove(genre);
+    ecrire_enregistres(acces, m)?;
     for rang in 0..regles::SIGNATURES_MAX {
         effacer_cle(acces, &cle_image(genre, rang))?;
     }

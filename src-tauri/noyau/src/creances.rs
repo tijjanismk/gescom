@@ -487,13 +487,23 @@ pub fn lire_donnees_recu(
 }
 
 /// En-tete societe, commun aux documents imprimes.
+/// La societe, telle que les documents l'impriment (reçus, relevés) :
+/// toutes les coordonnees, le document choisit lesquelles montrer
+/// (v3, A-2 : Paramètres → Documents).
 pub fn societe(conn: &rusqlite::Connection) -> serde_json::Value {
     conn.query_row(
-        "SELECT nom, adresse, telephone FROM parametres_societe WHERE id = 1",
+        "SELECT nom, adresse, telephone, telephone2, email, site_web, nif, rccm, pied_facture
+         FROM parametres_societe WHERE id = 1",
         [], |r| Ok(serde_json::json!({
-            "nom":       r.get::<_, String>(0)?,
-            "adresse":   r.get::<_, Option<String>>(1)?,
-            "telephone": r.get::<_, Option<String>>(2)?,
+            "nom":        r.get::<_, String>(0)?,
+            "adresse":    r.get::<_, Option<String>>(1)?,
+            "telephone":  r.get::<_, Option<String>>(2)?,
+            "telephone2": r.get::<_, Option<String>>(3)?,
+            "email":      r.get::<_, Option<String>>(4)?,
+            "site_web":   r.get::<_, Option<String>>(5)?,
+            "nif":        r.get::<_, Option<String>>(6)?,
+            "rccm":       r.get::<_, Option<String>>(7)?,
+            "pied_facture": r.get::<_, Option<String>>(8)?,
         })),
     ).unwrap_or(serde_json::json!({
         "nom": "", "adresse": null, "telephone": null
@@ -843,13 +853,20 @@ use crate::parametres;
 pub fn societe_sur(acces: &mut impl Acces) -> serde_json::Value {
     acces
         .lire_une(
-            "SELECT nom, adresse, telephone FROM parametres_societe WHERE id = 1",
+            "SELECT nom, adresse, telephone, telephone2, email, site_web, nif, rccm, pied_facture
+             FROM parametres_societe WHERE id = 1",
             &[],
             |r| {
                 Ok(serde_json::json!({
-                    "nom":       r.get::<String>(0)?,
-                    "adresse":   r.get::<Option<String>>(1)?,
-                    "telephone": r.get::<Option<String>>(2)?,
+                    "nom":        r.get::<String>(0)?,
+                    "adresse":    r.get::<Option<String>>(1)?,
+                    "telephone":  r.get::<Option<String>>(2)?,
+                    "telephone2": r.get::<Option<String>>(3)?,
+                    "email":      r.get::<Option<String>>(4)?,
+                    "site_web":   r.get::<Option<String>>(5)?,
+                    "nif":        r.get::<Option<String>>(6)?,
+                    "rccm":       r.get::<Option<String>>(7)?,
+                    "pied_facture": r.get::<Option<String>>(8)?,
                 }))
             },
         )

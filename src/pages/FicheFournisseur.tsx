@@ -11,6 +11,7 @@ import { ModalModifierTiers } from "@/components/ModalModifierTiers";
 import {
   genererReleveHTML, genererHistoriqueReglementsHTML, type DonneesReleve,
 } from "@/lib/genererReleve";
+import { chargerHabillage } from "@/lib/impression";
 import { GlassHalos } from "@/components/ui/GlassIcon";
 import { KpiLigne, CARTE, GRILLE } from "@/components/ui/KpiVerre";
 import { Button } from "@/components/ui/button";
@@ -421,10 +422,9 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
     if (!fournisseur) return;
     setHistoEnCours(true);
     try {
-      const [societeP, logo, entete] = await Promise.all([
+      const [societeP, habillage] = await Promise.all([
         invoke<any>("lire_parametres_societe"),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       const criteres = [
         payDu ? `du ${fmtDate(payDu)}` : null,
@@ -451,7 +451,7 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
           // Ce qu'on doit ENCORE au fournisseur, toutes factures — le
           // chiffre qu'il vient vérifier, distinct du solde par ligne.
           stats?.dette ?? 0,
-          societeP, logo, entete),
+          societeP, habillage),
         nomFichier: `paiements_${fournisseur.nom}`
           .replace(/[\\/:*?"<>|]/g, "-") + ".html",
       });
@@ -472,13 +472,12 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
   async function imprimerReleve() {
     setReleveEnCours(true);
     try {
-      const [donnees, logo, entete] = await Promise.all([
+      const [donnees, habillage] = await Promise.all([
         invoke<DonneesReleve>("lire_etat_dette_fournisseur", { fournisseurId }),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       await invoke("imprimer_facture", {
-        html: genererReleveHTML(donnees, "fournisseur", logo, entete),
+        html: genererReleveHTML(donnees, "fournisseur", habillage),
         nomFichier: `dette_${donnees.tiers.nom}`
           .replace(/[\\/:*?"<>|]/g, "-") + ".html",
       });

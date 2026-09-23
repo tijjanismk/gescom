@@ -8,7 +8,7 @@
 // dialogue : on voit ce qui a été enregistré à côté de ce qu'on a
 // changé.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import {
   Loader2, Save, Upload, X, ImageIcon, RotateCcw, Plus, Trash2, Stamp,
@@ -24,6 +24,8 @@ import {
   LIBELLES_GENRE, PORTEE_GENRE, LIBELLES_FORMAT, LIBELLES_COORDONNEE,
   SIGNATURES_MAX, lireReglagesDocuments, choisirImage, contenuBase64,
 } from "@/lib/documents";
+import { documentExemple } from "@/lib/exemples-documents";
+import type { FormatImpression } from "@/lib/genererPDF";
 
 type Avis = { type: "ok" | "erreur"; texte: string } | null;
 
@@ -126,6 +128,37 @@ function ImageSociete({
 }
 
 // =====================================================================
+//  L'exemple, réduit
+// =====================================================================
+
+const LARGEUR_PX: Record<string, number> = { a4: 794, a5: 559, thermique_80: 302, thermique_58: 220 };
+const HAUTEUR_PX: Record<string, number> = { a4: 1123, a5: 794, thermique_80: 700, thermique_58: 700 };
+
+function ApercuExemple({ html, format }: { html: string; format: string }) {
+  const largeur = LARGEUR_PX[format] ?? 794;
+  const hauteur = HAUTEUR_PX[format] ?? 1123;
+  // Tout tient dans 400 px de large, sans agrandir un ticket.
+  const echelle = Math.min(1, 400 / largeur);
+  return (
+    <figure className="xl:sticky xl:top-4 space-y-1.5" aria-label="Aperçu d'exemple">
+      <figcaption className="text-xs text-muted-foreground">
+        Aperçu d'exemple — données fictives, votre société. Rien n'est enregistré tant
+        que vous n'avez pas cliqué sur Enregistrer.
+      </figcaption>
+      <div className="rounded-md border border-border bg-muted/40 p-2 overflow-hidden"
+        style={{ height: hauteur * echelle + 16 }}>
+        <iframe title="Exemple de document" srcDoc={html} sandbox="allow-same-origin"
+          style={{
+            width: largeur, height: hauteur, border: "none", background: "#fff",
+            transform: `scale(${echelle})`, transformOrigin: "top left",
+            boxShadow: "0 1px 6px rgba(0,0,0,.12)",
+          }} />
+      </div>
+    </figure>
+  );
+}
+
+// =====================================================================
 //  L'onglet
 // =====================================================================
 
@@ -136,6 +169,8 @@ export function OngletDocuments() {
   const [entete, setEntete] = useState<string | null>(null);
   const [pied, setPied] = useState<string | null>(null);
   const [piedFacture, setPiedFacture] = useState<string>("");
+  const [societe, setSociete] = useState<Record<string, unknown>>({ nom: "Ma société" });
+  const [logo, setLogo] = useState<string | null>(null);
   const [erreurChargement, setErreurChargement] = useState<string | null>(null);
   const [occupe, setOccupe] = useState<string | null>(null);
   const [avisPapier, setAvisPapier] = useState<Avis>(null);
@@ -146,11 +181,13 @@ export function OngletDocuments() {
       lireReglagesDocuments(),
       invoke<string | null>("lire_entete_base64").catch(() => null),
       invoke<string | null>("lire_pied_base64").catch(() => null),
-      invoke<{ pied_facture?: string }>("lire_parametres_societe").catch(() => ({})),
+      invoke<Record<string, unknown>>("lire_parametres_societe").catch(() => ({})),
+      invoke<string | null>("lire_logo_base64").catch(() => null),
     ])
-      .then(([r, e, p, s]) => {
-        setReglages(r); setEntete(e); setPied(p);
-        setPiedFacture((s as { pied_facture?: string }).pied_facture ?? "");
+      .then(([r, e, p, s, l]) => {
+        setReglages(r); setEntete(e); setPied(p); setLogo(l);
+        setSociete({ nom: "Ma société", ...(s as Record<string, unknown>) });
+        setPiedFacture(String((s as { pied_facture?: string }).pied_facture ?? ""));
         setBrouillon(r.genres.facture);
       })
       .catch(e => setErreurChargement(String(e)));
@@ -291,6 +328,15 @@ export function OngletDocuments() {
     }
   }
 
+  // L'exemple se redessine à chaque case cochée : on voit l'effet
+  // AVANT d'enregistrer. Même générateur que l'impression.
+  const apercu = useMemo(() => {
+    if (!reglages || !brouillon) return "";
+    return documentExemple(genre, brouillon.format as FormatImpression, {
+      logo, entete, pied, reglage: brouillon, coordonnees: reglages.coordonnees,
+    }, societe).replace(/<script>[\s\S]*?<\/script>/g, "");
+  }, [genre, brouillon, reglages, logo, entete, pied, societe]);
+
   if (erreurChargement) {
     return (
       <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
@@ -315,9 +361,9 @@ export function OngletDocuments() {
   const enregistrees = reglages.genres[genre].signatures.length;
 
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-8 max-w-6xl">
       {/* ---- Papier à en-tête ---- */}
-      <section className="space-y-3" aria-labelledby="titre-papier">
+      <section className="space-y-3 max-w-3xl" aria-labelledby="titre-papier">
         <div>
           <h2 id="titre-papier" className="text-base font-semibold">Papier à en-tête</h2>
           <p className="text-sm text-muted-foreground">
@@ -380,6 +426,7 @@ export function OngletDocuments() {
           ))}
         </div>
 
+        <div className="grid xl:grid-cols-[minmax(0,1fr)_420px] gap-6 items-start">
         <div className="rounded-lg border border-border p-4 space-y-5">
           <p className="text-xs text-muted-foreground">{PORTEE_GENRE[genre]}</p>
 
@@ -509,6 +556,8 @@ export function OngletDocuments() {
             </Button>
           </div>
           <AvisLigne avis={avisGenre} />
+        </div>
+        <ApercuExemple html={apercu} format={brouillon.format} />
         </div>
       </section>
     </div>

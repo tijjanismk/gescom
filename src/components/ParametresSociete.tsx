@@ -197,24 +197,21 @@ export function ParametresSociete() {
         </p>
       </div>
 
-      {/* En-tête et pied ont quitté cet écran : ce sont des morceaux
-          de DOCUMENT, et on ne voit qu'en le dessinant s'il manque un
-          cachet ou une mention. Ils se posent maintenant dans l'atelier,
-          en bloc Image, à la taille voulue sur la page. */}
+      {/* En-tête, pied et signatures se règlent dans Paramètres →
+          Documents (v3, D17), à côté d'un aperçu : ce sont des morceaux
+          de document, pas l'identité de la société. */}
       <div className="rounded-md border border-dashed border-border p-3">
         <p className="text-sm font-medium flex items-center gap-1.5">
           <PanelTop className="h-3.5 w-3.5" />
-          En-tête et pied de page
+          En-tête, pied de page et signatures
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          Ils se règlent dans <strong>Paramètres → Modèles de documents</strong>,
-          en posant un bloc « Image » : on choisit le fichier et sa taille
-          en millimètres, en voyant le document.
+          Ils se règlent dans <strong>Paramètres → Documents</strong>, avec un aperçu.
           {(enteteBase64 || piedBase64) && (
-            <> Les images déjà posées restent en place
+            <> Images posées :
               {enteteBase64 && piedBase64
-                ? " (en-tête et pied)"
-                : enteteBase64 ? " (en-tête)" : " (pied)"}.</>
+                ? " en-tête et pied."
+                : enteteBase64 ? " en-tête." : " pied."}</>
           )}
         </p>
       </div>
@@ -293,9 +290,8 @@ export function ParametresSociete() {
           </p>
         </div>
 
-        {/* Les noms à signer ne se règlent plus ici : chaque modèle de
-            document porte son bloc « Signatures » (Paramètres → Modèles),
-            avec ses deux noms. */}
+        {/* Les noms à signer se règlent par genre de document, dans
+            Paramètres → Documents (D18). */}
       </div>
 
       <Button

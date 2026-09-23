@@ -25,7 +25,8 @@ fn sans_reglage_chaque_genre_a_ses_defauts_d_usine() {
     assert_eq!(f["signatures"][0]["libelle"], "Pour acquit");
     assert_eq!(f["signatures"][0]["image"], serde_json::Value::Null);
     assert_eq!(v["genres"]["ticket"]["format"], "thermique_80");
-    assert_eq!(v["genres"]["recu"]["signatures"].as_array().unwrap().len(), 0);
+    assert_eq!(v["genres"]["recu"]["signatures"][0]["libelle"], "Le caissier");
+    assert_eq!(v["genres"]["ticket"]["signatures"].as_array().unwrap().len(), 0);
 }
 
 #[test]
@@ -64,6 +65,24 @@ fn un_reglage_enregistre_se_relit_et_les_autres_genres_ne_bougent_pas() {
     let relu = documents::lire_reglage_sur(&mut base, "bon_livraison").unwrap();
     assert_eq!(relu, r);
     assert_eq!(documents::lire_reglage_sur(&mut base, "devis").unwrap(), avant_devis);
+}
+
+#[test]
+fn un_genre_jamais_regle_suit_l_usine() {
+    let mut base = base_avec_demo();
+    documents::enregistrer_reglage_sur(&mut base, "facture", json!({ "format": "a5" })).unwrap();
+    let brut: String = base
+        .lire_une("SELECT valeur FROM config_app WHERE cle = 'documents_reglages'", &[], |r| r.get::<String>(0))
+        .unwrap()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&brut).unwrap();
+    assert_eq!(v.as_object().unwrap().len(), 1, "seul le genre réglé est enregistré : {v}");
+    documents::retablir_defaut_sur(&mut base, "facture").unwrap();
+    let brut: String = base
+        .lire_une("SELECT valeur FROM config_app WHERE cle = 'documents_reglages'", &[], |r| r.get::<String>(0))
+        .unwrap()
+        .unwrap();
+    assert_eq!(brut, "{}");
 }
 
 #[test]
@@ -155,4 +174,30 @@ fn tout_ce_qui_est_touche_passe_le_detecteur() {
     documents::poser_image_signature_sur(&mut base, "facture", 0, Some(PNG.into())).unwrap();
     documents::retablir_defaut_sur(&mut base, "facture").unwrap();
     documents::enregistrer_coordonnees_sur(&mut base, vec!["nif".into()]).unwrap();
+}
+
+/// A-2 : la pièce à imprimer porte la référence de l'article et toutes
+/// les coordonnées de la société — le document choisit lesquelles
+/// montrer. Les deux versions de la lecture (le serveur sur fichier
+/// SQLite passe par la version `Connection`).
+#[test]
+fn la_piece_a_imprimer_porte_reference_et_coordonnees() {
+    let mut base = base_avec_demo();
+    let client = client_reel(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    base.executer("UPDATE article SET code_barre = '2000000000017' WHERE id = ?1", &gescom_noyau::parametres![sucre.0.clone()]).unwrap();
+    base.executer("UPDATE parametres_societe SET site_web = 'www.boutique.ml' WHERE id = 1", &[]).unwrap();
+    let p = gescom_noyau::pieces::creer_piece_sur_base(
+        &mut base, client, "facture".into(), vec![ligne(&sucre, 2.0)], None, None, None, None, None, None,
+    )
+    .unwrap();
+    let id = p["id"].as_str().unwrap().to_string();
+    let d = gescom_noyau::pieces::lire_donnees_piece_sur_base(&mut base, id.clone()).unwrap();
+    assert_eq!(d["lignes"][0]["article_reference"], "2000000000017");
+    assert_eq!(d["societe"]["site_web"], "www.boutique.ml");
+    if let Some(conn) = base.sqlite() {
+        let d = gescom_noyau::pieces::lire_donnees_piece(conn, id).unwrap();
+        assert_eq!(d["lignes"][0]["article_reference"], "2000000000017");
+        assert_eq!(d["societe"]["site_web"], "www.boutique.ml");
+    }
 }

@@ -9,6 +9,7 @@ import {
   genererReleveHTML, genererReleveGlobalHTML,
   type DonneesReleve, type DonneesReleveGlobal,
 } from "@/lib/genererReleve";
+import { chargerHabillage } from "@/lib/impression";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -261,13 +262,12 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
   async function imprimerReleveGlobal() {
     setReleveEnCours("global");
     try {
-      const [donnees, logo, entete] = await Promise.all([
+      const [donnees, habillage] = await Promise.all([
         invoke<DonneesReleveGlobal>("lire_etat_dettes_global"),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       await invoke("imprimer_facture", {
-        html: genererReleveGlobalHTML(donnees, "fournisseur", logo, entete),
+        html: genererReleveGlobalHTML(donnees, "fournisseur", habillage),
         nomFichier: `etat_dettes_${new Date().toISOString().slice(0, 10)}.html`,
       });
     } catch (e) {
@@ -280,15 +280,14 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
   async function imprimerReleve(f: Fournisseur) {
     setReleveEnCours(f.id);
     try {
-      const [donnees, logo, entete] = await Promise.all([
+      const [donnees, habillage] = await Promise.all([
         invoke<DonneesReleve>("lire_etat_dette_fournisseur", {
           fournisseurId: f.id,
         }),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       await invoke("imprimer_facture", {
-        html: genererReleveHTML(donnees, "fournisseur", logo, entete),
+        html: genererReleveHTML(donnees, "fournisseur", habillage),
         nomFichier: `dette_${f.nom}`.replace(/[\\/:*?"<>|]/g, "-") + ".html",
       });
     } catch (e) {

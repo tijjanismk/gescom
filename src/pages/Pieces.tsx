@@ -21,6 +21,8 @@ import {
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { genererImpression, type FormatImpression } from "@/lib/genererPDF";
+import { chargerHabillage } from "@/lib/impression";
+import { genreDePiece } from "@/lib/documents";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -994,16 +996,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
   async function handleImprimer(p: Piece, format: FormatImpression = "a4") {
     setImpressionEnCours(p.id);
     try {
-      const [donnees, logo, entete, pied, signatures] = await Promise.all([
-        invoke<any>("lire_donnees_piece", { pieceId: p.id }),
-        invoke<string | null>("lire_logo_base64"),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
-        invoke<string | null>("lire_pied_base64").catch(() => null),
-        invoke<any>("lire_config_signatures").catch(() => null),
-      ]);
+      const donnees = await invoke<any>("lire_donnees_piece", { pieceId: p.id });
+      // v3 (A-2) : l'habillage du genre de la pièce (Paramètres → Documents).
+      const habillage = await chargerHabillage(genreDePiece(donnees.piece?.type_piece));
       const suffixe = format === "bon_sortie" ? "-BS" : "";
       await invoke("imprimer_piece", {
-        html: genererImpression(donnees, format, logo, entete, pied, signatures),
+        html: genererImpression(donnees, format, habillage),
         nomFichier: `${p.numero.replace(/\//g, "-")}${suffixe}.html`,
       });
     } catch (e) {

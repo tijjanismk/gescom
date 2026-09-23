@@ -74,73 +74,35 @@ function esc(s: string): string {
   ));
 }
 
+// Le montant en lettres vit dans lib/impression.ts, partagé par tous
+// les documents ; ré-exporté ici pour ses anciens appelants.
+import {
+  type Habillage, enLettres, blocSociete, imagePied, mention, blocSignatures,
+} from "@/lib/impression";
+export { enLettres };
+
 /**
- * Le montant en toutes lettres.
- *
- * Sur un reçu, c'est ce qui empêche de transformer 5 000 en 50 000 d'un
- * coup de stylo. Le franc CFA n'a pas de centime : pas de décimales à
- * écrire.
+ * Le côté fournisseur signe l'inverse du côté client : c'est le
+ * fournisseur qui reçoit l'argent et signe le reçu. Les libellés d'usine
+ * sont ceux du client ; on les retourne ici, et seulement eux — un
+ * libellé choisi par la boutique reste tel quel.
  */
-export function enLettres(n: number): string {
-  if (n === 0) return "zéro";
-  if (n < 0) return "moins " + enLettres(-n);
-
-  const U = ["", "un", "deux", "trois", "quatre", "cinq", "six", "sept",
-             "huit", "neuf", "dix", "onze", "douze", "treize", "quatorze",
-             "quinze", "seize"];
-  const D: Record<number, string> = {
-    2: "vingt", 3: "trente", 4: "quarante", 5: "cinquante",
-    6: "soixante", 8: "quatre-vingt",
-  };
-
-  const sousCent = (x: number): string => {
-    if (x < 17) return U[x];
-    if (x < 20) return "dix-" + U[x - 10];
-    const d = Math.floor(x / 10), u = x % 10;
-    // 70 et 90 se disent « soixante-dix » et « quatre-vingt-dix ».
-    if (d === 7 || d === 9) {
-      const base = d === 7 ? "soixante" : "quatre-vingt";
-      const reste = x - (d === 7 ? 60 : 80);
-      return base + (reste === 11 && d === 7 ? "-et-onze" : "-" + sousCent(reste));
-    }
-    if (u === 0) return D[d] + (d === 8 ? "s" : "");
-    if (u === 1 && d !== 8) return D[d] + "-et-un";
-    return D[d] + "-" + U[u];
-  };
-
-  const sousMille = (x: number): string => {
-    if (x < 100) return sousCent(x);
-    const c = Math.floor(x / 100), r = x % 100;
-    const tete = c === 1 ? "cent" : U[c] + " cent" + (r === 0 ? "s" : "");
-    return r === 0 ? tete : tete + " " + sousCent(r);
-  };
-
-  const tranches: [number, string, string][] = [
-    [1_000_000_000, "milliard", "milliards"],
-    [1_000_000, "million", "millions"],
-    [1_000, "mille", "mille"],
-  ];
-
-  let reste = n;
-  const bouts: string[] = [];
-  for (const [valeur, sing, plur] of tranches) {
-    const q = Math.floor(reste / valeur);
-    if (q > 0) {
-      // « mille » est invariable et ne prend pas « un » devant.
-      if (valeur === 1000 && q === 1) bouts.push("mille");
-      else bouts.push(sousMille(q) + " " + (q > 1 ? plur : sing));
-      reste %= valeur;
-    }
-  }
-  if (reste > 0) bouts.push(sousMille(reste));
-  return bouts.join(" ");
+const RETOURNES: Record<string, string> = {
+  "Le caissier": "Le bénéficiaire",
+  "Le client": "Le fournisseur",
+};
+export function libellePourCote(libelle: string, cote: "client" | "fournisseur"): string {
+  return cote === "fournisseur" ? RETOURNES[libelle] ?? libelle : libelle;
 }
 
 export function genererRecuHTML(
   d: DonneesRecu,
-  logoBase64?: string | null,
-  enteteBase64?: string | null,
+  h: Habillage = {},
 ): string {
+  const enteteBase64 = h.entete;
+  const r = h.reglage;
+  // Le reçu se glisse dans une poche : A5, sauf si la boutique a réglé A4.
+  const a4 = r?.format === "a4";
   const m = MOTS[d.cote];
   const annulation = !!d.est_annulation;
   // Une annulation n'encaisse rien : elle constate une correction. Le
@@ -154,14 +116,7 @@ export function genererRecuHTML(
             style="width:100%;height:auto;display:block;margin-bottom:8px"/>`
     : `<div class="entete">
          <div>
-           ${logoBase64
-             ? `<img src="${logoBase64}" alt="" style="max-height:46px;display:block;margin-bottom:3px">`
-             : ""}
-           <div class="soc">${esc(d.societe.nom)}</div>
-           ${d.societe.adresse
-             ? `<div class="det">${esc(d.societe.adresse)}</div>` : ""}
-           ${d.societe.telephone
-             ? `<div class="det">Tél. ${esc(d.societe.telephone)}</div>` : ""}
+           ${blocSociete(d.societe as Record<string, unknown>, h, 15)}
          </div>
          <div style="text-align:right">
            <div class="titre${annulation ? " annule" : ""}">${titre}</div>
@@ -175,7 +130,7 @@ export function genererRecuHTML(
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:Arial,sans-serif; font-size:12px; color:#000; }
-  .page { min-height:190mm; display:flex; flex-direction:column; }
+  .page { min-height:${a4 ? "277mm" : "190mm"}; display:flex; flex-direction:column; }
   .corps { flex:1 1 auto; display:flex; flex-direction:column;
            padding:${enteteBase64 ? "0" : "12mm"} 12mm 12mm 12mm; }
   .entete { display:flex; justify-content:space-between;
@@ -217,7 +172,7 @@ export function genererRecuHTML(
   .sign .lbl2 { font-size:10px; color:#333; margin-bottom:26px; }
   .sign .trait { border-bottom:1px solid #000; }
 
-  @media print { body { margin:0; } @page { size:148mm 210mm; margin:0; } }
+  @media print { body { margin:0; } @page { size:${a4 ? "210mm 297mm" : "148mm 210mm"}; margin:0; } }
 </style></head>
 <body>
 <div class="page">
@@ -236,7 +191,7 @@ export function genererRecuHTML(
     <div class="montant-bloc">
       <div class="formule">${annulation ? "Annulation d'un règlement de" : m.formule}</div>
       <div class="chiffre">${fmt(montant)}</div>
-      <div class="lettres">${enLettres(montant)} francs CFA</div>
+      ${r && !r.montant_lettres ? "" : `<div class="lettres">${enLettres(montant)} francs CFA</div>`}
     </div>
 
     <table class="det-reg">
@@ -274,15 +229,12 @@ export function genererRecuHTML(
     </table>
 
     <div class="bas">
-      <div class="sign">
-        <div>
-          <div class="lbl2">${m.signature}</div>
-          <div class="trait"></div>
-        </div>
-      </div>
-      <p class="mention">${m.pied}</p>
+      ${blocSignatures((r ? r.signatures : [{ libelle: m.signature }])
+          .map(s => ({ ...s, libelle: libellePourCote(s.libelle, d.cote) })))}
+      ${h.pied ? "" : `<p class="mention">${mention(h, m.pied)}</p>`}
     </div>
   </div>
+  ${imagePied(h)}
 </div>
 <script>window.onload = () => { window.focus(); window.print(); }</script>
 </body></html>`;

@@ -23,6 +23,8 @@ import {
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { genererImpression } from "@/lib/genererPDF";
+import { chargerHabillage } from "@/lib/impression";
+import { genreDePiece } from "@/lib/documents";
 import {
   genererReleveHTML, genererHistoriqueReglementsHTML, type DonneesReleve,
 } from "@/lib/genererReleve";
@@ -768,13 +770,12 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
   async function imprimerReleve() {
     setReleveEnCours(true);
     try {
-      const [donnees, logo, entete] = await Promise.all([
+      const [donnees, habillage] = await Promise.all([
         invoke<DonneesReleve>("lire_etat_creances_client", { clientId }),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       await invoke("imprimer_facture", {
-        html: genererReleveHTML(donnees, "client", logo, entete),
+        html: genererReleveHTML(donnees, "client", habillage),
         nomFichier: `creance_${donnees.tiers.code || donnees.tiers.nom}`
           .replace(/[\\/:*?"<>|]/g, "-") + ".html",
       });
@@ -815,10 +816,9 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
     if (!fiche) return;
     setHistoEnCours(true);
     try {
-      const [societeP, logo, entete] = await Promise.all([
+      const [societeP, habillage] = await Promise.all([
         invoke<any>("lire_parametres_societe"),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       const criteres = [
         regDu ? `du ${fmtDate(regDu)}` : null,
@@ -833,7 +833,7 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
           // Le reste dû du client, toutes factures confondues — le
           // chiffre qu'il vient vérifier, distinct du solde par ligne.
           creances.reduce((s, c) => s + c.reste, 0),
-          societeP, logo, entete),
+          societeP, habillage),
         nomFichier: `reglements_${fiche.client.code || fiche.client.nom}`
           .replace(/[\\/:*?"<>|]/g, "-") + ".html",
       });
@@ -880,15 +880,11 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
       // `genererImpression` et non `genererPieceHTML` : cet écran
       // appelait le générateur directement et sortait donc sans
       // en-tête ni pied de page, contrairement à Pièces et au POS.
-      const [donnees, logo, entete, pied, signatures] = await Promise.all([
-        invoke<any>("lire_donnees_piece", { pieceId: piece.id }),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
-        invoke<string | null>("lire_pied_base64").catch(() => null),
-        invoke<any>("lire_config_signatures").catch(() => null),
-      ]);
+      const donnees = await invoke<any>("lire_donnees_piece", { pieceId: piece.id });
+      // v3 (A-2) : l'habillage du genre de la pièce (Paramètres → Documents).
+      const habillage = await chargerHabillage(genreDePiece(donnees.piece?.type_piece));
       await invoke("imprimer_piece", {
-        html: genererImpression(donnees, "a4", logo, entete, pied, signatures),
+        html: genererImpression(donnees, "a4", habillage),
         nomFichier: `${piece.numero.replace(/\//g, "-")}.html`,
       });
     } catch (e) {

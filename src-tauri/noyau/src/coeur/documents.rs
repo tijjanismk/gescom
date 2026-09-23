@@ -139,8 +139,11 @@ pub fn defaut(genre: &str, ancienne: &dyn Fn(&str) -> Option<String>) -> Reglage
             signatures: paire("livraison", "Le chauffeur", "Le réceptionnaire"),
             ..base("a4")
         },
-        "recu" => ReglageGenre { montant_lettres: true, ..base("a5") },
-        "releve" => base("a4"),
+        // Ceux du generateur historique, cote client. Le cote
+        // fournisseur adapte le libelle a l'impression (« Le caissier »
+        // devient « Le bénéficiaire ») : c'est lui qui signe le recu.
+        "recu" => ReglageGenre { montant_lettres: true, signatures: sig(&["Le caissier"]), ..base("a5") },
+        "releve" => ReglageGenre { signatures: sig(&["Le client", "Pour l'entreprise"]), ..base("a4") },
         "ticket" => ReglageGenre { signatures: sig(&[]), ..base("thermique_80") },
         _ => base("a4"),
     }

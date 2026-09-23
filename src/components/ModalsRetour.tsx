@@ -12,6 +12,7 @@ import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { Loader2, Search, Wallet, Gift, X } from "lucide-react";
 import { genererBonEchangeHTML } from "@/lib/genererPDF";
+import { chargerHabillage } from "@/lib/impression";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -427,10 +428,9 @@ export function ModalEchange({
       // ne doit pas laisser croire qu'il a échoué.
       if (bonSortieActif) {
         try {
-          const [societe, logo, signatures] = await Promise.all([
+          const [societe, habillage] = await Promise.all([
             invoke<any>("lire_parametres_societe"),
-            invoke<string | null>("lire_logo_base64").catch(() => null),
-            invoke<any>("lire_config_signatures").catch(() => null),
+            chargerHabillage("bon_livraison"),
           ]);
           await invoke("imprimer_facture", {
             html: genererBonEchangeHTML({
@@ -448,7 +448,7 @@ export function ModalEchange({
                 quantite: quantiteRemplacementNum,
               },
               societe,
-            }, logo, signatures),
+            }, habillage),
             nomFichier: `echange_${vente.id.slice(0, 8)}.html`,
           });
         } catch (e) {
