@@ -285,8 +285,33 @@ pub fn permissions_de_sur(
         )
         .unwrap_or_default();
 
-    calculer_permissions(role, &ligne.0, ligne.1 != 0, &reglages)
+    let mut permissions = calculer_permissions(role, &ligne.0, ligne.1 != 0, &reglages);
+    // v3, C-2 : qui n'a que certains dossiers ne touche pas a ce qui est
+    // commun a TOUS — les comptes et les roles, les postes, la base
+    // entiere, les parametres de la societe. Sinon le frere, patron de
+    // sa quincaillerie, se creerait un compte qui voit ta boutique.
+    let restreint = base
+        .lire_une(
+            "SELECT CAST(COUNT(*) AS BIGINT) FROM utilisateur_dossier WHERE utilisateur_id = ?1",
+            &crate::parametres![utilisateur_id],
+            |r| r.get::<i64>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0)
+        > 0;
+    if restreint {
+        for p in PERMISSIONS_DE_TOUTE_LA_BASE {
+            permissions.remove(*p);
+        }
+    }
+    permissions
 }
+
+/// Ce qui touche tous les dossiers a la fois : reserve a qui les voit
+/// tous (v3, C-2).
+pub const PERMISSIONS_DE_TOUTE_LA_BASE: &[&str] =
+    &["utilisateurs:gerer", "postes:gerer", "sauvegarde:lancer", "parametres:modifier"];
 
 /// Cette personne peut-elle faire cela ?
 ///

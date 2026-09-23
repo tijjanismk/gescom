@@ -36,13 +36,19 @@ pub fn registre() -> Registre {
         let dossier_id: String = arg(&p, "dossierId", "dossier_id")?;
         let memoriser: Option<bool> = arg(&p, "memoriser", "memoriser")?;
         let d = gescom_noyau::dossiers::dossier_ouvert_sur(c.base, &dossier_id)?;
+        // C-2 : le role qu'on a DANS ce dossier, ou pas d'entree.
+        let role = gescom_noyau::acces_dossiers::role_dans_sur(c.base, &c.appelant.utilisateur_id, &d.id)?
+            .ok_or_else(|| "Ce dossier ne vous est pas ouvert.".to_string())?;
         // D22 : servi par `Base` sur les deux moteurs (D-2) — plus de
         // refus sur une base fichier.
         sessions::choisir_dossier_session_sur(c.base, &c.appelant.session_id, &d.id)?;
         if memoriser == Some(true) {
             gescom_noyau::dossiers::memoriser_dossier_sur(c.base, &c.appelant.utilisateur_id, Some(&d.id))?;
         }
-        Ok(serde_json::json!({ "dossier_id": d.id, "societe": d.societe }))
+        let mut permissions: Vec<String> =
+            gescom_noyau::portes::permissions_de_sur(c.base, &c.appelant.utilisateur_id, &role).into_iter().collect();
+        permissions.sort();
+        Ok(serde_json::json!({ "dossier_id": d.id, "societe": d.societe, "role": role, "permissions": permissions }))
     });
     r.sur_base("oublier_dossier_memorise", None, false, |c, _| {
         gescom_noyau::dossiers::memoriser_dossier_sur(c.base, &c.appelant.utilisateur_id, None)?;
@@ -66,13 +72,32 @@ pub fn registre() -> Registre {
         )?;
         Ok(serde_json::Value::Null)
     });
+    // v3, C-2 : les dossiers d'une personne, et son role dans chacun.
+    r.sur_base("lire_dossiers_utilisateur", Some("utilisateurs:gerer"), false, |c, p| {
+        gescom_noyau::acces_dossiers::lire_sur(c.base, &arg::<String>(&p, "utilisateurId", "utilisateur_id")?)
+    });
+    r.sur_base("definir_dossiers_utilisateur", Some("utilisateurs:gerer"), true, |c, p| {
+        #[derive(serde::Deserialize)]
+        struct Ligne {
+            dossier_id: String,
+            role: String,
+        }
+        let utilisateur: String = arg(&p, "utilisateurId", "utilisateur_id")?;
+        let lignes: Option<Vec<Ligne>> = arg(&p, "dossiers", "dossiers")?;
+        gescom_noyau::acces_dossiers::definir_sur(
+            c.base,
+            &utilisateur,
+            lignes.map(|v| v.into_iter().map(|l| (l.dossier_id, l.role)).collect()),
+        )
+    });
     // v3, D-5 : le dossier d'origine prend le nom que le patron lui donne.
     r.sur_base("renommer_dossier", Some("dossiers:gerer"), true, |c, p| {
-        gescom_noyau::dossiers::renommer_dossier_sur(
-            c.base,
-            arg(&p, "dossierId", "dossier_id")?,
-            arg(&p, "societe", "societe")?,
-        )
+        let dossier: String = arg(&p, "dossierId", "dossier_id")?;
+        // C-2 : on ne renomme que les dossiers ou l'on entre.
+        if gescom_noyau::acces_dossiers::role_dans_sur(c.base, &c.appelant.utilisateur_id, &dossier)?.is_none() {
+            return Err("Ce dossier ne vous est pas ouvert.".to_string());
+        }
+        gescom_noyau::dossiers::renommer_dossier_sur(c.base, dossier, arg(&p, "societe", "societe")?)
     });
     r.sur_base("clore_exercice", Some("dossiers:gerer"), true, |c, p| {
         gescom_noyau::dossiers::clore_exercice_sur(c.base, arg(&p, "exerciceId", "exercice_id")?)?;

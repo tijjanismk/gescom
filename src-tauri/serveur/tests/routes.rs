@@ -682,3 +682,88 @@ fn une_ecriture_hors_des_dates_de_travail_est_refusee_avant_d_ecrire() {
         .unwrap();
     assert_eq!(n, 1, "la clôture est au journal");
 }
+
+const ORIGINE: &str = "00000000-0000-0000-0000-000000000001";
+
+#[test]
+fn le_frere_n_ouvre_que_sa_quincaillerie_et_la_comptable_choisit() {
+    // v3, C-2 (décision C2) : un rôle par dossier, relu à chaque requête.
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+    let (code, d) = rpc(port, &admin, "creer_dossier", json!({ "code": "QUINC", "societe": "Quincaillerie du frère" }));
+    assert_eq!(code, 200, "{d}");
+    let quinc = d["donnee"]["id"].as_str().unwrap().to_string();
+    let creer = |pseudo: &str, role: &str| {
+        let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+            "nom": pseudo, "pseudo": pseudo, "email": null, "motDePasse": "secret-123", "roleNom": role
+        }));
+        assert_eq!(code, 200, "{v}");
+    };
+    creer("frere", "patron");
+    creer("awa", "comptable");
+    creer("moussa", "caissier");
+    let (_, u) = rpc(port, &admin, "lire_utilisateurs", json!({}));
+    let id = |pseudo: &str| u["donnee"].as_array().unwrap().iter()
+        .find(|x| x["pseudo"] == pseudo || x["nom"] == pseudo)
+        .map(|x| x["id"].as_str().unwrap().to_string()).expect(pseudo);
+    let (frere, awa) = (id("frere"), id("awa"));
+    let (code, v) = rpc(port, &admin, "definir_dossiers_utilisateur", json!({
+        "utilisateurId": frere, "dossiers": [{ "dossier_id": quinc, "role": "patron" }]
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = rpc(port, &admin, "definir_dossiers_utilisateur", json!({
+        "utilisateurId": awa, "dossiers": [{ "dossier_id": ORIGINE, "role": "comptable" }, { "dossier_id": quinc, "role": "caissier" }]
+    }));
+    assert_eq!(code, 200, "{v}");
+
+    let entrer = |pseudo: &str, dossier: Option<&str>| requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": pseudo, "mot_de_passe": "secret-123", "poste_nom": pseudo,
+                      "poste_empreinte": format!("routes-c2-{pseudo}"), "version_protocole": 1, "dossier_id": dossier })),
+        None,
+    ).unwrap();
+
+    // Le frère : un seul dossier ouvert, le sien, ouvert d'office, patron.
+    let (code, v) = entrer("frere", None);
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["dossier_id"], quinc.as_str(), "{v}");
+    assert_eq!(v["dossiers"].as_array().unwrap().len(), 1, "il ne voit que le sien : {v}");
+    assert_eq!(v["role"], "patron");
+    let perms: Vec<&str> = v["permissions"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(perms.contains(&"ventes:creer") && !perms.contains(&"utilisateurs:gerer"), "{perms:?}");
+    let jeton_frere = v["jeton"].as_str().unwrap().to_string();
+    let (_, c) = rpc(port, &jeton_frere, "lire_clients", json!({}));
+    assert_eq!(c["donnee"].as_array().unwrap().len(), 1, "ses clients : son client de passage, pas les tiens");
+    let (code, v) = rpc(port, &jeton_frere, "creer_utilisateur", json!({
+        "nom": "x", "pseudo": "x", "email": null, "motDePasse": "secret-123", "roleNom": "patron"
+    }));
+    assert_eq!(code, 403, "il ne se crée pas un compte qui verrait ta boutique : {v}");
+    // Ta boutique, demandée : refusée.
+    let (code, v) = entrer("frere", Some(ORIGINE));
+    assert_eq!(code, 403, "{v}");
+
+    // La comptable : deux dossiers, elle choisit ; le rôle suit le dossier.
+    let (code, v) = entrer("awa", None);
+    assert_eq!(code, 200, "{v}");
+    assert!(v["dossier_id"].is_null() && v["dossiers"].as_array().unwrap().len() == 2, "{v}");
+    let jeton_awa = v["jeton"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &jeton_awa, "choisir_dossier", json!({ "dossierId": quinc }));
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["donnee"]["role"], "caissier", "{v}");
+    assert!(!v["donnee"]["permissions"].as_array().unwrap().iter().any(|p| p == "journal:lire"), "caissière ici : {v}");
+
+    // Le caissier sans ligne : le dossier d'origine seulement.
+    let (code, v) = entrer("moussa", None);
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["dossier_id"], ORIGINE);
+    assert_eq!(v["dossiers"].as_array().unwrap().len(), 1);
+
+    // Le frère perd sa quincaillerie : sa session tombe à la requête suivante.
+    let (code, v) = rpc(port, &admin, "definir_dossiers_utilisateur", json!({
+        "utilisateurId": frere, "dossiers": [{ "dossier_id": ORIGINE, "role": "caissier" }]
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = rpc(port, &jeton_frere, "lire_clients", json!({}));
+    assert_eq!(code, 401, "{v}");
+}

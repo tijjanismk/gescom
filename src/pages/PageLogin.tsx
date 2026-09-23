@@ -44,8 +44,8 @@ export function PageLogin({ onConnecte }: PageLoginProps) {
     setChoixEnCours(d.id);
     setErreur("");
     try {
-      await choisirDossier(d.id, memoriser);
-      onConnecte(aChoisir.utilisateur);
+      const { role, permissions } = await choisirDossier(d.id, memoriser);
+      onConnecte({ ...aChoisir.utilisateur, role, permissions });
     } catch (err) {
       setErreur(typeof err === "string" ? err : "Impossible d'ouvrir ce dossier");
     } finally {

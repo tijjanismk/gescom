@@ -1034,6 +1034,9 @@ pub fn creer_dossier_sur(
     let (debut, fin) = dates_de_travail(date_debut.as_deref(), date_fin.as_deref(), &now)?;
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
     let dossier_courant = base.dossier().to_string();
+    // C-2 : qui n'a que certains dossiers entre dans celui qu'il cree,
+    // avec le role qu'il a ici.
+    let role_ici = crate::acces_dossiers::role_dans_sur(base, &auteur, &dossier_courant)?;
 
     let mut tx = base.transaction().map_err(|e| e.0)?;
     tx.executer(
@@ -1080,13 +1083,14 @@ pub fn creer_dossier_sur(
         &parametres![
             uuid::Uuid::new_v4().to_string(),
             id.clone(),
-            auteur,
+            auteur.clone(),
             serde_json::json!({ "code": code, "societe": societe, "du": debut, "au": fin }).to_string(),
             now,
             dossier_courant
         ],
     )
     .map_err(|e| e.0)?;
+    crate::acces_dossiers::donner_au_createur_sur(&mut tx, &auteur, &id, role_ici.as_deref())?;
     tx.valider().map_err(|e| e.0)?;
 
     Ok(serde_json::json!({ "id": id, "code": code, "societe": societe, "date_debut": debut, "date_fin": fin }))

@@ -361,10 +361,16 @@ export function renommerDossierCourant(societe: string): void {
  * Choisit le dossier d'une session ouverte sans (plusieurs dossiers,
  * aucun mémorisé). Une fois : changer de dossier, c'est se déconnecter.
  */
-export async function choisirDossier(dossierId: string, memoriser: boolean): Promise<void> {
-  const r = await appeler<{ dossier_id: string; societe: string }>("choisir_dossier", { dossierId, memoriser });
+export async function choisirDossier(
+  dossierId: string,
+  memoriser: boolean,
+): Promise<{ role: string; permissions: string[] }> {
+  const r = await appeler<{ dossier_id: string; societe: string; role: string; permissions: string[] }>(
+    "choisir_dossier", { dossierId, memoriser });
   etat = { ...etat, dossierId: r.dossier_id, dossierSociete: r.societe };
   enregistrer();
+  // v3, C-2 : le rôle et les droits sont ceux de CE dossier.
+  return { role: r.role, permissions: r.permissions ?? [] };
 }
 
 export async function connecterServeur(

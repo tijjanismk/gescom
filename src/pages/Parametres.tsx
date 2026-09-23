@@ -35,6 +35,7 @@ import { OngletDocuments } from "@/components/OngletDocuments";
 import {
   ModalPermissionsUtilisateur,
 } from "@/components/ModalPermissionsUtilisateur";
+import { ModalDossiersUtilisateur } from "@/components/EditeurDossiersUtilisateur";
 import { peut } from "@/lib/droits";
 import { UTILISATEUR_ACTIF } from "@/App";
 
@@ -220,6 +221,10 @@ function OngletUtilisateurs() {
   const [chargement, setChargement] = useState(true);
   const [modalNouvel, setModalNouvel] = useState(false);
   const [modalPermissions, setModalPermissions] = useState<Utilisateur | null>(null);
+  // v3, C-2 : dans quels dossiers une personne entre. Le bouton n'existe
+  // qu'avec plusieurs dossiers ; il vaut aussi pour un patron.
+  const [modalDossiers, setModalDossiers] = useState<Utilisateur | null>(null);
+  const [plusieursDossiers, setPlusieursDossiers] = useState(false);
   // Les rôles qui donnent tout (acces_total) ou qui sont protégés
   // (superadmin) n'offrent rien à ajuster : le sur-mesure n'y
   // s'applique pas. Un bouton qui échoue est pire que pas de bouton.
@@ -251,11 +256,13 @@ function OngletUtilisateurs() {
   async function charger() {
     setChargement(true);
     try {
-      const [data, roles] = await Promise.all([
+      const [data, roles, dossiers] = await Promise.all([
         invoke<Utilisateur[]>("lire_utilisateurs"),
         invoke<RolePourPermissions[]>("lire_roles"),
+        invoke<unknown[]>("lire_dossiers").catch(() => []),
       ]);
       setUtilisateurs(data);
+      setPlusieursDossiers(dossiers.length > 1);
       setRolesComplets(new Set(
         roles.filter(r => r.acces_total || r.protege).map(r => r.nom),
       ));
@@ -319,6 +326,13 @@ function OngletUtilisateurs() {
                   {u.actif ? "Désactiver" : "Réactiver"}
                 </Button>
               )}
+              {plusieursDossiers && u.id !== UTILISATEUR_ACTIF?.id && u.role !== "superadmin" && (
+                <Button variant="outline" size="sm" onClick={() => setModalDossiers(u)}
+                  aria-label={`Dossiers de ${u.nom}`}
+                  title="Dans quels dossiers cette personne entre, et avec quel rôle">
+                  <FolderOpen className="h-3.5 w-3.5 mr-1" /> Dossiers
+                </Button>
+              )}
               {!rolesComplets.has(u.role) && (
                 <Button variant="outline" size="sm"
                   onClick={() => setModalPermissions(u)}
@@ -350,6 +364,7 @@ function OngletUtilisateurs() {
         onFermer={() => setModalNouvel(false)}
         onCreer={() => { setModalNouvel(false); charger(); }}
       />
+      <ModalDossiersUtilisateur utilisateur={modalDossiers} onFermer={() => setModalDossiers(null)} />
       <ModalPermissionsUtilisateur
         ouvert={modalPermissions !== null}
         utilisateur={modalPermissions}

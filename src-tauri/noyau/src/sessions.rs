@@ -337,6 +337,17 @@ pub fn etat_sur(base: &mut Base, session_id: &str) -> Etat {
         return Etat::Revoquee;
     }
 
+    // v3, C-2 : dans un dossier, c'est le role qu'il a DANS ce dossier.
+    // Relu a chaque requete : un dossier retire ferme la session qui y
+    // travaillait, comme une desactivation.
+    let role = match dossier_id.as_deref() {
+        Some(d) => match crate::acces_dossiers::role_dans_sur(base, &utilisateur_id, d) {
+            Ok(Some(r)) => r,
+            _ => return Etat::Revoquee,
+        },
+        None => role,
+    };
+
     Etat::Valide { utilisateur_id, role, poste_id, dossier_id }
 }
 

@@ -49,6 +49,7 @@ pub mod tableau_bord;
 pub mod amorcage;
 pub mod base;
 pub mod dossiers;
+pub mod acces_dossiers;
 pub mod caisses;
 pub mod argent;
 pub mod catalogue;

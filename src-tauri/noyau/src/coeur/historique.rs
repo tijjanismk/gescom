@@ -43,6 +43,7 @@ pub const TYPES: &[(&str, &str)] = &[
     ("utilisateur_reactive", "Compte réactivé"),
     ("role_change", "Rôle changé"),
     ("plafonds_modifies", "Plafonds modifiés"),
+    ("droits_dossiers_modifies", "Dossiers d'un compte modifiés"),
     ("dossier_cree", "Dossier créé"),
     ("dossier_renomme", "Dossier renommé"),
     ("dossier_d_origine", "Dossier d'origine nommé et daté"),

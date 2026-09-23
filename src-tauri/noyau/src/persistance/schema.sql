@@ -486,6 +486,20 @@ CREATE TABLE IF NOT EXISTS utilisateur_plafond (
 -- Une anomalie VUE (v3, B-4) : par qui, quand. Le journal reste tel
 -- qu'il a ete ecrit ; le « vu » vit a cote. Sans lui, le compteur du
 -- tableau de bord ne redescendrait jamais.
+-- Le role d'une personne DANS un dossier (v3, C-2 — decision C2).
+-- Aucune ligne : comme avant (son role partout s'il a l'acces total,
+-- sinon dans le dossier d'origine). Des lignes : exactement ces
+-- dossiers, avec ces roles. Pas de REFERENCES dossier : la table
+-- `dossier` nait apres ce fichier.
+CREATE TABLE IF NOT EXISTS utilisateur_dossier (
+    utilisateur_id  TEXT NOT NULL REFERENCES utilisateur(id),
+    dossier_id      TEXT NOT NULL,
+    role_id         TEXT NOT NULL REFERENCES role(id),
+    cree_le         TEXT NOT NULL,
+    cree_par        TEXT,
+    PRIMARY KEY (utilisateur_id, dossier_id)
+);
+
 CREATE TABLE IF NOT EXISTS anomalie_vue (
     journal_id  TEXT PRIMARY KEY,
     vue_par     TEXT NOT NULL,

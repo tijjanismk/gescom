@@ -161,6 +161,33 @@ l'hérite pas.
 - [CONFIRMÉ] Le serveur renvoie les permissions **avec l'identité** à la connexion ; `droits.ts` filtre le menu. Confort, pas sécurité.
 - [CONFIRMÉ] `promouvoir_superadmin_sur` ([auth.rs](../../src-tauri/noyau/src/auth.rs)) : `gescom-serveur --promouvoir IDENTIFIANT` redonne `superadmin` à un compte existant — une commande du **serveur**, jamais servie par HTTP, qui exige d'être devant la machine. Le geste s'écrit au journal (`role_change`, auteur `serveur`). Le compte de secours **livré** reste refusé (D6).
 
+## Par dossier (v3, C-2 — décision C2)
+
+[acces_dossiers.rs](../../src-tauri/noyau/src/acces_dossiers.rs), table
+`utilisateur_dossier (utilisateur_id, dossier_id, role_id)`. La règle,
+pure (`role_dans`) :
+
+- `superadmin` : partout ;
+- **des lignes : exactement ces dossiers, avec ces rôles** — même si le
+  rôle global est `patron` (le frère) ;
+- **aucune ligne : comme avant** — partout avec l'accès total, sinon le
+  dossier d'origine seulement.
+
+Le rôle vient du dossier de la session, relu à chaque requête
+(`sessions::etat_sur`) : retirer un dossier fait tomber la session qui y
+travaille (401). La connexion ne propose que les dossiers ouverts à la
+personne ; `choisir_dossier` rend le rôle et les permissions du dossier.
+**Qui a des lignes perd `PERMISSIONS_DE_TOUTE_LA_BASE`**
+(`utilisateurs:gerer`, `postes:gerer`, `sauvegarde:lancer`,
+`parametres:modifier`) : comptes, postes, base et société sont communs à
+tous les dossiers — sinon le frère se créerait un compte patron sans
+ligne, qui voit tout. `definir_sur` refuse : ses propres dossiers, un
+compte protégé, une liste vide (c'est une désactivation), le dernier
+compte qui voit tous les dossiers. Un dossier créé par quelqu'un qui a
+des lignes lui est donné avec son rôle d'ici. Écran : Paramètres →
+Utilisateurs → **Dossiers** (avec plusieurs dossiers, aussi pour un
+patron). La fenêtre monoposte ne connaît pas ces lignes (un dossier).
+
 ## Tests
 
 [tests/permissions.rs](../../src-tauri/noyau/tests/permissions.rs) — 16

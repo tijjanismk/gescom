@@ -222,6 +222,24 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
             societe: d["societe"].as_str().unwrap_or("").to_string(),
         })
         .collect();
+    // v3, C-2 : seulement les dossiers ou cette personne entre.
+    let permis = match gescom_noyau::acces_dossiers::dossiers_ouverts_a_sur(
+        &mut base,
+        &utilisateur_id,
+        &ouverts.iter().map(|d| d.id.clone()).collect::<Vec<_>>(),
+    ) {
+        Ok(p) => p,
+        Err(e) => return erreur(flux, 500, CodeErreur::Technique, &e),
+    };
+    let ouverts: Vec<DossierOuvrable> = ouverts.into_iter().filter(|d| permis.contains(&d.id)).collect();
+    if ouverts.is_empty() {
+        return erreur(
+            flux,
+            403,
+            CodeErreur::Permission,
+            "Aucun dossier ne vous est ouvert. Demander au patron.",
+        );
+    }
     let memorise = gescom_noyau::dossiers::dossier_memorise_sur(&mut base, &utilisateur_id)
         .ok()
         .flatten()
@@ -230,6 +248,9 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         Some(d) => {
             if let Err(e) = gescom_noyau::dossiers::dossier_ouvert_sur(&mut base, d) {
                 return erreur(flux, 409, CodeErreur::Technique, &e);
+            }
+            if !ouverts.iter().any(|o| o.id == d) {
+                return erreur(flux, 403, CodeErreur::Permission, "Ce dossier ne vous est pas ouvert.");
             }
             Some(d.to_string())
         }
@@ -263,6 +284,15 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         &gescom_noyau::parametres![gescom_noyau::utils::maintenant_iso(), utilisateur_id.clone()],
     );
 
+    // Le role DANS le dossier ouvert (C-2) ; sans dossier encore, le
+    // global — `choisir_dossier` rendra celui du dossier choisi.
+    let role = match dossier_choisi.as_deref() {
+        Some(d) => gescom_noyau::acces_dossiers::role_dans_sur(&mut base, &utilisateur_id, d)
+            .ok()
+            .flatten()
+            .unwrap_or(role),
+        None => role,
+    };
     let mut permissions: Vec<String> =
         gescom_noyau::portes::permissions_de_sur(&mut base, &utilisateur_id, &role)
             .into_iter()
