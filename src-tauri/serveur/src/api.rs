@@ -325,6 +325,9 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         Ok(a) => a,
         Err((code, message)) => return erreur(flux, 401, code, &message),
     };
+    // D26 : ce qui s'ecrit pendant cette requete est signe par
+    // l'utilisateur de la SESSION, pas par le premier compte de son role.
+    let _auteur = gescom_noyau::auteur::poser(&appelant.utilisateur_id);
 
     let corps = match req.json() {
         Ok(v) => v,
@@ -548,6 +551,7 @@ fn sauvegarde_manuelle(
         Ok(a) => a,
         Err((code, message)) => return erreur(flux, 401, code, &message),
     };
+    let _auteur = gescom_noyau::auteur::poser(&appelant.utilisateur_id);
     let ctx = ContexteUtilisateur {
         id: appelant.utilisateur_id,
         role: appelant.role,
@@ -587,6 +591,7 @@ fn entretien(
         Ok(a) => a,
         Err((code, message)) => return erreur(flux, 401, code, &message),
     };
+    let _auteur = gescom_noyau::auteur::poser(&appelant.utilisateur_id);
     let ctx = ContexteUtilisateur {
         id: appelant.utilisateur_id,
         role: appelant.role,

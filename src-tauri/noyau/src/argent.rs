@@ -24,14 +24,25 @@ use rusqlite::Connection;
 
 use crate::utils::maintenant_iso;
 
+/// L'auteur des ecritures. Sur le serveur : l'utilisateur de la
+/// session (`auteur::poser`). Ailleurs : le premier compte actif,
+/// comme avant (D26).
 pub fn id_utilisateur_courant_pub(conn: &Connection) -> String {
+    if let Some(id) = crate::auteur::courant() {
+        return id;
+    }
     conn.query_row(
         "SELECT id FROM utilisateur WHERE actif = 1 LIMIT 1",
         [], |row| row.get(0),
     ).unwrap_or_else(|_| "system".to_string())
 }
 
+/// Le role ne sert plus qu'au repli hors serveur : la session dit QUI
+/// agit, le role ne designe que le premier venu (D26).
 pub fn id_utilisateur_par_role(conn: &Connection, role: &str) -> String {
+    if let Some(id) = crate::auteur::courant() {
+        return id;
+    }
     conn.query_row(
         "SELECT u.id FROM utilisateur u
          JOIN role r ON r.id = u.role_id
@@ -1254,6 +1265,9 @@ use crate::base::{Acces, Base};
 use crate::parametres;
 
 pub fn id_utilisateur_courant_sur(base: &mut impl Acces) -> String {
+    if let Some(id) = crate::auteur::courant() {
+        return id;
+    }
     base.lire_une(
         "SELECT id FROM utilisateur WHERE actif = 1 ORDER BY cree_le LIMIT 1",
         &[],
@@ -1270,6 +1284,9 @@ pub fn id_utilisateur_courant_sur(base: &mut impl Acces) -> String {
 /// d'argent ne doit jamais echouer parce qu'on ne sait pas exactement
 /// qui la fait. Elle s'ecrit, et le journal dit ce qu'on savait.
 pub fn id_utilisateur_par_role_sur(base: &mut impl Acces, role: &str) -> String {
+    if let Some(id) = crate::auteur::courant() {
+        return id;
+    }
     base.lire_une(
         "SELECT u.id FROM utilisateur u
          JOIN role r ON r.id = u.role_id

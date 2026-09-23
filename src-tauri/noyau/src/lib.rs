@@ -10,6 +10,7 @@
 //! n'appartient pas au noyau.
 
 pub mod utils;
+pub mod auteur;
 pub mod coeur;
 pub mod persistance;
 pub mod portes;
