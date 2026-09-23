@@ -207,6 +207,9 @@ fn la_piece_a_imprimer_porte_reference_et_coordonnees() {
 #[test]
 fn les_tables_de_l_atelier_partent_a_l_amorcage() {
     let mut base = base_avec_demo();
+    if !base.peut_migrer() {
+        return; // compte limité (D-6) : les migrations sont au propriétaire
+    }
     base.executer_lot(
         "CREATE TABLE IF NOT EXISTS modele_document (id TEXT PRIMARY KEY, genre TEXT);
          CREATE TABLE IF NOT EXISTS image_document (id TEXT PRIMARY KEY, nom TEXT);

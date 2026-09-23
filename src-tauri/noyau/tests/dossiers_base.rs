@@ -51,7 +51,9 @@ fn creer_un_dossier_lui_donne_son_exercice_son_magasin_et_son_client_de_passage(
     assert_eq!(neuf["exercices_ouverts"], 1, "l'exercice de l'année en cours");
 
     // Ses affaires à lui, rangées chez lui : le détecteur exige le
-    // filtre, on le donne.
+    // filtre, on le donne — et on les lit DEPUIS lui (sous le compte
+    // limité de PostgreSQL, D-6, rien d'un autre dossier n'est visible).
+    base.choisir_dossier(&id).unwrap();
     let magasins = compter(
         &mut base,
         "SELECT COUNT(*) FROM depot WHERE dossier_id = ?1 AND est_defaut = 1 AND actif = 1",
@@ -65,6 +67,7 @@ fn creer_un_dossier_lui_donne_son_exercice_son_magasin_et_son_client_de_passage(
     );
     assert_eq!(passage, 1, "un client de passage, sinon pas de vente comptant");
     // Et rien chez le voisin.
+    base.choisir_dossier(dossiers::DOSSIER_DEFAUT).unwrap();
     let chez_l_autre = compter(
         &mut base,
         "SELECT COUNT(*) FROM depot WHERE dossier_id = ?1",
@@ -255,12 +258,18 @@ fn exercices_de(base: &mut Base, dossier: &str) -> Vec<serde_json::Value> {
     dossiers::lire_exercices_sur(base).unwrap()
 }
 
+/// Le journal d'un dossier, lu depuis ce dossier (compte limité, D-6) ;
+/// la session revient ensuite là où elle était.
 fn au_journal(base: &mut Base, dossier: &str, type_evenement: &str) -> i64 {
-    compter(
+    let ici = base.dossier().to_string();
+    base.choisir_dossier(dossier).unwrap();
+    let n = compter(
         base,
         "SELECT CAST(COUNT(*) AS BIGINT) FROM journal WHERE type_evenement = ?1 AND dossier_id = ?2",
         &parametres![type_evenement, dossier],
-    )
+    );
+    base.choisir_dossier(&ici).unwrap();
+    n
 }
 
 /// D21 : « En janvier 2027 tu n'as pas fini les papiers : tu prolonges

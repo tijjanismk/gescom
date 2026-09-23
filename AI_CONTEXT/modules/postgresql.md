@@ -241,3 +241,30 @@ le port 5432 et la base d'essai s'appelle `gescom_essai`.
 - [CONFIRMÉ] Le cycle sauvegarde → restauration → redémarrage fonctionne :
   `pg_dump --format=custom` puis `pg_restore --clean --if-exists` sur une
   base jetable, serveur redémarré dessus sans ré-amorçage (13/09/2026).
+
+
+## Le compte limité (v3, D-6 — D10)
+
+Le logiciel se connectait avec `postgres` : pour lui, le moteur ne
+refuse rien, et la séparation des dossiers reposait sur le code seul.
+
+```bash
+# Avec l'adresse du PROPRIÉTAIRE : migre, puis pose le compte (rejouable).
+gescom-serveur --base "$URL_PROPRIETAIRE" --compte-limite gescom_app
+# Le serveur tourne ensuite avec l'adresse affichée (poste.json).
+# Sauvegardes et entretien : GESCOM_PG_SAUVEGARDE="$URL_PROPRIETAIRE" dans son environnement.
+```
+
+- [amorcage.rs](../../src-tauri/noyau/src/amorcage.rs) `poser_compte_limite` :
+  rôle sans aucun pouvoir d'administration, `SELECT/INSERT/UPDATE/DELETE`,
+  RLS `gescom_cloison` sur chaque table de `TABLES_CLOISONNEES`
+  (`exercice` : lecture partout, écriture chez soi). Le propriétaire
+  n'est pas soumis aux politiques (pas de `FORCE`).
+- `Base::peut_migrer()` : faux sous le compte limité → `amorcer` refuse
+  en le disant, le serveur saute les migrations.
+- `sauvegarde::url_pg_dump` : sous le compte limité, `pg_dump` verrait
+  un seul dossier — il prend `GESCOM_PG_SAUVEGARDE`, sinon refus.
+- `Transaction::ecrire_dans(dossier)` : écrire, le temps d'une
+  transaction, dans un autre dossier (`set_config(.., true)`, local).
+- Tests : `GESCOM_PG=… GESCOM_PG_LIMITE=1 GESCOM_PG_SAUVEGARDE=…` rejoue
+  tous les `*_base` sous ce compte (`commun::base_avec_demo`).

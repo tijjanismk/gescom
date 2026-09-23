@@ -253,7 +253,8 @@ pub fn sauvegarder_base_sur_base(base: &mut Base, dossier_destination: String) -
         return effectuer_sauvegarde(conn, &dossier_destination);
     }
     let executable = config(base, "pg_dump_chemin").filter(|c| !c.trim().is_empty());
-    let dest = pg_dump(base.cible(), std::path::Path::new(&dossier_destination), executable.as_deref())?;
+    let url = url_pg_dump(base)?;
+    let dest = pg_dump(&url, std::path::Path::new(&dossier_destination), executable.as_deref())?;
     let chemin = dest.to_string_lossy().to_string();
     let dossier = base.dossier().to_string();
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
@@ -265,6 +266,47 @@ pub fn sauvegarder_base_sur_base(base: &mut Base, dossier_destination: String) -
         &parametres![uuid::Uuid::new_v4().to_string(), auteur, chemin.clone(), maintenant_iso(), dossier],
     );
     Ok(chemin)
+}
+
+/// L'adresse avec laquelle `pg_dump` copie la base (v3, D-6).
+///
+/// Sous le compte LIMITE, `pg_dump` ne verrait que le dossier de la
+/// session — une sauvegarde partielle qui aurait l'air complete — et le
+/// moteur la refuse d'ailleurs. La copie se fait alors avec l'adresse du
+/// PROPRIETAIRE, prise dans `GESCOM_PG_SAUVEGARDE` : une variable
+/// d'environnement du serveur, que le compte limite ne peut pas lire en
+/// base, et qui n'entre jamais dans le depot (D10). Absente : refus qui
+/// le dit. Pure.
+pub fn choisir_url_pg_dump(peut_migrer: bool, cible: &str, proprietaire: Option<String>) -> Result<String, String> {
+    if peut_migrer {
+        return Ok(cible.to_string());
+    }
+    proprietaire.filter(|u| !u.trim().is_empty()).ok_or_else(|| {
+        "Le serveur tourne sous le compte PostgreSQL limité : il ne voit qu'un dossier à la fois, sa copie serait partielle. Donner l'adresse du compte propriétaire dans la variable d'environnement GESCOM_PG_SAUVEGARDE du serveur (jamais dans un fichier)."
+            .to_string()
+    })
+}
+
+pub fn url_pg_dump(base: &mut Base) -> Result<String, String> {
+    let peut = base.peut_migrer();
+    choisir_url_pg_dump(peut, base.cible(), std::env::var("GESCOM_PG_SAUVEGARDE").ok())
+}
+
+#[cfg(test)]
+mod tests_url_pg_dump {
+    use super::*;
+
+    #[test]
+    fn le_compte_limite_sauvegarde_avec_le_proprietaire_ou_le_dit() {
+        assert_eq!(choisir_url_pg_dump(true, "postgresql://p@h/b", None).unwrap(), "postgresql://p@h/b");
+        assert_eq!(
+            choisir_url_pg_dump(false, "postgresql://lim@h/b", Some("postgresql://p@h/b".into())).unwrap(),
+            "postgresql://p@h/b"
+        );
+        let e = choisir_url_pg_dump(false, "postgresql://lim@h/b", None).unwrap_err();
+        assert!(e.contains("GESCOM_PG_SAUVEGARDE") && e.contains("partielle"), "{e}");
+        assert!(choisir_url_pg_dump(false, "x", Some(" ".into())).is_err());
+    }
 }
 
 // ---------------------------------------------------------------------

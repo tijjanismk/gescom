@@ -242,7 +242,16 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
             Err(e) => journal_technique::erreur(format!("Migration du dossier d'origine : {e}")),
         }
     }
-    if est_postgres {
+    // v3, D-6 : sous le compte limite, pas de migration (il n'en a pas
+    // le droit) — le proprietaire les fait avec `--compte-limite`.
+    let compte_limite = est_postgres && !base.peut_migrer();
+    if compte_limite {
+        journal_technique::info(
+            "Compte PostgreSQL limité : le moteur cloisonne les dossiers ; les migrations se font \
+             avec le compte propriétaire (--compte-limite).",
+        );
+    }
+    if est_postgres && !compte_limite {
         match amorcage::amorcer(&mut base) {
             Ok(true) => amorcage_fait = true,
             Ok(false) => {}
@@ -251,6 +260,8 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
                 std::process::exit(1);
             }
         }
+    }
+    if est_postgres {
 
         // L'authentification est portee (D11) : les memes precautions
         // qu'au demarrage du chemin fichier s'appliquent ici.
@@ -260,6 +271,38 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
             postes::inscrire_ou_retrouver_sur(&mut base, "Serveur", &empreinte, "serveur", None)
         {
             eprintln!("[avertissement] inscription du poste serveur : {e}");
+        }
+    }
+
+    // v3, D-6 (D10) : `--compte-limite NOM`, lance avec l'adresse du
+    // PROPRIETAIRE — les migrations viennent d'etre faites juste au-dessus
+    // — cree ou remet d'aplomb le compte limite, puis on s'arrete. A
+    // rejouer a chaque mise a jour. Le mot de passe : celui de
+    // `GESCOM_MDP_COMPTE_LIMITE`, sinon un tire au hasard, affiche UNE
+    // fois ici, et nulle part ailleurs.
+    if let Some(nom) = options.compte_limite.as_deref() {
+        let donne = std::env::var("GESCOM_MDP_COMPTE_LIMITE").ok().filter(|m| !m.trim().is_empty());
+        let mot_de_passe = donne.clone().unwrap_or_else(|| {
+            format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())
+        });
+        match amorcage::poser_compte_limite(&mut base, nom, &mot_de_passe) {
+            Ok(()) => {
+                let hote = cible.split_once("://").map(|(_, r)| r.rsplit_once('@').map(|(_, h)| h).unwrap_or(r)).unwrap_or("");
+                println!("Compte limité « {nom} » prêt : il ne lit et n'écrit que le dossier de sa session.");
+                if donne.is_some() {
+                    println!("Mot de passe : celui de GESCOM_MDP_COMPTE_LIMITE.");
+                    println!("Adresse du serveur : postgresql://{nom}:<mot de passe>@{hote}");
+                } else {
+                    println!("Adresse du serveur (à mettre dans poste.json, nulle part ailleurs) :");
+                    println!("  postgresql://{nom}:{mot_de_passe}@{hote}");
+                }
+                println!("Sauvegardes : GESCOM_PG_SAUVEGARDE = l'adresse du propriétaire, dans l'environnement du serveur.");
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Compte limité impossible : {e}");
+                std::process::exit(1);
+            }
         }
     }
 
@@ -426,6 +469,8 @@ struct Options {
     /// `%ProgramData%\Gescom` en service.
     journal: Option<String>,
     promouvoir: Option<String>,
+    /// v3, D-6 : cree le compte PostgreSQL limite, puis s'arrete.
+    compte_limite: Option<String>,
     /// Restaure ce fichier de sauvegarde sur la base, puis s'arrete.
     restaurer: Option<String>,
     /// Lance par le gestionnaire de services Windows (service.rs).
@@ -481,6 +526,7 @@ impl Options {
             sauvegardes: None,
             journal: None,
             promouvoir: None,
+            compte_limite: None,
             restaurer: None,
             service: false,
             installer_service: false,
@@ -536,11 +582,16 @@ impl Options {
                     o.restaurer = args.get(i + 1).cloned();
                     i += 2;
                 }
+                "--compte-limite" => {
+                    o.compte_limite = args.get(i + 1).cloned();
+                    i += 2;
+                }
                 "--aide" | "-h" | "--help" => {
                     println!(
                         "gescom-serveur [--hote 0.0.0.0] [--port {PORT_DEFAUT}] \
                          [--base CHEMIN] [--sauvegardes DOSSIER] [--journal FICHIER] [--promouvoir IDENTIFIANT]\n\
                          gescom-serveur --restaurer FICHIER [--base CHEMIN]   (serveur arrêté)\n\
+                         gescom-serveur --base <URL PostgreSQL du propriétaire> --compte-limite NOM\n\
                          gescom-serveur --installer-service | --desinstaller-service  (Windows, administrateur)"
                     );
                     std::process::exit(0);

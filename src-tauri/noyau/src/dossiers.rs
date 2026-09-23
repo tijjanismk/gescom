@@ -1045,6 +1045,10 @@ pub fn creer_dossier_sur(
         &parametres![id.clone(), code.clone(), societe.clone(), now.clone()],
     )
     .map_err(|e| e.0)?;
+    // Ses affaires a lui s'ecrivent CHEZ LUI : sous le compte limite de
+    // PostgreSQL (D-6), une ligne d'un autre dossier que la session est
+    // refusee par le moteur.
+    tx.ecrire_dans(&id).map_err(|e| e.0)?;
     tx.executer(
         "INSERT INTO exercice (id, dossier_id, date_debut, date_fin, clos, cree_le, modifie_le)
          VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)",
@@ -1075,6 +1079,7 @@ pub fn creer_dossier_sur(
     )
     .map_err(|e| e.0)?;
     // Au journal du dossier ou l'on est : c'est la qu'on a agi.
+    tx.ecrire_dans(&dossier_courant).map_err(|e| e.0)?;
     tx.executer(
         "INSERT INTO journal
            (id, type_evenement, entite_type, entite_id, auteur_id,

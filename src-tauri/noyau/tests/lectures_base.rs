@@ -140,6 +140,9 @@ fn sans_caisse_lire_autres_on_ne_lit_que_ses_sessions() {
 #[test]
 fn une_base_installee_donne_ses_lectures_au_comptable_une_seule_fois() {
     let mut base = base_avec_demo();
+    if !base.peut_migrer() {
+        return; // compte limité (D-6) : les migrations sont au propriétaire
+    }
     // Une base d'avant C-1 : le comptable d'origine, sans marque.
     base.executer(
         "UPDATE role SET permissions = ?1 WHERE nom = 'comptable'",

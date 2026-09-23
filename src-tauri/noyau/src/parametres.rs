@@ -1026,7 +1026,8 @@ pub fn entretenir_base_sur_base(
     }
 
     let executable = config_sur(base, "pg_dump_chemin").filter(|c| !c.trim().is_empty());
-    let copie = crate::sauvegarde::pg_dump(base.cible(), dossier_copies, executable.as_deref())?;
+    let url = crate::sauvegarde::url_pg_dump(base)?;
+    let copie = crate::sauvegarde::pg_dump(&url, dossier_copies, executable.as_deref())?;
     let avant = taille_base_pg(base)?;
     let reimputes = crate::chantiers::reimputer_paiements_globaux_sur_base(base)?;
     // Hors transaction : PostgreSQL refuse VACUUM dedans, et `Base`

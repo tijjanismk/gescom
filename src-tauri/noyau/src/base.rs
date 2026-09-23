@@ -602,6 +602,20 @@ impl Transaction<'_> {
         }
     }
 
+    /// Ecrit, le temps de cette transaction, dans un AUTRE dossier (v3,
+    /// D-6) : creer un dossier pose son exercice, son magasin et son
+    /// client de passage chez lui, pas chez celui qui le cree. Sur
+    /// PostgreSQL, `set_config(.., true)` est LOCAL a la transaction —
+    /// la session retrouve son dossier au `COMMIT` comme au `ROLLBACK` —
+    /// et c'est ce que le cloisonnement du compte limite juge.
+    pub fn ecrire_dans(&mut self, dossier_id: &str) -> Resultat<()> {
+        self.dossier = dossier_id.to_string();
+        if let MoteurTx::Pg(t) = &mut self.moteur {
+            t.execute("SELECT set_config('gescom.dossier', $1, true)", &[&self.dossier])?;
+        }
+        Ok(())
+    }
+
     pub fn lire_une<T>(
         &mut self,
         sql: &str,
@@ -735,6 +749,19 @@ impl Base {
             }
         }
         Ok(())
+    }
+
+    /// Ce compte peut-il poser le schema (migrations) ? Toujours sur
+    /// SQLite ; sur PostgreSQL, pas le compte limite (D-6) : ses
+    /// migrations passent par le proprietaire (`--compte-limite`).
+    pub fn peut_migrer(&mut self) -> bool {
+        match &mut self.moteur {
+            Moteur::Sqlite(_) => true,
+            Moteur::Pg(c) => c
+                .query_one("SELECT has_schema_privilege('public', 'CREATE')", &[])
+                .map(|l| l.get::<_, bool>(0))
+                .unwrap_or(false),
+        }
     }
 
     pub fn est_postgres(&self) -> bool {
