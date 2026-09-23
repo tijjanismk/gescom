@@ -3,7 +3,7 @@ import { appeler as invoke } from "@/lib/pont";
 import {
   ArrowLeft, Truck, Phone, MapPin, Mail, FileText,
   Loader2, TrendingDown, Clock, Eye, Pencil, Printer,
-  Package, Banknote, CheckCircle2, RotateCcw
+  Package, Banknote, CheckCircle2, RotateCcw, History,
 } from "lucide-react";
 import { ApercuPiece } from "@/components/ApercuPiece";
 import { ApercuRecu } from "@/components/ApercuRecu";
@@ -376,9 +376,11 @@ function ModalReglementDette({
 interface FicheFournisseurProps {
   fournisseurId: string;
   onRetour: () => void;
+  /** Absent sans `journal:lire` : pas de bouton. */
+  onHistorique?: (nom: string) => void;
 }
 
-export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurProps) {
+export function FicheFournisseur({ fournisseurId, onRetour, onHistorique }: FicheFournisseurProps) {
   const [fournisseur, setFournisseur] = useState<Fournisseur | null>(null);
   const [stats, setStats] = useState<StatsFournisseur | null>(null);
   const [paiements, setPaiements] = useState<PaiementFournisseur[]>([]);
@@ -537,6 +539,11 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
           </div>
         </div>
         <div className="ml-auto flex gap-2">
+          {onHistorique && (
+            <Button size="sm" variant="outline" onClick={() => onHistorique(fournisseur.nom)}>
+              <History className="h-4 w-4 mr-1" /> Historique
+            </Button>
+          )}
           <Button size="sm" variant="outline"
             onClick={() => setModalModifier(true)}>
             <Pencil className="h-4 w-4 mr-1" /> Modifier

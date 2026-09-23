@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import {
   AlertTriangle, Package, RefreshCw, Loader2,
-  ArrowUpCircle, ClipboardList, X, Printer,
+  ArrowUpCircle, ClipboardList, X, Printer, History,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -548,7 +548,10 @@ function OngletMouvements() {
   );
 }
 
-export function Stock() {
+export function Stock({ onHistorique }: {
+  /** Absent sans `journal:lire` : pas de bouton. */
+  onHistorique?: (articleId: string, nom: string) => void;
+} = {}) {
   const [resultat, setResultat] = useState<PageResult>({
     donnees: [], total: 0, pages: 0, page: 0,
   });
@@ -713,6 +716,13 @@ export function Stock() {
                             className="h-7 text-xs px-2">
                             <ClipboardList className="h-3 w-3 mr-1" /> Ajuster
                           </Button>
+                          {onHistorique && (
+                            <Button size="sm" variant="ghost"
+                              onClick={() => onHistorique(s.article_id, s.article_nom)}
+                              className="h-7 text-xs px-2">
+                              <History className="h-3 w-3 mr-1" /> Historique
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>

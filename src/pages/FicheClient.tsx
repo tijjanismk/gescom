@@ -5,7 +5,7 @@ import {
   ArrowLeft, User, Phone, MapPin, Mail, FileText,
   Loader2, Plus, Printer, ArrowRight, Eye, Pencil, RotateCcw,
   Receipt, Package, Truck, ClipboardList, Gift,
-  AlertTriangle, TrendingUp, Clock, Search, X,
+  AlertTriangle, TrendingUp, Clock, Search, X, History,
 } from "lucide-react";
 import { GlassHalos } from "@/components/ui/GlassIcon";
 import { KpiLigne, CARTE, GRILLE } from "@/components/ui/KpiVerre";
@@ -699,9 +699,11 @@ function ModalReglementCreance({
 interface FicheClientProps {
   clientId: string;
   onRetour: () => void;
+  /** Absent sans `journal:lire` : pas de bouton. */
+  onHistorique?: (nom: string) => void;
 }
 
-export function FicheClient({ clientId, onRetour }: FicheClientProps) {
+export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientProps) {
   const [fiche, setFiche] = useState<{ client: Client; stats: Stats } | null>(null);
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [creances, setCreances] = useState<CreanceVente[]>([]);
@@ -943,6 +945,11 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
           <p className="text-xs text-muted-foreground">{client.code}</p>
         </div>
         <div className="ml-auto flex gap-2">
+          {onHistorique && (
+            <Button size="sm" variant="outline" onClick={() => onHistorique(client.nom)}>
+              <History className="h-4 w-4 mr-1" /> Historique
+            </Button>
+          )}
           <Button size="sm" variant="outline"
             onClick={() => setModalModifier(true)}>
             <Pencil className="h-4 w-4 mr-1" /> Modifier

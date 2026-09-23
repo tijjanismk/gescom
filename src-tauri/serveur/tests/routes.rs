@@ -305,6 +305,67 @@ fn deux_comptes_du_meme_role_signent_chacun_leur_vente() {
 }
 
 #[test]
+fn l_historique_se_lit_avec_journal_lire_et_nomme_qui_a_vendu() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+
+    let (code, _) = rpc(port, &admin, "creer_utilisateur", json!({
+        "nom": "Awa Traoré", "pseudo": "awa", "email": null, "motDePasse": "awa-secret", "roleNom": "employe"
+    }));
+    assert_eq!(code, 200);
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "awa", "mot_de_passe": "awa-secret", "poste_nom": "h", "poste_empreinte": "routes-h", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let awa = v["jeton"].as_str().unwrap().to_string();
+
+    let (_, a) = rpc(port, &admin, "lire_articles_avec_unites", json!({}));
+    let article = &a["donnee"][0];
+    let unite = &article["unites"][0];
+    let (_, d) = rpc(port, &admin, "lire_depot_defaut", json!({}));
+    let depot = d["donnee"]["id"].as_str().unwrap().to_string();
+    let (_, c) = rpc(port, &admin, "lire_client_generique", json!({}));
+    let client = c["donnee"]["id"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &awa, "creer_vente", json!({
+        "clientId": client, "depotId": depot, "modeReglement": "comptant",
+        "lignes": [{
+            "article_id": article["id"], "unite_vente_id": unite["id"], "depot_source_id": depot,
+            "source_approvisionnement": "stock", "quantite": 1.0, "facteur": unite["facteur"],
+            "prix_reference": unite["prix_reference"], "prix_pratique": unite["prix_reference"]
+        }]
+    }));
+    assert_eq!(code, 200, "{v}");
+
+    // Le JSON tel que l'écran l'envoie : `filtre`, champs vides à null.
+    let filtre = |recherche: &str| json!({ "filtre": {
+        "du": null, "au": null, "auteur_id": null, "type_evenement": "vente_creee",
+        "tiers_id": null, "piece_id": null, "article_id": null,
+        "recherche": recherche, "page": 0, "par_page": 50
+    }});
+    let (code, v) = rpc(port, &admin, "lire_historique", filtre("awa"));
+    assert_eq!(code, 200, "{v}");
+    let lignes = v["donnee"]["lignes"].as_array().unwrap();
+    assert_eq!(lignes.len(), 1, "la vente d'Awa, trouvée par son nom : {v}");
+    assert_eq!(lignes[0]["auteur_nom"], "Awa Traoré");
+    assert_eq!(lignes[0]["libelle_type"], "Vente");
+
+    let (code, v) = rpc(port, &admin, "lire_filtres_historique", json!({}));
+    assert_eq!(code, 200, "{v}");
+    assert!(v["donnee"]["auteurs"].as_array().unwrap().iter().any(|a| a["nom"] == "Awa Traoré"));
+
+    // Un employé n'a pas `journal:lire` : le serveur refuse, quel que
+    // soit l'écran.
+    let (code, v) = rpc(port, &awa, "lire_historique", filtre(""));
+    assert_ne!(code, 200, "{v}");
+    assert!(v.to_string().contains("journal:lire"), "le refus nomme la permission : {v}");
+    let (code, _) = rpc(port, &awa, "lire_filtres_historique", json!({}));
+    assert_ne!(code, 200);
+}
+
+#[test]
 fn une_sauvegarde_se_restaure_hors_ligne_et_le_serveur_repart_dessus() {
     // Le diagnostic disait « restaurer la dernière sauvegarde » et rien ne
     // le faisait. Ici : on sauvegarde, on écrit encore, on restaure

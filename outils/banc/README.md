@@ -23,3 +23,4 @@ installé.
 | `a2-rendu.mjs` | A-2 | chaque genre rendu par le vrai générateur avec les vraies données : colonnes, récap TVA, lettres, signatures, cachet, coordonnées, ticket, reçu fournisseur |
 | `a2-apercu.mjs` | A-2 | l'aperçu d'une pièce s'ouvre au format réglé du genre, sans choix de modèle |
 | `a3-atelier.mjs` | A-3 | l'atelier est parti : ni onglet, ni commande ; la Société renvoie à Documents |
+| `b1-historique.mjs` | B-1 | un règlement annulé retrouvé par le nom du client ; filtres type / dates / tout effacer ; ouvert depuis une fiche client (puce, retour), une pièce, un article ; l'employé n'a ni menu ni réponse du serveur |

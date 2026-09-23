@@ -6,7 +6,7 @@ import {
   RotateCcw, ArrowLeftRight,
   ArrowRight, FileText, ClipboardList,
   Package, Truck, Receipt, Gift,
-  ShoppingBag, CheckCircle2, Copy, Ban, Edit2,
+  ShoppingBag, CheckCircle2, Copy, Ban, Edit2, History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -747,9 +747,11 @@ function ModalModifierPiece({
 //  Page Pièces
 // =====================================================================
 
-export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
+export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistorique }: {
   onOuvrirFicheClient?: (clientId: string) => void;
   onOuvrirFicheFournisseur?: (fournisseurId: string) => void;
+  /** Absent sans `journal:lire` : pas de bouton. */
+  onHistorique?: (pieceId: string, numero: string) => void;
 }) {
   const [onglet, setOnglet] = useState<"client"|"fournisseur">("client");
   const [pieces, setPieces] = useState<Piece[]>([]);
@@ -1720,6 +1722,16 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                                      text-muted-foreground hover:text-foreground">
                           <Copy className="h-3.5 w-3.5" />
                         </button>
+
+                        {/* Historique — tout ce qui a touché cette pièce */}
+                        {onHistorique && (
+                          <button onClick={() => onHistorique(p.id, p.numero)}
+                            title="Historique" aria-label={`Historique ${p.numero}`}
+                            className="p-1.5 rounded hover:bg-muted transition-colors
+                                       text-muted-foreground hover:text-foreground">
+                            <History className="h-3.5 w-3.5" />
+                          </button>
+                        )}
 
                         {/* Annuler — `peut_annuler` refuse aussi `paye`
                             et `transfere`. Les proposer donnait un

@@ -121,7 +121,7 @@ fn roles() -> Vec<(&'static str, &'static str, bool, bool, &'static str)> {
             "Créances, chèques, TVA, règlements fournisseurs.",
             false,
             false,
-            r#"["creances:gerer","cheques:gerer","fournisseurs:regler","avoirs:gerer","chantiers:gerer"]"#,
+            r#"["creances:gerer","cheques:gerer","fournisseurs:regler","avoirs:gerer","chantiers:gerer","journal:lire"]"#,
         ),
     ]
 }

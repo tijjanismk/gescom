@@ -1649,3 +1649,27 @@ paragraphe l'emporte, et évite qu'un reçu perde sa signature à la mise
 Mesuré : workspace 490 tests (la fenêtre Tauri compile et teste sous
 Linux depuis cette séance) ; `documents_base` 13 scénarios sur SQLite
 et PostgreSQL ; banc : 42 vérifications d'une base neuve.
+
+## 23/09/2026 (suite 2) — v3, chantier B : les traces
+
+**B-1 — l'Historique.** Le `journal` s'écrit depuis la v1 ; il se lit
+maintenant, sur les deux moteurs, par une page qui dit quand, qui,
+quoi, sur quoi, avant → après. « Sur quoi » se résout à la lecture
+(sous-requêtes sur clé primaire) plutôt que de recopier le nom à
+l'écriture : une fiche renommée se lit sous son nom d'aujourd'hui. Un
+transfert, journalisé par son bon, ne se rattache à aucun article —
+une sous-requête à plusieurs lignes fait refuser PostgreSQL.
+
+`journal:lire` est la première permission de **lecture** : le serveur
+refuse, l'écran cache. Elle est dans le rôle comptable d'une base
+neuve ; les bases installées la recevront avec la migration des rôles
+de C-1, qui ajoute les quatre autres. La liste « Personne » ne lit pas
+les comptes (qui demande `utilisateurs:gerer`) mais les auteurs réels
+du journal.
+
+Le banc a trouvé une course dans l'écran : deux filtres changés coup
+sur coup, la réponse lente du premier écrasait la bonne. Seule la
+dernière requête affiche désormais.
+
+Plan : `lire_journal_sur` s'appelle `lire_historique_sur` (le module
+`journal.rs` existe déjà et écrit les anomalies).

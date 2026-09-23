@@ -57,10 +57,10 @@ pub struct Permission {
 /// dans aucune commande serait une case a cocher sans effet, et c'est
 /// pire que pas de case du tout.
 ///
-/// ⚠️ Les LECTURES ne sont pas encore filtrees : `r.lecture(…)` ne
-/// demande aucune permission. N'importe quel utilisateur connecte peut
-/// donc tout lire. Le catalogue ne contient volontairement aucune
-/// permission en `:lire` tant que c'est vrai.
+/// ⚠️ La plupart des LECTURES ne sont pas filtrees : `r.lecture(…)` ne
+/// demande aucune permission. La v3 ajoute des permissions de lecture
+/// une par une (C1), et seulement la ou une commande les verifie :
+/// `journal:lire` (B-1) garde l'Historique.
 pub const CATALOGUE: &[Permission] = &[
     // --- Vente ---
     Permission { code: "ventes:creer", libelle: "Enregistrer une vente", groupe: "Vente" },
@@ -103,6 +103,10 @@ pub const CATALOGUE: &[Permission] = &[
     Permission { code: "postes:gerer", libelle: "Gérer les postes du réseau", groupe: "Administration" },
     Permission { code: "sauvegarde:lancer", libelle: "Lancer une sauvegarde", groupe: "Administration" },
     Permission { code: "chantiers:gerer", libelle: "TVA, irrécouvrables, expiration des avoirs", groupe: "Administration" },
+    // --- Lecture (v3, C1) ---
+    // Qui a fait quoi : l'Historique (B-1). Le patron l'a par
+    // `acces_total`, le comptable par son role ; pas le caissier.
+    Permission { code: "journal:lire", libelle: "Lire l'historique (qui a fait quoi)", groupe: "Lecture" },
 ];
 
 /// Cette permission existe-t-elle ?

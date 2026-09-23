@@ -8,3 +8,4 @@ pub mod dates;
 pub mod tiers;
 pub mod saisie;
 pub mod documents;
+pub mod historique;

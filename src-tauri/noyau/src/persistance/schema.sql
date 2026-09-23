@@ -480,6 +480,7 @@ CREATE TABLE IF NOT EXISTS journal (
 CREATE INDEX IF NOT EXISTS idx_facture_numero      ON facture(numero);
 CREATE INDEX IF NOT EXISTS idx_facture_vente        ON facture(vente_id);
 CREATE INDEX IF NOT EXISTS idx_journal_entite       ON journal(entite_type, entite_id);
+CREATE INDEX IF NOT EXISTS idx_journal_date         ON journal(date_evenement);
 CREATE INDEX IF NOT EXISTS idx_ligne_piece ON ligne_piece(piece_id);
 CREATE INDEX IF NOT EXISTS idx_ligne_vente_vente    ON ligne_vente(vente_id);
 CREATE INDEX IF NOT EXISTS idx_mouvement_caisse     ON mouvement_caisse(session_id);

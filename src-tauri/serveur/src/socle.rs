@@ -88,6 +88,17 @@ pub fn registre() -> Registre {
         let genre: String = arg(&p, "genre", "genre")?;
         gescom_noyau::documents::retablir_defaut_sur(c.base, &genre)
     });
+    // ---- v3, B-1 : l'Historique. La premiere lecture filtree (C1). ----
+    r.sur_base("lire_historique", Some("journal:lire"), false, |c, p| {
+        let brut = p.get("filtre").cloned().unwrap_or(p);
+        let filtre: gescom_noyau::historique::Filtre = serde_json::from_value(brut)
+            .map_err(|e| format!("Filtre illisible : {e}"))?;
+        gescom_noyau::historique::lire_historique_sur(c.base, filtre)
+    });
+    r.sur_base("lire_filtres_historique", Some("journal:lire"), false, |c, _| {
+        gescom_noyau::historique::filtres_sur(c.base)
+    });
+
     r.sur_base("enregistrer_coordonnees_documents", Some("parametres:modifier"), true, |c, p| {
         let choix: Vec<String> = arg(&p, "coordonnees", "coordonnees")?;
         serde_json::to_value(gescom_noyau::documents::enregistrer_coordonnees_sur(c.base, choix)?)

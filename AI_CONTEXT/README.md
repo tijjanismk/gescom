@@ -24,6 +24,7 @@ de 5 à 8 k.
 | toucher aux droits | [modules/permissions.md](modules/permissions.md) |
 | toucher à un écran React | [modules/front-pages.md](modules/front-pages.md), [modules/front-composants.md](modules/front-composants.md) ; impression : [modules/front-lib.md](modules/front-lib.md) |
 | toucher aux documents imprimés (facture, reçu, signatures, en-tête) | [modules/documents.md](modules/documents.md) |
+| l'Historique, le journal technique, les erreurs des caisses, les anomalies | [modules/traces.md](modules/traces.md) |
 | installer, empaqueter, un binaire bloqué (4551) | [modules/installation.md](modules/installation.md), [modules/installeur.md](modules/installeur.md), [modules/environnement-windows.md](modules/environnement-windows.md) |
 | comprendre une règle avant de la changer | [DOMAINE.md](DOMAINE.md) (règles avec `fichier:ligne`), [DECISIONS.md](DECISIONS.md) (D1…D11 + le récap en fin) |
 | la v3 — ce qu'elle contient, dans quel ordre, ce qui est tranché | [PLAN-V3.md](PLAN-V3.md) |

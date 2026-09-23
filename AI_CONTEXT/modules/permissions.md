@@ -18,7 +18,7 @@ du noyau, **à chaque appel** ; l'écran ne fait que cacher des boutons.
 
 | | où | qui le change |
 |---|---|---|
-| le **catalogue** — 28 permissions (`modeles:gerer` retirée avec l'atelier, v3 A-3), celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`) | code | personne |
+| le **catalogue** — 29 permissions (`modeles:gerer` retirée avec l'atelier, v3 A-3 ; `journal:lire` ajoutée, v3 B-1), celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`, `r.sur_base(nom, Some(permission), …)`) | code | personne |
 | les **rôles** — `role.permissions` (JSON), `role.acces_total` | base | le patron |
 | le **sur-mesure** — `utilisateur_permission(utilisateur, permission, accorde)` | base | le patron, par personne |
 
@@ -41,6 +41,18 @@ les avoirs existants ; il n'en crée pas.
 Créer un dossier, ouvrir, prolonger ou clore un exercice. Comme
 `avoirs:accorder` : aucun rôle livré ne la porte, elle vient avec
 `acces_total` ou se donne à la main.
+
+## `journal:lire` — la première permission de LECTURE (23/09/2026, v3 B-1)
+
+Jusqu'ici les lectures n'étaient pas filtrées (tout connecté lit tout).
+L'Historique est la première lecture que le **serveur refuse** sans
+permission : `lire_historique` et `lire_filtres_historique`. Rôles
+livrés : `patron` (accès total) et `comptable` sur une base **neuve** ;
+caissier, magasinier, employé ne l'ont pas. Une base déjà installée
+reçoit `journal:lire` pour son comptable avec la migration des rôles
+de C-1 (les quatre autres permissions de lecture) ; d'ici là, le
+patron la donne par le sur-mesure. L'entrée de menu et les boutons
+« Historique » des fiches suivent `peut("journal:lire")`.
 
 ## Une permission qui dépend des ARGUMENTS : `pieces:antidater`
 

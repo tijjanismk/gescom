@@ -1,0 +1,47 @@
+# Module : les traces (v3, chantier B)
+
+Rôle : savoir **qui a fait quoi** (le journal métier, lu par
+l'Historique) et **ce qui s'est mal passé** (le journal technique du
+serveur, les erreurs des caisses, les anomalies). Aucune nouvelle
+écriture métier : le `journal` s'écrit partout depuis la v1, le
+chantier B le fait lire.
+
+## L'Historique (B-1)
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Règle | [coeur/historique.rs](../../src-tauri/noyau/src/coeur/historique.rs) | `TYPES` (type → libellé français, ordre du filtre), `libelle_type` (un type inconnu reste lisible), `borner_page` (1…200), `jour_filtre` (une date illisible est refusée, pas ignorée) |
+| Lecture | [historique.rs](../../src-tauri/noyau/src/historique.rs) | `lire_historique_sur(acces, Filtre)` paginé, le plus récent d'abord ; `filtres_sur` (types + personnes qui ont réellement agi) |
+| Commandes | [serveur/src/socle.rs](../../src-tauri/serveur/src/socle.rs) | `lire_historique`, `lire_filtres_historique` — **nées sur `Base`**, permission `journal:lire` (la première permission de lecture) |
+| Écran | [pages/Historique.tsx](../../src/pages/Historique.tsx) | filtres Du / Au / Personne / Type / Recherche, puce du contexte (« Client : … »), pagination de 50 |
+| Accès | `Layout.tsx` (menu), `FicheClient`, `FicheFournisseur`, `Pieces` (icône par ligne), `Stock` (au survol) | bouton « Historique » → `App.ouvrirHistorique(filtre, retour)` ; absent sans `journal:lire` |
+
+**« Sur quoi » se résout à la lecture**, par sous-requêtes sur clé
+primaire depuis `(entite_type, entite_id)` : le tiers (client ou
+fournisseur), la pièce, l'article. Couverts : `client`, `fournisseur`,
+`vente`, `paiement`, `ligne_vente`, `piece_commerciale`/`piece`,
+`paiement_fournisseur`, `retour`, `avoir`, `cheque_recu`, `article`.
+Un `transfert` est journalisé par son **bon** (plusieurs articles) :
+il ne se rattache à aucun article — une sous-requête à plusieurs
+lignes ferait refuser PostgreSQL. Rien n'est recopié à l'écriture :
+une fiche renommée se lit sous son nom d'aujourd'hui.
+
+La **recherche** porte sur le nom du tiers, le numéro de pièce,
+l'article, l'auteur et le détail enregistré (`ancien_valeur`,
+`nouveau_valeur`), en `LOWER(…) LIKE LOWER(…)`. Un filtre vide ou
+fait d'espaces ne filtre pas.
+
+L'écran ne garde que la **dernière** réponse (numéro de requête) :
+deux filtres changés coup sur coup lançaient deux lectures, et la plus
+lente écrasait la bonne — trouvé par le banc. Les identifiants
+internes (UUID) du détail ne s'affichent pas.
+
+**Rétention** : rien ne s'efface. Index `idx_journal_date`
+(`date_evenement`) et `idx_journal_entite`.
+
+Preuves : `noyau/tests/historique_base.rs` (5 scénarios, deux
+moteurs : un règlement annulé retrouvé par le nom du client, les
+filtres, la pagination sans perte ni doublon, la permission, le
+détecteur) ; `serveur/tests/routes.rs::l_historique_se_lit_avec_journal_lire_et_nomme_qui_a_vendu`
+(JSON de l'écran, auteur nommé, refus de l'employé) ; banc
+`b1-historique.mjs` (23 vérifications).

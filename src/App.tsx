@@ -24,6 +24,8 @@ import { Retours } from "@/pages/Retours";
 import { Relances } from "@/pages/Relances";
 import { Rapports } from "@/pages/Rapports";
 import { Journal } from "@/pages/Journal";
+import { Historique, type FiltreHistorique } from "@/pages/Historique";
+import { peut } from "@/lib/droits";
 import { Transferts } from "@/pages/Transferts";
 import { Cheques } from "@/pages/Cheques";
 
@@ -239,6 +241,11 @@ function App() {
     if (utilisateur) sauvegarderSession(utilisateur, page, params ?? null);
   }
 
+  /** L'Historique filtré sur une fiche, avec le chemin du retour. */
+  function ouvrirHistorique(filtre: FiltreHistorique, page: string, params: unknown) {
+    naviguer("historique", { filtre, retour: { page, params } });
+  }
+
   function handleConnecte(u: UtilisateurConnecte) {
     UTILISATEUR_ACTIF = u;
     setUtilisateur(u);
@@ -268,10 +275,20 @@ function App() {
               naviguer("fiche_client", { clientId })}
             onOuvrirFicheFournisseur={fournisseurId =>
               naviguer("fiche_fournisseur", { fournisseurId })}
+            onHistorique={peut("journal:lire") ? (pieceId, numero) =>
+              ouvrirHistorique({ piece_id: pieceId, libelle: `Pièce : ${numero}` }, "pieces", null)
+              : undefined}
           />
         );
       case "achats":     return <Achats />;
-      case "stock":      return <Stock />;
+      case "stock":
+        return (
+          <Stock
+            onHistorique={peut("journal:lire") ? (articleId, nom) =>
+              ouvrirHistorique({ article_id: articleId, libelle: `Article : ${nom}` }, "stock", null)
+              : undefined}
+          />
+        );
       case "clients":
         return (
           <Clients
@@ -284,6 +301,11 @@ function App() {
           <FicheClient
             clientId={navParams.clientId}
             onRetour={() => naviguer("clients")}
+            onHistorique={peut("journal:lire") ? (nom: string) =>
+              ouvrirHistorique(
+                { tiers_id: navParams.clientId, libelle: `Client : ${nom}` },
+                "fiche_client", { clientId: navParams.clientId })
+              : undefined}
           />
         ) : (
           <Clients
@@ -303,6 +325,11 @@ function App() {
           <FicheFournisseur
             fournisseurId={navParams.fournisseurId}
             onRetour={() => naviguer("fournisseurs")}
+            onHistorique={peut("journal:lire") ? (nom: string) =>
+              ouvrirHistorique(
+                { tiers_id: navParams.fournisseurId, libelle: `Fournisseur : ${nom}` },
+                "fiche_fournisseur", { fournisseurId: navParams.fournisseurId })
+              : undefined}
           />
         ) : (
           <Fournisseurs
@@ -314,6 +341,15 @@ function App() {
       case "retours":    return <Retours />;
       case "relances":   return <Relances />;
       case "journal":    return <Journal />;
+      case "historique":
+        return (
+          <Historique
+            filtreInitial={navParams?.filtre}
+            onRetour={navParams?.retour
+              ? () => naviguer(navParams.retour.page, navParams.retour.params)
+              : undefined}
+          />
+        );
       case "transferts": return <Transferts />;
       case "cheques":    return <Cheques />;
       case "rapports":   return <Rapports />;
