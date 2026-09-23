@@ -629,10 +629,29 @@ impl Transaction<'_> {
     }
 
     /// Ecrit tout, pour de bon.
+    ///
+    /// Sur PostgreSQL, une instruction qui echoue AVORTE la transaction :
+    /// toutes les suivantes sont ignorees, et `COMMIT` repond `ROLLBACK`
+    /// sans erreur. Une ecriture dont l'echec etait ignore expres
+    /// (`let _ =`, `.ok()` — journal, trace de remise) faisait donc
+    /// disparaitre TOUTE la vente, pendant que la commande rendait `Ok`.
+    /// On demande a PostgreSQL si la transaction vit encore avant de
+    /// valider : sinon, refus net — rien n'est ecrit, et on le dit
+    /// (revue du 23/09/2026). SQLite n'avorte pas : rien ne change.
     pub fn valider(self) -> Resultat<()> {
         match self.moteur {
             MoteurTx::Sqlite(t) => Ok(t.commit()?),
-            MoteurTx::Pg(t) => Ok(t.commit()?),
+            MoteurTx::Pg(mut t) => {
+                if let Err(e) = t.batch_execute("SELECT 1") {
+                    let _ = t.rollback();
+                    return Err(Erreur(format!(
+                        "Rien n'a été enregistré : une instruction a échoué \
+                         pendant l'opération et PostgreSQL l'a annulée ({}).",
+                        Erreur::from(e)
+                    )));
+                }
+                Ok(t.commit()?)
+            }
         }
     }
 }
