@@ -50,6 +50,17 @@ pub fn registre() -> Registre {
         permissions.sort();
         Ok(serde_json::json!({ "dossier_id": d.id, "societe": d.societe, "role": role, "permissions": permissions }))
     });
+    // Les droits de la session, relus en base. L'ecran les gardait tels
+    // qu'a la connexion (session du navigateur, 8 h) : une permission
+    // ajoutee par une mise a jour ou par le patron n'apparaissait qu'a
+    // la reconnexion — le patron voyait « les chiffres ne sont pas
+    // ouverts a votre compte » alors que le serveur les lui ouvrait.
+    r.sur_base("lire_mes_droits", None, false, |c, _| {
+        let mut permissions: Vec<String> =
+            gescom_noyau::portes::permissions_de_sur(c.base, &c.appelant.utilisateur_id, &c.appelant.role).into_iter().collect();
+        permissions.sort();
+        Ok(serde_json::json!({ "role": c.appelant.role, "permissions": permissions }))
+    });
     r.sur_base("oublier_dossier_memorise", None, false, |c, _| {
         gescom_noyau::dossiers::memoriser_dossier_sur(c.base, &c.appelant.utilisateur_id, None)?;
         Ok(serde_json::Value::Null)

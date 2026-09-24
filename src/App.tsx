@@ -1,4 +1,4 @@
-import { poserDroits } from "@/lib/droits";
+import { poserDroits, relireDroits } from "@/lib/droits";
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
@@ -197,6 +197,21 @@ function App() {
       return;
     }
     return surSessionPerdue(() => handleDeconnecter());
+  }, [pontPret, utilisateur?.id]);
+
+  // Les droits gardés par le navigateur datent de la connexion : on les
+  // relit une fois le pont prêt (lib/droits.ts, relireDroits).
+  useEffect(() => {
+    if (!pontPret || !utilisateur || (enReseau() && !sessionUtilisable())) return;
+    let annule = false;
+    relireDroits(utilisateur).then(u => {
+      if (annule || !u) return;
+      UTILISATEUR_ACTIF = u;
+      poserDroits(u);
+      setUtilisateur(u);
+      sauvegarderSession(u, pageActive, navParams);
+    });
+    return () => { annule = true; };
   }, [pontPret, utilisateur?.id]);
 
   // Le canal : ce que les autres caisses viennent de faire.

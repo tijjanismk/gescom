@@ -12,7 +12,7 @@ import {
   synchroniserConfig, enReseau, sessionUtilisable, surSessionPerdue, deconnecterServeur,
   dossierCourant, etatReseau,
 } from "@/lib/pont";
-import { poserDroits, peutUne } from "@/lib/droits";
+import { poserDroits, peutUne, relireDroits } from "@/lib/droits";
 import { PageLogin, type UtilisateurConnecte } from "@/pages/PageLogin";
 import { Button } from "@/components/ui/button";
 import { ModalChangerMdp } from "@/components/ModalChangerMdp";
@@ -69,6 +69,19 @@ export function AppEquipe() {
       return;
     }
     return surSessionPerdue(quitter);
+  }, [pontPret, utilisateur?.id]);
+
+  // Les droits gardés par le navigateur datent de la connexion : relus.
+  useEffect(() => {
+    if (!pontPret || !utilisateur || !enReseau() || !sessionUtilisable()) return;
+    let annule = false;
+    relireDroits(utilisateur).then(u => {
+      if (annule || !u) return;
+      ecrireSession(u);
+      poserDroits(u);
+      setUtilisateur(u);
+    });
+    return () => { annule = true; };
   }, [pontPret, utilisateur?.id]);
 
   if (!pontPret) {
