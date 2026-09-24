@@ -1717,3 +1717,44 @@ ferait échouer tout encaissement — dormant, aucun écran ne l'offre.
 
 C-2 (droits par dossier) se fait avec le chantier D, comme le plan le
 dit.
+
+## 23/09/2026 (suite 4) — v3, chantier D : plusieurs dossiers, et C-2
+
+**D-1 à D-3** — le stock d'un second dossier se range chez lui ; le
+serveur sert tout par `Base` (le chemin `Connection` part, 3 000 → 1 800
+lignes de `socle.rs`) ; un dossier naît avec ses dates de travail.
+
+**D-4** — le garde-fou des dates existait, personne ne l'appelait :
+`api::rpc` juge maintenant chaque écriture datée (`date_d_ecriture`).
+Pas de trou entre exercices ; une prolongation ne mord pas sur la suite.
+
+**D-5** — la base d'avant prend le nom de la société et un exercice qui
+couvre sa plus ancienne écriture (sinon un règlement tardif d'une vente
+de 2024 était refusé par D-4).
+
+**C-2** — un rôle par dossier. Précision à la décision : qui n'a que
+certains dossiers perd ce qui est commun à tous (comptes, postes,
+sauvegarde, société) — sinon le frère se créait un compte patron qui
+voit tout.
+
+**D-6** — le compte PostgreSQL limité, RLS sur chaque table cloisonnée.
+Rejouer les scénarios sous ce compte a trouvé la sauvegarde partielle
+(`pg_dump` ne voyait qu'un dossier) : elle passe par l'adresse du
+propriétaire (`GESCOM_PG_SAUVEGARDE`) ou refuse.
+
+## 24/09/2026 — v3, chantier E : le plan comptable, comme fondation
+
+**E-1** — le plan SYSCOHADA en base (134 comptes, classes 1 à 7), commun
+à tous les dossiers ; les sous-comptes par dossier. Permission
+`comptabilite:gerer`, donnée au comptable.
+
+**E-2** — 28 opérations, chacune un défaut et les comptes qu'elle
+accepte ; la table ne garde que ce qui diffère.
+
+**E-3** — les journaux ventes, achats, règlements, caisse, **fabriqués à
+la lecture** (rien n'est stocké) et exportés en CSV. Prouvé : chaque
+écriture équilibrée, les ventes du journal égales au chiffre du cahier
+du jour, chaque opération sur son compte affecté — sur SQLite,
+PostgreSQL et sous le compte limité. Pas encore : les retours de
+marchandise (leur effet passe par l'avoir utilisé), les OD, la TVA sur
+achats (non saisie). La v3 du plan est faite.

@@ -13,3 +13,4 @@ pub mod lecture;
 pub mod plafonds;
 pub mod plan_comptable;
 pub mod affectations;
+pub mod journaux;

@@ -87,6 +87,24 @@ pub fn registre() -> Registre {
     r.sur_base("definir_affectation", Some("comptabilite:gerer"), true, |c, p| {
         gescom_noyau::affectations::definir_sur(c.base, arg(&p, "operation", "operation")?, arg(&p, "compte", "compte")?)
     });
+    // v3, E-3 : les journaux, fabriques a la lecture, et leur export.
+    // Ce sont les chiffres de la boutique : `rapports:lire`.
+    r.sur_base("lire_journaux_comptables", Some("rapports:lire"), false, |c, p| {
+        gescom_noyau::journaux_comptables::lire_sur(
+            c.base,
+            arg(&p, "du", "du")?,
+            arg(&p, "au", "au")?,
+            arg(&p, "journal", "journal")?,
+        )
+    });
+    r.sur_base("exporter_journaux_csv", Some("rapports:lire"), false, |c, p| {
+        gescom_noyau::journaux_comptables::csv_sur(
+            c.base,
+            arg(&p, "du", "du")?,
+            arg(&p, "au", "au")?,
+            arg(&p, "journal", "journal")?,
+        )
+    });
     // v3, C-2 : les dossiers d'une personne, et son role dans chacun.
     r.sur_base("lire_dossiers_utilisateur", Some("utilisateurs:gerer"), false, |c, p| {
         gescom_noyau::acces_dossiers::lire_sur(c.base, &arg::<String>(&p, "utilisateurId", "utilisateur_id")?)

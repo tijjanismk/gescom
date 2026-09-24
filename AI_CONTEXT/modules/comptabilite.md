@@ -15,6 +15,16 @@ une seconde vérité).
 | Affectations (base) | [affectations.rs](../../src-tauri/noyau/src/affectations.rs) | `compte_sur`, `table_sur`, `lire_sur`, `definir_sur` (journal `affectation_modifiee`) — la table `affectation_comptable` (cloisonnée) ne garde que ce qui diffère du défaut |
 | Écran | [components/OngletComptabilite.tsx](../../src/components/OngletComptabilite.tsx) | Paramètres → Comptabilité (`comptabilite:gerer`) : le plan par classe, recherche, nouveau sous-compte |
 
+| Journaux (purs) | [coeur/journaux.rs](../../src-tauri/noyau/src/coeur/journaux.rs) | `Ecriture`, `simple` (un montant négatif se contre-passe), `equilibrer` (débit = crédit ou refus), `totaux`, `csv` (point-virgule, `JJ/MM/AAAA`) |
+| Journaux (base) | [journaux_comptables.rs](../../src-tauri/noyau/src/journaux_comptables.rs) | `ecritures_sur(du, au, journal)`, `lire_sur`, `csv_sur` — VT (ventes : 411 / 701 + 4431 ; irrécouvrables 6511 / 411), AC (achats `mouvement_stock` : 601 / 401), RG (paiements clients : trésorerie du mode / 411, avoir utilisé : 701 / 411 ; fournisseurs : 401 / trésorerie), CA (dépenses par catégorie / trésorerie ; écarts de clôture 658 / 571, 571 / 758) |
+| Écran journaux | [components/JournauxComptables.tsx](../../src/components/JournauxComptables.tsx) | Rapports → Journaux comptables (`rapports:lire`) : période, journal, écritures, totaux « équilibré », Exporter CSV (UTF-8 avec BOM) |
+
+**Rien n'est stocké** (D23) : les écritures se fabriquent à la lecture
+depuis les ventes, achats, paiements et la caisse, avec l'affectation du
+dossier. Changer une affectation change les journaux passés — voulu :
+c'est une présentation, pas un grand livre. Pas encore : retours de
+marchandise, OD, TVA sur achats.
+
 **Table** `compte_comptable (numero, dossier_id, libelle, classe, parent,
 origine, cree_le)`, clé `(numero, dossier_id)`. `dossier_id = ''` : le
 plan commun ; sinon un sous-compte du dossier (`4111 Client Coulibaly`).
@@ -23,7 +33,8 @@ plan commun ; sinon un sous-compte du dossier (`4111 Client Coulibaly`).
 classe 1 à 7, un parent dans le plan, jamais un numéro déjà visible.
 
 Commandes : `lire_plan_comptable` (ouverte), `ajouter_sous_compte`,
-`lire_affectations`, `definir_affectation` (`comptabilite:gerer`).
+`lire_affectations`, `definir_affectation` (`comptabilite:gerer`),
+`lire_journaux_comptables`, `exporter_journaux_csv` (`rapports:lire`).
 
 **Affectation** : une opération absente de `affectation_comptable` vaut
 son défaut livré — le défaut ne s'écrit jamais, pour qu'une correction
@@ -36,4 +47,6 @@ Preuves : unitaires (le plan tient debout, parent, sous-compte),
 banc `e1-plan-comptable.mjs` ; unitaires des affectations (chaque
 opération a un compte du plan qui lui convient, chaque mode de
 paiement sa trésorerie), `affectations_base.rs` (3, trois moteurs),
-banc `e2-affectations.mjs`.
+banc `e2-affectations.mjs` ; `journaux_comptables_base.rs` (4 : une
+journée complète, chaque journal équilibré, ventes = CA du cahier,
+chaque opération sur son compte, CSV), banc `e3-journaux.mjs`.

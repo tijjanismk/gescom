@@ -3,9 +3,10 @@ import { appeler as invoke } from "@/lib/pont";
 import {
   TrendingUp, Users, Package, FileText,
   Loader2, Printer, Download, RefreshCw,
-  BarChart2, AlertTriangle,
+  BarChart2, AlertTriangle, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { JournauxComptables } from "@/components/JournauxComptables";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { message } from "@tauri-apps/plugin-dialog";
@@ -139,6 +140,8 @@ const ONGLETS = [
   { key: "stock",    label: "Stock",        icone: FileText      },
   { key: "creances", label: "Créances",     icone: AlertTriangle },
   { key: "tva",      label: "TVA",          icone: TrendingUp    },
+  // v3, E-3 (D23) : les journaux pour le comptable, et leur export.
+  { key: "journaux", label: "Journaux comptables", icone: BookOpen },
 ];
 
 // =====================================================================
@@ -724,6 +727,8 @@ export function Rapports() {
               </div>
             )}
             {/* ---- TVA ---- */}
+            {onglet === "journaux" && <JournauxComptables />}
+
             {onglet === "tva" && tva && (
               <div className="space-y-4">
                 <div className="flex gap-2">
