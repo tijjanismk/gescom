@@ -57,6 +57,13 @@ pub const OPERATIONS: &[Operation] = &[
     Operation { cle: "depense:entretien", libelle: "Entretien", groupe: "Dépenses", defaut: "624", prefixes: CHARGE },
     Operation { cle: "depense:taxe", libelle: "Taxe / impôt", groupe: "Dépenses", defaut: "641", prefixes: CHARGE },
     Operation { cle: "depense:autre", libelle: "Autre dépense", groupe: "Dépenses", defaut: "658", prefixes: CHARGE },
+    // --- Paie (Gescom Equipe, G-4) : le journal PA ---
+    Operation { cle: "paie:salaires", libelle: "Salaires bruts", groupe: "Paie", defaut: "661", prefixes: &["66"] },
+    Operation { cle: "paie:remunerations_dues", libelle: "Rémunérations dues au personnel", groupe: "Paie", defaut: "422", prefixes: &["42"] },
+    Operation { cle: "paie:avances", libelle: "Avances au personnel", groupe: "Paie", defaut: "421", prefixes: &["42"] },
+    Operation { cle: "paie:retenues", libelle: "Retenues saisies (casse, absence…)", groupe: "Paie", defaut: "758", prefixes: &["75", "66"] },
+    Operation { cle: "paie:charges_sociales", libelle: "Charges sociales de l'employeur", groupe: "Paie", defaut: "664", prefixes: &["66"] },
+    Operation { cle: "paie:organismes", libelle: "Organismes sociaux (cotisations sans compte)", groupe: "Paie", defaut: "431", prefixes: &["43", "44"] },
 ];
 
 pub fn operation(cle: &str) -> Option<&'static Operation> {

@@ -21,6 +21,7 @@
 use crate::base::{Acces, Base};
 use crate::coeur::paie::{self as regles, AvanceARetenir, Ligne, Periode};
 use crate::coeur::personnel::Remuneration;
+pub use crate::coeur::paie::Cotisation;
 use crate::parametres;
 
 struct Personne {
@@ -28,12 +29,13 @@ struct Personne {
     fonction: String,
     r: Remuneration,
     utilisateur_id: Option<String>,
+    declare: bool,
 }
 
 fn personne(base: &mut impl Acces, employe_id: &str) -> Result<Personne, String> {
     let dossier = base.dossier().to_string();
     base.lire_une(
-        "SELECT nom, fonction, salaire_mensuel, tarif_journalier, commission_pct, a_la_tache, utilisateur_id
+        "SELECT nom, fonction, salaire_mensuel, tarif_journalier, commission_pct, a_la_tache, utilisateur_id, declare
          FROM employe WHERE id = ?1 AND dossier_id = ?2",
         &parametres![employe_id, dossier],
         |r| {
@@ -47,6 +49,7 @@ fn personne(base: &mut impl Acces, employe_id: &str) -> Result<Personne, String>
                     a_la_tache: r.get::<i64>(5)? != 0,
                 },
                 utilisateur_id: r.get(6)?,
+                declare: r.get::<i64>(7)? != 0,
             })
         },
     )
@@ -181,7 +184,9 @@ fn calculer(base: &mut impl Acces, e: &Entete, p: &Personne, saisies: &[Ligne]) 
     };
     let periode = Periode { jours_travailles, jours_marques, ventes };
     let avances = avances_a_retenir(base, &e.employe_id, &e.au, e.rectifie_id.as_deref())?;
-    Ok(regles::calculer(&p.r, &periode, e.prorata, saisies, &avances))
+    // D33 : les cotisations ne touchent que les personnes declarees.
+    let cotisations = if p.declare { cotisations_sur(base)? } else { Vec::new() };
+    Ok(regles::calculer(&p.r, &periode, e.prorata, saisies, &avances, &cotisations))
 }
 
 fn ecrire_lignes(acces: &mut impl Acces, fiche_id: &str, lignes: &[Ligne], reporte: i64) -> Result<(), String> {
@@ -390,7 +395,7 @@ pub fn valider_sur(base: &mut Base, fiche_id: String) -> Result<serde_json::Valu
     let (frais, _) = calculer(base, &e, &p, &saisies_de(&stockees))?;
     if !memes(&actuelles, &frais) {
         return Err(
-            "Quelque chose a changé depuis le calcul (fiche de la personne, jours, ventes ou avances) : \
+            "Quelque chose a changé depuis le calcul (fiche de la personne, jours, ventes, avances ou cotisations) : \
              recalculer la fiche et la relire avant de la valider."
                 .to_string(),
         );
@@ -722,4 +727,104 @@ pub fn donnees_bulletin_sur(base: &mut Base, fiche_id: String) -> Result<serde_j
     f["personne"] = personne;
     f["societe"] = crate::creances::societe_sur(base);
     Ok(f)
+}
+
+// =====================================================================
+//  G-4 : les cotisations du dossier (D33) — facultatives, jamais devinees
+// =====================================================================
+
+/// Les cotisations reglees du dossier courant, dans l'ordre de saisie.
+/// Vide par defaut : tant que personne ne les a remplies, aucune n'est
+/// retenue — un taux faux sur un bulletin est pire qu'aucun.
+pub fn cotisations_sur(acces: &mut impl Acces) -> Result<Vec<regles::Cotisation>, String> {
+    let dossier = acces.dossier().to_string();
+    acces
+        .lire_plusieurs(
+            "SELECT id, libelle, qui, taux, plafond, compte FROM cotisation WHERE dossier_id = ?1 ORDER BY rang, cree_le",
+            &parametres![dossier],
+            |r| {
+                Ok(regles::Cotisation {
+                    id: r.get(0)?,
+                    libelle: r.get(1)?,
+                    qui: r.get(2)?,
+                    taux: r.get(3)?,
+                    plafond: r.get(4)?,
+                    compte: r.get(5)?,
+                })
+            },
+        )
+        .map_err(|e| e.0)
+}
+
+fn noter_cotisation(base: &mut Base, type_evenement: &str, c: &regles::Cotisation) -> Result<(), String> {
+    let dossier = base.dossier().to_string();
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    base.executer(
+        "INSERT INTO journal
+           (id, type_evenement, entite_type, entite_id, auteur_id, nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, ?2, 'cotisation', ?3, ?4, ?5, 'app', ?6, ?7)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            type_evenement,
+            c.id.clone(),
+            auteur,
+            serde_json::to_string(c).unwrap_or_default(),
+            crate::utils::maintenant_iso(),
+            dossier
+        ],
+    )
+    .map(|_| ())
+    .map_err(|e| e.0)
+}
+
+/// Ajoute (sans `id`) ou modifie une cotisation. Le compte, s'il est
+/// donne, doit etre au plan du dossier. Les fiches deja calculees ne
+/// bougent pas : un brouillon se recalcule, une fiche validee reste.
+pub fn enregistrer_cotisation_sur(base: &mut Base, mut c: regles::Cotisation) -> Result<serde_json::Value, String> {
+    c.libelle = c.libelle.trim().to_string();
+    c.compte = c.compte.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+    regles::valider_cotisation(&c)?;
+    if let Some(n) = &c.compte {
+        if crate::plan_comptable::libelle_sur(base, n)?.is_none() {
+            return Err(format!("Le compte {n} n'est pas au plan comptable de ce dossier."));
+        }
+    }
+    let dossier = base.dossier().to_string();
+    let now = crate::utils::maintenant_iso();
+    if c.id.is_empty() {
+        c.id = uuid::Uuid::new_v4().to_string();
+        let rang = base
+            .lire_une("SELECT CAST(COUNT(*) AS BIGINT) FROM cotisation WHERE dossier_id = ?1", &parametres![dossier.clone()], |r| r.get::<i64>(0))
+            .map_err(|e| e.0)?
+            .unwrap_or(0);
+        base.executer(
+            "INSERT INTO cotisation (id, dossier_id, libelle, qui, taux, plafond, compte, rang, cree_le, modifie_le)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+            &parametres![c.id.clone(), dossier, c.libelle.clone(), c.qui.clone(), c.taux, c.plafond, c.compte.clone(), rang, now],
+        )
+        .map_err(|e| e.0)?;
+    } else {
+        let n = base
+            .executer(
+                "UPDATE cotisation SET libelle = ?1, qui = ?2, taux = ?3, plafond = ?4, compte = ?5, modifie_le = ?6
+                 WHERE id = ?7 AND dossier_id = ?8",
+                &parametres![c.libelle.clone(), c.qui.clone(), c.taux, c.plafond, c.compte.clone(), now, c.id.clone(), dossier],
+            )
+            .map_err(|e| e.0)?;
+        if n == 0 {
+            return Err("Cotisation introuvable.".to_string());
+        }
+    }
+    noter_cotisation(base, "cotisation_modifiee", &c)?;
+    serde_json::to_value(&c).map_err(|e| e.to_string())
+}
+
+/// Retire une cotisation du reglage. Les fiches deja validees gardent
+/// leurs lignes.
+pub fn retirer_cotisation_sur(base: &mut Base, id: String) -> Result<serde_json::Value, String> {
+    let c = cotisations_sur(base)?.into_iter().find(|c| c.id == id).ok_or_else(|| "Cotisation introuvable.".to_string())?;
+    let dossier = base.dossier().to_string();
+    base.executer("DELETE FROM cotisation WHERE id = ?1 AND dossier_id = ?2", &parametres![id, dossier]).map_err(|e| e.0)?;
+    noter_cotisation(base, "cotisation_retiree", &c)?;
+    serde_json::to_value(&c).map_err(|e| e.to_string())
 }

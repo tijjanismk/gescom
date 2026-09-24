@@ -119,6 +119,7 @@ pub const TABLES_CLOISONNEES: &[&str] = &[
     "fiche_paie",
     "ligne_paie",
     "versement_paie",
+    "cotisation",
 ];
 
 /// La cle d'un compteur, cloisonnee par dossier.

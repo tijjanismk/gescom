@@ -212,25 +212,41 @@ pub fn registre() -> Registre {
     r.sur_base("verser_paie", Some("paie:valider"), true, |c, p| {
         gescom_noyau::paie::verser_sur(c.base, arg(&p, "ficheId", "fiche_id")?, arg(&p, "montant", "montant")?, arg(&p, "moyen", "moyen")?)
     });
+    // G-4 (D33) : les cotisations du dossier, vides par defaut.
+    r.sur_base("lire_cotisations", None, false, |c, _| {
+        serde_json::to_value(gescom_noyau::paie::cotisations_sur(c.base)?).map_err(|e| e.to_string())
+    });
+    r.sur_base("enregistrer_cotisation", Some("paie:preparer"), true, |c, p| {
+        gescom_noyau::paie::enregistrer_cotisation_sur(c.base, arg(&p, "cotisation", "cotisation")?)
+    });
+    r.sur_base("retirer_cotisation", Some("paie:preparer"), true, |c, p| {
+        gescom_noyau::paie::retirer_cotisation_sur(c.base, arg(&p, "cotisationId", "cotisation_id")?)
+    });
     r.sur_base("lire_donnees_bulletin", None, false, |c, p| {
         gescom_noyau::paie::donnees_bulletin_sur(c.base, arg(&p, "ficheId", "fiche_id")?)
     });
     // v3, E-3 : les journaux, fabriques a la lecture, et leur export.
     // Ce sont les chiffres de la boutique : `rapports:lire`.
     r.sur_base("lire_journaux_comptables", Some("rapports:lire"), false, |c, p| {
+        // G-4 : le journal de paie, sauf si `coeur::lecture` l'a neutralise.
+        let avec_paie: Option<bool> = arg(&p, "avecPaie", "avec_paie")?;
         gescom_noyau::journaux_comptables::lire_sur(
             c.base,
             arg(&p, "du", "du")?,
             arg(&p, "au", "au")?,
             arg(&p, "journal", "journal")?,
+            avec_paie.unwrap_or(true),
         )
     });
     r.sur_base("exporter_journaux_csv", Some("rapports:lire"), false, |c, p| {
+        // G-4 : le journal de paie, sauf si `coeur::lecture` l'a neutralise.
+        let avec_paie: Option<bool> = arg(&p, "avecPaie", "avec_paie")?;
         gescom_noyau::journaux_comptables::csv_sur(
             c.base,
             arg(&p, "du", "du")?,
             arg(&p, "au", "au")?,
             arg(&p, "journal", "journal")?,
+            avec_paie.unwrap_or(true),
         )
     });
     // v3, C-2 : les dossiers d'une personne, et son role dans chacun.

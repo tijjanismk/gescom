@@ -21,6 +21,7 @@ fenêtre qui ne parle qu'au serveur ; modules en version `Base` seule
 | Paie (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `preparer_sur`, `recalculer_sur`, `ajouter_ligne_sur`, `retirer_ligne_sur`, `supprimer_sur` (brouillon), `valider_sur` (refuse ce qui n'est plus à jour ; numéro `PAIE-AAAA-NNNNN`, avances retenues), `rectifier_sur`, `lire_sur`, `lister_sur(du, au)` (fiches + personnes à préparer) |
 | Payer (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `verser_sur` (sortie de caisse, pas plus que le reste), `donnees_bulletin_sur` ; la fiche lue porte `verse`, `reste`, `versements` |
 | Bulletin | [lib/genererBulletin.ts](../../src/lib/genererBulletin.ts), [ApercuBulletin.tsx](../../src/equipe/ApercuBulletin.tsx) | genre de document `bulletin` (Paramètres → Documents), aperçu = impression |
+| Cotisations | `coeur::paie::{Cotisation, valider_cotisation, cotisations, charges}`, `paie::{cotisations_sur, enregistrer_cotisation_sur, retirer_cotisation_sur}`, [Cotisations.tsx](../../src/equipe/Cotisations.tsx) | vides par défaut, seulement pour les déclarés ; la charge patronale hors du net |
 | Écran fiches | [src/equipe/FichesPaie.tsx](../../src/equipe/FichesPaie.tsx) | le mois ; à préparer (au prorata ou non) ; la liste ; la fiche : lignes, brut / retenues / net, report, ajouter / retirer une saisie, recalculer, jeter, valider, rectifier |
 
 **Table** `employe` (cloisonnée, RLS) : nom, fonction, modes de
@@ -62,6 +63,10 @@ date, `mouvement_caisse_id` (motif et catégorie `salaire`). La
 rectificative validée reprend les versements de l'ancienne.
 
 Preuves : `personnel_base.rs` (6), `presences_base.rs` (5), `avances_base.rs` (5),
-`paie_base.rs` (8), trois moteurs ; bancs `f1-fenetre-equipe.mjs`,
+`paie_base.rs` (10), trois moteurs ; bancs `f1-fenetre-equipe.mjs`,
 `f2-personnel.mjs`, `f3-jours-travailles.mjs`, `g1-avances.mjs`,
-`g2-fiches-paie.mjs`, `g3-verser-bulletin.mjs`.
+`g2-fiches-paie.mjs`, `g3-verser-bulletin.mjs`, `g4-cotisations-journal.mjs`.
+
+**Table** `cotisation` (cloisonnée, RLS) : libellé, `qui` (salarie /
+employeur), `taux`, `plafond`, `compte` (43/44). Le journal PA :
+[comptabilite.md](comptabilite.md).

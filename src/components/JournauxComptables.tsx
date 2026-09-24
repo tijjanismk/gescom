@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Loader2, Download, CheckCircle2, AlertTriangle } from "lucide-react";
 import { appeler as invoke } from "@/lib/pont";
+import { peut } from "@/lib/droits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -77,6 +78,8 @@ export function JournauxComptables() {
             <option value="AC">Achats</option>
             <option value="RG">Règlements</option>
             <option value="CA">Caisse</option>
+            {/* G-4 : la paie nomme ce que chacun gagne. */}
+            {peut("paie:preparer") && <option value="PA">Paie</option>}
           </select>
         </label>
         <Button size="sm" variant="outline" onClick={exporter} disabled={!donnees}>

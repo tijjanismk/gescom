@@ -47,7 +47,9 @@ const jj = (iso?: string | null) => (iso ?? "").slice(0, 10).split("-").reverse(
 export function genererBulletinHTML(d: DonneesBulletin, h: Habillage = {}): string {
   const r = h.reglage;
   const a5 = r?.format === "a5";
-  const gains = d.lignes.filter(l => l.montant >= 0);
+  // Les charges patronales (G-4) : dites, hors du net.
+  const charges = d.lignes.filter(l => l.genre === "charge_patronale");
+  const gains = d.lignes.filter(l => l.montant >= 0 && l.genre !== "charge_patronale");
   const retenues = d.lignes.filter(l => l.montant < 0);
   const remplacee = d.statut === "remplacee";
   const titre = "BULLETIN DE PAIE";
@@ -133,6 +135,11 @@ export function genererBulletinHTML(d: DonneesBulletin, h: Habillage = {}): stri
         ${r && !r.montant_lettres ? "" : `<div class="lettres">${esc(enLettres(d.net))} francs CFA</div>`}</div>
       <div class="chiffre">${f(d.net)}</div>
     </div>
+    ${charges.length ? `
+    <table>
+      <thead><tr><th>À la charge de l'employeur, en plus (pour information)</th><th class="m">Montant</th></tr></thead>
+      <tbody>${charges.map(ligne).join("")}</tbody>
+    </table>` : ""}
     ${d.reporte > 0 ? `<div class="note">${f(d.reporte)} d'avances restent à retenir sur la prochaine paie.</div>` : ""}
 
     ${d.versements.length ? `

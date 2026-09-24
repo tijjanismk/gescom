@@ -82,7 +82,7 @@ fn journee() -> Journee {
 
 fn du_jour(base: &mut Base, j: &str) -> Vec<Ecriture> {
     let d = aujourd_hui();
-    journaux_comptables::ecritures_sur(base, &d, &d, Some(j)).unwrap()
+    journaux_comptables::ecritures_sur(base, &d, &d, Some(j), true).unwrap()
 }
 
 fn somme(e: &[Ecriture], compte: &str) -> (i64, i64) {
@@ -93,7 +93,7 @@ fn somme(e: &[Ecriture], compte: &str) -> (i64, i64) {
 fn chaque_journal_est_equilibre_et_les_ventes_font_le_chiffre_du_cahier() {
     let mut j = journee();
     let d = aujourd_hui();
-    let tout = journaux_comptables::ecritures_sur(&mut j.base, &d, &d, None).unwrap();
+    let tout = journaux_comptables::ecritures_sur(&mut j.base, &d, &d, None, true).unwrap();
     assert!(!tout.is_empty());
     for e in &tout {
         let (db, cr) = e.lignes.iter().fold((0, 0), |(a, b), l| (a + l.debit, b + l.credit));
@@ -157,7 +157,7 @@ fn chaque_operation_va_sur_le_compte_affecte() {
 fn l_export_csv_rend_chaque_ligne_et_dit_ce_qu_il_contient() {
     let mut j = journee();
     let d = aujourd_hui();
-    let r = journaux_comptables::csv_sur(&mut j.base, d.clone(), d.clone(), Some("VT".into())).unwrap();
+    let r = journaux_comptables::csv_sur(&mut j.base, d.clone(), d.clone(), Some("VT".into()), true).unwrap();
     assert_eq!(r["nom_fichier"], format!("journaux_VT_{d}_{d}.csv"));
     let contenu = r["contenu"].as_str().unwrap();
     let lignes: Vec<&str> = contenu.trim_end().split("\r\n").collect();
@@ -174,10 +174,13 @@ fn l_export_csv_rend_chaque_ligne_et_dit_ce_qu_il_contient() {
     }
     assert_eq!(db, cr);
 
-    let lu = journaux_comptables::lire_sur(&mut j.base, d.clone(), d.clone(), None).unwrap();
-    assert_eq!(lu["journaux"].as_array().unwrap().len(), 4);
-    assert!(journaux_comptables::ecritures_sur(&mut j.base, &d, "2020-01-01", None).unwrap_err().contains("précède"));
-    assert!(journaux_comptables::ecritures_sur(&mut j.base, &d, &d, Some("XX")).unwrap_err().contains("inconnu"));
+    let lu = journaux_comptables::lire_sur(&mut j.base, d.clone(), d.clone(), None, true).unwrap();
+    assert_eq!(lu["journaux"].as_array().unwrap().len(), 5, "VT, AC, RG, CA et PA (G-4)");
+    let sans = journaux_comptables::lire_sur(&mut j.base, d.clone(), d.clone(), None, false).unwrap();
+    assert_eq!(sans["journaux"].as_array().unwrap().len(), 4, "sans le droit de paie, pas de PA");
+    assert!(journaux_comptables::ecritures_sur(&mut j.base, &d, &d, Some("PA"), false).unwrap_err().contains("paie"));
+    assert!(journaux_comptables::ecritures_sur(&mut j.base, &d, "2020-01-01", None, true).unwrap_err().contains("précède"));
+    assert!(journaux_comptables::ecritures_sur(&mut j.base, &d, &d, Some("XX"), true).unwrap_err().contains("inconnu"));
 }
 
 #[test]
@@ -185,6 +188,6 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     let mut j = journee();
     j.base.auditer(true);
     let d = aujourd_hui();
-    journaux_comptables::lire_sur(&mut j.base, d.clone(), d.clone(), None).unwrap();
-    journaux_comptables::csv_sur(&mut j.base, d.clone(), d, None).unwrap();
+    journaux_comptables::lire_sur(&mut j.base, d.clone(), d.clone(), None, true).unwrap();
+    journaux_comptables::csv_sur(&mut j.base, d.clone(), d, None, true).unwrap();
 }

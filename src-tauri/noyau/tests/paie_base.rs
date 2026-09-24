@@ -303,6 +303,121 @@ fn payer_en_deux_fois_depuis_la_caisse() {
     assert_eq!(n, 3);
 }
 
+fn cotisation(libelle: &str, qui: &str, taux: f64, plafond: Option<i64>, compte: Option<&str>) -> paie::Cotisation {
+    serde_json::from_value(json!({ "libelle": libelle, "qui": qui, "taux": taux, "plafond": plafond, "compte": compte })).unwrap()
+}
+
+/// G-4 (D33) : vides par défaut ; réglées, elles ne touchent que les
+/// personnes déclarées ; un réglage changé après le calcul bloque la
+/// validation.
+#[test]
+fn les_cotisations_ne_touchent_que_les_declares() {
+    let mut base = base_avec_demo();
+    let e = equipe(&mut base);
+    let fanta_declaree = creer(&mut base, json!({ "nom": "Kadia", "fonction": "comptable", "salaire_mensuel": 100000, "declare": true, "numero_inps": "998877" }));
+    assert!(paie::cotisations_sur(&mut base).unwrap().is_empty(), "vides par défaut");
+    let f = paie::preparer_sur(&mut base, fanta_declaree.clone(), jour(-30), jour(0), false).unwrap();
+    assert_eq!(f["net"], 100_000, "rien de réglé : rien de retenu");
+    paie::supprimer_sur(&mut base, f["id"].as_str().unwrap().into()).unwrap();
+
+    // Le comptable les remplit.
+    paie::enregistrer_cotisation_sur(&mut base, cotisation("INPS part salariale", "salarie", 3.6, None, None)).unwrap();
+    let pat = paie::enregistrer_cotisation_sur(&mut base, cotisation("INPS part patronale", "employeur", 16.4, Some(80_000), None)).unwrap();
+    paie::enregistrer_cotisation_sur(&mut base, cotisation("ITS", "salarie", 5.0, None, Some("447"))).unwrap();
+    assert!(paie::enregistrer_cotisation_sur(&mut base, cotisation("X", "salarie", 5.0, None, Some("4499"))).unwrap_err().contains("pas au plan"));
+    assert!(paie::enregistrer_cotisation_sur(&mut base, cotisation("X", "salarie", 5.0, None, Some("661"))).unwrap_err().contains("43 ou 44"));
+    assert_eq!(paie::cotisations_sur(&mut base).unwrap().len(), 3);
+
+    let k = paie::preparer_sur(&mut base, fanta_declaree.clone(), jour(-30), jour(0), false).unwrap();
+    // 100 000 − 3 600 (INPS) − 5 000 (ITS) ; la part patronale (16,4 % de 80 000, plafonné) hors du net.
+    assert_eq!((k["brut"].as_i64(), k["retenues"].as_i64(), k["net"].as_i64()), (Some(100_000), Some(8_600), Some(91_400)));
+    let charges: Vec<&Value> = k["lignes"].as_array().unwrap().iter().filter(|l| l["genre"] == "charge_patronale").collect();
+    assert_eq!(charges.len(), 1);
+    assert_eq!(charges[0]["montant"], 13_120);
+    // Awa n'est pas déclarée : rien.
+    let a = paie::preparer_sur(&mut base, e.awa.clone(), jour(-30), jour(0), false).unwrap();
+    assert_eq!(a["net"], 60_000);
+    assert!(a["lignes"].as_array().unwrap().iter().all(|l| l["genre"] != "cotisation" && l["genre"] != "charge_patronale"));
+
+    // Le taux change après le calcul : la validation le voit.
+    let mut c: paie::Cotisation = serde_json::from_value(pat).unwrap();
+    c.taux = 18.0;
+    paie::enregistrer_cotisation_sur(&mut base, c.clone()).unwrap();
+    assert!(paie::valider_sur(&mut base, k["id"].as_str().unwrap().into()).unwrap_err().contains("cotisations"));
+    paie::recalculer_sur(&mut base, k["id"].as_str().unwrap().into(), None).unwrap();
+    let k = paie::valider_sur(&mut base, k["id"].as_str().unwrap().into()).unwrap();
+    // Retirée ensuite : la fiche validée garde ses lignes.
+    paie::retirer_cotisation_sur(&mut base, c.id.clone()).unwrap();
+    assert_eq!(paie::lire_sur(&mut base, k["id"].as_str().unwrap()).unwrap()["lignes"], k["lignes"]);
+    let dossier = base.dossier().to_string();
+    let n = compter(&mut base, "SELECT CAST(COUNT(*) AS BIGINT) FROM journal WHERE entite_type = 'cotisation' AND dossier_id = ?1", &parametres![dossier]);
+    assert_eq!(n, 5, "quatre réglages et un retrait au journal");
+}
+
+/// G-4 : le journal PA — une fiche, une avance, deux versements, une
+/// rectificative ; chaque écriture équilibrée, chaque compte le sien, et
+/// ce qui reste dû au personnel (422) vaut ce qui reste à verser.
+#[test]
+fn le_journal_de_paie_est_equilibre() {
+    use gescom_noyau::journaux_comptables;
+    let mut base = base_avec_demo();
+    let e = equipe(&mut base);
+    let kadia = creer(&mut base, json!({ "nom": "Kadia", "fonction": "comptable", "salaire_mensuel": 100000, "declare": true }));
+    paie::enregistrer_cotisation_sur(&mut base, cotisation("INPS salarié", "salarie", 3.6, None, None)).unwrap();
+    paie::enregistrer_cotisation_sur(&mut base, cotisation("INPS employeur", "employeur", 16.4, None, None)).unwrap();
+    ouvrir_caisse(&mut base);
+    avances::donner_sur(&mut base, e.awa.clone(), 10_000, None, None).unwrap();
+    let f = paie::preparer_sur(&mut base, e.awa.clone(), jour(-30), jour(0), false).unwrap();
+    let fid = f["id"].as_str().unwrap().to_string();
+    paie::ajouter_ligne_sur(&mut base, fid.clone(), "retenue".into(), "Casse".into(), None, None, Some(2_000)).unwrap();
+    paie::valider_sur(&mut base, fid.clone()).unwrap();
+    paie::verser_sur(&mut base, fid.clone(), 30_000, None).unwrap();
+    // Rectificative : une prime oubliée.
+    let r = paie::rectifier_sur(&mut base, fid.clone()).unwrap();
+    let rid = r["id"].as_str().unwrap().to_string();
+    paie::ajouter_ligne_sur(&mut base, rid.clone(), "prime".into(), "Oubliée".into(), None, None, Some(5_000)).unwrap();
+    paie::valider_sur(&mut base, rid.clone()).unwrap();
+    paie::verser_sur(&mut base, rid.clone(), 10_000, Some("orange_money".into())).unwrap();
+    let k = paie::preparer_sur(&mut base, kadia, jour(-30), jour(0), false).unwrap();
+    paie::valider_sur(&mut base, k["id"].as_str().unwrap().into()).unwrap();
+
+    let (du, au) = (jour(-1), jour(1));
+    let pa = journaux_comptables::ecritures_sur(&mut base, &du, &au, Some("PA"), true).unwrap();
+    let solde = |c: &str| -> i64 {
+        pa.iter().flat_map(|e| e.lignes.iter()).filter(|l| l.compte == c).map(|l| l.credit - l.debit).sum()
+    };
+    for e in &pa {
+        let d: i64 = e.lignes.iter().map(|l| l.debit).sum();
+        let c: i64 = e.lignes.iter().map(|l| l.credit).sum();
+        assert_eq!(d, c, "{} {}", e.piece, e.libelle);
+    }
+    // Awa : 60 000 + 5 000 − 2 000 − 10 000 = 53 000 net ; Kadia : 100 000 − 3 600.
+    let reste = paie::lire_sur(&mut base, &rid).unwrap()["reste"].as_i64().unwrap()
+        + paie::lire_sur(&mut base, k["id"].as_str().unwrap()).unwrap()["reste"].as_i64().unwrap();
+    assert_eq!(reste, 13_000 + 96_400);
+    assert_eq!(solde("422"), reste, "ce que le journal doit au personnel = ce qui reste à verser");
+    assert_eq!(-solde("661"), 65_000 + 100_000, "les salaires bruts, la fiche remplacée contre-passée");
+    assert_eq!(solde("421"), 0, "l'avance donnée puis retenue");
+    assert_eq!(solde("431"), 3_600 + 16_400, "les organismes : part salariale et patronale");
+    assert_eq!(-solde("664"), 16_400);
+    assert_eq!(solde("758"), 2_000, "la casse retenue");
+    assert_eq!(solde("571"), 10_000 + 30_000, "l'avance et le premier versement sortent des espèces (au crédit)");
+    assert_eq!(solde("552"), 10_000, "le second, d'Orange Money");
+    assert!(pa.iter().any(|e| e.libelle.contains("remplacée par sa rectificative")));
+    // Tout le journal reste équilibré avec les autres.
+    let tout = journaux_comptables::ecritures_sur(&mut base, &du, &au, None, true).unwrap();
+    assert!(tout.iter().any(|e| e.journal == "PA"));
+    let sans = journaux_comptables::ecritures_sur(&mut base, &du, &au, None, false).unwrap();
+    assert!(sans.iter().all(|e| e.journal != "PA"));
+    // Sans le droit de préparer la paie, le serveur neutralise.
+    let mut params = json!({ "du": du, "au": au });
+    lecture::neutraliser("lire_journaux_comptables", |p| p == "rapports:lire", &mut params);
+    assert_eq!(params["avecPaie"], false);
+    let mut params = json!({ "du": du });
+    lecture::neutraliser("lire_journaux_comptables", |p| p == "paie:preparer", &mut params);
+    assert!(params["avecPaie"].is_null());
+}
+
 #[test]
 fn chaque_dossier_sa_paie_et_ses_numeros() {
     let mut base = base_avec_demo();
@@ -337,6 +452,12 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     base.auditer(true);
     let e = equipe(&mut base);
     ouvrir_caisse(&mut base);
+    let c = paie::enregistrer_cotisation_sur(&mut base, cotisation("INPS", "salarie", 3.6, None, None)).unwrap();
+    let mut c: paie::Cotisation = serde_json::from_value(c).unwrap();
+    c.taux = 4.0;
+    paie::enregistrer_cotisation_sur(&mut base, c.clone()).unwrap();
+    let f: Fiche = serde_json::from_value(json!({ "nom": "Awa", "fonction": "vendeuse", "salaire_mensuel": 60000, "declare": true })).unwrap();
+    personnel::modifier_sur(&mut base, e.awa.clone(), f).unwrap();
     marquer(&mut base, &e.moussa, -3, 2, "present");
     {
         let _g = auteur::poser(&e.compte_fanta);
@@ -360,4 +481,6 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     let b = paie::preparer_sur(&mut base, e.awa.clone(), jour(1), jour(2), false).unwrap();
     paie::supprimer_sur(&mut base, b["id"].as_str().unwrap().into()).unwrap();
     paie::lister_sur(&mut base, jour(-3), jour(0)).unwrap();
+    gescom_noyau::journaux_comptables::ecritures_sur(&mut base, &jour(-3), &jour(3), Some("PA"), true).unwrap();
+    paie::retirer_cotisation_sur(&mut base, c.id).unwrap();
 }

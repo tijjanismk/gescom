@@ -633,6 +633,23 @@ CREATE TABLE IF NOT EXISTS versement_paie (
     cree_le              TEXT NOT NULL
 );
 
+-- Les cotisations du dossier (G-4, D33) : facultatives, vides par
+-- defaut, appliquees aux seules personnes declarees. `qui` : salarie
+-- (retenue) ou employeur (charge) ; `taux` en pourcentage ; `plafond`
+-- de l'assiette ; `compte` de l'organisme (vide : l'affectation).
+CREATE TABLE IF NOT EXISTS cotisation (
+    id          TEXT PRIMARY KEY,
+    dossier_id  TEXT NOT NULL,
+    libelle     TEXT NOT NULL,
+    qui         TEXT NOT NULL,
+    taux        REAL NOT NULL,
+    plafond     INTEGER,
+    compte      TEXT,
+    rang        INTEGER NOT NULL DEFAULT 0,
+    cree_le     TEXT NOT NULL,
+    modifie_le  TEXT NOT NULL
+);
+
 -- Le role d'une personne DANS un dossier (v3, C-2 — decision C2).
 -- Aucune ligne : comme avant (son role partout s'il a l'acces total,
 -- sinon dans le dossier d'origine). Des lignes : exactement ces

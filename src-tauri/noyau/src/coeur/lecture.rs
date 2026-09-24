@@ -162,7 +162,10 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         // paie seulement. ---
         "lire_presences_mois" => &[RefusSaufUne(PERSONNEL_LIRE)],
         "lire_avances" => &[RefusSaufUne(AVANCES_LIRE)],
-        "lire_fiches_paie" | "lire_fiche_paie" | "lire_donnees_bulletin" => &[RefusSaufUne(PAIE_LIRE)],
+        // G-4 : le journal de paie nomme ce que chacun gagne. Sans le
+        // droit de preparer la paie, il n'est ni fabrique ni rendu.
+        "lire_journaux_comptables" | "exporter_journaux_csv" => &[Neutre("paie:preparer", &[("avecPaie", ParamNeutre::Faux)])],
+        "lire_fiches_paie" | "lire_fiche_paie" | "lire_donnees_bulletin" | "lire_cotisations" => &[RefusSaufUne(PAIE_LIRE)],
         "lire_personnel" | "lire_employe" => &[
             RefusSaufUne(PERSONNEL_LIRE),
             Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None },

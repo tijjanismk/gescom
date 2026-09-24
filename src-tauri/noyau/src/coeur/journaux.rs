@@ -1,4 +1,4 @@
-//! Les journaux comptables, LUS (v3, E-3 — decision D23).
+//! Les journaux comptables, LUS (v3, E-3 — decision D23 ; PA : G-4).
 //!
 //! Rien n'est stocke : une ecriture enregistree a cote de la vente
 //! serait une seconde verite, et les deux finiraient par se contredire.
@@ -15,6 +15,7 @@ pub const JOURNAUX: &[(&str, &str)] = &[
     ("AC", "Journal des achats"),
     ("RG", "Journal des règlements"),
     ("CA", "Journal de caisse"),
+    ("PA", "Journal de paie"),
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq)]

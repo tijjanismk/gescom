@@ -26,6 +26,10 @@ pub const TACHE: &str = "tache";
 pub const PRIME: &str = "prime";
 pub const RETENUE: &str = "retenue";
 pub const AVANCE: &str = "avance";
+/// G-4 (D33) : une cotisation retenue sur le salaire (negative) ; une
+/// charge de la societe, dite sur le bulletin mais hors du net.
+pub const COTISATION: &str = "cotisation";
+pub const CHARGE: &str = "charge_patronale";
 
 /// Ce qu'on peut saisir sur une fiche.
 pub const SAISISSABLES: &[&str] = &[TACHE, PRIME, RETENUE];
@@ -39,7 +43,9 @@ pub struct Ligne {
     pub quantite: Option<f64>,
     pub prix: Option<i64>,
     pub montant: i64,
-    /// L'avance retenue, pour une ligne `avance`.
+    /// L'avance retenue, pour une ligne `avance` ; le compte de
+    /// l'organisme, pour une cotisation ou une charge (vide : celui de
+    /// l'affectation `paie:organismes`).
     pub source: Option<String>,
     pub saisie: bool,
 }
@@ -194,24 +200,107 @@ pub fn retenir_avances(disponible: i64, avances: &[AvanceARetenir]) -> (Vec<Lign
     (lignes, reporte)
 }
 
+/// Une cotisation reglee pour le dossier (D33) : jamais devinee, vide
+/// par defaut, appliquee aux seules personnes declarees.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Cotisation {
+    #[serde(default)]
+    pub id: String,
+    pub libelle: String,
+    /// `salarie` (retenue sur le salaire) ou `employeur` (charge).
+    pub qui: String,
+    /// Un pourcentage, entre 0 et 100.
+    pub taux: f64,
+    /// La base est le brut, plafonne si `plafond` est donne.
+    #[serde(default)]
+    pub plafond: Option<i64>,
+    /// Le compte de l'organisme (431, 447…) ; vide : l'affectation.
+    #[serde(default)]
+    pub compte: Option<String>,
+}
+
+/// Juge une cotisation reglee. Rend le libelle nettoye.
+pub fn valider_cotisation(c: &Cotisation) -> Result<(), String> {
+    if c.libelle.trim().is_empty() {
+        return Err("Une cotisation a un nom (INPS part salariale, AMO…).".to_string());
+    }
+    if c.qui != "salarie" && c.qui != "employeur" {
+        return Err("Qui paie la cotisation : le salarié ou l'employeur ?".to_string());
+    }
+    if !c.taux.is_finite() || c.taux <= 0.0 || c.taux > 100.0 {
+        return Err("Le taux est un pourcentage entre 0 et 100.".to_string());
+    }
+    if c.plafond.is_some_and(|p| p <= 0) {
+        return Err("Le plafond doit être plus grand que zéro — ou vide.".to_string());
+    }
+    if let Some(n) = c.compte.as_deref().filter(|n| !n.trim().is_empty()) {
+        if !(n.starts_with("43") || n.starts_with("44")) {
+            return Err(format!("Une cotisation se doit à un organisme : un compte qui commence par 43 ou 44, pas {n}."));
+        }
+    }
+    Ok(())
+}
+
+/// Les lignes des cotisations sur un brut : une retenue par cotisation
+/// salariale, une charge par cotisation patronale.
+pub fn cotisations(brut: i64, liste: &[Cotisation]) -> Vec<Ligne> {
+    let mut l = Vec::new();
+    for c in liste {
+        let assiette = c.plafond.map_or(brut, |p| brut.min(p)).max(0);
+        let m = ((assiette as f64) * c.taux / 100.0).round() as i64;
+        if m == 0 {
+            continue;
+        }
+        let plafonne = if c.plafond.is_some_and(|p| brut > p) { " (plafonné)" } else { "" };
+        let libelle = format!("{} — {} % de {}{plafonne}", c.libelle.trim(), pct_dit(c.taux), francs(assiette));
+        let (genre, montant) = if c.qui == "salarie" { (COTISATION, -m) } else { (CHARGE, m) };
+        let compte = c.compte.clone().filter(|n| !n.trim().is_empty());
+        l.push(Ligne { genre: genre.into(), libelle, quantite: None, prix: Some(assiette), montant, source: compte, saisie: false });
+    }
+    l
+}
+
 /// La fiche entiere : gains calcules, saisies (gains puis retenues),
 /// avances retenues. Rend les lignes dans l'ordre du bulletin et ce qui
 /// se reporte.
-pub fn calculer(r: &Remuneration, p: &Periode, prorata: bool, saisies: &[Ligne], avances: &[AvanceARetenir]) -> (Vec<Ligne>, i64) {
+///
+/// `cotisations` : celles du dossier, a ne passer que pour une personne
+/// declaree (D33) — elles se calculent sur le brut, avant les retenues
+/// saisies ; les charges patronales viennent en dernier, hors du net.
+pub fn calculer(
+    r: &Remuneration,
+    p: &Periode,
+    prorata: bool,
+    saisies: &[Ligne],
+    avances: &[AvanceARetenir],
+    cotisations_du_dossier: &[Cotisation],
+) -> (Vec<Ligne>, i64) {
     let mut lignes = gains_calcules(r, p, prorata);
     lignes.extend(saisies.iter().filter(|l| l.montant >= 0).cloned());
+    let brut: i64 = lignes.iter().map(|l| l.montant).sum();
+    let cot = cotisations(brut, cotisations_du_dossier);
+    lignes.extend(cot.iter().filter(|l| l.genre == COTISATION).cloned());
     lignes.extend(saisies.iter().filter(|l| l.montant < 0).cloned());
     let avant_avances: i64 = lignes.iter().map(|l| l.montant).sum();
     let (retenues, reporte) = retenir_avances(avant_avances, avances);
     lignes.extend(retenues);
+    lignes.extend(cot.into_iter().filter(|l| l.genre == CHARGE));
     (lignes, reporte)
 }
 
-/// Brut (les gains), retenues (en positif, avances comprises), net.
+/// Brut (les gains), retenues (en positif, avances et cotisations
+/// comprises), net. Les charges patronales n'y entrent pas : la
+/// societe les paie en plus, pas la personne.
 pub fn totaux(lignes: &[Ligne]) -> (i64, i64, i64) {
-    let brut: i64 = lignes.iter().filter(|l| l.montant > 0).map(|l| l.montant).sum();
-    let retenues: i64 = lignes.iter().filter(|l| l.montant < 0).map(|l| -l.montant).sum();
+    let paie = || lignes.iter().filter(|l| l.genre != CHARGE);
+    let brut: i64 = paie().filter(|l| l.montant > 0).map(|l| l.montant).sum();
+    let retenues: i64 = paie().filter(|l| l.montant < 0).map(|l| -l.montant).sum();
     (brut, retenues, brut - retenues)
+}
+
+/// Les charges patronales d'une fiche (hors du net).
+pub fn charges(lignes: &[Ligne]) -> i64 {
+    lignes.iter().filter(|l| l.genre == CHARGE).map(|l| l.montant).sum()
 }
 
 /// Peut-on valider ? Un net negatif veut dire que les retenues saisies
@@ -331,14 +420,14 @@ mod tests {
             ligne_saisie(PRIME, "Fin d'année", None, None, Some(5_000)).unwrap(),
         ];
         let av = vec![AvanceARetenir { id: "a".into(), date: "2026-09-05".into(), reste: 10_000 }];
-        let (l, reporte) = calculer(&r(Some(60_000), None, None), &p, false, &saisies, &av);
+        let (l, reporte) = calculer(&r(Some(60_000), None, None), &p, false, &saisies, &av, &[]);
         let genres: Vec<&str> = l.iter().map(|x| x.genre.as_str()).collect();
         assert_eq!(genres, vec![BASE, PRIME, RETENUE, AVANCE], "gains, puis retenues, puis avances");
         assert_eq!(totaux(&l), (65_000, 12_000, 53_000));
         assert_eq!(reporte, 0);
         assert!(validable(&l).is_ok());
         let trop = vec![ligne_saisie(RETENUE, "Casse", None, None, Some(70_000)).unwrap()];
-        let (l, _) = calculer(&r(Some(60_000), None, None), &p, false, &trop, &av);
+        let (l, _) = calculer(&r(Some(60_000), None, None), &p, false, &trop, &av, &[]);
         assert_eq!(l.iter().filter(|x| x.genre == AVANCE).count(), 0, "rien à retenir");
         assert!(validable(&l).unwrap_err().contains("dépassent"));
     }
@@ -350,6 +439,39 @@ mod tests {
         assert_eq!(verifier_versement(60_000, 50_000, "Awa").unwrap_err(), "Il ne reste que 50 000 F à verser à Awa.");
         assert!(verifier_versement(1, 0, "Awa").unwrap_err().contains("déjà tout reçu"));
         assert!(verifier_versement(0, 10, "Awa").is_err());
+    }
+
+    fn cot(libelle: &str, qui: &str, taux: f64, plafond: Option<i64>) -> Cotisation {
+        Cotisation { id: libelle.into(), libelle: libelle.into(), qui: qui.into(), taux, plafond, compte: None }
+    }
+
+    #[test]
+    fn les_cotisations_d_un_declare() {
+        let liste = vec![cot("INPS salarié", "salarie", 3.6, None), cot("INPS employeur", "employeur", 16.4, Some(50_000))];
+        let p = Periode::default();
+        let (l, _) = calculer(&r(Some(60_000), None, None), &p, false, &[ligne_saisie(RETENUE, "Casse", None, None, Some(1_000)).unwrap()], &[], &liste);
+        let genres: Vec<&str> = l.iter().map(|x| x.genre.as_str()).collect();
+        assert_eq!(genres, vec![BASE, COTISATION, RETENUE, CHARGE]);
+        assert_eq!(l[1].montant, -2_160, "3,6 % de 60 000");
+        assert_eq!(l[1].libelle, "INPS salarié — 3,6 % de 60 000 F");
+        assert_eq!(l[3].montant, 8_200, "16,4 % de 50 000, plafonné");
+        assert!(l[3].libelle.ends_with("(plafonné)"));
+        assert_eq!(totaux(&l), (60_000, 3_160, 56_840), "la charge patronale n'entre pas dans le net");
+        assert_eq!(charges(&l), 8_200);
+    }
+
+    #[test]
+    fn une_cotisation_se_juge() {
+        assert!(valider_cotisation(&cot("INPS", "salarie", 3.6, None)).is_ok());
+        assert!(valider_cotisation(&cot("", "salarie", 3.6, None)).is_err());
+        assert!(valider_cotisation(&cot("INPS", "patron", 3.6, None)).is_err());
+        assert!(valider_cotisation(&cot("INPS", "salarie", 0.0, None)).is_err());
+        assert!(valider_cotisation(&cot("INPS", "salarie", 3.6, Some(0))).is_err());
+        let mut c = cot("ITS", "salarie", 5.0, None);
+        c.compte = Some("661".into());
+        assert!(valider_cotisation(&c).unwrap_err().contains("43 ou 44"));
+        c.compte = Some("447".into());
+        assert!(valider_cotisation(&c).is_ok());
     }
 
     #[test]

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { FichesPaie } from "./FichesPaie";
+import { Cotisations } from "./Cotisations";
 
 interface Avance {
   id: string; employe_id: string; nom: string; montant: number; retenu: number; reste: number;
@@ -151,19 +152,19 @@ function Avances() {
 }
 
 export function Paie() {
-  const [vue, setVue] = useState<"avances" | "fiches">("avances");
+  const [vue, setVue] = useState<"avances" | "fiches" | "cotisations">("avances");
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Paie</h1>
       <div className="flex gap-1" role="tablist">
-        {([["avances", "Avances"], ["fiches", "Fiches du mois"]] as const).map(([cle, libelle]) => (
+        {([["avances", "Avances"], ["fiches", "Fiches du mois"], ["cotisations", "Cotisations"]] as const).map(([cle, libelle]) => (
           <button key={cle} role="tab" aria-selected={vue === cle} onClick={() => setVue(cle)}
             className={`px-3 py-1.5 text-sm rounded-lg ${vue === cle ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
             {libelle}
           </button>
         ))}
       </div>
-      {vue === "avances" ? <Avances /> : <FichesPaie />}
+      {vue === "avances" ? <Avances /> : vue === "fiches" ? <FichesPaie /> : <Cotisations />}
     </div>
   );
 }

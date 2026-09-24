@@ -1804,3 +1804,12 @@ reste. Une rectificative reprend les versements déjà faits pour la même
 période. Le bulletin est un 8ᵉ genre de document, réglé avec les autres
 dans Gescom ; Équipe l'imprime depuis son aperçu, faute de la commande
 d'impression locale de la caisse.
+
+**G-4** — les cotisations restent **vides** tant que le comptable ne les
+a pas saisies (D33 : un taux faux sur un bulletin est pire qu'aucun), et
+ne touchent que les personnes déclarées. La part patronale est dite sur
+la fiche et le bulletin mais n'entre pas dans le net. Le journal de paie
+PA se lit comme les autres ; la preuve qui compte : ce qu'il doit au
+personnel (422) égale ce qui reste à verser sur les fiches. Il n'est
+servi qu'à qui prépare la paie — il nomme ce que chacun gagne. Le
+chantier G est fait.

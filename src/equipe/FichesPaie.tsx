@@ -104,7 +104,7 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
 
       <table className="w-full text-sm" data-testid="lignes-paie">
         <tbody className="divide-y divide-border">
-          {(fiche.lignes ?? []).map(l => (
+          {(fiche.lignes ?? []).filter(l => l.genre !== "charge_patronale").map(l => (
             <tr key={l.id} data-testid="ligne-paie">
               <td className="py-1.5">{l.libelle}{l.saisie && <span className="text-xs text-muted-foreground"> · saisie</span>}</td>
               <td className={`py-1.5 text-right tabular-nums ${l.montant < 0 ? "text-red-700" : ""}`}>{l.montant < 0 ? "− " : ""}{f(Math.abs(l.montant))}</td>
@@ -161,6 +161,15 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
               <p className="text-xs text-muted-foreground w-full">Vide : tout ce qui reste. La caisse doit être ouverte.</p>
             </div>
           )}
+        </div>
+      )}
+
+      {(fiche.lignes ?? []).some(l => l.genre === "charge_patronale") && (
+        <div className="text-xs text-muted-foreground space-y-0.5" data-testid="charges-patronales">
+          <p className="font-medium">À la charge de la société, en plus du salaire :</p>
+          {fiche.lignes!.filter(l => l.genre === "charge_patronale").map(l => (
+            <p key={l.id} className="flex justify-between"><span>{l.libelle}</span><span className="tabular-nums">{f(l.montant)}</span></p>
+          ))}
         </div>
       )}
 

@@ -16,7 +16,7 @@ une seconde vérité).
 | Écran | [components/OngletComptabilite.tsx](../../src/components/OngletComptabilite.tsx) | Paramètres → Comptabilité (`comptabilite:gerer`) : le plan par classe, recherche, nouveau sous-compte |
 
 | Journaux (purs) | [coeur/journaux.rs](../../src-tauri/noyau/src/coeur/journaux.rs) | `Ecriture`, `simple` (un montant négatif se contre-passe), `equilibrer` (débit = crédit ou refus), `totaux`, `csv` (point-virgule, `JJ/MM/AAAA`) |
-| Journaux (base) | [journaux_comptables.rs](../../src-tauri/noyau/src/journaux_comptables.rs) | `ecritures_sur(du, au, journal)`, `lire_sur`, `csv_sur` — VT (ventes : 411 / 701 + 4431 ; irrécouvrables 6511 / 411), AC (achats `mouvement_stock` : 601 / 401), RG (paiements clients : trésorerie du mode / 411, avoir utilisé : 701 / 411 ; fournisseurs : 401 / trésorerie), CA (dépenses par catégorie / trésorerie ; écarts de clôture 658 / 571, 571 / 758) |
+| Journaux (base) | [journaux_comptables.rs](../../src-tauri/noyau/src/journaux_comptables.rs) | `ecritures_sur(du, au, journal)`, `lire_sur`, `csv_sur` — VT (ventes : 411 / 701 + 4431 ; irrécouvrables 6511 / 411), AC (achats `mouvement_stock` : 601 / 401), RG (paiements clients : trésorerie du mode / 411, avoir utilisé : 701 / 411 ; fournisseurs : 401 / trésorerie), CA (dépenses par catégorie / trésorerie ; écarts de clôture 658 / 571, 571 / 758), **PA** (Gescom Équipe, G-4 : fiche validée 661 / 422 + cotisations salariales à l'organisme + retenues saisies 758 ; charges patronales 664 / organisme ; avances retenues 422 / 421 ; fiche remplacée contre-passée le jour de sa rectificative ; versement 422 / trésorerie ; avance donnée 421 / trésorerie, annulée l'inverse). `avec_paie` : PA n'est fabriqué que pour qui a `paie:preparer` (le serveur neutralise `avecPaie`, `coeur::lecture`) |
 | Écran journaux | [components/JournauxComptables.tsx](../../src/components/JournauxComptables.tsx) | Rapports → Journaux comptables (`rapports:lire`) : période, journal, écritures, totaux « équilibré », Exporter CSV (UTF-8 avec BOM) |
 
 **Rien n'est stocké** (D23) : les écritures se fabriquent à la lecture
@@ -34,7 +34,7 @@ classe 1 à 7, un parent dans le plan, jamais un numéro déjà visible.
 
 Commandes : `lire_plan_comptable` (ouverte), `ajouter_sous_compte`,
 `lire_affectations`, `definir_affectation` (`comptabilite:gerer`),
-`lire_journaux_comptables`, `exporter_journaux_csv` (`rapports:lire`).
+`lire_journaux_comptables`, `exporter_journaux_csv` (`rapports:lire` ; PA en plus avec `paie:preparer`). Affectations du groupe **Paie** (G-4) : `paie:salaires` 661, `paie:remunerations_dues` 422, `paie:avances` 421, `paie:retenues` 758, `paie:charges_sociales` 664, `paie:organismes` 431 — 34 opérations.
 
 **Affectation** : une opération absente de `affectation_comptable` vaut
 son défaut livré — le défaut ne s'écrit jamais, pour qu'une correction

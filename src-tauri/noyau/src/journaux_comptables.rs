@@ -8,7 +8,13 @@
 //! - RG reglements : ce que les clients paient (tresorerie du mode de
 //!   paiement / client ; un avoir utilise solde le client sur les
 //!   ventes) et ce qu'on paie aux fournisseurs ;
-//! - CA caisse : les depenses par categorie, les ecarts de cloture.
+//! - CA caisse : les depenses par categorie, les ecarts de cloture ;
+//! - PA paie (Gescom Equipe, G-4) : chaque fiche validee (salaires bruts
+//!   au debit, remunerations dues, cotisations, retenues, avances
+//!   retenues au credit ; charges patronales), la fiche remplacee par
+//!   une rectificative contre-passee le jour de celle-ci, les
+//!   versements, les avances donnees et annulees. Lu seulement par qui
+//!   prepare ou valide la paie : il nomme ce que chacun gagne.
 //!
 //! Les comptes viennent de l'affectation du dossier (E-2). Rien ne
 //! s'ecrit. Pas encore : les retours de marchandise (leur effet passe
@@ -280,12 +286,150 @@ fn caisse(base: &mut Base, p: &Periode, a: &HashMap<String, String>) -> Result<V
     Ok(v)
 }
 
-/// Les ecritures d'un journal (`VT`, `AC`, `RG`, `CA`) ou de tous.
-pub fn ecritures_sur(base: &mut Base, du: &str, au: &str, journal: Option<&str>) -> Result<Vec<Ecriture>, String> {
+/// L'ecriture d'une fiche validee, depuis ses lignes. `sens` -1 : la
+/// contre-passation d'une fiche remplacee.
+fn ecriture_fiche(
+    date: &str,
+    piece: String,
+    libelle: String,
+    lignes: &[crate::coeur::paie::Ligne],
+    a: &HashMap<String, String>,
+    sens: i64,
+) -> Result<Option<Ecriture>, String> {
+    use crate::coeur::paie as p;
+    let organisme = |l: &p::Ligne| l.source.clone().unwrap_or_else(|| a["paie:organismes"].clone());
+    let brut: i64 = lignes.iter().filter(|l| l.genre != p::CHARGE && l.montant > 0).map(|l| l.montant).sum();
+    let cot: i64 = lignes.iter().filter(|l| l.genre == p::COTISATION).map(|l| -l.montant).sum();
+    let ret: i64 = lignes.iter().filter(|l| l.genre == p::RETENUE).map(|l| -l.montant).sum();
+    let av: i64 = lignes.iter().filter(|l| l.genre == p::AVANCE).map(|l| -l.montant).sum();
+    let dues = &a["paie:remunerations_dues"];
+    let mut l = vec![debit(&a["paie:salaires"], brut), credit(dues, brut - cot - ret), credit(&a["paie:retenues"], ret)];
+    for x in lignes.iter().filter(|l| l.genre == p::COTISATION) {
+        l.push(credit(&organisme(x), -x.montant));
+    }
+    for x in lignes.iter().filter(|l| l.genre == p::CHARGE) {
+        l.push(debit(&a["paie:charges_sociales"], x.montant));
+        l.push(credit(&organisme(x), x.montant));
+    }
+    l.push(debit(dues, av));
+    l.push(credit(&a["paie:avances"], av));
+    if sens < 0 {
+        for x in &mut l {
+            std::mem::swap(&mut x.debit, &mut x.credit);
+        }
+    }
+    let e = equilibrer(Ecriture { journal: "PA", date: date.chars().take(10).collect(), piece, libelle, lignes: l })?;
+    Ok(if e.lignes.is_empty() { None } else { Some(e) })
+}
+
+fn paie(base: &mut Base, p: &Periode, a: &HashMap<String, String>) -> Result<Vec<Ecriture>, String> {
+    let dossier = base.dossier().to_string();
+    let mut v = Vec::new();
+    // Les fiches validees dans la periode, et celles remplacees par une
+    // rectificative validee dans la periode (contre-passees ce jour-la).
+    let fiches = base
+        .lire_plusieurs(
+            "SELECT f.id, f.numero, f.nom, f.valide_le, 1 FROM fiche_paie f
+             WHERE f.dossier_id = ?1 AND f.statut IN ('validee', 'remplacee')
+               AND SUBSTR(f.valide_le, 1, 10) >= ?2 AND SUBSTR(f.valide_le, 1, 10) <= ?3
+             UNION ALL
+             SELECT f.id, f.numero, f.nom, n.valide_le, -1 FROM fiche_paie f
+             JOIN fiche_paie n ON n.rectifie_id = f.id AND n.dossier_id = f.dossier_id AND n.statut IN ('validee', 'remplacee')
+             WHERE f.dossier_id = ?1 AND f.statut = 'remplacee'
+               AND SUBSTR(n.valide_le, 1, 10) >= ?2 AND SUBSTR(n.valide_le, 1, 10) <= ?3",
+            &parametres![dossier.clone(), p.du.clone(), p.au.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?, r.get::<String>(3)?, r.get::<i64>(4)?)),
+        )
+        .map_err(|e| e.0)?;
+    for (id, numero, nom, date, sens) in fiches {
+        let lignes = base
+            .lire_plusieurs(
+                "SELECT genre, libelle, montant, source FROM ligne_paie WHERE fiche_id = ?1 AND dossier_id = ?2 ORDER BY rang",
+                &parametres![id, dossier.clone()],
+                |r| {
+                    Ok(crate::coeur::paie::Ligne {
+                        genre: r.get(0)?,
+                        libelle: r.get(1)?,
+                        quantite: None,
+                        prix: None,
+                        montant: r.get(2)?,
+                        source: r.get(3)?,
+                        saisie: false,
+                    })
+                },
+            )
+            .map_err(|e| e.0)?;
+        let libelle = if sens > 0 { format!("Paie — {nom}") } else { format!("Paie remplacée par sa rectificative — {nom}") };
+        v.extend(ecriture_fiche(&date, numero, libelle, &lignes, a, sens)?);
+    }
+    let versements = base
+        .lire_plusieurs(
+            "SELECT v.date_versement, v.montant, v.moyen, f.numero, f.nom FROM versement_paie v
+             JOIN fiche_paie f ON f.id = v.fiche_id AND f.dossier_id = v.dossier_id
+             WHERE v.dossier_id = ?1 AND SUBSTR(v.date_versement, 1, 10) >= ?2 AND SUBSTR(v.date_versement, 1, 10) <= ?3",
+            &parametres![dossier.clone(), p.du.clone(), p.au.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?, r.get::<String>(2)?, r.get::<Option<String>>(3)?, r.get::<String>(4)?)),
+        )
+        .map_err(|e| e.0)?;
+    for (date, montant, moyen, numero, nom) in versements {
+        v.extend(simple(
+            "PA",
+            &date,
+            numero.unwrap_or_default(),
+            format!("Salaire versé {} — {nom}", regles::libelle_mode(&moyen)),
+            &a["paie:remunerations_dues"],
+            &a[cle_tresorerie(&moyen)],
+            montant,
+        ));
+    }
+    let avances = base
+        .lire_plusieurs(
+            "SELECT a.id, a.date_avance, a.montant, a.moyen, e.nom FROM avance a
+             JOIN employe e ON e.id = a.employe_id AND e.dossier_id = a.dossier_id
+             WHERE a.dossier_id = ?1 AND SUBSTR(a.date_avance, 1, 10) >= ?2 AND SUBSTR(a.date_avance, 1, 10) <= ?3",
+            &parametres![dossier.clone(), p.du.clone(), p.au.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<String>(3)?, r.get::<String>(4)?)),
+        )
+        .map_err(|e| e.0)?;
+    for (id, date, montant, moyen, nom) in avances {
+        v.extend(simple(
+            "PA",
+            &date,
+            piece_courte("AV", &id),
+            format!("Avance {} — {nom}", regles::libelle_mode(&moyen)),
+            &a["paie:avances"],
+            &a[cle_tresorerie(&moyen)],
+            montant,
+        ));
+    }
+    // Une avance annulee : l'argent revient (l'entree de caisse le date).
+    let annulees = base
+        .lire_plusieurs(
+            "SELECT m.operation_id, m.date_mouvement, m.montant, m.moyen, COALESCE(m.libelle, '') FROM mouvement_caisse m
+             WHERE m.motif = 'avance_annulee' AND m.dossier_id = ?1
+               AND SUBSTR(m.date_mouvement, 1, 10) >= ?2 AND SUBSTR(m.date_mouvement, 1, 10) <= ?3",
+            &parametres![dossier, p.du.clone(), p.au.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<String>(3)?, r.get::<String>(4)?)),
+        )
+        .map_err(|e| e.0)?;
+    for (id, date, montant, moyen, libelle) in annulees {
+        v.extend(simple("PA", &date, piece_courte("AV", &id), libelle, &a[cle_tresorerie(&moyen)], &a["paie:avances"], montant));
+    }
+    v.sort_by(|x, y| x.date.cmp(&y.date));
+    Ok(v)
+}
+
+/// Les ecritures d'un journal (`VT`, `AC`, `RG`, `CA`, `PA`) ou de
+/// tous. `avec_paie` : faux pour qui ne lit pas la paie (le serveur le
+/// neutralise, `coeur::lecture`) — PA n'est alors ni fabrique ni rendu.
+pub fn ecritures_sur(base: &mut Base, du: &str, au: &str, journal: Option<&str>, avec_paie: bool) -> Result<Vec<Ecriture>, String> {
     let p = periode(du, au)?;
     if let Some(j) = journal {
         if !regles::JOURNAUX.iter().any(|(c, _)| *c == j) {
-            return Err(format!("Journal inconnu : « {j} ». Attendu : VT, AC, RG ou CA."));
+            return Err(format!("Journal inconnu : « {j} ». Attendu : VT, AC, RG, CA ou PA."));
+        }
+        if j == "PA" && !avec_paie {
+            return Err("Le journal de paie ne se lit qu'avec le droit de préparer ou valider la paie.".to_string());
         }
     }
     let a = crate::affectations::table_sur(base)?;
@@ -303,12 +447,15 @@ pub fn ecritures_sur(base: &mut Base, du: &str, au: &str, journal: Option<&str>)
     if veut("CA") {
         tout.extend(caisse(base, &p, &a)?);
     }
+    if avec_paie && veut("PA") {
+        tout.extend(paie(base, &p, &a)?);
+    }
     Ok(tout)
 }
 
 /// Pour l'ecran : chaque journal, ses ecritures et ses totaux.
-pub fn lire_sur(base: &mut Base, du: String, au: String, journal: Option<String>) -> Result<serde_json::Value, String> {
-    let tout = ecritures_sur(base, &du, &au, journal.as_deref())?;
+pub fn lire_sur(base: &mut Base, du: String, au: String, journal: Option<String>, avec_paie: bool) -> Result<serde_json::Value, String> {
+    let tout = ecritures_sur(base, &du, &au, journal.as_deref(), avec_paie)?;
     let mut libelles: HashMap<String, Option<String>> = HashMap::new();
     for e in &tout {
         for l in &e.lignes {
@@ -320,7 +467,7 @@ pub fn lire_sur(base: &mut Base, du: String, au: String, journal: Option<String>
     }
     let journaux: Vec<serde_json::Value> = regles::JOURNAUX
         .iter()
-        .filter(|(c, _)| journal.as_deref().is_none_or(|j| j == *c))
+        .filter(|(c, _)| journal.as_deref().is_none_or(|j| j == *c) && (avec_paie || *c != "PA"))
         .map(|(code, libelle)| {
             let e: Vec<Ecriture> = tout.iter().filter(|e| e.journal == *code).cloned().collect();
             let (d, c) = regles::totaux(&e);
@@ -334,8 +481,8 @@ pub fn lire_sur(base: &mut Base, du: String, au: String, journal: Option<String>
 }
 
 /// L'export CSV, et un nom de fichier qui dit ce qu'il contient.
-pub fn csv_sur(base: &mut Base, du: String, au: String, journal: Option<String>) -> Result<serde_json::Value, String> {
-    let tout = ecritures_sur(base, &du, &au, journal.as_deref())?;
+pub fn csv_sur(base: &mut Base, du: String, au: String, journal: Option<String>, avec_paie: bool) -> Result<serde_json::Value, String> {
+    let tout = ecritures_sur(base, &du, &au, journal.as_deref(), avec_paie)?;
     let mut libelles: HashMap<String, String> = HashMap::new();
     for e in &tout {
         for l in &e.lignes {
