@@ -42,6 +42,9 @@ pub const CAISSE_LIRE_AUTRES: &str = "caisse:lire_autres";
 pub enum Regle {
     /// Sans la permission, la commande est refusee.
     Refus(&'static str),
+    /// Sans AUCUNE de ces permissions, la commande est refusee (la
+    /// premiere est celle que le refus nomme).
+    RefusSaufUne(&'static [&'static str]),
     /// Sans AUCUNE de ces permissions, ces cles valent `null`, a
     /// n'importe quelle profondeur de la reponse. `si` : seulement
     /// quand la reponse le dit (une piece fournisseur, pas une facture
@@ -81,6 +84,9 @@ const TOTAUX_PIECE: &[&str] = &[
     "total_ht", "total_tva", "total_net", "total_ttc", "total_paye", "reste", "reste_du",
 ];
 const ACHATS: &[&str] = &[ACHATS_LIRE_PRIX, "achats:creer"];
+const PERSONNEL_LIRE: &[&str] = &["personnel:gerer", "paie:preparer", "paie:valider"];
+const PAIE_LIRE: &[&str] = &["paie:preparer", "paie:valider"];
+const REMUNERATION: &[&str] = &["salaire_mensuel", "tarif_journalier", "commission_pct", "remuneration_dite"];
 
 fn piece_fournisseur(v: &Value) -> bool {
     v.pointer("/piece/tiers_type").and_then(Value::as_str) == Some("fournisseur")
@@ -148,6 +154,14 @@ pub fn regles(commande: &str) -> &'static [Regle] {
             &[Masque { permissions: &[TIERS_LIRE_SOLDE], cles: SOLDES_FOURNISSEUR, si: None }]
         }
 
+        // --- Gescom Equipe (PLAN-EQUIPE) : le personnel se lit par qui le
+        // gere ou le paie ; ce qu'il gagne, par qui prepare ou valide la
+        // paie seulement. ---
+        "lire_personnel" | "lire_employe" => &[
+            RefusSaufUne(PERSONNEL_LIRE),
+            Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None },
+        ],
+
         // --- caisse:lire_autres : les sessions des autres ---
         "lire_sessions_caisse" => &[AMoi(CAISSE_LIRE_AUTRES, "ouvert_par_id")],
         "lire_mouvements_session" => &[SessionCaisseAMoi(CAISSE_LIRE_AUTRES)],
@@ -161,6 +175,7 @@ pub fn regles(commande: &str) -> &'static [Regle] {
 pub fn refus(commande: &str, a: impl Fn(&str) -> bool) -> Option<&'static str> {
     regles(commande).iter().find_map(|r| match r {
         Regle::Refus(p) if !a(p) => Some(*p),
+        Regle::RefusSaufUne(ps) if !ps.iter().any(|p| a(p)) => ps.first().copied(),
         _ => None,
     })
 }

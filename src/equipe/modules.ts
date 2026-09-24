@@ -20,7 +20,7 @@ export const MODULES: ModuleEquipe[] = [
   {
     cle: "personnel", libelle: "Personnel", icone: Users,
     description: "Les fiches : qui fait quoi, comment on le paie. Sans contrat, c'est permis.",
-    droits: ["personnel:gerer", "paie:preparer", "paie:valider"], aVenir: "F-2",
+    droits: ["personnel:gerer", "paie:preparer", "paie:valider"],
   },
   {
     cle: "paie", libelle: "Paie", icone: Wallet,

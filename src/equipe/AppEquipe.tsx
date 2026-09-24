@@ -19,6 +19,7 @@ import { ModalChangerMdp } from "@/components/ModalChangerMdp";
 import { MODULES } from "./modules";
 import { Accueil } from "./Accueil";
 import { Bientot } from "./Bientot";
+import { Personnel } from "./Personnel";
 
 const CLE_SESSION = "gescom_equipe_session";
 
@@ -156,6 +157,7 @@ export function AppEquipe() {
       <main className="flex-1 overflow-auto p-8">
         {courant.cle === "accueil"
           ? <Accueil nom={utilisateur.nom} modules={visibles.filter(m => m.cle !== "accueil")} onOuvrir={setPage} />
+          : courant.cle === "personnel" ? <Personnel />
           : <Bientot module={courant} />}
       </main>
 

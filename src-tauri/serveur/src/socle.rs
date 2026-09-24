@@ -87,6 +87,34 @@ pub fn registre() -> Registre {
     r.sur_base("definir_affectation", Some("comptabilite:gerer"), true, |c, p| {
         gescom_noyau::affectations::definir_sur(c.base, arg(&p, "operation", "operation")?, arg(&p, "compte", "compte")?)
     });
+    // Gescom Equipe, F-2 (D30) : les fiches du personnel. La lecture se
+    // regle dans `coeur::lecture` (qui gere ou paie ; les montants,
+    // la paie seulement).
+    r.sur_base("lire_personnel", None, false, |c, p| {
+        let avec_partis: Option<bool> = arg(&p, "avecPartis", "avec_partis")?;
+        serde_json::to_value(gescom_noyau::personnel::lister_sur(c.base, avec_partis.unwrap_or(false))?)
+            .map_err(|e| e.to_string())
+    });
+    r.sur_base("lire_employe", None, false, |c, p| {
+        gescom_noyau::personnel::lire_sur(c.base, &arg::<String>(&p, "employeId", "employe_id")?)
+    });
+    r.sur_base("creer_employe", Some("personnel:gerer"), true, |c, p| {
+        gescom_noyau::personnel::creer_sur(c.base, arg(&p, "fiche", "fiche")?)
+    });
+    r.sur_base("modifier_employe", Some("personnel:gerer"), true, |c, p| {
+        gescom_noyau::personnel::modifier_sur(c.base, arg(&p, "employeId", "employe_id")?, arg(&p, "fiche", "fiche")?)
+    });
+    r.sur_base("faire_partir_employe", Some("personnel:gerer"), true, |c, p| {
+        gescom_noyau::personnel::faire_partir_sur(
+            c.base,
+            arg(&p, "employeId", "employe_id")?,
+            arg(&p, "date", "date")?,
+            arg(&p, "motif", "motif")?,
+        )
+    });
+    r.sur_base("faire_revenir_employe", Some("personnel:gerer"), true, |c, p| {
+        gescom_noyau::personnel::faire_revenir_sur(c.base, arg(&p, "employeId", "employe_id")?)
+    });
     // v3, E-3 : les journaux, fabriques a la lecture, et leur export.
     // Ce sont les chiffres de la boutique : `rapports:lire`.
     r.sur_base("lire_journaux_comptables", Some("rapports:lire"), false, |c, p| {

@@ -113,6 +113,7 @@ pub const TABLES_CLOISONNEES: &[&str] = &[
     "journal",
     "anomalie_vue",
     "affectation_comptable",
+    "employe",
 ];
 
 /// La cle d'un compteur, cloisonnee par dossier.

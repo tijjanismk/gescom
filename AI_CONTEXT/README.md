@@ -29,7 +29,7 @@ de 5 à 8 k.
 | comprendre une règle avant de la changer | [DOMAINE.md](DOMAINE.md) (règles avec `fichier:ligne`), [DECISIONS.md](DECISIONS.md) (D1…D11 + le récap en fin) |
 | la v3 — ce qu'elle contient, dans quel ordre, ce qui est tranché | [PLAN-V3.md](PLAN-V3.md) |
 | le multi-société (v3, chantier D) | [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md) ; le code : [modules/dossiers.md](modules/dossiers.md) |
-| Gescom Équipe : personnel, paie, suivi client (chantiers F, G, H) | [PLAN-EQUIPE.md](PLAN-EQUIPE.md) |
+| Gescom Équipe : personnel, paie, suivi client (chantiers F, G, H) | [PLAN-EQUIPE.md](PLAN-EQUIPE.md) ; le code : [modules/equipe.md](modules/equipe.md) |
 | le plan comptable, les affectations, les journaux (v3, chantier E) | [PLAN-V3.md](PLAN-V3.md) § 7 ; le code : [modules/comptabilite.md](modules/comptabilite.md) |
 
 Vue d'ensemble en une page : [ARCHITECTURE.md](ARCHITECTURE.md).

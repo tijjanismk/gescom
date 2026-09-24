@@ -510,6 +510,35 @@ CREATE TABLE IF NOT EXISTS affectation_comptable (
     PRIMARY KEY (dossier_id, operation)
 );
 
+-- Gescom Equipe (PLAN-EQUIPE, F-2 — D30) : une personne, pas un
+-- contrat. Nom, ce qu'elle fait, comment elle est payee ; le reste est
+-- facultatif. Un depart ne supprime rien (`statut = 'partie'`).
+CREATE TABLE IF NOT EXISTS employe (
+    id               TEXT PRIMARY KEY,
+    dossier_id       TEXT NOT NULL,
+    nom              TEXT NOT NULL,
+    fonction         TEXT NOT NULL,
+    telephone        TEXT,
+    date_entree      TEXT,
+    piece_identite   TEXT,
+    contrat_ecrit    INTEGER NOT NULL DEFAULT 0,
+    contrat_date     TEXT,
+    declare          INTEGER NOT NULL DEFAULT 0,
+    numero_inps      TEXT,
+    salaire_mensuel  INTEGER,
+    tarif_journalier INTEGER,
+    commission_pct   REAL,
+    a_la_tache       INTEGER NOT NULL DEFAULT 0,
+    utilisateur_id   TEXT REFERENCES utilisateur(id),
+    depot_id         TEXT,
+    statut           TEXT NOT NULL DEFAULT 'actif',
+    date_depart      TEXT,
+    motif_depart     TEXT,
+    note             TEXT,
+    cree_le          TEXT NOT NULL,
+    modifie_le       TEXT NOT NULL
+);
+
 -- Le role d'une personne DANS un dossier (v3, C-2 — decision C2).
 -- Aucune ligne : comme avant (son role partout s'il a l'acces total,
 -- sinon dans le dossier d'origine). Des lignes : exactement ces
