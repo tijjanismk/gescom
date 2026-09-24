@@ -11,8 +11,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Les genres, dans l'ordre de l'ecran.
-pub const GENRES: [&str; 7] = [
-    "facture", "devis", "bon_commande", "bon_livraison", "recu", "releve", "ticket",
+pub const GENRES: [&str; 8] = [
+    "facture", "devis", "bon_commande", "bon_livraison", "recu", "releve", "ticket", "bulletin",
 ];
 
 /// Formats d'impression acceptes.
@@ -145,6 +145,8 @@ pub fn defaut(genre: &str, ancienne: &dyn Fn(&str) -> Option<String>) -> Reglage
         "recu" => ReglageGenre { montant_lettres: true, signatures: sig(&["Le caissier"]), ..base("a5") },
         "releve" => ReglageGenre { signatures: sig(&["Le client", "Pour l'entreprise"]), ..base("a4") },
         "ticket" => ReglageGenre { signatures: sig(&[]), ..base("thermique_80") },
+        // Gescom Equipe (G-3, D31) : le bulletin de paie, qu'on remet.
+        "bulletin" => ReglageGenre { montant_lettres: true, signatures: sig(&["L'employé", "Pour la société"]), ..base("a4") },
         _ => base("a4"),
     }
 }
@@ -159,6 +161,9 @@ pub fn valider(genre: &str, r: &ReglageGenre) -> Result<(), String> {
     }
     if genre == "ticket" && !r.format.starts_with("thermique") {
         return Err("Un ticket de caisse s'imprime sur rouleau (58 ou 80 mm).".to_string());
+    }
+    if genre == "bulletin" && r.format.starts_with("thermique") {
+        return Err("Un bulletin de paie se remet sur une page (A4 ou A5), pas sur un rouleau.".to_string());
     }
     if genre == "ticket" && !r.signatures.is_empty() {
         return Err("On ne signe pas un ticket de caisse.".to_string());
@@ -311,5 +316,15 @@ mod tests {
         assert_eq!(r.colonne_tva, Choix::Auto, "champ absent = auto");
         assert_eq!(r.mention, None, "mention vide = celle de la société");
         assert_eq!(r.signatures, sig(&["Le caissier"]));
+    }
+
+    #[test]
+    fn le_bulletin_de_paie_se_signe_des_deux_cotes_et_pas_sur_rouleau() {
+        let b = defaut("bulletin", &rien);
+        assert_eq!(b.signatures, sig(&["L'employé", "Pour la société"]));
+        assert!(b.montant_lettres);
+        assert!(valider("bulletin", &b).is_ok());
+        let rouleau = ReglageGenre { format: "thermique_80".into(), ..b };
+        assert!(valider("bulletin", &rouleau).unwrap_err().contains("rouleau"));
     }
 }

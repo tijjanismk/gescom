@@ -421,6 +421,13 @@ pub fn valider_sur(base: &mut Base, fiche_id: String) -> Result<serde_json::Valu
             &parametres![now.clone(), ancien_id.clone(), dossier.clone()],
         )
         .map_err(|e| e.0)?;
+        // Ce qui a deja ete verse sur l'ancienne l'a ete pour la meme
+        // periode : les versements suivent la fiche qui vaut.
+        tx.executer(
+            "UPDATE versement_paie SET fiche_id = ?1 WHERE fiche_id = ?2 AND dossier_id = ?3",
+            &parametres![fiche_id.clone(), ancien_id.clone(), dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
     }
     // Deux fiches validees en meme temps ne retiennent pas deux fois la
     // meme avance : la ligne ne monte que si elle ne depasse pas.
@@ -502,7 +509,8 @@ fn ligne_json(id: &str, l: &Ligne) -> serde_json::Value {
 
 const COLONNES: &str = "f.id, f.employe_id, f.nom, f.fonction, f.du, f.au, f.prorata, f.statut, f.numero,
     f.brut, f.retenues, f.net, f.reporte, f.rectifie_id, r.numero, f.cree_le, f.valide_le, u.nom,
-    (SELECT n.numero FROM fiche_paie n WHERE n.rectifie_id = f.id AND n.dossier_id = f.dossier_id AND n.statut = 'validee')";
+    (SELECT n.numero FROM fiche_paie n WHERE n.rectifie_id = f.id AND n.dossier_id = f.dossier_id AND n.statut IN ('validee', 'remplacee')),
+    (SELECT CAST(COALESCE(SUM(v.montant), 0) AS BIGINT) FROM versement_paie v WHERE v.fiche_id = f.id AND v.dossier_id = f.dossier_id)";
 
 fn fiche_json(r: &crate::base::Ligne<'_>) -> crate::base::Resultat<serde_json::Value> {
     Ok(serde_json::json!({
@@ -525,6 +533,9 @@ fn fiche_json(r: &crate::base::Ligne<'_>) -> crate::base::Resultat<serde_json::V
         "valide_le": r.get::<Option<String>>(16)?,
         "valide_par_nom": r.get::<Option<String>>(17)?,
         "remplacee_par": r.get::<Option<String>>(18)?,
+        "verse": r.get::<i64>(19)?,
+        // Negatif : on a deja verse plus que ce que dit la rectificative.
+        "reste": r.get::<i64>(11)? - r.get::<i64>(19)?,
     }))
 }
 
@@ -546,6 +557,7 @@ pub fn lire_sur(base: &mut Base, fiche_id: &str) -> Result<serde_json::Value, St
         .ok_or_else(|| "Fiche de paie introuvable.".to_string())?;
     let l = lignes(base, fiche_id)?;
     f["lignes"] = l.iter().map(|(id, x)| ligne_json(id, x)).collect();
+    f["versements"] = versements(base, fiche_id)?.into();
     Ok(f)
 }
 
@@ -584,4 +596,130 @@ pub fn lister_sur(base: &mut Base, du: String, au: String) -> Result<serde_json:
         .map(|(id, nom, fonction, mois)| serde_json::json!({ "employe_id": id, "nom": nom, "fonction": fonction, "au_mois": mois.is_some() }))
         .collect();
     Ok(serde_json::json!({ "du": du, "au": au, "fiches": fiches, "a_preparer": a_preparer }))
+}
+
+// =====================================================================
+//  G-3 : payer (D31) — des versements, chacun une sortie de caisse
+// =====================================================================
+
+/// Verse tout ou partie du net d'une fiche validee : une sortie de
+/// caisse (caisse ouverte exigee, categorie `salaire`), dans la meme
+/// transaction que le versement. Plusieurs versements possibles ; pas
+/// plus que ce qui reste du.
+pub fn verser_sur(base: &mut Base, fiche_id: String, montant: i64, moyen: Option<String>) -> Result<serde_json::Value, String> {
+    let f = lire_sur(base, &fiche_id)?;
+    match f["statut"].as_str() {
+        Some("validee") => {}
+        Some("brouillon") => return Err("Un brouillon ne se paie pas : le valider d'abord.".to_string()),
+        _ => {
+            return Err(format!(
+                "Cette fiche a été remplacée par {} : verser sur celle-ci.",
+                f["remplacee_par"].as_str().unwrap_or("sa rectificative")
+            ))
+        }
+    }
+    let nom = f["nom"].as_str().unwrap_or_default().to_string();
+    let numero = f["numero"].as_str().unwrap_or_default().to_string();
+    regles::verifier_versement(montant, f["reste"].as_i64().unwrap_or(0), &nom)?;
+    let moyen = moyen.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).unwrap_or_else(|| "especes".into());
+    crate::coeur::saisie::verifier_mode_encaissement(&moyen)?;
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    // L'argent sort du tiroir : la caisse d'abord (regle 4).
+    let session_id = crate::caisses::exiger_sur(base, Some(&auteur))
+        .map_err(|_| "Aucune session de caisse ouverte — ouvrir la caisse d'abord.".to_string())?;
+    let dossier = base.dossier().to_string();
+    let now = crate::utils::maintenant_iso();
+    let id = uuid::Uuid::new_v4().to_string();
+    let mouvement = uuid::Uuid::new_v4().to_string();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO mouvement_caisse
+           (id, session_id, sens, moyen, montant, motif, operation_id, libelle, categorie,
+            date_mouvement, cree_le, cree_par, origine, dossier_id)
+         VALUES (?1, ?2, 'sortie', ?3, ?4, 'salaire', ?5, ?6, 'salaire', ?7, ?7, ?8, 'app', ?9)",
+        &parametres![
+            mouvement.clone(),
+            session_id,
+            moyen.clone(),
+            montant,
+            id.clone(),
+            format!("Salaire — {nom} ({numero})"),
+            now.clone(),
+            auteur.clone(),
+            dossier.clone()
+        ],
+    )
+    .map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO versement_paie (id, dossier_id, fiche_id, montant, moyen, date_versement, mouvement_caisse_id, cree_par, cree_le)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?6)",
+        &parametres![id.clone(), dossier.clone(), fiche_id.clone(), montant, moyen.clone(), now, mouvement, auteur.clone()],
+    )
+    .map_err(|e| e.0)?;
+    // Deux versements en meme temps ne paient pas plus que le net.
+    let verse = tx
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM versement_paie WHERE fiche_id = ?1 AND dossier_id = ?2",
+            &parametres![fiche_id.clone(), dossier],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    if verse > f["net"].as_i64().unwrap_or(0) {
+        return Err("Un autre versement vient d'être fait sur cette fiche : relire avant de verser.".to_string());
+    }
+    noter(&mut tx, "paie_versee", &fiche_id, &auteur, serde_json::json!({ "nom": nom, "numero": numero, "montant": montant, "moyen": moyen }))?;
+    tx.valider().map_err(|e| e.0)?;
+    lire_sur(base, &fiche_id)
+}
+
+/// Les versements d'une fiche, les plus anciens d'abord.
+fn versements(base: &mut Base, fiche_id: &str) -> Result<Vec<serde_json::Value>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT v.id, v.montant, v.moyen, v.date_versement, u.nom
+         FROM versement_paie v LEFT JOIN utilisateur u ON u.id = v.cree_par
+         WHERE v.fiche_id = ?1 AND v.dossier_id = ?2 ORDER BY v.date_versement",
+        &parametres![fiche_id, dossier],
+        |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<String>(0)?,
+                "montant": r.get::<i64>(1)?,
+                "moyen": r.get::<String>(2)?,
+                "date": r.get::<String>(3)?,
+                "par": r.get::<Option<String>>(4)?,
+            }))
+        },
+    )
+    .map_err(|e| e.0)
+}
+
+/// Tout ce que le bulletin imprime : la fiche, ses lignes, ses
+/// versements, ce que l'on sait de la personne, la societe.
+pub fn donnees_bulletin_sur(base: &mut Base, fiche_id: String) -> Result<serde_json::Value, String> {
+    let mut f = lire_sur(base, &fiche_id)?;
+    if f["statut"] == "brouillon" {
+        return Err("Un brouillon ne s'imprime pas : le bulletin est le papier d'une fiche validée.".to_string());
+    }
+    let dossier = base.dossier().to_string();
+    let employe_id = f["employe_id"].as_str().unwrap_or_default().to_string();
+    let personne = base
+        .lire_une(
+            "SELECT telephone, date_entree, declare, numero_inps, contrat_ecrit FROM employe WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![employe_id, dossier],
+            |r| {
+                Ok(serde_json::json!({
+                    "telephone": r.get::<Option<String>>(0)?,
+                    "date_entree": r.get::<Option<String>>(1)?,
+                    "declare": r.get::<i64>(2)? != 0,
+                    "numero_inps": r.get::<Option<String>>(3)?,
+                    "contrat_ecrit": r.get::<i64>(4)? != 0,
+                }))
+            },
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(serde_json::Value::Null);
+    f["personne"] = personne;
+    f["societe"] = crate::creances::societe_sur(base);
+    Ok(f)
 }

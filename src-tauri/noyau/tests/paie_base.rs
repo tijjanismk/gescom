@@ -12,7 +12,7 @@ use gescom_noyau::argent::{self, ParamsLigneInput};
 use gescom_noyau::base::Base;
 use gescom_noyau::coeur::lecture;
 use gescom_noyau::personnel::{self, Fiche};
-use gescom_noyau::{auteur, auth, avances, dossiers, paie, parametres, presences};
+use gescom_noyau::{auteur, auth, avances, caisse, dossiers, paie, parametres, presences};
 use serde_json::{json, Value};
 
 fn jour(decalage: i64) -> String {
@@ -251,6 +251,58 @@ fn la_rectificative_remplace_sans_reecrire() {
     assert!(paie::preparer_sur(&mut base, e.awa.clone(), jour(-5), jour(0), false).is_err());
 }
 
+/// G-3 : deux versements, le reste dû ; chacun sort de la caisse.
+#[test]
+fn payer_en_deux_fois_depuis_la_caisse() {
+    let mut base = base_avec_demo();
+    let e = equipe(&mut base);
+    let f = paie::preparer_sur(&mut base, e.awa.clone(), jour(-30), jour(0), false).unwrap();
+    let id = f["id"].as_str().unwrap().to_string();
+    assert!(paie::verser_sur(&mut base, id.clone(), 10_000, None).unwrap_err().contains("brouillon"));
+    paie::valider_sur(&mut base, id.clone()).unwrap();
+    // Caisse fermée : rien ne sort.
+    assert!(paie::verser_sur(&mut base, id.clone(), 10_000, None).unwrap_err().contains("ouvrir la caisse"));
+    ouvrir_caisse(&mut base);
+    let v = paie::verser_sur(&mut base, id.clone(), 20_000, None).unwrap();
+    assert_eq!((v["verse"].as_i64(), v["reste"].as_i64()), (Some(20_000), Some(40_000)));
+    assert!(paie::verser_sur(&mut base, id.clone(), 50_000, None).unwrap_err().contains("Il ne reste que 40 000 F"));
+    assert!(paie::verser_sur(&mut base, id.clone(), 1_000, Some("bitcoin".into())).unwrap_err().contains("inconnu"));
+    let v = paie::verser_sur(&mut base, id.clone(), 40_000, Some("orange_money".into())).unwrap();
+    assert_eq!(v["reste"], 0);
+    assert_eq!(v["versements"].as_array().unwrap().len(), 2);
+    assert!(paie::verser_sur(&mut base, id.clone(), 1, None).unwrap_err().contains("déjà tout reçu"));
+    // La caisse le sait : 20 000 en espèces, 40 000 en Orange Money, catégorie salaire.
+    let dossier = base.dossier().to_string();
+    let sorties = compter(
+        &mut base,
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM mouvement_caisse
+         WHERE motif = 'salaire' AND categorie = 'salaire' AND sens = 'sortie' AND dossier_id = ?1",
+        &parametres![dossier.clone()],
+    );
+    assert_eq!(sorties, 60_000);
+    let especes = caisse::lire_sessions_caisse_sur_base(&mut base, None).unwrap()[0]["sorties_especes"].as_i64().unwrap_or(0);
+    assert_eq!(especes, 20_000, "Orange Money ne sort pas du tiroir");
+
+    // Une rectificative (une prime oubliée) reprend les versements : il reste la prime.
+    let r = paie::rectifier_sur(&mut base, id.clone()).unwrap();
+    let rid = r["id"].as_str().unwrap().to_string();
+    paie::ajouter_ligne_sur(&mut base, rid.clone(), "prime".into(), "Oubliée".into(), None, None, Some(5_000)).unwrap();
+    let r = paie::valider_sur(&mut base, rid.clone()).unwrap();
+    assert_eq!((r["verse"].as_i64(), r["reste"].as_i64()), (Some(60_000), Some(5_000)));
+    assert!(paie::verser_sur(&mut base, id, 5_000, None).unwrap_err().contains("remplacée par"));
+    paie::verser_sur(&mut base, rid.clone(), 5_000, None).unwrap();
+
+    // Le bulletin : la fiche, ses versements, la personne, la société.
+    let b = paie::donnees_bulletin_sur(&mut base, rid).unwrap();
+    assert_eq!(b["versements"].as_array().unwrap().len(), 3);
+    assert!(b["societe"]["nom"].is_string());
+    assert_eq!(b["personne"]["declare"], false);
+    let brouillon = paie::preparer_sur(&mut base, e.moussa.clone(), jour(-30), jour(0), false).unwrap();
+    assert!(paie::donnees_bulletin_sur(&mut base, brouillon["id"].as_str().unwrap().into()).is_err(), "un brouillon ne s'imprime pas");
+    let n = compter(&mut base, "SELECT CAST(COUNT(*) AS BIGINT) FROM journal WHERE type_evenement = 'paie_versee' AND dossier_id = ?1", &parametres![dossier]);
+    assert_eq!(n, 3);
+}
+
 #[test]
 fn chaque_dossier_sa_paie_et_ses_numeros() {
     let mut base = base_avec_demo();
@@ -299,8 +351,11 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
         paie::retirer_ligne_sur(&mut base, id.clone(), prime).unwrap();
         paie::recalculer_sur(&mut base, id.clone(), Some(false)).unwrap();
         paie::valider_sur(&mut base, id.clone()).unwrap();
+        paie::verser_sur(&mut base, id.clone(), 1, None).ok();
         let r = paie::rectifier_sur(&mut base, id).unwrap();
-        paie::valider_sur(&mut base, r["id"].as_str().unwrap().into()).unwrap();
+        let rid = r["id"].as_str().unwrap().to_string();
+        paie::valider_sur(&mut base, rid.clone()).unwrap();
+        paie::donnees_bulletin_sur(&mut base, rid).unwrap();
     }
     let b = paie::preparer_sur(&mut base, e.awa.clone(), jour(1), jour(2), false).unwrap();
     paie::supprimer_sur(&mut base, b["id"].as_str().unwrap().into()).unwrap();

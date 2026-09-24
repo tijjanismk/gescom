@@ -58,6 +58,7 @@ pub const TYPES: &[(&str, &str)] = &[
     ("paie_supprimee", "Brouillon de paie jeté"),
     ("paie_validee", "Fiche de paie validée"),
     ("paie_rectificative", "Fiche de paie rectificative ouverte"),
+    ("paie_versee", "Salaire versé"),
     ("dossier_d_origine", "Dossier d'origine nommé et daté"),
     ("exercice_ouvert", "Exercice ouvert"),
     ("exercice_prolonge", "Exercice prolongé"),

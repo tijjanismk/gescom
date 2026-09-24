@@ -618,6 +618,21 @@ CREATE TABLE IF NOT EXISTS ligne_paie (
     saisie      INTEGER NOT NULL DEFAULT 0
 );
 
+-- Les versements d'une fiche de paie (G-3, D31) : chacun une sortie de
+-- caisse (`mouvement_caisse` motif 'salaire'). Une rectificative
+-- validee reprend les versements de la fiche qu'elle remplace.
+CREATE TABLE IF NOT EXISTS versement_paie (
+    id                   TEXT PRIMARY KEY,
+    dossier_id           TEXT NOT NULL,
+    fiche_id             TEXT NOT NULL REFERENCES fiche_paie(id),
+    montant              INTEGER NOT NULL,
+    moyen                TEXT NOT NULL,
+    date_versement       TEXT NOT NULL,
+    mouvement_caisse_id  TEXT,
+    cree_par             TEXT,
+    cree_le              TEXT NOT NULL
+);
+
 -- Le role d'une personne DANS un dossier (v3, C-2 — decision C2).
 -- Aucune ligne : comme avant (son role partout s'il a l'acces total,
 -- sinon dans le dossier d'origine). Des lignes : exactement ces

@@ -15,7 +15,7 @@ const res = await page.evaluate(async (cachet) => {
   const { genreDePiece } = await import("/src/lib/documents.ts");
 
   // Réglages : facture A4 avec tout, BL A5 à trois signatures.
-  for (const g of ["facture","devis","bon_commande","bon_livraison","recu","releve","ticket"]) await appeler("retablir_reglage_document", { genre: g });
+  for (const g of ["facture","devis","bon_commande","bon_livraison","recu","releve","ticket","bulletin"]) await appeler("retablir_reglage_document", { genre: g });
   await appeler("enregistrer_reglage_document", { genre: "facture", reglage: {
     format: "a4", colonne_remise: "oui", colonne_tva: "auto", recap_tva: "oui",
     montant_lettres: true, reference_article: true, mention: "Payable à 30 jours. <b>Merci.</b>",

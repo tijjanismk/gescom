@@ -8,7 +8,7 @@ import { appeler as invoke } from "@/lib/pont";
 
 export type Genre =
   | "facture" | "devis" | "bon_commande" | "bon_livraison"
-  | "recu" | "releve" | "ticket";
+  | "recu" | "releve" | "ticket" | "bulletin";
 
 export type Choix = "auto" | "oui" | "non";
 
@@ -49,6 +49,7 @@ export const LIBELLES_GENRE: Record<Genre, string> = {
   recu: "Reçu de paiement",
   releve: "Relevé",
   ticket: "Ticket de caisse",
+  bulletin: "Bulletin de paie",
 };
 
 /** Ce que couvre chaque genre, dit au commerçant. */
@@ -60,6 +61,7 @@ export const PORTEE_GENRE: Record<Genre, string> = {
   recu: "Le reçu remis à chaque règlement.",
   releve: "Relevés de créance et historique des règlements.",
   ticket: "Le ticket du point de vente, sur rouleau.",
+  bulletin: "Le bulletin remis avec la paie (Gescom Équipe).",
 };
 
 export const LIBELLES_FORMAT: Record<FormatDocument, string> = {

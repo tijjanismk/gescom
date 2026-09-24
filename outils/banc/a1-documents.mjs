@@ -6,7 +6,7 @@ const ok = verifieur();
 const entete = png("entete.png", 800, 110, [30, 64, 175]);
 const cachet = png("cachet.png", 120, 120, [200, 30, 30]);
 await connecter(page);
-for (const g of ["facture", "devis", "bon_commande", "bon_livraison", "recu", "releve", "ticket"]) {
+for (const g of ["facture", "devis", "bon_commande", "bon_livraison", "recu", "releve", "ticket", "bulletin"]) {
   await page.evaluate(async g => (await import("/src/lib/pont.ts")).appeler("retablir_reglage_document", { genre: g }), g);
 }
 await parametres(page, "Documents");

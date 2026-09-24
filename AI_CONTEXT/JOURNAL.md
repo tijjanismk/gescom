@@ -1797,3 +1797,10 @@ compte » chez le patron : sa session gardée par le navigateur datait
 d'avant la v3 et ne connaissait pas `rapports:lire`. Les droits sont
 maintenant relus auprès du serveur à chaque démarrage (`lire_mes_droits`).
 Le banc complet oubliait les parcours F et G (`[a-e]`) : corrigé.
+
+**G-3** — payer et imprimer. Chaque versement est une sortie de caisse,
+comme l'avance ; on peut payer en plusieurs fois, jamais plus que le
+reste. Une rectificative reprend les versements déjà faits pour la même
+période. Le bulletin est un 8ᵉ genre de document, réglé avec les autres
+dans Gescom ; Équipe l'imprime depuis son aperçu, faute de la commande
+d'impression locale de la caisse.

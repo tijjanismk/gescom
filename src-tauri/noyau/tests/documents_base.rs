@@ -17,7 +17,7 @@ const PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA
 fn sans_reglage_chaque_genre_a_ses_defauts_d_usine() {
     let mut base = base_avec_demo();
     let v = documents::lire_reglages_sur(&mut base).unwrap();
-    assert_eq!(v["ordre"].as_array().unwrap().len(), 7);
+    assert_eq!(v["ordre"].as_array().unwrap().len(), 8);
     let f = &v["genres"]["facture"];
     assert_eq!(f["format"], "a4");
     assert_eq!(f["montant_lettres"], true);

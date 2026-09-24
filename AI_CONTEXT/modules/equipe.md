@@ -19,6 +19,8 @@ fenêtre qui ne parle qu'au serveur ; modules en version `Base` seule
 | Écran paie | [src/equipe/Paie.tsx](../../src/equipe/Paie.tsx) | onglets Avances / Fiches du mois ; donner, en cours par personne, annuler |
 | Paie (pur) | [coeur/paie.rs](../../src-tauri/noyau/src/coeur/paie.rs) | `gains_calcules` (mois, prorata jours travaillés / jours marqués, jours × tarif, % des ventes signées), `ligne_saisie` (tâche, prime, retenue), `retenir_avances` (les plus anciennes d'abord, le reste reporté), `calculer`, `totaux`, `validable`, `verifier_periode`, `se_chevauchent` |
 | Paie (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `preparer_sur`, `recalculer_sur`, `ajouter_ligne_sur`, `retirer_ligne_sur`, `supprimer_sur` (brouillon), `valider_sur` (refuse ce qui n'est plus à jour ; numéro `PAIE-AAAA-NNNNN`, avances retenues), `rectifier_sur`, `lire_sur`, `lister_sur(du, au)` (fiches + personnes à préparer) |
+| Payer (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `verser_sur` (sortie de caisse, pas plus que le reste), `donnees_bulletin_sur` ; la fiche lue porte `verse`, `reste`, `versements` |
+| Bulletin | [lib/genererBulletin.ts](../../src/lib/genererBulletin.ts), [ApercuBulletin.tsx](../../src/equipe/ApercuBulletin.tsx) | genre de document `bulletin` (Paramètres → Documents), aperçu = impression |
 | Écran fiches | [src/equipe/FichesPaie.tsx](../../src/equipe/FichesPaie.tsx) | le mois ; à préparer (au prorata ou non) ; la liste ; la fiche : lignes, brut / retenues / net, report, ajouter / retirer une saisie, recalculer, jeter, valider, rectifier |
 
 **Table** `employe` (cloisonnée, RLS) : nom, fonction, modes de
@@ -53,9 +55,13 @@ retenue). Une fiche vivante par personne et par période (pas de
 chevauchement). À la validation, `avance.retenu` monte (sans jamais
 dépasser le montant) ; la rectificative rend d'abord ce que l'ancienne
 avait retenu. Préparer / corriger : `paie:preparer` ; valider,
-rectifier : `paie:valider` ; lire : l'un des deux.
+rectifier, verser : `paie:valider` ; lire : l'un des deux.
+
+**Table** `versement_paie` (cloisonnée, RLS) : fiche, montant, moyen,
+date, `mouvement_caisse_id` (motif et catégorie `salaire`). La
+rectificative validée reprend les versements de l'ancienne.
 
 Preuves : `personnel_base.rs` (6), `presences_base.rs` (5), `avances_base.rs` (5),
-`paie_base.rs` (7), trois moteurs ; bancs `f1-fenetre-equipe.mjs`,
+`paie_base.rs` (8), trois moteurs ; bancs `f1-fenetre-equipe.mjs`,
 `f2-personnel.mjs`, `f3-jours-travailles.mjs`, `g1-avances.mjs`,
-`g2-fiches-paie.mjs`.
+`g2-fiches-paie.mjs`, `g3-verser-bulletin.mjs`.

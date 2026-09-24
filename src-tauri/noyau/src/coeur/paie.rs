@@ -228,6 +228,20 @@ pub fn validable(lignes: &[Ligne]) -> Result<(), String> {
     Ok(())
 }
 
+/// Peut-on verser ce montant ? `reste` : ce qui reste du sur la fiche.
+pub fn verifier_versement(montant: i64, reste: i64, nom: &str) -> Result<(), String> {
+    if montant <= 0 {
+        return Err("Le montant d'un versement doit être plus grand que zéro.".to_string());
+    }
+    if reste <= 0 {
+        return Err(format!("{nom} a déjà tout reçu pour cette fiche."));
+    }
+    if montant > reste {
+        return Err(format!("Il ne reste que {} à verser à {nom}.", francs(reste)));
+    }
+    Ok(())
+}
+
 /// Deux periodes se chevauchent-elles ? Dates ISO `AAAA-MM-JJ`.
 pub fn se_chevauchent(du1: &str, au1: &str, du2: &str, au2: &str) -> bool {
     du1 <= au2 && du2 <= au1
@@ -327,6 +341,15 @@ mod tests {
         let (l, _) = calculer(&r(Some(60_000), None, None), &p, false, &trop, &av);
         assert_eq!(l.iter().filter(|x| x.genre == AVANCE).count(), 0, "rien à retenir");
         assert!(validable(&l).unwrap_err().contains("dépassent"));
+    }
+
+    #[test]
+    fn un_versement_ne_depasse_pas_ce_qui_reste() {
+        assert!(verifier_versement(20_000, 50_000, "Awa").is_ok());
+        assert!(verifier_versement(50_000, 50_000, "Awa").is_ok());
+        assert_eq!(verifier_versement(60_000, 50_000, "Awa").unwrap_err(), "Il ne reste que 50 000 F à verser à Awa.");
+        assert!(verifier_versement(1, 0, "Awa").unwrap_err().contains("déjà tout reçu"));
+        assert!(verifier_versement(0, 10, "Awa").is_err());
     }
 
     #[test]

@@ -7,12 +7,13 @@
 import { genererImpression, type DonneesPiece, type FormatImpression } from "@/lib/genererPDF";
 import { genererRecuHTML } from "@/lib/genererRecu";
 import { genererReleveHTML } from "@/lib/genererReleve";
+import { genererBulletinHTML } from "@/lib/genererBulletin";
 import type { Habillage } from "@/lib/impression";
 import type { Genre } from "@/lib/documents";
 
 const TYPE_EXEMPLE: Record<Genre, string> = {
   facture: "facture", devis: "devis", bon_commande: "commande_client",
-  bon_livraison: "bon_livraison", recu: "facture", releve: "facture", ticket: "facture",
+  bon_livraison: "bon_livraison", recu: "facture", releve: "facture", ticket: "facture", bulletin: "facture",
 };
 
 function pieceExemple(genre: Genre, societe: Record<string, unknown>): DonneesPiece {
@@ -60,6 +61,23 @@ export function documentExemple(
       total_du: 71655, avoirs: 0, net_du: 71655,
       societe: societe as never,
     }, "client", h);
+  }
+  if (genre === "bulletin") {
+    const auj = new Date().toISOString();
+    return genererBulletinHTML({
+      numero: "PAIE-EXEMPLE-0001", statut: "validee", nom: "Coulibaly Awa", fonction: "vendeuse",
+      du: auj.slice(0, 8) + "01", au: auj.slice(0, 10), valide_le: auj,
+      brut: 81250, retenues: 12000, net: 69250, reporte: 0, verse: 50000, reste: 19250,
+      lignes: [
+        { genre: "base", libelle: "Salaire du mois", montant: 60000 },
+        { genre: "commission", libelle: "2,5 % de 850 000 F de ventes signées", montant: 21250 },
+        { genre: "retenue", libelle: "Casse d'un carton", montant: -2000 },
+        { genre: "avance", libelle: "Avance du 05", montant: -10000 },
+      ],
+      versements: [{ montant: 50000, moyen: "especes", date: auj }],
+      personne: { telephone: "76 12 34 56" },
+      societe,
+    }, h);
   }
   return genererImpression(pieceExemple(genre, societe), format, h);
 }

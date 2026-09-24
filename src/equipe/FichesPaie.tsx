@@ -6,7 +6,8 @@
 // Tous les calculs sont faits par le serveur ; l'écran ne fait qu'afficher.
 
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, FileCheck2, RefreshCw, Trash2, X, Plus, FilePen } from "lucide-react";
+import { Loader2, FileCheck2, RefreshCw, Trash2, X, Plus, FilePen, Banknote, Printer } from "lucide-react";
+import { ApercuBulletin } from "./ApercuBulletin";
 import { appeler as invoke } from "@/lib/pont";
 import { peut } from "@/lib/droits";
 import { Button } from "@/components/ui/button";
@@ -22,11 +23,13 @@ interface FichePaie {
   statut: "brouillon" | "validee" | "remplacee"; numero: string | null; brut: number; retenues: number; net: number;
   reporte: number; rectifie_numero: string | null; remplacee_par: string | null; valide_le: string | null;
   valide_par_nom: string | null; lignes?: LignePaie[];
+  verse: number; reste: number; versements?: { id: string; montant: number; moyen: string; date: string; par: string | null }[];
 }
 interface Mois { fiches: FichePaie[]; a_preparer: { employe_id: string; nom: string; fonction: string; au_mois: boolean }[] }
 
 const f = (n: number) => `${n.toLocaleString("fr-FR")} F`;
 const jj = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
+const MOYENS: [string, string][] = [["especes", "Espèces"], ["orange_money", "Orange Money"], ["moov_money", "Moov Money"], ["virement", "Virement"], ["cheque", "Chèque"]];
 const GENRES: [string, string][] = [["prime", "Prime"], ["tache", "À la tâche"], ["retenue", "Retenue (casse, absence…)"]];
 
 function bornes(mois: string): [string, string] {
@@ -38,7 +41,10 @@ function bornes(mois: string): [string, string] {
 function Statut({ fiche }: { fiche: FichePaie }) {
   if (fiche.statut === "brouillon") return <Badge variant="outline">brouillon</Badge>;
   if (fiche.statut === "remplacee") return <Badge variant="outline" className="line-through">{fiche.numero}</Badge>;
-  return <Badge variant="secondary">{fiche.numero}</Badge>;
+  return <>
+    <Badge variant="secondary">{fiche.numero}</Badge>
+    {fiche.reste <= 0 ? <Badge className="bg-emerald-600">payée</Badge> : fiche.verse > 0 ? <Badge variant="outline">reste {f(fiche.reste)}</Badge> : null}
+  </>;
 }
 
 function Detail({ id, fermer, ouvrir, changee, dire }: {
@@ -51,6 +57,9 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
   const [quantite, setQuantite] = useState("");
   const [prix, setPrix] = useState("");
   const [montant, setMontant] = useState("");
+  const [aVerser, setAVerser] = useState("");
+  const [moyen, setMoyen] = useState("especes");
+  const [bulletin, setBulletin] = useState(false);
   const prepare = peut("paie:preparer");
   const valide = peut("paie:valider");
 
@@ -116,6 +125,45 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
           <tr className="font-semibold"><td>Net à payer</td><td className="text-right tabular-nums" data-testid="net-a-payer">{f(fiche.net)}</td><td /></tr>
         </tfoot>
       </table>
+      {fiche.statut !== "brouillon" && (
+        <div className="border-t border-border pt-3 space-y-2" data-testid="versements">
+          <p className="text-sm">
+            Versé <strong className="tabular-nums">{f(fiche.verse)}</strong>
+            {fiche.statut === "validee" && (fiche.reste > 0
+              ? <> · reste à verser <strong className="tabular-nums" data-testid="reste-a-verser">{f(fiche.reste)}</strong></>
+              : fiche.reste < 0 ? <> · <span className="text-amber-700">versé en trop : {f(-fiche.reste)}</span></>
+              : <> · <span className="text-emerald-700">payée</span></>)}
+          </p>
+          {(fiche.versements ?? []).map(v => (
+            <p key={v.id} className="text-xs text-muted-foreground" data-testid="versement">
+              {f(v.montant)} le {jj(v.date)} · {MOYENS.find(m => m[0] === v.moyen)?.[1] ?? v.moyen}{v.par ? ` · par ${v.par}` : ""}
+            </p>
+          ))}
+          {fiche.statut === "validee" && valide && fiche.reste > 0 && (
+            <div className="flex gap-2 items-end flex-wrap">
+              <label className="text-xs text-muted-foreground flex flex-col gap-1">Montant
+                <Input value={aVerser} onChange={e => setAVerser(e.target.value)} aria-label="Montant à verser"
+                  placeholder={String(fiche.reste)} inputMode="numeric" className="h-9 w-32" /></label>
+              <label className="text-xs text-muted-foreground flex flex-col gap-1">Par
+                <select value={moyen} onChange={e => setMoyen(e.target.value)} aria-label="Versé par"
+                  className="h-9 px-2 text-sm border border-border rounded-md bg-background">
+                  {MOYENS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select></label>
+              <Button size="sm" disabled={enCours}
+                onClick={async () => {
+                  const m = aVerser.trim() ? nombre(aVerser) : fiche.reste;
+                  const r = await faire("verser_paie", { ficheId: fiche.id, montant: m, moyen },
+                    r => `${f(m)} versés à ${r.nom}, sortis de la caisse.${r.reste > 0 ? ` Reste ${f(r.reste)}.` : " Fiche payée."}`);
+                  if (r) setAVerser("");
+                }}>
+                <Banknote className="h-4 w-4 mr-1" /> Verser
+              </Button>
+              <p className="text-xs text-muted-foreground w-full">Vide : tout ce qui reste. La caisse doit être ouverte.</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {fiche.reporte > 0 && (
         <p className="text-xs text-amber-700" data-testid="reporte">{f(fiche.reporte)} d'avances n'ont pas pu être retenus : ils le seront sur la prochaine fiche.</p>
       )}
@@ -179,6 +227,11 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
           </Button>
         )}
         {brouillon && !valide && <p className="text-xs text-muted-foreground ml-auto">La validation revient à qui a le droit de valider la paie.</p>}
+        {fiche.statut !== "brouillon" && (
+          <Button size="sm" variant="outline" onClick={() => setBulletin(true)}>
+            <Printer className="h-4 w-4 mr-1" /> Bulletin
+          </Button>
+        )}
         {fiche.statut === "validee" && valide && (
           <Button size="sm" variant="outline" disabled={enCours}
             onClick={async () => {
@@ -189,6 +242,7 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
           </Button>
         )}
       </div>
+      {bulletin && <ApercuBulletin ficheId={fiche.id} fermer={() => setBulletin(false)} />}
     </div>
   );
 }

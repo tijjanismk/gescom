@@ -162,7 +162,7 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         // paie seulement. ---
         "lire_presences_mois" => &[RefusSaufUne(PERSONNEL_LIRE)],
         "lire_avances" => &[RefusSaufUne(AVANCES_LIRE)],
-        "lire_fiches_paie" | "lire_fiche_paie" => &[RefusSaufUne(PAIE_LIRE)],
+        "lire_fiches_paie" | "lire_fiche_paie" | "lire_donnees_bulletin" => &[RefusSaufUne(PAIE_LIRE)],
         "lire_personnel" | "lire_employe" => &[
             RefusSaufUne(PERSONNEL_LIRE),
             Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None },

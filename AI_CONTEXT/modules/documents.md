@@ -31,7 +31,7 @@ le serveur le distribue à toutes les caisses.
 `facture` (facture, acompte, avoirs, côté client et fournisseur),
 `devis` (devis, proforma), `bon_commande` (commande client, BCF),
 `bon_livraison` (BL, bon de réception — et les bons de sortie et
-d'échange prennent ses signatures), `recu`, `releve`, `ticket`.
+d'échange prennent ses signatures), `recu`, `releve`, `ticket`, `bulletin` (le bulletin de paie de Gescom Équipe, G-3 : A4 ou A5, jamais rouleau).
 `genre_de_piece` / `genreDePiece` : même table des deux côtés.
 
 ## Un réglage

@@ -353,8 +353,10 @@ export function OngletDocuments() {
   }
 
   const estTicket = genre === "ticket";
+  // Un bulletin de paie se remet sur une page, pas sur un rouleau.
   const formats: FormatDocument[] = estTicket
     ? ["thermique_80", "thermique_58"]
+    : genre === "bulletin" ? ["a4", "a5"]
     : ["a4", "a5", "thermique_80", "thermique_58"];
   // Un cachet ne se pose que sur une signature ENREGISTRÉE : le serveur
   // refuserait un emplacement qu'il ne connaît pas encore.

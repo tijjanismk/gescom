@@ -208,6 +208,13 @@ pub fn registre() -> Registre {
     r.sur_base("rectifier_fiche_paie", Some("paie:valider"), true, |c, p| {
         gescom_noyau::paie::rectifier_sur(c.base, arg(&p, "ficheId", "fiche_id")?)
     });
+    // G-3 : payer (une sortie de caisse par versement) et le bulletin.
+    r.sur_base("verser_paie", Some("paie:valider"), true, |c, p| {
+        gescom_noyau::paie::verser_sur(c.base, arg(&p, "ficheId", "fiche_id")?, arg(&p, "montant", "montant")?, arg(&p, "moyen", "moyen")?)
+    });
+    r.sur_base("lire_donnees_bulletin", None, false, |c, p| {
+        gescom_noyau::paie::donnees_bulletin_sur(c.base, arg(&p, "ficheId", "fiche_id")?)
+    });
     // v3, E-3 : les journaux, fabriques a la lecture, et leur export.
     // Ce sont les chiffres de la boutique : `rapports:lire`.
     r.sur_base("lire_journaux_comptables", Some("rapports:lire"), false, |c, p| {

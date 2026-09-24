@@ -174,7 +174,7 @@ compte limité, une ligne dans ETAPES, un parcours du banc.
 | **F-3** ✓ | Les jours travaillés : une grille du mois, présent / absent / demi-journée | scénario : un journalier, 22 jours, la paie en lira le compte |
 | **G-1** ✓ | Les avances (D32) : sortie de caisse rattachée, plafond | scénario : caisse fermée refusée, plafond, l'avance apparaît dans la caisse et sur la personne |
 | **G-2** ✓ | La fiche de paie : calcul, brouillon, validation, numéro, rectificative (D31) | scénario : les trois personnes de F-2 ; la commission égale les ventes signées ; l'avance retenue ; validée, plus rien ne change |
-| **G-3** | Payer et imprimer : versements depuis la caisse, bulletin par le générateur | scénario : deux versements, reste dû ; banc : le bulletin |
+| **G-3** ✓ | Payer et imprimer : versements depuis la caisse, bulletin par le générateur | scénario : deux versements, reste dû ; banc : le bulletin |
 | **G-4** | Cotisations facultatives (D33) et journal PA | scénario : déclaré / non déclaré ; PA équilibré |
 | **H-1** | Échanges et fiche 360 (D34) | scénario : un appel, une relance existante, la créance, sur la fiche |
 | **H-2** | Rappels et prospects | scénario : un rappel attribué apparaît à la bonne personne ; un prospect devient client à sa première vente |
