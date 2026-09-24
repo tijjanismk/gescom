@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { peut } from "@/lib/droits";
 import {
   Truck, Plus, Search, X, Loader2,
   FileText, Banknote, ChevronDown, ChevronRight,
@@ -9,6 +10,7 @@ import {
   genererReleveHTML, genererReleveGlobalHTML,
   type DonneesReleve, type DonneesReleveGlobal,
 } from "@/lib/genererReleve";
+import { chargerHabillage } from "@/lib/impression";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -261,13 +263,12 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
   async function imprimerReleveGlobal() {
     setReleveEnCours("global");
     try {
-      const [donnees, logo, entete] = await Promise.all([
+      const [donnees, habillage] = await Promise.all([
         invoke<DonneesReleveGlobal>("lire_etat_dettes_global"),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       await invoke("imprimer_facture", {
-        html: genererReleveGlobalHTML(donnees, "fournisseur", logo, entete),
+        html: genererReleveGlobalHTML(donnees, "fournisseur", habillage),
         nomFichier: `etat_dettes_${new Date().toISOString().slice(0, 10)}.html`,
       });
     } catch (e) {
@@ -280,15 +281,14 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
   async function imprimerReleve(f: Fournisseur) {
     setReleveEnCours(f.id);
     try {
-      const [donnees, logo, entete] = await Promise.all([
+      const [donnees, habillage] = await Promise.all([
         invoke<DonneesReleve>("lire_etat_dette_fournisseur", {
           fournisseurId: f.id,
         }),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       await invoke("imprimer_facture", {
-        html: genererReleveHTML(donnees, "fournisseur", logo, entete),
+        html: genererReleveHTML(donnees, "fournisseur", habillage),
         nomFichier: `dette_${f.nom}`.replace(/[\\/:*?"<>|]/g, "-") + ".html",
       });
     } catch (e) {
@@ -310,7 +310,9 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
       setFournisseurs(data.donnees);
       setTotal(data.total);
     } catch (e) {
-      // Fallback : lire_fournisseurs_avec_dettes
+      // Fallback : lire_fournisseurs_avec_dettes (refusé sans
+      // `tiers:lire_solde` : l'erreur d'origine suffit alors).
+      if (!peut("tiers:lire_solde")) { console.error("Erreur fournisseurs :", e); return; }
       try {
         const data = await invoke<Fournisseur[]>("lire_fournisseurs_avec_dettes");
         const filtre = recherche
@@ -330,6 +332,9 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
   useEffect(() => { setPage(0); charger(0); }, [recherche, avecDettesSeulement]);
 
   const totalDettes = fournisseurs.reduce((s, f) => s + (f.dette ?? 0), 0);
+  // v3, C-1 : ce qu'on doit aux fournisseurs demande `tiers:lire_solde`
+  // — sans elle, les dettes arrivent à null et les états sont refusés.
+  const voitSoldes = peut("tiers:lire_solde");
 
   return (
     <div className="flex-1 overflow-auto p-6">
@@ -339,13 +344,15 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
         <h1 className="text-2xl font-semibold">Fournisseurs</h1>
         <div className="flex items-center gap-2">
           <Badge variant="secondary">{total} fournisseurs</Badge>
-          <Button size="sm" variant="outline" onClick={imprimerReleveGlobal}
-            disabled={releveEnCours === "global"}>
-            {releveEnCours === "global"
-              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              : <Printer className="h-4 w-4 mr-1" />}
-            État des dettes
-          </Button>
+          {voitSoldes && (
+            <Button size="sm" variant="outline" onClick={imprimerReleveGlobal}
+              disabled={releveEnCours === "global"}>
+              {releveEnCours === "global"
+                ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                : <Printer className="h-4 w-4 mr-1" />}
+              État des dettes
+            </Button>
+          )}
           <Button size="sm" onClick={() => setModalNouv(true)}>
             <Plus className="h-4 w-4 mr-1" /> Nouveau
           </Button>
@@ -380,7 +387,7 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
             </button>
           )}
         </div>
-        <button
+        {voitSoldes && <button
           onClick={() => setAvecDettesSeulement(!avecDettesSeulement)}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border
                       text-xs font-medium transition-colors ${
@@ -389,7 +396,7 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
               : "border-border text-muted-foreground hover:bg-muted"
           }`}>
           <Banknote className="h-3 w-3" /> Avec dettes
-        </button>
+        </button>}
         {(recherche || avecDettesSeulement) && (
           <Button variant="ghost" size="sm" className="h-8 text-xs"
             onClick={() => { setRecherche(""); setAvecDettesSeulement(false); }}>

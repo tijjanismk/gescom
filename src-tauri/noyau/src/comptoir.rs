@@ -294,6 +294,9 @@ use crate::parametres;
 /// echouer parce qu'on ne sait pas QUI la fait — elle doit s'ecrire, et
 /// le journal dira qu'on ne savait pas.
 fn auteur_courant(base: &mut Base) -> String {
+    if let Some(id) = crate::auteur::courant() {
+        return id;
+    }
     base.lire_une(
         "SELECT id FROM utilisateur WHERE actif = 1 ORDER BY cree_le LIMIT 1",
         &[],

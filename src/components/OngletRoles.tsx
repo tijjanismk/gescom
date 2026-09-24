@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { EditeurPlafonds, SANS_PLAFOND, type Plafonds } from "@/components/EditeurPlafonds";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -220,6 +221,8 @@ export function OngletRoles() {
   const [catalogue, setCatalogue] = useState<Permission[]>([]);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
+  // v3, C-3 : les plafonds de chaque rôle, par nom.
+  const [plafonds, setPlafonds] = useState<Record<string, Plafonds>>({});
   const [modal, setModal] = useState<{ ouvert: boolean; role: Role | null }>(
     { ouvert: false, role: null },
   );
@@ -228,12 +231,14 @@ export function OngletRoles() {
     setChargement(true);
     setErreur(null);
     try {
-      const [r, c] = await Promise.all([
+      const [r, c, p] = await Promise.all([
         invoke<Role[]>("lire_roles"),
         invoke<Permission[]>("lire_catalogue_permissions"),
+        invoke<{ roles: { nom: string; plafonds: Plafonds }[] }>("lire_plafonds"),
       ]);
       setRoles(r);
       setCatalogue(c);
+      setPlafonds(Object.fromEntries(p.roles.map(x => [x.nom, x.plafonds])));
     } catch (e) {
       setErreur(String(e));
     } finally {
@@ -312,6 +317,18 @@ export function OngletRoles() {
                     {r.nb_utilisateurs}
                   </span>
                 </p>
+                {/* Un rôle qui donne tout n'a pas de plafond : pas de
+                    champ qui ferait croire le contraire. */}
+                {!r.acces_total && !r.protege && (
+                  <div className="mt-3">
+                    <EditeurPlafonds nom={r.nom}
+                      valeur={plafonds[r.nom] ?? SANS_PLAFOND}
+                      onEnregistrer={async p => {
+                        await invoke("definir_plafonds_role", { role: r.nom, plafonds: p });
+                        setPlafonds(x => ({ ...x, [r.nom]: p }));
+                      }} />
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-1 shrink-0">
@@ -339,6 +356,8 @@ export function OngletRoles() {
       </div>
 
       <p className="text-xs text-muted-foreground">
+        Plafonds : vide = aucun. Au-delà, le serveur refuse le geste et
+        dit « Demander au patron » ; le patron le fait avec son compte.
         Un rôle « accès complet » reçoit aussi les fonctions ajoutées par
         les mises à jour. Les autres ne reçoivent que ce qui est coché —
         c'est voulu : une nouveauté ne doit s'ouvrir à personne sans que

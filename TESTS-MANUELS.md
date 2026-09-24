@@ -119,20 +119,21 @@ passe par les yeux et par le réseau.
 | G10 | Fiche client → Avoirs → Accorder un avoir (patron) | AVC numérotée, crédit visible, journal ; client comptant refusé ; motif vide refusé | ☐ |
 | G11 | Imprimer cet avoir | Une ligne « motif — montant », total = montant | ☐ |
 
-## H. Les modèles de documents et l'impression
+## H. Les documents et l'impression (v3, D17–D18)
+
+L'atelier de modèles est parti : un générateur par genre, réglé dans
+Paramètres → Documents. Ce qui reste à vérifier à la main, c'est le
+papier.
 
 | # | Faire | Attendu | ☐ |
 |---|---|---|---|
-| H1 | Paramètres → Modèles de documents, choisir la facture | Aperçu avec données d'exemple, structure à gauche | ☐ |
-| H2 | Glisser un bloc dans l'aperçu | Il tombe à l'endroit visé (trait de dépôt) | ☐ |
-| H3 | Tirer le **coin bas-droit** d'un bloc du flux | Il se détache à sa place et se redimensionne dans le même geste ; « flottant » apparaît dans la structure | ☐ |
-| H4 | Tirer un bloc flottant | Il se déplace ; on peut le poser **sur** un autre ; le plus bas dans la structure passe devant | ☐ |
-| H5 | Cocher « flottant » dans les réglages | Le bloc garde sa place à l'écran (ne saute pas en haut à gauche) | ☐ |
-| H6 | Enregistrer, ouvrir une vraie facture → œil | Le document est celui du modèle, blocs flottants compris | ☐ |
-| H7 | **Imprimer sur papier** une facture A4 et un ticket 80 mm | Marges, blocs flottants, signatures en fin de dernière page — **jamais vérifié à la main jusqu'ici** | ☐ |
-| H8 | Pièce fournisseur avec le modèle facture | Le champ dit « Fournisseur », pas « Client » | ☐ |
-| H9 | Exporter les modèles → fichier ; Importer sur une **autre caisse** | Les modèles arrivent, images comprises ; le modèle actif de la caisse n'est pas changé | ☐ |
-| H10 | Paramètres → Société | **Plus** de section « Signatures » (elles sont dans les modèles) | ☐ |
+| H1 | Paramètres → Documents : **téléverser un en-tête** (PNG de l'imprimeur) | Il s'affiche ; l'exemple à droite le montre en haut de la facture | ☐ |
+| H2 | Régler **trois signatures** sur le bon de livraison, poser un **cachet** sur la deuxième | L'exemple montre trois traits, le cachet au-dessus du deuxième | ☐ |
+| H3 | Facture : colonne remise « Toujours », référence cochée, enregistrer | L'exemple montre les deux colonnes ; une vraie facture (œil) aussi | ☐ |
+| H4 | Ouvrir l'aperçu d'un bon de livraison réglé en A5 | L'aperçu s'ouvre en A5, sans choix de modèle | ☐ |
+| H5 | **Imprimer sur papier** une facture A4, un BL A5 et un ticket 80 mm | En-tête collé au bord, signatures en fin de dernière page, cachet net — **jamais vérifié à la main jusqu'ici** | ☐ |
+| H6 | Pièce fournisseur | Le cadre dit « Fournisseur », pas « Client » ; le reçu fournisseur dit « Le bénéficiaire » | ☐ |
+| H7 | Réglages d'usine sur un genre | Les réglages et les cachets de ce genre reviennent à l'usine, les autres genres ne bougent pas | ☐ |
 
 ## I. La caisse
 

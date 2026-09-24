@@ -6,7 +6,8 @@
 // dans le document, qui sinon ouvrirait la boîte d'impression à
 // l'ouverture de l'aperçu.
 //
-// Pas de sélecteur de format ici : un reçu est un A5, point.
+// Pas de sélecteur de format ici : un reçu est un A5 — ou un A4 si la
+// boutique l'a réglé dans Paramètres → Documents (v3, A-2).
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
@@ -18,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { genererRecuHTML } from "@/lib/genererRecu";
 import type { DonneesRecu } from "@/lib/genererRecu";
+import { chargerHabillage } from "@/lib/impression";
 
 interface Props {
   /** `null` ferme l'aperçu. */
@@ -37,6 +39,8 @@ export function ApercuRecu({ paiementId, cote, onFermer }: Props) {
   const [impression, setImpression] = useState(false);
   const [hauteur, setHauteur] = useState(HAUTEUR_A5);
   const [nom, setNom] = useState("");
+  // A5 par défaut ; A4 si la boutique l'a réglé (Paramètres → Documents).
+  const [a4, setA4] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const ouvert = paiementId !== null;
@@ -50,13 +54,13 @@ export function ApercuRecu({ paiementId, cote, onFermer }: Props) {
 
     Promise.all([
       invoke<DonneesRecu>("lire_donnees_recu", { paiementId, cote }),
-      invoke<string | null>("lire_logo_base64").catch(() => null),
-      invoke<string | null>("lire_entete_base64").catch(() => null),
+      chargerHabillage("recu"),
     ])
-      .then(([d, logo, entete]) => {
+      .then(([d, habillage]) => {
         if (annule) return;
         setNom(d.tiers?.nom ?? "");
-        setHtml(genererRecuHTML(d, logo, entete));
+        setA4(habillage.reglage?.format === "a4");
+        setHtml(genererRecuHTML(d, habillage));
       })
       .catch(e => {
         if (!annule) setErreur(typeof e === "string" ? e : JSON.stringify(e));
@@ -124,7 +128,7 @@ export function ApercuRecu({ paiementId, cote, onFermer }: Props) {
               onLoad={mesurer}
               sandbox="allow-same-origin"
               style={{
-                width: LARGEUR_A5, height: hauteur, border: "none",
+                width: a4 ? 794 : LARGEUR_A5, height: hauteur, border: "none",
                 background: "#fff", display: "block", margin: "0 auto",
                 boxShadow: "0 1px 8px rgba(0,0,0,.15)",
               }}

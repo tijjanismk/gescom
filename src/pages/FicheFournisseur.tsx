@@ -3,7 +3,7 @@ import { appeler as invoke } from "@/lib/pont";
 import {
   ArrowLeft, Truck, Phone, MapPin, Mail, FileText,
   Loader2, TrendingDown, Clock, Eye, Pencil, Printer,
-  Package, Banknote, CheckCircle2, RotateCcw
+  Package, Banknote, CheckCircle2, RotateCcw, History,
 } from "lucide-react";
 import { ApercuPiece } from "@/components/ApercuPiece";
 import { ApercuRecu } from "@/components/ApercuRecu";
@@ -11,6 +11,7 @@ import { ModalModifierTiers } from "@/components/ModalModifierTiers";
 import {
   genererReleveHTML, genererHistoriqueReglementsHTML, type DonneesReleve,
 } from "@/lib/genererReleve";
+import { chargerHabillage } from "@/lib/impression";
 import { GlassHalos } from "@/components/ui/GlassIcon";
 import { KpiLigne, CARTE, GRILLE } from "@/components/ui/KpiVerre";
 import { Button } from "@/components/ui/button";
@@ -375,9 +376,11 @@ function ModalReglementDette({
 interface FicheFournisseurProps {
   fournisseurId: string;
   onRetour: () => void;
+  /** Absent sans `journal:lire` : pas de bouton. */
+  onHistorique?: (nom: string) => void;
 }
 
-export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurProps) {
+export function FicheFournisseur({ fournisseurId, onRetour, onHistorique }: FicheFournisseurProps) {
   const [fournisseur, setFournisseur] = useState<Fournisseur | null>(null);
   const [stats, setStats] = useState<StatsFournisseur | null>(null);
   const [paiements, setPaiements] = useState<PaiementFournisseur[]>([]);
@@ -421,10 +424,9 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
     if (!fournisseur) return;
     setHistoEnCours(true);
     try {
-      const [societeP, logo, entete] = await Promise.all([
+      const [societeP, habillage] = await Promise.all([
         invoke<any>("lire_parametres_societe"),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       const criteres = [
         payDu ? `du ${fmtDate(payDu)}` : null,
@@ -451,7 +453,7 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
           // Ce qu'on doit ENCORE au fournisseur, toutes factures — le
           // chiffre qu'il vient vérifier, distinct du solde par ligne.
           stats?.dette ?? 0,
-          societeP, logo, entete),
+          societeP, habillage),
         nomFichier: `paiements_${fournisseur.nom}`
           .replace(/[\\/:*?"<>|]/g, "-") + ".html",
       });
@@ -472,13 +474,12 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
   async function imprimerReleve() {
     setReleveEnCours(true);
     try {
-      const [donnees, logo, entete] = await Promise.all([
+      const [donnees, habillage] = await Promise.all([
         invoke<DonneesReleve>("lire_etat_dette_fournisseur", { fournisseurId }),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       await invoke("imprimer_facture", {
-        html: genererReleveHTML(donnees, "fournisseur", logo, entete),
+        html: genererReleveHTML(donnees, "fournisseur", habillage),
         nomFichier: `dette_${donnees.tiers.nom}`
           .replace(/[\\/:*?"<>|]/g, "-") + ".html",
       });
@@ -538,17 +539,25 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
           </div>
         </div>
         <div className="ml-auto flex gap-2">
+          {onHistorique && (
+            <Button size="sm" variant="outline" onClick={() => onHistorique(fournisseur.nom)}>
+              <History className="h-4 w-4 mr-1" /> Historique
+            </Button>
+          )}
           <Button size="sm" variant="outline"
             onClick={() => setModalModifier(true)}>
             <Pencil className="h-4 w-4 mr-1" /> Modifier
           </Button>
-          <Button size="sm" variant="outline" onClick={imprimerReleve}
-            disabled={releveEnCours}>
-            {releveEnCours
-              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              : <Printer className="h-4 w-4 mr-1" />}
-            État de dette
-          </Button>
+          {/* v3, C-1 : la dette se lit avec `tiers:lire_solde`. */}
+          {peut("tiers:lire_solde") && (
+            <Button size="sm" variant="outline" onClick={imprimerReleve}
+              disabled={releveEnCours}>
+              {releveEnCours
+                ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                : <Printer className="h-4 w-4 mr-1" />}
+              État de dette
+            </Button>
+          )}
           {stats.dette > 0 && (
             <Button size="sm" onClick={() => setModalDette(true)}
               className="gap-1.5 bg-orange-600 hover:bg-orange-700">
@@ -638,7 +647,14 @@ export function FicheFournisseur({ fournisseurId, onRetour }: FicheFournisseurPr
                   val: stats.derniere_commande ? fmtDate(stats.derniere_commande) : "—",
                   icone: Clock, variante: "clear" as const,
                   inactif: !stats.derniere_commande },
-              ].map(k => (
+              ]
+                // Sans `tiers:lire_solde`, achats, dette et payé arrivent
+                // à null : la tuile part plutôt que d'afficher un zéro.
+                .filter(k => !(
+                  (k.label === "Total achats" && stats.total_achats === null) ||
+                  (k.label === "Dette actuelle" && stats.dette === null) ||
+                  (k.label === "Total payé" && stats.total_paye === null)))
+                .map(k => (
                 <KpiLigne key={k.label} label={k.label} valeur={k.val}
                   icone={k.icone} variante={k.variante} inactif={k.inactif} />
               ))}

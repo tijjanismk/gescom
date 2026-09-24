@@ -1,0 +1,23 @@
+[package]
+name = "gescom-equipe"
+version = "0.1.0"
+description = "Gescom Equipe : personnel, paie, suivi des clients (PLAN-EQUIPE)"
+edition = "2021"
+
+# Une coque fine (D28, D29) : aucune base, aucun code metier. Elle dit a
+# la page ou joindre le serveur Gescom, et rien d'autre.
+
+[[bin]]
+name = "gescom-equipe"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+# Les boites « c'est fait » des ecrans partages (mot de passe change).
+tauri-plugin-dialog = "2"

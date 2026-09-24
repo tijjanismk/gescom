@@ -241,9 +241,7 @@ function racine(): string {
  * - **ouvrir un fichier** avec l'application du système ;
  * - **le réglage réseau lui-même** : il vit dans le `poste.json` de
  *   cette machine. Le demander au serveur serait circulaire — et
- *   `tester_serveur` doit justement pouvoir échouer sans réseau ;
- * - **import/export de modèles** : ils passent par un chemin de fichier
- *   local, qui ne désigne rien chez le serveur.
+ *   `tester_serveur` doit justement pouvoir échouer sans réseau.
  *
  * Cette liste est **fermée**. Une commande absente part au serveur :
  * c'est le bon défaut, parce qu'une commande métier oubliée ici
@@ -352,14 +350,27 @@ export function dossierCourant(): { id: string; societe: string } | null {
   return etat.dossierId ? { id: etat.dossierId, societe: etat.dossierSociete ?? "" } : null;
 }
 
+/** Le dossier ouvert ici vient d'être renommé : la barre suit. */
+export function renommerDossierCourant(societe: string): void {
+  if (!etat.dossierId) return;
+  etat = { ...etat, dossierSociete: societe };
+  enregistrer();
+}
+
 /**
  * Choisit le dossier d'une session ouverte sans (plusieurs dossiers,
  * aucun mémorisé). Une fois : changer de dossier, c'est se déconnecter.
  */
-export async function choisirDossier(dossierId: string, memoriser: boolean): Promise<void> {
-  const r = await appeler<{ dossier_id: string; societe: string }>("choisir_dossier", { dossierId, memoriser });
+export async function choisirDossier(
+  dossierId: string,
+  memoriser: boolean,
+): Promise<{ role: string; permissions: string[] }> {
+  const r = await appeler<{ dossier_id: string; societe: string; role: string; permissions: string[] }>(
+    "choisir_dossier", { dossierId, memoriser });
   etat = { ...etat, dossierId: r.dossier_id, dossierSociete: r.societe };
   enregistrer();
+  // v3, C-2 : le rôle et les droits sont ceux de CE dossier.
+  return { role: r.role, permissions: r.permissions ?? [] };
 }
 
 export async function connecterServeur(
@@ -516,4 +527,63 @@ export function ecouterCanal(surEvenements: (e: Evenement[]) => void): () => voi
   return () => {
     vivant = false;
   };
+}
+
+// =====================================================================
+//  Les erreurs de la fenêtre remontent au serveur (v3, B-2)
+// =====================================================================
+//
+// 61 `console.error` que personne ne voyait : une caisse affichait
+// « erreur technique » et le soir il n'en restait rien. `window.onerror`
+// et `unhandledrejection` envoient désormais l'erreur au serveur, qui
+// l'écrit `[POSTE ]` dans son journal technique avec le nom du poste.
+// Le serveur borne (4 Ko, 10 par minute et par poste) ; ici on évite
+// seulement de renvoyer dix fois la même erreur de suite, et on
+// n'envoie rien sans session. Pas de télémétrie : seulement les erreurs.
+
+let pageCourante = "";
+let derniereErreur = { texte: "", quand: 0 };
+
+/** L'écran ouvert, pour que la ligne du journal dise où c'était. */
+export function noterPage(page: string) {
+  pageCourante = page;
+}
+
+export function signalerErreur(genre: "erreur" | "promesse", message: string, pile?: string) {
+  if (!enReseau() || !etat.jeton) return;
+  const maintenant = Date.now();
+  if (message === derniereErreur.texte && maintenant - derniereErreur.quand < 10_000) return;
+  derniereErreur = { texte: message, quand: maintenant };
+  const corps = JSON.stringify({
+    genre,
+    page: pageCourante.slice(0, 40),
+    message: message.slice(0, 600),
+    pile: (pile ?? "").split("\n").slice(0, 8).join("\n").slice(0, 1500),
+  });
+  // Jamais d'erreur sur l'erreur : un envoi raté ne doit pas relancer
+  // `unhandledrejection` et tourner en rond.
+  fetch(`${racine()}/journal-poste`, { method: "POST", headers: entetes(), body: corps })
+    .catch(() => undefined);
+}
+
+let remonteeInstallee = false;
+
+export function installerRemonteeErreurs() {
+  if (remonteeInstallee || typeof window === "undefined") return;
+  remonteeInstallee = true;
+  window.addEventListener("error", (e: ErrorEvent) => {
+    const lieu = e.filename ? ` (${e.filename.split("/").pop()}:${e.lineno})` : "";
+    signalerErreur("erreur", `${e.message}${lieu}`, e.error?.stack);
+  });
+  window.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
+    const r = e.reason;
+    const message = r instanceof Error ? `${r.name}: ${r.message}` : String(r);
+    signalerErreur("promesse", message, r instanceof Error ? r.stack : undefined);
+  });
+}
+
+/** Le poste de cette fenêtre, tel que le serveur l'a inscrit — pour
+ *  reconnaître sa propre session dans la liste (C-4). */
+export function posteCourant(): string | null {
+  return etat.posteId;
 }

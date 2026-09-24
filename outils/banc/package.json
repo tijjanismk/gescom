@@ -1,0 +1,8 @@
+{
+  "name": "gescom-banc",
+  "private": true,
+  "type": "module",
+  "description": "Parcours d'ecran Playwright contre le vrai serveur (outils/banc/lancer.sh).",
+  "scripts": { "tout": "for f in [a-z][0-9]*.mjs; do node $f || exit 1; done" },
+  "dependencies": { "playwright": "1.56.1" }
+}

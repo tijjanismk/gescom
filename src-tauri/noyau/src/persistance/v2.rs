@@ -71,6 +71,7 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         // d'origine). Pose ici aussi : sur une cible fichier, c'est ce
         // chemin qui prepare la base du serveur, pas `amorcage`.
         "ALTER TABLE session_reseau ADD COLUMN dossier_id TEXT",
+        "ALTER TABLE session_reseau ADD COLUMN derniere_commande TEXT",
     ] {
         conn.execute(sql, []).ok();
     }
@@ -87,49 +88,16 @@ pub fn migrer(conn: &Connection) -> Result<()> {
     .ok();
 
     // -----------------------------------------------------------------
-    //  Modeles de documents
+    //  Modeles de documents : partis avec la v3 (D17)
     // -----------------------------------------------------------------
-    // Le modele est une DONNEE, pas du code : le commercant qui veut
-    // son logo a droite et sa colonne « reference » en plus ne doit pas
-    // attendre une version de Gescom. Et parce que c'est une donnee,
-    // le serveur la distribue a toutes les caisses.
+    // L'atelier de modeles (septembre 2026) est retire : un generateur
+    // par genre, regle dans Parametres -> Documents (`documents.rs`).
+    // Ses deux tables partent, sur toute base qui les a eues. Idempotent :
+    // la migration se rejoue a chaque ouverture sans rien casser. Meme
+    // geste dans amorcage.rs (`tests/schema_commun.rs` compare).
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS modele_document (
-            id          TEXT PRIMARY KEY,
-            genre       TEXT NOT NULL,
-            nom         TEXT NOT NULL,
-            format      TEXT NOT NULL DEFAULT 'a4',
-            contenu     TEXT NOT NULL,
-            est_defaut  INTEGER NOT NULL DEFAULT 0,
-            actif       INTEGER NOT NULL DEFAULT 0,
-            cree_le     TEXT NOT NULL,
-            modifie_le  TEXT NOT NULL,
-            modifie_par TEXT
-         );
-         CREATE INDEX IF NOT EXISTS idx_modele_genre ON modele_document(genre);",
-    )?;
-
-    // Un seul modele actif par genre. En base et pas seulement dans
-    // l'ecran : deux actifs, et le document imprime depend de l'ordre
-    // de lecture — donc change sans raison visible.
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_modele_actif_par_genre
-         ON modele_document(genre) WHERE actif = 1",
-        [],
-    )
-    .ok();
-
-    // Les images posees sur un document (cachet, signature, QR), a part
-    // des trois images de la societe. Meme DDL que dans amorcage.rs :
-    // `tests/schema_commun.rs` compare les deux chemins.
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS image_document (
-            id           TEXT PRIMARY KEY,
-            nom          TEXT NOT NULL,
-            chemin       TEXT NOT NULL,
-            taille       INTEGER NOT NULL DEFAULT 0,
-            cree_le      TEXT NOT NULL
-         );",
+        "DROP TABLE IF EXISTS modele_document;
+         DROP TABLE IF EXISTS image_document;",
     )?;
 
     // -----------------------------------------------------------------
@@ -327,6 +295,17 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         [],
     )
     .ok();
+    // v3, C-3 : les plafonds du role (vide = pas de plafond).
+    for sql in [
+        "ALTER TABLE role ADD COLUMN remise_max_pct REAL",
+        "ALTER TABLE role ADD COLUMN remboursement_max INTEGER",
+        "ALTER TABLE role ADD COLUMN credit_max INTEGER",
+        // Equipe, G-1 : le plafond des avances (employe ne en F-2).
+        "ALTER TABLE employe ADD COLUMN avance_max INTEGER",
+        "ALTER TABLE avance ADD COLUMN annule_le TEXT",
+    ] {
+        conn.execute(sql, []).ok();
+    }
     conn.execute(
         "ALTER TABLE role ADD COLUMN description TEXT",
         [],
@@ -430,7 +409,7 @@ pub fn migrer(conn: &Connection) -> Result<()> {
                 0,
                 0,
                 r#"["creances:gerer","cheques:gerer","fournisseurs:regler",
-                    "avoirs:gerer","chantiers:gerer"]"#,
+                    "avoirs:gerer","chantiers:gerer","journal:lire","achats:lire_prix","rapports:lire","tiers:lire_solde","comptabilite:gerer"]"#,
             ),
         ];
         for (nom, description, acces, protege, permissions) in nouveaux {
@@ -585,6 +564,12 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         )
         .ok();
     }
+
+    // D-1 : le declencheur de stock pose le dossier du MOUVEMENT — pose
+    // ici, apres les colonnes `dossier_id`, qu'il lit. Et les lignes
+    // deja mal rangees reviennent au dossier de leur magasin.
+    conn.execute_batch(crate::dossiers::DECLENCHEUR_STOCK_SQLITE)?;
+    conn.execute(crate::dossiers::REPARER_STOCK_DOSSIER, []).ok();
 
     // Les compteurs deja en place portent une cle sans dossier. Sans
     // cette migration, la numerotation repartirait a 1 et refabriquerait

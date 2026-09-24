@@ -1573,3 +1573,251 @@ console web déjà construite, pas une interface refaite. Le rôle
 « complet » embarque le multi-dossier (D13/D22, déjà au chantier D).
 
 Recommandé et confirmé : réutiliser plutôt que reconstruire.
+
+## 23/09/2026 — revue de la v2 : quatre défauts, une branche
+
+« Review le v2 s'il n'a pas un bug majeur. » La suite passait (442
+tests SQLite), la v2 était close. La revue a lu le serveur (`api.rs`,
+`http.rs`, `socle.rs`) puis les chemins d'argent (`argent.rs`,
+`creances.rs`, `caisses.rs`), et **chaque défaut a été reproduit par un
+test avant d'être corrigé** — sur la branche `correctif/revue-v2`,
+pas sur `main`.
+
+**Le majeur : l'auteur.** Le serveur connaissait l'utilisateur de la
+session et ne passait que son rôle ; le noyau prenait le premier compte
+actif de ce rôle. Test : Awa et Bakary, tous deux caissiers ; Bakary
+vend, la base dit Awa. Ventes, remises, règlements, ouverture de
+caisse : tout signé par le premier venu, dans ~100 appels. Correction
+sans toucher une signature — le serveur sert chaque requête sur son
+fil, il y pose l'utilisateur (`noyau::auteur`, garde qui se retire en
+tombant) et les cinq aides d'auteur le lisent d'abord (D26). Le test de
+route échoue si on retire la garde d'`api.rs` : vérifié.
+
+**Trois trous gardés par l'écran seul** (D27). `regler_creance` en mode
+« avoir » : 1 600 F de dette effacés, zéro avoir consommé, zéro franc
+en caisse. `enregistrer_paiement` à −50 000 F : la caisse à −49 200 F.
+Une vente de −5 sacs : le stock de 200 à 205, la vente « payée ». Au
+passage, la même chose côté réception, pièces et règlement fournisseur.
+Les règles sont dans `coeur/saisie.rs` ; `enregistrer_paiement` passe
+désormais par `regler_creance_datee`.
+
+**Deux défauts de transaction.** `regler_creance_datee` (SQLite, le
+chemin du serveur sur fichier) écrivait en trois ordres séparés et
+ignorait l'échec de l'écriture en caisse — maintenant tout ou rien,
+prouvé par un déclencheur qui fait échouer l'insertion en caisse. Et
+sur PostgreSQL, vérifié en direct (`BEGIN; SELECT 1/0; COMMIT;` répond
+`ROLLBACK`) : une écriture ignorée (`let _ =`) avorte la transaction et
+`COMMIT` ne dit rien — la vente disparaissait, la commande rendait
+`Ok`. `Transaction::valider` refuse désormais une transaction avortée.
+
+Vu et laissé : la caisse nominative, dormante et inutilisable en
+l'état (tous les `exiger*` passent `None`), à reprendre avec le
+chantier C de la v3 ; l'auteur en argument plutôt que par le fil.
+
+Tests : `noyau/tests/revue_v2_base.rs` (11 scénarios, SQLite et
+PostgreSQL), un test de route HTTP, 12 tests unitaires. Suite :
+466 tests SQLite, 461 sur PostgreSQL, 0 échec hors `installation.rs`
+(propre à Windows, la mesure a été faite sous Linux).
+
+## 23/09/2026 (suite) — v3, chantier A : les documents simplifiés
+
+« Commence la v3, fais des tests sur l'interface et fais toutes les
+étapes. » Branche `v3`, partie de `correctif/revue-v2`. Un banc d'écran
+d'abord (`outils/banc/`) : le vrai serveur sur une base jetable, l'écran
+servi par Vite, Playwright qui clique — les scénarios Rust ne voient pas
+un bouton qui n'enregistre rien.
+
+**A-1** — les réglages en base, par genre (sept), dans `config_app` ;
+l'écran Paramètres → Documents. En-tête et pied reviennent de l'atelier
+avec le choix des coordonnées. **A-2** — un seul habillage
+(`lib/impression.ts`) pour tous les générateurs ; l'aperçu s'ouvre au
+format du genre ; l'onglet Documents redessine un exemple à chaque case.
+Deux choses apprises en route : écrire tous les genres à chaque
+enregistrement figeait les défauts d'usine (un genre jamais réglé ne
+s'écrit plus) ; un TTC par taux contredisait d'un franc le total
+arrondi (retiré du récapitulatif). **A-3** — l'atelier part, tables
+comprises. Le banc a trouvé que le reçu et les relevés perdaient leur
+titre sous un en-tête image — corrigé.
+
+Décision prise sans le propriétaire, notée : les signatures d'usine du
+reçu et du relevé sont celles du générateur historique (« Le caissier »,
+« Le client / Pour l'entreprise »), pas « rien » comme l'exemple du plan
+(§ A3) — la règle « libellés d'usine = générateur historique » du même
+paragraphe l'emporte, et évite qu'un reçu perde sa signature à la mise
+à jour.
+
+Mesuré : workspace 490 tests (la fenêtre Tauri compile et teste sous
+Linux depuis cette séance) ; `documents_base` 13 scénarios sur SQLite
+et PostgreSQL ; banc : 42 vérifications d'une base neuve.
+
+## 23/09/2026 (suite 2) — v3, chantier B : les traces
+
+**B-1 — l'Historique.** Le `journal` s'écrit depuis la v1 ; il se lit
+maintenant, sur les deux moteurs, par une page qui dit quand, qui,
+quoi, sur quoi, avant → après. « Sur quoi » se résout à la lecture
+(sous-requêtes sur clé primaire) plutôt que de recopier le nom à
+l'écriture : une fiche renommée se lit sous son nom d'aujourd'hui. Un
+transfert, journalisé par son bon, ne se rattache à aucun article —
+une sous-requête à plusieurs lignes fait refuser PostgreSQL.
+
+`journal:lire` est la première permission de **lecture** : le serveur
+refuse, l'écran cache. Elle est dans le rôle comptable d'une base
+neuve ; les bases installées la recevront avec la migration des rôles
+de C-1, qui ajoute les quatre autres. La liste « Personne » ne lit pas
+les comptes (qui demande `utilisateurs:gerer`) mais les auteurs réels
+du journal.
+
+Le banc a trouvé une course dans l'écran : deux filtres changés coup
+sur coup, la réponse lente du premier écrasait la bonne. Seule la
+dernière requête affiche désormais.
+
+Plan : `lire_journal_sur` s'appelle `lire_historique_sur` (le module
+`journal.rs` existe déjà et écrit les anomalies).
+
+**B-2** — les erreurs de la fenêtre (`onerror`, `unhandledrejection`)
+arrivent `[POSTE ]` dans le journal technique, bornées (4 Ko, 10 par
+minute et par poste). Le message est ramené à une ligne : un `\n` venu
+d'une caisse aurait fabriqué une fausse ligne `[ERREUR]`. **B-3** — la
+console du serveur lit ce journal (même permission que la sauvegarde),
+lignes écrites en texte : le banc vérifie qu'une ligne piégée
+`<img onerror>` n'injecte rien. **B-4** — les anomalies se marquent
+vues dans une table à côté du journal (qui reste append-only) ; le
+tableau de bord les compte en rouge.
+
+Choix faits sans le propriétaire : marquer une anomalie vue demande
+`journal:lire` (c'est un accusé de lecture, pas une écriture métier) ;
+quand deux personnes la marquent, la première reste.
+
+Mesuré : `historique_base` 6 scénarios (deux moteurs), 4 routes
+nouvelles ou étendues, banc complet 91 vérifications d'une base neuve.
+
+## 23/09/2026 (suite 3) — v3, chantier C : des droits plus complets
+
+**C-4** — il n'existait aucune commande pour désactiver un compte.
+`activer_utilisateur` le fait et ferme ses sessions dans la même
+transaction ; refus : soi-même, le compte de secours, le dernier compte
+à accès total. Paramètres → Utilisateurs montre les sessions ouvertes
+avec la dernière commande.
+
+**C-1** — cinq permissions de lecture, en une table (`coeur/lecture.rs`)
+appliquée par `api::rpc` : refus, masque à `null`, paramètres
+neutralisés. Deux lignes de partage choisies : le reste d'**une**
+pièce reste lisible (c'est le document en main), le solde d'un **tiers**
+non ; sur les documents d'achat, `achats:creer` suffit à lire les prix.
+Le banc a trouvé que le serveur sur fichier SQLite ne passait pas par
+`amorcer` : la migration du comptable est appelée aussi là. Au
+passage, la sauvegarde automatique n'est plus demandée par qui ne peut
+pas sauvegarder (un 403 à chaque connexion).
+
+**C-3** — trois plafonds. Jugés dans la poignée quand l'argument suffit,
+au point où l'argent sort quand le montant se calcule au fond du noyau.
+
+Relevé, pas corrigé (ALERTES) : le mode « caisse par utilisateur »
+ferait échouer tout encaissement — dormant, aucun écran ne l'offre.
+
+C-2 (droits par dossier) se fait avec le chantier D, comme le plan le
+dit.
+
+## 23/09/2026 (suite 4) — v3, chantier D : plusieurs dossiers, et C-2
+
+**D-1 à D-3** — le stock d'un second dossier se range chez lui ; le
+serveur sert tout par `Base` (le chemin `Connection` part, 3 000 → 1 800
+lignes de `socle.rs`) ; un dossier naît avec ses dates de travail.
+
+**D-4** — le garde-fou des dates existait, personne ne l'appelait :
+`api::rpc` juge maintenant chaque écriture datée (`date_d_ecriture`).
+Pas de trou entre exercices ; une prolongation ne mord pas sur la suite.
+
+**D-5** — la base d'avant prend le nom de la société et un exercice qui
+couvre sa plus ancienne écriture (sinon un règlement tardif d'une vente
+de 2024 était refusé par D-4).
+
+**C-2** — un rôle par dossier. Précision à la décision : qui n'a que
+certains dossiers perd ce qui est commun à tous (comptes, postes,
+sauvegarde, société) — sinon le frère se créait un compte patron qui
+voit tout.
+
+**D-6** — le compte PostgreSQL limité, RLS sur chaque table cloisonnée.
+Rejouer les scénarios sous ce compte a trouvé la sauvegarde partielle
+(`pg_dump` ne voyait qu'un dossier) : elle passe par l'adresse du
+propriétaire (`GESCOM_PG_SAUVEGARDE`) ou refuse.
+
+## 24/09/2026 — v3, chantier E : le plan comptable, comme fondation
+
+**E-1** — le plan SYSCOHADA en base (134 comptes, classes 1 à 7), commun
+à tous les dossiers ; les sous-comptes par dossier. Permission
+`comptabilite:gerer`, donnée au comptable.
+
+**E-2** — 28 opérations, chacune un défaut et les comptes qu'elle
+accepte ; la table ne garde que ce qui diffère.
+
+**E-3** — les journaux ventes, achats, règlements, caisse, **fabriqués à
+la lecture** (rien n'est stocké) et exportés en CSV. Prouvé : chaque
+écriture équilibrée, les ventes du journal égales au chiffre du cahier
+du jour, chaque opération sur son compte affecté — sur SQLite,
+PostgreSQL et sous le compte limité. Pas encore : les retours de
+marchandise (leur effet passe par l'avoir utilisé), les OD, la TVA sur
+achats (non saisie). La v3 du plan est faite.
+
+## 24/09/2026 (suite) — Gescom Équipe : personnel, puis paie
+
+Le patron veut une seconde application pour le personnel, la paie et le
+suivi client, sur la même base. Décidé (PLAN-EQUIPE, D28–D34) : une
+seconde fenêtre qui ne parle qu'au serveur Gescom, dans le même dépôt ;
+et une paie **souple**, parce que la plupart de ces commerces n'ont pas
+de contrat : une personne, une façon d'être payée, rien d'obligatoire
+au-delà.
+
+**F** — la fenêtre (F-1), les fiches (F-2 : au mois, à la journée, à la
+commission, à la tâche, cumulables, ou rien de fixe ; les montants
+masqués à qui ne paie pas), les jours travaillés (F-3). PostgreSQL a
+trouvé un `?2 = 1` typé `int4` ; le banc un « -0 » (somme vide d'un
+`f64`).
+
+**G-1** — les avances d'abord, parce que le trou le plus courant n'est
+pas le calcul du salaire mais l'avance sortie du tiroir au milieu du
+mois et oubliée à la paie. Une avance est une sortie de caisse au nom
+de la personne ; la fiche de paie retiendra ce qui est en cours.
+
+**G-2** — la fiche de paie, **stockée** (contrairement aux journaux) :
+c'est un papier qu'on remet, et ce qu'une personne a touché ne doit pas
+bouger si l'on corrige son salaire le mois suivant. Chaque ligne dit
+d'où elle vient (« 22 jours × 2 500 F », « 3 % de 250 000 F de ventes
+signées », « Avance du 05/09/2026 »). Choix : le prorata d'un salaire au
+mois se mesure sur les jours **marqués** (un jour non marqué n'est pas
+su, on ne le retire pas) ; une avance qui dépasse le net se reporte ;
+la validation refuse une fiche qui n'est plus à jour (un jour marqué
+après le calcul) plutôt que de figer un chiffre périmé ; une erreur se
+corrige par une rectificative qui rend d'abord ce que l'ancienne avait
+retenu. Au passage, les avances passent l'auteur à `exiger_sur` : sous
+une caisse nominative, elles auraient été refusées.
+
+**Correctif** — « Les chiffres de la boutique ne sont pas ouverts à votre
+compte » chez le patron : sa session gardée par le navigateur datait
+d'avant la v3 et ne connaissait pas `rapports:lire`. Les droits sont
+maintenant relus auprès du serveur à chaque démarrage (`lire_mes_droits`).
+Le banc complet oubliait les parcours F et G (`[a-e]`) : corrigé.
+
+**G-3** — payer et imprimer. Chaque versement est une sortie de caisse,
+comme l'avance ; on peut payer en plusieurs fois, jamais plus que le
+reste. Une rectificative reprend les versements déjà faits pour la même
+période. Le bulletin est un 8ᵉ genre de document, réglé avec les autres
+dans Gescom ; Équipe l'imprime depuis son aperçu, faute de la commande
+d'impression locale de la caisse.
+
+**G-4** — les cotisations restent **vides** tant que le comptable ne les
+a pas saisies (D33 : un taux faux sur un bulletin est pire qu'aucun), et
+ne touchent que les personnes déclarées. La part patronale est dite sur
+la fiche et le bulletin mais n'entre pas dans le net. Le journal de paie
+PA se lit comme les autres ; la preuve qui compte : ce qu'il doit au
+personnel (422) égale ce qui reste à verser sur les fiches. Il n'est
+servi qu'à qui prépare la paie — il nomme ce que chacun gagne. Le
+chantier G est fait.
+
+**Révision** — le propriétaire : « la paie doit être indépendante de la
+caisse mais visible dans les chiffres ». Avances et versements ne
+touchent plus la caisse du jour (ni session, ni mouvement) : le moyen
+dit d'où vient l'argent. Le coût des salaires (brut + charges
+patronales des fiches validées) apparaît dans Rapports → CA mensuel, à
+côté du CA, avec ce qui reste après les salaires — pour qui voit la
+paie seulement.

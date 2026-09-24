@@ -425,8 +425,17 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D8 | les images voyagent par leur contenu, pas par leur chemin |
 | D9 | l'entretien de la base passe côté serveur |
 | D10 | le mot de passe de la base reste hors du dépôt |
-| D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** |
+| D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D34 | le **suivi client** s'appuie sur la fiche client de Gescom : échanges, rappels, prospects, fiche 360 — pas de second fichier — [PLAN-EQUIPE.md](PLAN-EQUIPE.md) |
+| D33 | **cotisations facultatives, jamais devinées** : lignes de réglage du dossier, vides par défaut, seulement pour les personnes déclarées |
+| D32 | **les avances d'abord** : rattachées à la personne, retenues d'office sur la fiche suivante ; **hors caisse** (révisé le 24/09) |
+| D31 | **la fiche de paie se stocke** (un document remis) : brouillon → validée (figée, numérotée) → payée ; une erreur = une rectificative. **Révisé le 24/09** : la paie est indépendante de la caisse (ni session exigée, ni mouvement), son coût se lit dans Rapports → CA mensuel |
+| D30 | **une personne, pas un contrat** : nom, ce qu'elle fait, comment elle est payée (au mois, à la journée, à la commission, à la tâche, rien de fixe) ; tout le reste facultatif |
+| D29 | **Équipe vit dans le même dépôt** : `equipe.html`, `src/equipe/`, `src-tauri/equipe/`, modules `personnel`/`paie`/`crm` en version `Base` seule (exception écrite à la règle 2) |
+| D28 | **Gescom Équipe est une seconde fenêtre qui ne parle qu'au serveur** : aucune base à elle ; mêmes comptes, droits, dossiers ; le monoposte lance le serveur sur sa machine (D22) |
+| D27 | **le serveur juge la saisie** : pas de mode « avoir » sans avoir consommé, montant > 0, quantité > 0, prix ≥ 0, remise 0–100 — règles dans `coeur/saisie.rs`, les deux versions |
+| D26 | **l'auteur d'un geste est l'utilisateur de la session**, posé par le serveur sur le fil de la requête (`noyau::auteur`) — plus le premier compte du rôle |
 | D25 | **le serveur gagne une fenêtre** : une coque Tauri fine qui affiche la console existante — pas une interface reconstruite |
 | D24 | **deux rôles, un seul produit** : simple (monoposte, existe déjà) ou complet (serveur + plusieurs postes/dossiers), choisis **à l'installation**, jamais devinés en cours de route |
 | D23 | le **plan comptable SYSCOHADA** en base, les opérations affectées en réglage, les journaux lus et exportés — rien de stocké ; la comptabilité complète après |
@@ -670,3 +679,68 @@ change pas, le format des données non plus) — pour que rien ne soit
 maintenu en double. Le service Windows (D12) reste disponible pour qui
 préfère l'invisible-au-démarrage ; la fenêtre est la façon normale d'y
 toucher. (21/09/2026) → [PLAN-V3.md](PLAN-V3.md) § 6.
+
+## D26 — L'auteur d'un geste est l'utilisateur de la session
+
+**Le défaut (revue du 23/09/2026).** Le serveur connaissait
+l'utilisateur de la session (`Appelant.utilisateur_id`) mais ne passait
+au noyau que son **rôle** ; le noyau retrouvait l'auteur par
+`SELECT … WHERE r.nom = ? LIMIT 1` (`id_utilisateur_par_role*`), ou
+pire par « le premier compte actif » (`id_utilisateur_courant*`). Deux
+caissiers du même rôle : toutes les ventes, remises, règlements et
+ouvertures de caisse signés par le premier. L'écart de clôture et
+l'antidatage n'étaient imputables à personne — c'est tout ce que D46
+(v1) et `pieces:antidater` cherchent à empêcher.
+
+**Décision.** Le serveur pose l'utilisateur de la session sur le fil
+de la requête (`noyau::auteur::poser`, une garde qui le retire en
+tombant) avant chaque commande — `/rpc`, `/sauvegarde`, `/entretien`.
+Les cinq aides d'auteur (`argent::id_utilisateur_par_role[_sur]`,
+`argent::id_utilisateur_courant[_pub|_sur]`, `comptoir::auteur_courant`)
+le lisent **en premier**. Une centaine d'appels corrigés sans toucher
+une signature : le serveur sert chaque requête sur son propre fil.
+
+**Ce qu'on ne fait pas** : passer l'identifiant en argument à ~200
+fonctions (deux versions chacune) dans ce correctif. À faire quand une
+signature bouge de toute façon (v3, chantier C — droits) ; le rôle ne
+sert alors plus qu'au repli. Hors serveur (fenêtre monoposte v1,
+tâches du serveur sans session), rien n'est posé : l'ancien repli
+s'applique, et la v1 ne bouge plus.
+
+Garde : `revue_v2_base::deux_caissiers_du_meme_role_signent_chacun_leur_vente`,
+et `serveur/tests/routes.rs::deux_comptes_du_meme_role_signent_chacun_leur_vente`
+qui échoue si on retire la garde d'`api.rs`.
+
+## D27 — Le serveur juge la saisie, pas l'écran
+
+**Le défaut (revue du 23/09/2026).** Trois gestes n'étaient gardés que
+par l'écran, alors qu'une commande du serveur s'appelle sans lui :
+
+- `regler_creance` en mode `"avoir"` : la créance passait « payée »
+  **sans qu'aucun avoir soit consommé**, ni argent en caisse ;
+- `enregistrer_paiement` (plus appelée par l'écran, encore servie avec
+  `paiements:creer`) : montant **négatif** accepté — une « entrée » de
+  caisse négative —, aucun plafond au reste, `peut_regler` ignoré ;
+- `creer_vente` à **quantité négative** : le stock remontait, la vente
+  passait « payée », sans retour ni avoir. Même trou dans la réception
+  (`enregistrer_achat`) et les pièces (`creer_piece*`, `modifier_piece`) ;
+- `regler_dette_fournisseur` : montant négatif accepté — une sortie de
+  caisse négative, de l'argent qui « apparaît » dans le tiroir.
+
+**Décision.** Les règles sont dans
+[coeur/saisie.rs](../src-tauri/noyau/src/coeur/saisie.rs), pures et
+testées, et appelées par les deux versions :
+`verifier_mode_encaissement` (`especes`, `orange_money`, `moov_money`,
+`cheque`, `virement` — **`avoir` n'est pas un mode** : un avoir se
+consomme, il ne se déclare pas), `verifier_montant` (> 0),
+`verifier_ligne` (quantité et facteur > 0 et finis, prix ≥ 0),
+`verifier_remise_pct` (0 à 100). `enregistrer_paiement[_sur_base]`
+devient une enveloppe de `regler_creance_datee[_sur_base]` : une seule
+porte d'encaissement, une seule série de gardes. Le sens du stock est
+porté par le **geste** (vente, retour, réception), jamais par le signe
+d'une quantité. Une pièce sans ligne reste permise (avoir accordé, K7).
+
+Au passage, `regler_creance_datee` (version `Connection`, celle du
+serveur sur fichier SQLite) écrit désormais paiement, statut, pièce,
+caisse et journal **dans une transaction** (règle 4) ; l'écriture en
+caisse n'est plus ignorée en cas d'échec.

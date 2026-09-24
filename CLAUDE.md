@@ -43,12 +43,19 @@ Avant de corriger quoi que ce soit : [AI_CONTEXT/ALERTES.md](AI_CONTEXT/ALERTES.
    la constante vient de `coeur`.
 7. Les décisions numérotées (D1…D51) ne se rediscutent pas dans le code :
    [AI_CONTEXT/DECISIONS.md](AI_CONTEXT/DECISIONS.md).
+8. **Qui agit vient de la session, pas du rôle** (D26) : jamais de
+   `WHERE role = ? LIMIT 1` pour trouver un auteur — les aides
+   `argent::id_utilisateur_*` lisent `noyau::auteur::courant()`, que le
+   serveur pose pour chaque requête. **Le serveur juge la saisie**
+   (D27) : montant, mode, quantité, prix, remise passent par
+   `coeur/saisie.rs` dans les deux versions — l'écran ne protège rien.
 
 ## Tests
 
 ```bash
 .\outils\cargo-tenace.ps1 test --workspace        # SQLite ; cargo nu est bloqué par Smart App Control (4551)
 GESCOM_PG="postgresql://…/gescom_test" cargo test -p gescom-noyau --test <fichier> -- --test-threads=1
+# + GESCOM_PG_LIMITE=1 GESCOM_PG_SAUVEGARDE=<même URL> : sous le compte limité (RLS, v3 D-6)
 ```
 
 - **Jamais `GESCOM_PG` sur la base du serveur** (`gescom`) : les

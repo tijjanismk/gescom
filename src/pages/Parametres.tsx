@@ -25,14 +25,18 @@ import { genererManuelHTML } from "@/lib/genererManuel";
 import { SelectUnite } from "@/components/SelectUnite";
 import { OngletTVA, OngletDettes, OngletIrrecouvrable, OngletAvoirs } from "@/components/OngletChantiers";
 import { OngletDepots } from "@/components/OngletDepots";
+import { SessionsOuvertes } from "@/components/SessionsOuvertes";
 import { OngletCodesBarres } from "@/components/OngletCodesBarres";
 import { OngletImportExport } from "@/components/OngletImportExport";
 import { OngletReseau } from "@/components/OngletReseau";
+import { OngletDossiers } from "@/components/OngletDossiers";
+import { OngletComptabilite } from "@/components/OngletComptabilite";
 import { OngletRoles } from "@/components/OngletRoles";
+import { OngletDocuments } from "@/components/OngletDocuments";
 import {
   ModalPermissionsUtilisateur,
 } from "@/components/ModalPermissionsUtilisateur";
-import { Modeles } from "@/pages/Modeles";
+import { ModalDossiersUtilisateur } from "@/components/EditeurDossiersUtilisateur";
 import { peut } from "@/lib/droits";
 import { UTILISATEUR_ACTIF } from "@/App";
 
@@ -218,19 +222,48 @@ function OngletUtilisateurs() {
   const [chargement, setChargement] = useState(true);
   const [modalNouvel, setModalNouvel] = useState(false);
   const [modalPermissions, setModalPermissions] = useState<Utilisateur | null>(null);
+  // v3, C-2 : dans quels dossiers une personne entre. Le bouton n'existe
+  // qu'avec plusieurs dossiers ; il vaut aussi pour un patron.
+  const [modalDossiers, setModalDossiers] = useState<Utilisateur | null>(null);
+  const [plusieursDossiers, setPlusieursDossiers] = useState(false);
   // Les rôles qui donnent tout (acces_total) ou qui sont protégés
   // (superadmin) n'offrent rien à ajuster : le sur-mesure n'y
   // s'applique pas. Un bouton qui échoue est pire que pas de bouton.
   const [rolesComplets, setRolesComplets] = useState<Set<string>>(new Set());
+  // C-4 : désactiver ferme les sessions — la liste des sessions se
+  // relit après chaque geste.
+  const [revision, setRevision] = useState(0);
+  const [avis, setAvis] = useState<{ texte: string; erreur?: boolean } | null>(null);
+
+  async function basculerActif(u: Utilisateur) {
+    setAvis(null);
+    try {
+      const r = await invoke<{ actif: boolean; sessions_fermees: number }>(
+        "activer_utilisateur", { utilisateurId: u.id, actif: !u.actif });
+      setAvis({
+        texte: r.actif
+          ? `${u.nom} est réactivé.`
+          : `${u.nom} est désactivé${r.sessions_fermees
+              ? ` — ${r.sessions_fermees} session${r.sessions_fermees > 1 ? "s" : ""} fermée${r.sessions_fermees > 1 ? "s" : ""}`
+              : ""}.`,
+      });
+      await charger();
+      setRevision(n => n + 1);
+    } catch (e) {
+      setAvis({ texte: String(e), erreur: true });
+    }
+  }
 
   async function charger() {
     setChargement(true);
     try {
-      const [data, roles] = await Promise.all([
+      const [data, roles, dossiers] = await Promise.all([
         invoke<Utilisateur[]>("lire_utilisateurs"),
         invoke<RolePourPermissions[]>("lire_roles"),
+        invoke<unknown[]>("lire_dossiers").catch(() => []),
       ]);
       setUtilisateurs(data);
+      setPlusieursDossiers(dossiers.length > 1);
       setRolesComplets(new Set(
         roles.filter(r => r.acces_total || r.protege).map(r => r.nom),
       ));
@@ -250,7 +283,7 @@ function OngletUtilisateurs() {
   );
 
   return (
-    <div className="space-y-4 max-w-lg">
+    <div className="space-y-4 max-w-2xl">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {utilisateurs.length} utilisateur{utilisateurs.length > 1 ? "s" : ""}
@@ -285,6 +318,22 @@ function OngletUtilisateurs() {
                 {u.role}
               </Badge>
               {!u.actif && <Badge variant="outline">Inactif</Badge>}
+              {u.id !== UTILISATEUR_ACTIF?.id && (
+                <Button variant="ghost" size="sm" onClick={() => basculerActif(u)}
+                  aria-label={`${u.actif ? "Désactiver" : "Réactiver"} ${u.nom}`}
+                  title={u.actif
+                    ? "Le compte ne peut plus se connecter ; ses sessions ouvertes sont fermées"
+                    : "Le compte peut de nouveau se connecter"}>
+                  {u.actif ? "Désactiver" : "Réactiver"}
+                </Button>
+              )}
+              {plusieursDossiers && u.id !== UTILISATEUR_ACTIF?.id && u.role !== "superadmin" && (
+                <Button variant="outline" size="sm" onClick={() => setModalDossiers(u)}
+                  aria-label={`Dossiers de ${u.nom}`}
+                  title="Dans quels dossiers cette personne entre, et avec quel rôle">
+                  <FolderOpen className="h-3.5 w-3.5 mr-1" /> Dossiers
+                </Button>
+              )}
               {!rolesComplets.has(u.role) && (
                 <Button variant="outline" size="sm"
                   onClick={() => setModalPermissions(u)}
@@ -297,6 +346,14 @@ function OngletUtilisateurs() {
         ))}
       </div>
 
+      {avis && (
+        <p className={`text-sm ${avis.erreur ? "text-red-600" : "text-emerald-700"}`} role="status">
+          {avis.texte}
+        </p>
+      )}
+
+      <SessionsOuvertes revision={revision} />
+
       <p className="text-xs text-muted-foreground">
         Une personne à qui le rôle donne tout (patron) ou au rôle
         protégé (superadmin) n'a pas de bouton « Permissions » : le
@@ -308,6 +365,7 @@ function OngletUtilisateurs() {
         onFermer={() => setModalNouvel(false)}
         onCreer={() => { setModalNouvel(false); charger(); }}
       />
+      <ModalDossiersUtilisateur utilisateur={modalDossiers} onFermer={() => setModalDossiers(null)} />
       <ModalPermissionsUtilisateur
         ouvert={modalPermissions !== null}
         utilisateur={modalPermissions}
@@ -1005,13 +1063,6 @@ export function Parametres({ ongletInitial }: { ongletInitial?: string } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ongletInitial]);
 
-  // L'atelier des modèles prend TOUT l'écran : on rend avant la barre
-  // d'onglets, qui disparaît donc le temps qu'on y est. Le bouton
-  // « Paramètres » de l'atelier ramène ici.
-  if (onglet === "modeles") {
-    return <Modeles onFermer={() => setOnglet(onglets[0]?.key ?? "")} />;
-  }
-
   // Aucun onglet : dire POURQUOI, pas seulement « non ».
   //
   // « Votre role ne donne acces a aucun reglage » est vrai et inutile :
@@ -1069,6 +1120,7 @@ export function Parametres({ ongletInitial }: { ongletInitial?: string } = {}) {
 
       {/* Contenu */}
       {onglet === "societe"       && <ParametresSociete />}
+      {onglet === "documents"     && <OngletDocuments />}
       {onglet === "depots"        && <OngletDepots />}
       {onglet === "codesbarres"   && <OngletCodesBarres />}
       {onglet === "importexport"  && <OngletImportExport />}
@@ -1079,6 +1131,8 @@ export function Parametres({ ongletInitial }: { ongletInitial?: string } = {}) {
       {onglet === "roles"         && <OngletRoles />}
       {onglet === "sauvegarde"    && <OngletSauvegarde />}
       {onglet === "reseau"        && <OngletReseau />}
+      {onglet === "dossiers"      && <OngletDossiers />}
+      {onglet === "comptabilite"  && <OngletComptabilite />}
       {onglet === "tva"           && <OngletTVA />}
       {onglet === "dettes"        && <OngletDettes />}
       {onglet === "irrecouvrable" && <OngletIrrecouvrable />}

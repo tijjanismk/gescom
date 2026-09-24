@@ -91,6 +91,11 @@ pub fn avertissement(message: impl AsRef<str>) {
     ecrire("AVERT", message.as_ref());
 }
 
+/// Une erreur remontee par une caisse (`POST /journal-poste`, v3 B-2).
+pub fn poste(message: impl AsRef<str>) {
+    ecrire("POSTE", message.as_ref());
+}
+
 /// Ce qui n'aurait pas du arriver : base indisponible, reponse coupee.
 pub fn erreur(message: impl AsRef<str>) {
     ecrire("ERREUR", message.as_ref());
@@ -115,6 +120,48 @@ fn ecrire(niveau: &str, message: &str) {
     }
 }
 
+/// Les niveaux, dans l'ordre du filtre de la console (B-3).
+pub const NIVEAUX: &[&str] = &["ERREUR", "REFUS", "AVERT", "POSTE", "INFO"];
+
+/// Les `n` dernieres lignes du journal, d'un niveau ou de tous. On lit
+/// aussi la copie precedente quand le fichier courant vient de tourner
+/// et n'en a pas assez.
+pub fn dernieres_lignes(n: usize, niveau: Option<&str>) -> Result<Vec<String>, String> {
+    if let Some(v) = niveau {
+        if !NIVEAUX.contains(&v) {
+            return Err(format!("Niveau inconnu : « {v} »."));
+        }
+    }
+    let Some(chemin) = chemin() else { return Ok(Vec::new()) };
+    let courant = std::fs::read_to_string(&chemin).unwrap_or_default();
+    let mut lignes = filtrer(&courant, niveau, n);
+    if lignes.len() < n {
+        let tige = chemin.file_stem().and_then(|s| s.to_str()).unwrap_or("serveur");
+        let ext = chemin.extension().and_then(|s| s.to_str()).unwrap_or("log");
+        let avant = std::fs::read_to_string(chemin.with_file_name(format!("{tige}.1.{ext}"))).unwrap_or_default();
+        let mut anciennes = filtrer(&avant, niveau, n - lignes.len());
+        anciennes.append(&mut lignes);
+        lignes = anciennes;
+    }
+    Ok(lignes)
+}
+
+/// Les `n` dernieres lignes d'un texte de journal, du niveau demande.
+/// Le niveau se lit a sa place — `[NIVEAU` juste apres l'horodatage —
+/// et pas n'importe ou : un message qui CONTIENT « [ERREUR] » n'est
+/// pas une erreur.
+pub fn filtrer(texte: &str, niveau: Option<&str>, n: usize) -> Vec<String> {
+    let garde = |l: &&str| match niveau {
+        None => !l.trim().is_empty(),
+        Some(v) => l
+            .split_once(' ')
+            .map(|(_, reste)| reste.starts_with(&format!("[{v}")))
+            .unwrap_or(false),
+    };
+    let toutes: Vec<&str> = texte.lines().filter(garde).collect();
+    toutes[toutes.len().saturating_sub(n)..].iter().map(|s| s.to_string()).collect()
+}
+
 /// `serveur.log` → `serveur.1.log` → `serveur.2.log` → `serveur.3.log` → oubli.
 fn tourner_si_plein(chemin: &Path) {
     let Ok(meta) = std::fs::metadata(chemin) else { return };
@@ -136,6 +183,24 @@ fn tourner_si_plein(chemin: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn le_filtre_lit_le_niveau_a_sa_place() {
+        let texte = "\
+2026-09-23T10:00:00 [INFO  ] Serveur démarré
+2026-09-23T10:01:00 [REFUS ] 1.2.3.4 POST /rpc · 401 · jeton
+2026-09-23T10:02:00 [POSTE ] 1.2.3.4 POST /journal-poste · CAISSE · ventes · faux [ERREUR] dans le message
+2026-09-23T10:03:00 [ERREUR] 1.2.3.4 POST /rpc · 500 · Base indisponible.
+2026-09-23T10:04:00 [ERREUR] 1.2.3.4 POST /rpc · 500 · encore
+";
+        let e = filtrer(texte, Some("ERREUR"), 200);
+        assert_eq!(e.len(), 2, "{e:?}");
+        assert!(e[0].contains("Base indisponible"));
+        assert_eq!(filtrer(texte, Some("ERREUR"), 1), vec![e[1].clone()], "les dernieres, pas les premieres");
+        assert_eq!(filtrer(texte, None, 200).len(), 5);
+        assert_eq!(filtrer(texte, Some("POSTE"), 200).len(), 1);
+        assert!(filtrer("", None, 10).is_empty());
+    }
 
     #[test]
     fn le_journal_tourne_quand_il_est_plein() {

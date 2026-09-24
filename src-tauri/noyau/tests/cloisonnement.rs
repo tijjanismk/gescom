@@ -235,7 +235,7 @@ fn tout_ce_qui_est_porte_passe_le_detecteur() {
     catalogue::lire_client_generique_sur(&mut base).expect("client générique");
     catalogue::lire_depots_sur(&mut base).expect("magasins");
     catalogue::lire_depot_defaut_sur(&mut base).expect("magasin par défaut");
-    catalogue::lire_articles_avec_unites_sur(&mut base, Some("patron".into()), None)
+    catalogue::lire_articles_avec_unites_sur(&mut base, true, None)
         .expect("catalogue");
 
     let client = comptoir::creer_client_rapide_sur(&mut base, "Awa".into(), None)
@@ -332,7 +332,7 @@ fn un_dossier_neuf_reclame_son_magasin_avant_de_vendre() {
     base.auditer(true);
     base.choisir_dossier("dossier-b").unwrap();
 
-    let erreur = catalogue::lire_articles_avec_unites_sur(&mut base, None, None)
+    let erreur = catalogue::lire_articles_avec_unites_sur(&mut base, false, None)
         .expect_err("un dossier sans magasin ne peut pas servir de catalogue");
     assert!(
         erreur.contains("magasin"),
@@ -407,7 +407,8 @@ fn verifier_date_sur_suit_l_exercice_ouvert() {
 
     let hors = dossiers::verifier_date_sur(&mut base, "2019-01-01")
         .expect_err("une date hors de tout exercice doit être refusée");
-    assert!(hors.contains("aucun exercice"), "{hors}");
+    // D21 : le refus nomme la borne — ici, le debut des dates de travail.
+    assert!(hors.contains("avant les dates de travail") && hors.contains("1er janvier"), "{hors}");
 }
 
 #[test]
@@ -454,4 +455,72 @@ fn prolonger_ou_clore_l_exercice_d_un_autre_dossier_echoue() {
         dossiers::clore_exercice_sur(&mut base, id).is_err(),
         "un autre dossier ne doit pas pouvoir clore cet exercice"
     );
+}
+
+// =====================================================================
+//  D-1 : LE DECLENCHEUR DE STOCK SUR SQLITE (ETAPES item 9)
+// =====================================================================
+
+/// Une entree de stock dans le magasin de `dossier-b` : sa ligne de
+/// stock est dans `dossier-b`, et `dossier-b` la lit. L'ancien
+/// declencheur la posait dans le dossier d'origine (la valeur par
+/// defaut de la colonne) : le second dossier ne voyait jamais son stock.
+/// Joue sur SQLite par defaut — la cible de D22 — et sur PostgreSQL
+/// avec `GESCOM_PG`.
+#[test]
+fn un_mouvement_du_second_dossier_range_son_stock_dans_ce_dossier() {
+    use gescom_noyau::{comptoir, depots, fournisseurs};
+
+    let mut base = match std::env::var("GESCOM_PG") {
+        Ok(url) => {
+            let mut b = Base::ouvrir(&url).expect("PostgreSQL");
+            b.executer_lot("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").unwrap();
+            amorcage::amorcer(&mut b).unwrap();
+            b
+        }
+        Err(_) => base_amorcee(),
+    };
+    let article = comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    base.choisir_dossier("dossier-b").unwrap();
+    let depot_b = depots::creer_depot_sur_base(&mut base, "Quincaillerie".into(), Some(true)).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    base.auditer(true);
+    fournisseurs::enregistrer_entree_stock_sur_base(
+        &mut base, article.clone(), Some(depot_b.clone()), 12.0, None, None, Some("patron".into()),
+    )
+    .expect("entrée de stock dans dossier-b");
+
+    let lu = depots::lire_stock_depot_sur_base(&mut base, depot_b.clone()).unwrap();
+    let ciment = lu.iter().find(|l| l["article_id"] == article.as_str()).unwrap();
+    assert_eq!(ciment["quantite"], 12.0, "dossier-b lit son stock");
+    base.auditer(false);
+    let dossier_de_la_ligne: String = base
+        .lire_une(
+            "SELECT dossier_id FROM stock_depot WHERE article_id = ?1 AND depot_id = ?2",
+            &parametres![article.clone(), depot_b.clone()],
+            |r| r.get::<String>(0),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(dossier_de_la_ligne, "dossier-b");
+
+    // Une base rangee par l'ancien declencheur se repare a l'amorcage.
+    base.executer(
+        "UPDATE stock_depot SET dossier_id = ?1 WHERE depot_id = ?2",
+        &parametres![DOSSIER_DEFAUT, depot_b.clone()],
+    )
+    .unwrap();
+    amorcage::amorcer(&mut base).unwrap();
+    let repare: String = base
+        .lire_une("SELECT dossier_id FROM stock_depot WHERE depot_id = ?1", &parametres![depot_b], |r| r.get::<String>(0))
+        .unwrap()
+        .unwrap();
+    assert_eq!(repare, "dossier-b", "la ligne revient au dossier de son magasin");
 }

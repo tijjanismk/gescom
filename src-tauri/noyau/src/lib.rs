@@ -10,6 +10,10 @@
 //! n'appartient pas au noyau.
 
 pub mod utils;
+pub mod auteur;
+pub mod documents;
+pub mod historique;
+pub mod plafonds;
 pub mod coeur;
 pub mod persistance;
 pub mod portes;
@@ -45,12 +49,19 @@ pub mod tableau_bord;
 pub mod amorcage;
 pub mod base;
 pub mod dossiers;
+pub mod acces_dossiers;
+pub mod plan_comptable;
+pub mod affectations;
+pub mod journaux_comptables;
+pub mod personnel;
+pub mod presences;
+pub mod avances;
+pub mod paie;
 pub mod caisses;
 pub mod argent;
 pub mod catalogue;
 pub mod catalogue_csv;
 pub mod comptoir;
-pub mod modeles;
 pub mod images;
 pub mod installation;
 pub mod registre;

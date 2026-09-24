@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { EditeurPlafonds, SANS_PLAFOND, type Plafonds } from "@/components/EditeurPlafonds";
 import { message } from "@tauri-apps/plugin-dialog";
 import { Check, Loader2, Minus, Shield, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -102,9 +103,14 @@ export function ModalPermissionsUtilisateur({
   const [chargement, setChargement] = useState(true);
   const [enregistrement, setEnregistrement] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
+  // v3, C-3 : le sur-mesure des plafonds de CETTE personne.
+  const [plafonds, setPlafonds] = useState<Plafonds>(SANS_PLAFOND);
 
   useEffect(() => {
     if (!ouvert || !utilisateur) return;
+    invoke<{ personnes: { utilisateur_id: string; plafonds: Plafonds }[] }>("lire_plafonds")
+      .then(r => setPlafonds(r.personnes.find(x => x.utilisateur_id === utilisateur.id)?.plafonds ?? SANS_PLAFOND))
+      .catch(() => setPlafonds(SANS_PLAFOND));
     setChargement(true);
     setErreur(null);
     (async () => {
@@ -231,6 +237,20 @@ export function ModalPermissionsUtilisateur({
                 </div>
               </div>
             ))}
+
+            {utilisateur && (
+              <div className="border border-border rounded-lg p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                  Plafonds
+                </p>
+                <EditeurPlafonds nom={utilisateur.nom} valeur={plafonds}
+                  aide="Vide : le plafond du rôle s'applique. Une valeur ici l'emporte, pour cette personne seulement."
+                  onEnregistrer={async p => {
+                    await invoke("definir_plafonds_utilisateur", { utilisateurId: utilisateur.id, plafonds: p });
+                    setPlafonds(p);
+                  }} />
+              </div>
+            )}
 
             <p className="text-xs text-muted-foreground">
               La coche montre ce que la personne peut réellement. Le

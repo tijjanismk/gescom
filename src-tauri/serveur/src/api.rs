@@ -10,7 +10,7 @@ use gescom_noyau::protocole::{
     CodeErreur, DemandeConnexion, DossierOuvrable, Identite, LotEvenements, Reponse, Sante,
 };
 use gescom_noyau::VERSION_PROTOCOLE;
-use gescom_noyau::registre::{Appelant, Contexte, ContexteBase};
+use gescom_noyau::registre::{Appelant, ContexteBase};
 use gescom_noyau::{caisses, parametres, persistance, postes, sessions};
 
 use crate::etat::Serveur;
@@ -51,6 +51,8 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
         ("GET", "/canal") => canal(srv, req, flux),
         ("POST", "/sauvegarde") => sauvegarde_manuelle(srv, req, flux),
         ("POST", "/entretien") => entretien(srv, req, flux),
+        ("POST", "/journal-poste") => journal_poste(srv, req, flux),
+        ("GET", "/journal") => lire_journal(srv, req, flux),
         _ => erreur(
             flux,
             404,
@@ -71,14 +73,15 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
 fn sante(srv: &Arc<Serveur>, flux: &mut TcpStream) -> std::io::Result<()> {
     // Le controle d'integrite est une PRAGMA SQLite : pas de pendant
     // PostgreSQL pour l'instant, donc pas de controle sur ce moteur.
-    let base_saine = match &srv.conn {
-        Some(m) => m
-            .lock()
-            .ok()
-            .map(|conn| persistance::verifier_integrite(&conn).map(|o| o.is_none()).unwrap_or(false))
-            .unwrap_or(false),
-        None => true,
-    };
+    let base_saine = srv
+        .base
+        .lock()
+        .ok()
+        .map(|b| match b.sqlite() {
+            Some(conn) => persistance::verifier_integrite(conn).map(|o| o.is_none()).unwrap_or(false),
+            None => true,
+        })
+        .unwrap_or(false);
     // Les sessions, elles, sont portees (D11) : le compte est exact sur
     // les deux moteurs.
     let connectes = srv
@@ -219,6 +222,24 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
             societe: d["societe"].as_str().unwrap_or("").to_string(),
         })
         .collect();
+    // v3, C-2 : seulement les dossiers ou cette personne entre.
+    let permis = match gescom_noyau::acces_dossiers::dossiers_ouverts_a_sur(
+        &mut base,
+        &utilisateur_id,
+        &ouverts.iter().map(|d| d.id.clone()).collect::<Vec<_>>(),
+    ) {
+        Ok(p) => p,
+        Err(e) => return erreur(flux, 500, CodeErreur::Technique, &e),
+    };
+    let ouverts: Vec<DossierOuvrable> = ouverts.into_iter().filter(|d| permis.contains(&d.id)).collect();
+    if ouverts.is_empty() {
+        return erreur(
+            flux,
+            403,
+            CodeErreur::Permission,
+            "Aucun dossier ne vous est ouvert. Demander au patron.",
+        );
+    }
     let memorise = gescom_noyau::dossiers::dossier_memorise_sur(&mut base, &utilisateur_id)
         .ok()
         .flatten()
@@ -228,25 +249,17 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
             if let Err(e) = gescom_noyau::dossiers::dossier_ouvert_sur(&mut base, d) {
                 return erreur(flux, 409, CodeErreur::Technique, &e);
             }
+            if !ouverts.iter().any(|o| o.id == d) {
+                return erreur(flux, 403, CodeErreur::Permission, "Ce dossier ne vous est pas ouvert.");
+            }
             Some(d.to_string())
         }
         None if ouverts.len() == 1 => Some(ouverts[0].id.clone()),
         None => memorise,
     };
-    // Sur une cible fichier, les commandes `Connection` ne servent que
-    // le dossier d'origine : un autre dossier y serait servi de travers.
-    if srv.conn.is_some() {
-        if let Some(d) = dossier_choisi.as_deref() {
-            if d != gescom_noyau::dossiers::DOSSIER_DEFAUT {
-                return erreur(
-                    flux,
-                    409,
-                    CodeErreur::Technique,
-                    "Plusieurs dossiers demandent un serveur PostgreSQL.",
-                );
-            }
-        }
-    }
+    // D22 : plusieurs dossiers demandent le SERVEUR, pas PostgreSQL.
+    // Tout passe par `Base` (D-2) : un dossier choisi est servi sur
+    // SQLite comme sur PostgreSQL.
     if demande.memoriser_dossier == Some(true) {
         if let Some(d) = dossier_choisi.as_deref() {
             gescom_noyau::dossiers::memoriser_dossier_sur(&mut base, &utilisateur_id, Some(d)).ok();
@@ -271,6 +284,15 @@ fn connexion(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io
         &gescom_noyau::parametres![gescom_noyau::utils::maintenant_iso(), utilisateur_id.clone()],
     );
 
+    // Le role DANS le dossier ouvert (C-2) ; sans dossier encore, le
+    // global — `choisir_dossier` rendra celui du dossier choisi.
+    let role = match dossier_choisi.as_deref() {
+        Some(d) => gescom_noyau::acces_dossiers::role_dans_sur(&mut base, &utilisateur_id, d)
+            .ok()
+            .flatten()
+            .unwrap_or(role),
+        None => role,
+    };
     let mut permissions: Vec<String> =
         gescom_noyau::portes::permissions_de_sur(&mut base, &utilisateur_id, &role)
             .into_iter()
@@ -325,13 +347,16 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         Ok(a) => a,
         Err((code, message)) => return erreur(flux, 401, code, &message),
     };
+    // D26 : ce qui s'ecrit pendant cette requete est signe par
+    // l'utilisateur de la SESSION, pas par le premier compte de son role.
+    let _auteur = gescom_noyau::auteur::poser(&appelant.utilisateur_id);
 
     let corps = match req.json() {
         Ok(v) => v,
         Err(m) => return erreur(flux, 400, CodeErreur::Technique, &m),
     };
     let nom = corps.get("commande").and_then(Value::as_str).unwrap_or("");
-    let params = corps.get("params").cloned().unwrap_or(Value::Null);
+    let mut params = corps.get("params").cloned().unwrap_or(Value::Null);
     journal::contexte_ajouter(&format!(
         "{nom} · {}@{}",
         court(&appelant.utilisateur_id),
@@ -382,25 +407,58 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
         );
     }
 
-    // D11 : sur une cible fichier, `conn` existe toujours — le chemin
-    // ne change pas d'un octet. Sur PostgreSQL, `conn` est absent ; la
-    // commande passe par `poignee_base` quand elle est portee, sinon
-    // elle refuse clairement plutot que de retomber en silence sur un
-    // fichier SQLite vide. Une commande `base_seulement` (v3) passe par
-    // `Base` sur les deux moteurs.
-    let resultat = if let (Some(conn_mutex), false) = (srv.conn.as_ref(), entree.base_seulement) {
-        let mut conn = match conn_mutex.lock() {
-            Ok(c) => c,
+    // v3, C-1 : les permissions de LECTURE (`coeur::lecture`). Refuser
+    // avant d'appeler, neutraliser les parametres qui trahiraient, puis
+    // masquer la reponse. Lu en base a chaque appel, comme le reste.
+    let lectures = if gescom_noyau::coeur::lecture::regles(nom).is_empty() {
+        None
+    } else {
+        let mut base = match srv.base.lock() {
+            Ok(b) => b,
             Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
         };
-        (entree.poignee)(
-            &mut Contexte {
-                conn: &mut conn,
-                appelant: &appelant,
-            },
-            params,
-        )
-    } else if let Some(poignee_base) = entree.poignee_base {
+        if !appelant.dossier_id.is_empty() {
+            let _ = base.choisir_dossier(&appelant.dossier_id);
+        }
+        let perms = gescom_noyau::portes::permissions_de_sur(&mut base, &appelant.utilisateur_id, &appelant.role);
+        let a = |p: &str| perms.contains(p);
+        if let Some(manque) = gescom_noyau::coeur::lecture::refus(nom, a) {
+            let e = gescom_noyau::portes::ErreurPermission::Refuse {
+                role: appelant.role.clone(),
+                permission: manque.to_string(),
+            };
+            return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
+        }
+        if gescom_noyau::coeur::lecture::session_caisse_a_verifier(nom, a) {
+            let session = params
+                .get("sessionId")
+                .or_else(|| params.get("session_id"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let a_moi = gescom_noyau::caisse::session_ouverte_par_sur(&mut base, &session)
+                .ok()
+                .flatten()
+                .is_some_and(|u| u == appelant.utilisateur_id);
+            if !a_moi {
+                let e = gescom_noyau::portes::ErreurPermission::Refuse {
+                    role: appelant.role.clone(),
+                    permission: gescom_noyau::coeur::lecture::CAISSE_LIRE_AUTRES.to_string(),
+                };
+                return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
+            }
+        }
+        gescom_noyau::coeur::lecture::neutraliser(nom, a, &mut params);
+        Some(perms)
+    };
+
+    // D22 (v3, D-2) : le serveur sert TOUT par `Base`, sur les deux
+    // moteurs. Le chemin `Connection` (D11) est parti : sur SQLite comme
+    // sur PostgreSQL, une seule facon d'executer une commande, celle que
+    // les scenarios `*_base.rs` eprouvent. `socle::tests_d2` garantit
+    // que chaque commande a sa version `Base`.
+    let poignee_base = entree.poignee_base;
+    let resultat = {
         let mut base = match srv.base.lock() {
             Ok(b) => b,
             Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
@@ -413,6 +471,21 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
                 return erreur(flux, 500, CodeErreur::Technique, &e.0);
             }
         }
+        // v3, D-4 (D21) : une ecriture datee tombe dans un exercice
+        // ouvert du dossier, ou elle ne s'ecrit pas. Juge ici, une fois,
+        // plutot que dans chacune des trente commandes qui datent.
+        if let Some(cles) = gescom_noyau::dossiers::date_d_ecriture(nom) {
+            let date = cles
+                .iter()
+                .find_map(|c| params.get(*c).and_then(Value::as_str))
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(gescom_noyau::utils::maintenant_iso);
+            if let Err(m) = gescom_noyau::dossiers::verifier_date_sur(&mut base, &date) {
+                return erreur(flux, 409, CodeErreur::Metier, &m);
+            }
+        }
         poignee_base(
             &mut ContexteBase {
                 base: &mut base,
@@ -420,13 +493,14 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
             },
             params,
         )
-    } else {
-        return erreur(
-            flux,
-            409,
-            CodeErreur::Technique,
-            "Cette opération n'est pas encore disponible sur PostgreSQL.",
-        );
+    };
+
+    let resultat = match &lectures {
+        Some(perms) => resultat.map(|mut v| {
+            gescom_noyau::coeur::lecture::filtrer(nom, |p| perms.contains(p), &appelant.utilisateur_id, &mut v);
+            v
+        }),
+        None => resultat,
     };
 
     // L'evenement n'est publie que si la commande a REUSSI. Prevenir
@@ -480,7 +554,21 @@ fn authentifier(srv: &Arc<Serveur>, req: &Requete) -> Result<Appelant, (CodeErre
             poste_id,
             dossier_id,
         } => {
-            sessions::toucher_sur(&mut base, &session_id);
+            // La commande de `/rpc`, pour l'ecran des sessions (C-4) :
+            // lue sans echouer — un corps illisible sera refuse plus
+            // loin, avec le bon message.
+            // Un struct a un seul champ : serde saute le reste sans le
+            // construire (une image de 10 Mo ne se lit pas deux fois).
+            #[derive(serde::Deserialize)]
+            struct Tete {
+                commande: Option<String>,
+            }
+            let commande = if req.chemin == "/rpc" {
+                serde_json::from_slice::<Tete>(&req.corps).ok().and_then(|t| t.commande)
+            } else {
+                None
+            };
+            sessions::toucher_sur(&mut base, &session_id, commande.as_deref());
             Ok(Appelant {
                 utilisateur_id,
                 role,
@@ -548,6 +636,7 @@ fn sauvegarde_manuelle(
         Ok(a) => a,
         Err((code, message)) => return erreur(flux, 401, code, &message),
     };
+    let _auteur = gescom_noyau::auteur::poser(&appelant.utilisateur_id);
     let ctx = ContexteUtilisateur {
         id: appelant.utilisateur_id,
         role: appelant.role,
@@ -587,6 +676,7 @@ fn entretien(
         Ok(a) => a,
         Err((code, message)) => return erreur(flux, 401, code, &message),
     };
+    let _auteur = gescom_noyau::auteur::poser(&appelant.utilisateur_id);
     let ctx = ContexteUtilisateur {
         id: appelant.utilisateur_id,
         role: appelant.role,
@@ -618,6 +708,97 @@ fn entretien(
             repondre_json(flux, 200, &v)
         }
         Err(e) => erreur(flux, 500, CodeErreur::Technique, &e),
+    }
+}
+
+// =====================================================================
+//  Journal des postes — les erreurs des caisses (v3, B-2)
+// =====================================================================
+
+fn journal_poste(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Result<()> {
+    use crate::journal_poste::{self as jp, Verdict};
+    let appelant = match authentifier(srv, req) {
+        Ok(a) => a,
+        Err((code, message)) => return erreur(flux, 401, code, &message),
+    };
+    if req.corps.len() > jp::TAILLE_MAX {
+        return erreur(flux, 413, CodeErreur::Technique, "Signalement trop long (4 Ko au plus).");
+    }
+    // Le poste en boucle d'erreur : on jette. Une ligne le dit, une fois
+    // par minute ; le reste ne laisse aucune trace (c'est le but).
+    let verdict = srv
+        .limiteur_postes
+        .lock()
+        .map(|mut l| l.juger(&appelant.poste_id, std::time::Instant::now()))
+        .unwrap_or(Verdict::Refuse);
+    let nom = srv
+        .base
+        .lock()
+        .ok()
+        .and_then(|mut b| postes::lire_sur(&mut b, &appelant.poste_id).ok())
+        .map(|p| p.nom)
+        .unwrap_or_else(|| court(&appelant.poste_id).to_string());
+    match verdict {
+        Verdict::Accepte => {}
+        Verdict::PremierRefus => {
+            journal::avertissement(format!(
+                "{nom} envoie plus de {} erreurs par minute : les suivantes sont jetées.",
+                jp::PAR_MINUTE
+            ));
+            return repondre_json(flux, 429, &json!({ "etat": "jete" }));
+        }
+        Verdict::Refuse => return repondre_json(flux, 429, &json!({ "etat": "jete" })),
+    }
+    let signalement: jp::Signalement = match req.json().and_then(|v| {
+        serde_json::from_value(v).map_err(|e| format!("Signalement illisible : {e}"))
+    }) {
+        Ok(s) => s,
+        Err(m) => return erreur(flux, 400, CodeErreur::Technique, &m),
+    };
+    journal::poste(jp::ligne(&nom, &signalement));
+    repondre_json(flux, 200, &json!({ "etat": "ok" }))
+}
+
+// =====================================================================
+//  Journal technique — lu depuis la console (v3, B-3)
+// =====================================================================
+
+/// Les dernieres lignes du journal technique. Meme permission que la
+/// sauvegarde : c'est la console du serveur qui la lit, pas la fenetre
+/// d'une caisse.
+fn lire_journal(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Result<()> {
+    let appelant = match authentifier(srv, req) {
+        Ok(a) => a,
+        Err((code, message)) => return erreur(flux, 401, code, &message),
+    };
+    let ctx = ContexteUtilisateur { id: appelant.utilisateur_id, role: appelant.role };
+    {
+        let mut base = match srv.base.lock() {
+            Ok(b) => b,
+            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+        };
+        if let Err(e) = verifier_permission_sur(&mut base, &ctx, "sauvegarde:lancer") {
+            return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
+        }
+    }
+    let niveau = req.parametres.get("niveau").map(String::as_str).filter(|n| !n.is_empty() && *n != "tout");
+    let n = req
+        .parametres
+        .get("n")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(200)
+        .clamp(1, 1000);
+    match journal::dernieres_lignes(n, niveau) {
+        Ok(lignes) => repondre_json(
+            flux,
+            200,
+            &json!({
+                "fichier": journal::chemin().map(|c| c.display().to_string()),
+                "niveaux": journal::NIVEAUX,
+                "lignes": lignes,
+            }),
+        ),
+        Err(m) => erreur(flux, 400, CodeErreur::Technique, &m),
     }
 }
 

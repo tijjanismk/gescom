@@ -1,8 +1,9 @@
 [workspace]
-# Le v2 produit deux executables : ce crate (le client, fenetre
-# Tauri) et `serveur/` (sans fenetre). `noyau/` porte ce que les deux
+# Trois executables : ce crate (le client, fenetre
+# Tauri), `serveur/` (sans fenetre) et `equipe/` (Gescom Equipe, une
+# coque qui ne parle qu'au serveur). `noyau/` porte ce qu'ils
 # partagent — calculs, schema, protocole.
-members = ["noyau", "serveur"]
+members = ["noyau", "serveur", "equipe"]
 
 [package]
 name = "gescom"

@@ -6,6 +6,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { peut } from "@/lib/droits";
+
+const peutTout = (...p: string[]) => p.every(peut);
 import {
   History as HistoryIcon, Loader2, RefreshCw, ChevronDown, ChevronRight,
   TrendingDown, TrendingUp, CheckCircle2, AlertTriangle,
@@ -74,9 +77,14 @@ export function OngletHistoriqueCaisse() {
   const charger = useCallback(async () => {
     setChargement(true);
     try {
+      // v3, C-1 : sans `caisse:lire_autres`, le serveur ne rend que les
+      // sessions ouvertes par soi, et refuse le rapport des écarts (il
+      // porte sur toutes les caisses) — on ne le demande alors pas.
       const [s, r] = await Promise.all([
         invoke<Session[]>("lire_sessions_caisse", { limite: 60 }),
-        invoke<RapportEcarts>("lire_rapport_ecarts", { jours: periode }),
+        peutTout("rapports:lire", "caisse:lire_autres")
+          ? invoke<RapportEcarts>("lire_rapport_ecarts", { jours: periode })
+          : Promise.resolve(null),
       ]);
       setSessions(s);
       setRapport(r);

@@ -472,6 +472,210 @@ CREATE TABLE IF NOT EXISTS journal (
     annule_paiement_id TEXT
 );
 
+-- Les plafonds d'UNE personne (v3, C-3) : chaque valeur posee
+-- l'emporte sur celle de son role ; vide = celle du role.
+CREATE TABLE IF NOT EXISTS utilisateur_plafond (
+    utilisateur_id      TEXT PRIMARY KEY REFERENCES utilisateur(id),
+    remise_max_pct      REAL,
+    remboursement_max   INTEGER,
+    credit_max          INTEGER,
+    modifie_le          TEXT NOT NULL,
+    modifie_par         TEXT
+);
+
+-- Le plan comptable SYSCOHADA (v3, E-1 — D23). Commun a tous les
+-- dossiers (`dossier_id` vide) ; un sous-compte ajoute par le patron ou
+-- le comptable (`4111 Client Coulibaly`) porte son dossier. Pas dans
+-- les tables cloisonnees : le plan commun se lit de partout, et chaque
+-- lecture filtre `dossier_id IN ('', dossier courant)`.
+CREATE TABLE IF NOT EXISTS compte_comptable (
+    numero      TEXT NOT NULL,
+    dossier_id  TEXT NOT NULL DEFAULT '',
+    libelle     TEXT NOT NULL,
+    classe      INTEGER NOT NULL,
+    parent      TEXT,
+    origine     TEXT NOT NULL DEFAULT 'syscohada',
+    cree_le     TEXT NOT NULL,
+    PRIMARY KEY (numero, dossier_id)
+);
+
+-- L'affectation comptable (v3, E-2 — D23) : ce qui a ete CHANGE, par
+-- dossier. Une operation absente vaut son defaut (coeur::affectations).
+CREATE TABLE IF NOT EXISTS affectation_comptable (
+    dossier_id  TEXT NOT NULL,
+    operation   TEXT NOT NULL,
+    compte      TEXT NOT NULL,
+    modifie_le  TEXT NOT NULL,
+    modifie_par TEXT,
+    PRIMARY KEY (dossier_id, operation)
+);
+
+-- Gescom Equipe (PLAN-EQUIPE, F-2 — D30) : une personne, pas un
+-- contrat. Nom, ce qu'elle fait, comment elle est payee ; le reste est
+-- facultatif. Un depart ne supprime rien (`statut = 'partie'`).
+CREATE TABLE IF NOT EXISTS employe (
+    id               TEXT PRIMARY KEY,
+    dossier_id       TEXT NOT NULL,
+    nom              TEXT NOT NULL,
+    fonction         TEXT NOT NULL,
+    telephone        TEXT,
+    date_entree      TEXT,
+    piece_identite   TEXT,
+    contrat_ecrit    INTEGER NOT NULL DEFAULT 0,
+    contrat_date     TEXT,
+    declare          INTEGER NOT NULL DEFAULT 0,
+    numero_inps      TEXT,
+    salaire_mensuel  INTEGER,
+    tarif_journalier INTEGER,
+    commission_pct   REAL,
+    a_la_tache       INTEGER NOT NULL DEFAULT 0,
+    -- G-1 : le plafond de ses avances en cours ; vide = pas de plafond.
+    avance_max       INTEGER,
+    utilisateur_id   TEXT REFERENCES utilisateur(id),
+    depot_id         TEXT,
+    statut           TEXT NOT NULL DEFAULT 'actif',
+    date_depart      TEXT,
+    motif_depart     TEXT,
+    note             TEXT,
+    cree_le          TEXT NOT NULL,
+    modifie_le       TEXT NOT NULL
+);
+
+-- Les jours travailles (PLAN-EQUIPE, F-3) : une ligne par personne et
+-- par jour marque ; un jour sans ligne n'est pas su.
+CREATE TABLE IF NOT EXISTS presence (
+    id          TEXT PRIMARY KEY,
+    dossier_id  TEXT NOT NULL,
+    employe_id  TEXT NOT NULL REFERENCES employe(id),
+    jour        TEXT NOT NULL,
+    etat        TEXT NOT NULL,
+    saisi_par   TEXT,
+    saisi_le    TEXT NOT NULL,
+    UNIQUE (employe_id, jour)
+);
+
+-- Les avances sur salaire (PLAN-EQUIPE, G-1 — D32) : rattachees a la
+-- personne ; `retenu` monte quand une fiche de paie la retient (G-2).
+-- Hors caisse (decision du 24/09) : `mouvement_caisse_id` reste vide
+-- pour les nouvelles ; `annule_le` date une annulation.
+CREATE TABLE IF NOT EXISTS avance (
+    id                   TEXT PRIMARY KEY,
+    dossier_id           TEXT NOT NULL,
+    employe_id           TEXT NOT NULL REFERENCES employe(id),
+    montant              INTEGER NOT NULL,
+    retenu               INTEGER NOT NULL DEFAULT 0,
+    moyen                TEXT NOT NULL,
+    motif                TEXT,
+    date_avance          TEXT NOT NULL,
+    statut               TEXT NOT NULL DEFAULT 'ouverte',
+    mouvement_caisse_id  TEXT,
+    cree_par             TEXT,
+    cree_le              TEXT NOT NULL,
+    annule_le            TEXT
+);
+
+-- La fiche de paie (PLAN-EQUIPE, G-2 — D31) : un papier qu'on remet,
+-- donc STOCKE et fige a la validation (numero PAIE-AAAA-NNNNN par
+-- dossier). `nom`, `fonction` : ce qu'etait la personne a la paie.
+-- statut : brouillon | validee | remplacee (par une rectificative, qui
+-- porte `rectifie_id`). `retenues` : en positif, avances comprises ;
+-- `reporte` : les avances qui n'ont pas pu etre retenues.
+CREATE TABLE IF NOT EXISTS fiche_paie (
+    id           TEXT PRIMARY KEY,
+    dossier_id   TEXT NOT NULL,
+    employe_id   TEXT NOT NULL REFERENCES employe(id),
+    nom          TEXT NOT NULL,
+    fonction     TEXT NOT NULL,
+    du           TEXT NOT NULL,
+    au           TEXT NOT NULL,
+    prorata      INTEGER NOT NULL DEFAULT 0,
+    statut       TEXT NOT NULL DEFAULT 'brouillon',
+    numero       TEXT,
+    brut         INTEGER NOT NULL DEFAULT 0,
+    retenues     INTEGER NOT NULL DEFAULT 0,
+    net          INTEGER NOT NULL DEFAULT 0,
+    reporte      INTEGER NOT NULL DEFAULT 0,
+    rectifie_id  TEXT,
+    cree_par     TEXT,
+    cree_le      TEXT NOT NULL,
+    modifie_le   TEXT NOT NULL,
+    valide_par   TEXT,
+    valide_le    TEXT
+);
+
+-- Les lignes d'une fiche : `montant` signe (gain +, retenue -) ;
+-- `saisie` = 1 pour tache / prime / retenue, 0 pour ce qui se calcule ;
+-- `source` = l'avance retenue.
+CREATE TABLE IF NOT EXISTS ligne_paie (
+    id          TEXT PRIMARY KEY,
+    dossier_id  TEXT NOT NULL,
+    fiche_id    TEXT NOT NULL REFERENCES fiche_paie(id),
+    rang        INTEGER NOT NULL,
+    genre       TEXT NOT NULL,
+    libelle     TEXT NOT NULL,
+    quantite    REAL,
+    prix        INTEGER,
+    montant     INTEGER NOT NULL,
+    source      TEXT,
+    saisie      INTEGER NOT NULL DEFAULT 0
+);
+
+-- Les versements d'une fiche de paie (G-3, D31) : hors caisse (decision
+-- du 24/09 ; `mouvement_caisse_id` vide), le moyen dit d'ou vient
+-- l'argent. Une rectificative
+-- validee reprend les versements de la fiche qu'elle remplace.
+CREATE TABLE IF NOT EXISTS versement_paie (
+    id                   TEXT PRIMARY KEY,
+    dossier_id           TEXT NOT NULL,
+    fiche_id             TEXT NOT NULL REFERENCES fiche_paie(id),
+    montant              INTEGER NOT NULL,
+    moyen                TEXT NOT NULL,
+    date_versement       TEXT NOT NULL,
+    mouvement_caisse_id  TEXT,
+    cree_par             TEXT,
+    cree_le              TEXT NOT NULL
+);
+
+-- Les cotisations du dossier (G-4, D33) : facultatives, vides par
+-- defaut, appliquees aux seules personnes declarees. `qui` : salarie
+-- (retenue) ou employeur (charge) ; `taux` en pourcentage ; `plafond`
+-- de l'assiette ; `compte` de l'organisme (vide : l'affectation).
+CREATE TABLE IF NOT EXISTS cotisation (
+    id          TEXT PRIMARY KEY,
+    dossier_id  TEXT NOT NULL,
+    libelle     TEXT NOT NULL,
+    qui         TEXT NOT NULL,
+    taux        REAL NOT NULL,
+    plafond     INTEGER,
+    compte      TEXT,
+    rang        INTEGER NOT NULL DEFAULT 0,
+    cree_le     TEXT NOT NULL,
+    modifie_le  TEXT NOT NULL
+);
+
+-- Le role d'une personne DANS un dossier (v3, C-2 — decision C2).
+-- Aucune ligne : comme avant (son role partout s'il a l'acces total,
+-- sinon dans le dossier d'origine). Des lignes : exactement ces
+-- dossiers, avec ces roles. Pas de REFERENCES dossier : la table
+-- `dossier` nait apres ce fichier.
+CREATE TABLE IF NOT EXISTS utilisateur_dossier (
+    utilisateur_id  TEXT NOT NULL REFERENCES utilisateur(id),
+    dossier_id      TEXT NOT NULL,
+    role_id         TEXT NOT NULL REFERENCES role(id),
+    cree_le         TEXT NOT NULL,
+    cree_par        TEXT,
+    PRIMARY KEY (utilisateur_id, dossier_id)
+);
+
+-- Une anomalie VUE (v3, B-4) : par qui, quand. Le journal reste tel
+-- qu'il a ete ecrit ; le « vu » vit a cote. Sans lui, le compteur du
+-- tableau de bord ne redescendrait jamais.
+CREATE TABLE IF NOT EXISTS anomalie_vue (
+    journal_id  TEXT PRIMARY KEY,
+    vue_par     TEXT NOT NULL,
+    vue_le      TEXT NOT NULL
+);
+
 
 -- =====================================================================
 --  INDEX
@@ -480,6 +684,7 @@ CREATE TABLE IF NOT EXISTS journal (
 CREATE INDEX IF NOT EXISTS idx_facture_numero      ON facture(numero);
 CREATE INDEX IF NOT EXISTS idx_facture_vente        ON facture(vente_id);
 CREATE INDEX IF NOT EXISTS idx_journal_entite       ON journal(entite_type, entite_id);
+CREATE INDEX IF NOT EXISTS idx_journal_date         ON journal(date_evenement);
 CREATE INDEX IF NOT EXISTS idx_ligne_piece ON ligne_piece(piece_id);
 CREATE INDEX IF NOT EXISTS idx_ligne_vente_vente    ON ligne_vente(vente_id);
 CREATE INDEX IF NOT EXISTS idx_mouvement_caisse     ON mouvement_caisse(session_id);

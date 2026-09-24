@@ -18,7 +18,7 @@ du noyau, **à chaque appel** ; l'écran ne fait que cacher des boutons.
 
 | | où | qui le change |
 |---|---|---|
-| le **catalogue** — 29 permissions, celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`) | code | personne |
+| le **catalogue** — 33 permissions (`modeles:gerer` retirée avec l'atelier, v3 A-3 ; cinq de lecture ajoutées, v3 B-1 et C-1), celles que les commandes vérifient réellement (`r.ecriture(nom, permission, …)`, `r.sur_base(nom, Some(permission), …)`) | code | personne |
 | les **rôles** — `role.permissions` (JSON), `role.acces_total` | base | le patron |
 | le **sur-mesure** — `utilisateur_permission(utilisateur, permission, accorde)` | base | le patron, par personne |
 
@@ -41,6 +41,98 @@ les avoirs existants ; il n'en crée pas.
 Créer un dossier, ouvrir, prolonger ou clore un exercice. Comme
 `avoirs:accorder` : aucun rôle livré ne la porte, elle vient avec
 `acces_total` ou se donne à la main.
+
+## `journal:lire` — la première permission de LECTURE (23/09/2026, v3 B-1)
+
+Jusqu'ici les lectures n'étaient pas filtrées (tout connecté lit tout).
+L'Historique est la première lecture que le **serveur refuse** sans
+permission : `lire_historique` et `lire_filtres_historique`. Rôles
+livrés : `patron` (accès total) et `comptable` sur une base **neuve** ;
+caissier, magasinier, employé ne l'ont pas. Une base déjà installée
+reçoit `journal:lire` pour son comptable avec la migration des rôles
+de C-1 (les quatre autres permissions de lecture) ; d'ici là, le
+patron la donne par le sur-mesure. L'entrée de menu et les boutons
+« Historique » des fiches suivent `peut("journal:lire")`.
+
+## Les cinq permissions de LECTURE (23/09/2026, v3 C-1)
+
+Les lectures n'étaient pas filtrées. Il y en a maintenant cinq, pas
+une par commande (D19) : `achats:lire_prix`, `rapports:lire`,
+`tiers:lire_solde`, `journal:lire`, `caisse:lire_autres`.
+
+**Une table, un endroit** : [coeur/lecture.rs](../../src-tauri/noyau/src/coeur/lecture.rs)
+dit, commande par commande, ce qui se **refuse** (`Refus`), ce qui se
+**masque** (`Masque` : ces clés à `null`, à toute profondeur — jamais
+un zéro), les **paramètres neutralisés** (`Neutre` : le filtre « avec
+dette seulement » et le tri par dette de la liste des clients), ce qui
+se **réduit à soi** (`AMoi` : les sessions de caisse) et ce qui se
+**vérifie en base** (`SessionCaisseAMoi` : les mouvements d'une
+session). `api::rpc` l'applique à chaque appel : refus avant, filtre
+après. Aucune fonction du noyau ne teste un nom de rôle pour ça — la
+seule qui le faisait (`lire_articles_avec_unites`, `role == "patron"`)
+prend désormais `voir_prix_achat: bool` : la fenêtre v1 le donne au
+patron, le serveur toujours, puis masque selon la permission.
+
+Deux lignes de partage :
+- `tiers:lire_solde` cache ce que **doit un tiers** (état, relevé,
+  encours, listes de dettes). Le reste d'**une** pièce ou d'**un** reçu
+  reste lisible : c'est le document en main.
+- `achats:lire_prix` cache le coût là où il est incident (catalogue,
+  stock, magasins, rapports) ; sur les documents d'achat (fiche
+  fournisseur, factures à retourner, pièces fournisseur),
+  `achats:creer` suffit.
+
+Rôles livrés : patron tout (`acces_total`) ; comptable tout sauf
+`caisse:lire_autres` ; caissier, magasinier, employé aucune. Une base
+**installée** : `amorcage::lectures_du_comptable` ajoute au comptable
+les quatre qui lui reviennent, **une fois** (marque
+`migration_v3_lectures`) — appelée par `amorcer` et par le serveur sur
+une base fichier.
+
+Écrans : menu (Journal, Rapports : `rapports:lire` ; Historique :
+`journal:lire`), accueil sans chiffres, onglets Créances et états de
+dette, onglet Pièces fournisseur, onglet Retour fournisseur, valeur du
+stock et des magasins, export CSV du catalogue, écarts de caisse — tous
+suivent `peut(...)` et ne demandent pas ce qui serait refusé.
+
+Reste ouvert, écrit : `lire_lignes_piece` d'une pièce fournisseur rend
+ses prix sans condition (la réponse ne dit pas le type de la pièce).
+Avec une seule caisse partagée par dossier, la session ouverte et les
+mouvements du jour restent lisibles par tous les caissiers :
+`caisse:lire_autres` porte sur l'historique des sessions.
+
+## Des plafonds, pas seulement des portes (23/09/2026, v3 C-3)
+
+Trois plafonds par **rôle** (`role.remise_max_pct`, `remboursement_max`,
+`credit_max` ; vide = aucun), ajustables par **personne**
+(`utilisateur_plafond`, chaque valeur posée l'emporte). Un rôle à accès
+total n'en a jamais (on refuse même d'en poser).
+
+- La règle : [coeur/plafonds.rs](../../src-tauri/noyau/src/coeur/plafonds.rs)
+  — `fusionner`, `valider`, `remise_pct`, `verifier_vente`,
+  `verifier_piece`, `verifier_remboursement`, le message
+  « Remise de 40 % — votre plafond est 15 %. Demander au patron. »
+- La base : [plafonds.rs](../../src-tauri/noyau/src/plafonds.rs) —
+  `de` / `de_sur` (les plafonds d'une personne), `exiger_remboursement(_sur)`
+  (lit `auteur::courant()` ; hors serveur, pas de plafond),
+  `lire_sur`, `definir_role_sur`, `definir_utilisateur_sur` (journal
+  `plafonds_modifies`).
+- **Où se juge quoi** : l'argument suffit → **dans la poignée** du
+  serveur, comme `pieces:antidater` : `creer_vente` (remise de chaque
+  ligne, crédit laissé si `credit`), `creer_piece` / `modifier_piece`
+  (remises de ligne et globale), `rembourser_avoir` (montant). Le
+  montant n'est connu qu'au fond → **au point où l'argent sort**, dans
+  le noyau : `retours::enregistrer_sortie_caisse(_sur)` (retour,
+  reliquat) et `annuler_reglement(_sur)` quand l'argent est rendu
+  (`remboursement = true`) — une contre-passation d'erreur de saisie ne
+  se plafonne pas.
+- Commandes : `lire_plafonds`, `definir_plafonds_role`,
+  `definir_plafonds_utilisateur` (`utilisateurs:gerer`, nées sur `Base`).
+- Écran : `components/EditeurPlafonds.tsx`, dans Paramètres → Rôles
+  (chaque rôle sans accès total) et dans la fenêtre Permissions d'une
+  personne.
+- Limite écrite : un retour qui rend en deux sorties (part + reliquat)
+  juge chaque sortie, pas leur somme.
 
 ## Une permission qui dépend des ARGUMENTS : `pieces:antidater`
 
@@ -68,6 +160,33 @@ l'hérite pas.
 - [CONFIRMÉ] La **reprise** (migration) écrit ce que le code accordait avant — `patron` : `acces_total`, `employe` : sa liste — une seule fois, gardée par `config_app['roles_repris']`. Rejouée, elle écraserait les réglages du commerçant. « Base vide » se compte sur `utilisateur_auth`, pas sur les rôles : la reprise pose des rôles avant le seed.
 - [CONFIRMÉ] Le serveur renvoie les permissions **avec l'identité** à la connexion ; `droits.ts` filtre le menu. Confort, pas sécurité.
 - [CONFIRMÉ] `promouvoir_superadmin_sur` ([auth.rs](../../src-tauri/noyau/src/auth.rs)) : `gescom-serveur --promouvoir IDENTIFIANT` redonne `superadmin` à un compte existant — une commande du **serveur**, jamais servie par HTTP, qui exige d'être devant la machine. Le geste s'écrit au journal (`role_change`, auteur `serveur`). Le compte de secours **livré** reste refusé (D6).
+
+## Par dossier (v3, C-2 — décision C2)
+
+[acces_dossiers.rs](../../src-tauri/noyau/src/acces_dossiers.rs), table
+`utilisateur_dossier (utilisateur_id, dossier_id, role_id)`. La règle,
+pure (`role_dans`) :
+
+- `superadmin` : partout ;
+- **des lignes : exactement ces dossiers, avec ces rôles** — même si le
+  rôle global est `patron` (le frère) ;
+- **aucune ligne : comme avant** — partout avec l'accès total, sinon le
+  dossier d'origine seulement.
+
+Le rôle vient du dossier de la session, relu à chaque requête
+(`sessions::etat_sur`) : retirer un dossier fait tomber la session qui y
+travaille (401). La connexion ne propose que les dossiers ouverts à la
+personne ; `choisir_dossier` rend le rôle et les permissions du dossier.
+**Qui a des lignes perd `PERMISSIONS_DE_TOUTE_LA_BASE`**
+(`utilisateurs:gerer`, `postes:gerer`, `sauvegarde:lancer`,
+`parametres:modifier`) : comptes, postes, base et société sont communs à
+tous les dossiers — sinon le frère se créerait un compte patron sans
+ligne, qui voit tout. `definir_sur` refuse : ses propres dossiers, un
+compte protégé, une liste vide (c'est une désactivation), le dernier
+compte qui voit tous les dossiers. Un dossier créé par quelqu'un qui a
+des lignes lui est donné avec son rôle d'ici. Écran : Paramètres →
+Utilisateurs → **Dossiers** (avec plusieurs dossiers, aussi pour un
+patron). La fenêtre monoposte ne connaît pas ces lignes (un dossier).
 
 ## Tests
 

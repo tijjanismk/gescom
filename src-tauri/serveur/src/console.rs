@@ -115,6 +115,26 @@ pub fn page(port: u16) -> String {
     <button id="btn-entretien">Entretenir maintenant</button>
     <p id="resultat-entretien" class="aide"></p>
   </section>
+
+  <section class="carte cachee" id="carte-journal">
+    <h2>Journal</h2>
+    <p class="aide">
+      Les 200 dernières lignes du journal technique, les plus récentes
+      en haut&nbsp;: refus, erreurs, erreurs des caisses, commandes lentes,
+      démarrages, sauvegardes. Lecture seule.
+    </p>
+    <div class="filtres" id="niveaux" role="group" aria-label="Niveau">
+      <button type="button" class="niveau actif" data-niveau="tout">Tout</button>
+      <button type="button" class="niveau" data-niveau="ERREUR">Erreurs</button>
+      <button type="button" class="niveau" data-niveau="REFUS">Refus</button>
+      <button type="button" class="niveau" data-niveau="AVERT">Avertissements</button>
+      <button type="button" class="niveau" data-niveau="POSTE">Caisses</button>
+      <button type="button" class="niveau" data-niveau="INFO">Infos</button>
+      <button type="button" id="btn-journal" class="discret-neutre">Actualiser</button>
+    </div>
+    <p id="fichier-journal" class="aide"></p>
+    <div id="journal" class="journal"></div>
+  </section>
 </main>
 
 <footer>
@@ -172,6 +192,19 @@ th { text-align:left; font-size:11px; text-transform:uppercase; color:var(--gris
      border-bottom:1px solid var(--filet); padding:6px 4px; font-weight:600; }
 td { padding:8px 4px; border-bottom:1px solid var(--filet); }
 .inactif { color:var(--gris); }
+.filtres { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+button.niveau, button.discret-neutre { background:transparent; color:var(--encre);
+       padding:4px 10px; font-size:12px; }
+button.niveau.actif { background:var(--encre); color:var(--fond); }
+button.discret-neutre { margin-left:auto; }
+.journal { font:12px/1.45 ui-monospace, Consolas, monospace; max-height:420px;
+           overflow:auto; border:1px solid var(--filet); border-radius:6px;
+           background:var(--fond); }
+.journal div { padding:3px 8px; border-bottom:1px solid var(--filet);
+               white-space:pre-wrap; word-break:break-word; }
+.journal .ERREUR { color:var(--rouge); }
+.journal .AVERT, .journal .POSTE { color:var(--ambre); }
+.journal .INFO { color:var(--gris); }
 footer { text-align:center; color:var(--gris); font-size:12px; padding:20px; }
 "#;
 
@@ -244,9 +277,10 @@ $("form-connexion").addEventListener("submit", async (e) => {
     jeton = c.jeton;
     moiPoste = c.poste_id;
     $("carte-identite").classList.add("cachee");
-    for (const id of ["carte-postes", "carte-sessions", "carte-actions"])
+    for (const id of ["carte-postes", "carte-sessions", "carte-actions", "carte-journal"])
       $(id).classList.remove("cachee");
     rafraichirSupervision();
+    rafraichirJournal();
   } catch (err) {
     $("erreur").textContent = String(err);
     $("motdepasse").value = "";
@@ -287,7 +321,7 @@ async function rafraichirSupervision() {
     jeton = null;
     $("carte-identite").classList.remove("cachee");
     $("erreur").textContent = String(err);
-    for (const id of ["carte-postes", "carte-sessions", "carte-actions"])
+    for (const id of ["carte-postes", "carte-sessions", "carte-actions", "carte-journal"])
       $(id).classList.add("cachee");
   }
 }
@@ -345,6 +379,52 @@ $("btn-entretien").addEventListener("click", async () => {
   }
   rafraichirEtat();
 });
+
+// Le journal : les lignes s'ecrivent en TEXTE (textContent), jamais en
+// HTML — un message vient d'une caisse ou d'une requete, il ne doit
+// rien pouvoir injecter dans la page du patron.
+let niveauJournal = "tout";
+async function rafraichirJournal() {
+  if (!jeton) return;
+  const zone = $("journal");
+  try {
+    const r = await fetch("/journal?n=200&niveau=" + encodeURIComponent(niveauJournal), {
+      headers: { "Authorization": "Bearer " + jeton },
+    });
+    const c = await r.json();
+    if (!r.ok) throw c.message || "Lecture refusée";
+    $("fichier-journal").textContent = c.fichier ? "Fichier : " + c.fichier : "Journal sur la console seulement.";
+    zone.replaceChildren();
+    const lignes = c.lignes.slice().reverse();
+    if (!lignes.length) {
+      const vide = document.createElement("div");
+      vide.className = "INFO";
+      vide.textContent = "Rien à ce niveau.";
+      zone.append(vide);
+    }
+    for (const l of lignes) {
+      const d = document.createElement("div");
+      const m = l.match(/^\S+ \[(\w+)/);
+      d.className = m ? m[1] : "";
+      d.textContent = l;
+      zone.append(d);
+    }
+  } catch (e) {
+    zone.replaceChildren();
+    const d = document.createElement("div");
+    d.className = "ERREUR";
+    d.textContent = String(e);
+    zone.append(d);
+  }
+}
+for (const b of document.querySelectorAll("button.niveau")) {
+  b.addEventListener("click", () => {
+    niveauJournal = b.dataset.niveau;
+    for (const x of document.querySelectorAll("button.niveau")) x.classList.toggle("actif", x === b);
+    rafraichirJournal();
+  });
+}
+$("btn-journal").addEventListener("click", rafraichirJournal);
 
 rafraichirEtat();
 // Dix secondes : assez pour voir une caisse se connecter, assez peu

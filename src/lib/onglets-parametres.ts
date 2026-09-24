@@ -12,11 +12,13 @@
 import {
   Package, Tag, Building2, Users, HardDrive, ShoppingCart,
   Percent, Banknote, XCircle, Clock, Warehouse, Barcode,
-  LayoutTemplate, FileSpreadsheet, Network, Shield,
+  FileSpreadsheet, Network, Shield, FileText, FolderOpen, BookOpen,
 } from "lucide-react";
 
 export const ONGLETS_PARAMETRES = [
   { key: "societe",       label: "Société",       icone: Building2,       droit: "parametres:modifier" },
+  // v3 (D17) : en-tête, pied, colonnes et signatures des documents.
+  { key: "documents",     label: "Documents",     icone: FileText,        droit: "parametres:modifier" },
   { key: "depots",        label: "Magasins",        icone: Warehouse,       droit: "depots:gerer" },
   { key: "articles",      label: "Articles",      icone: Package,         droit: "articles:creer" },
   { key: "codesbarres",   label: "Codes-barres",  icone: Barcode,         droit: "articles:creer" },
@@ -27,12 +29,12 @@ export const ONGLETS_PARAMETRES = [
   { key: "roles",         label: "Rôles",         icone: Shield,          droit: "utilisateurs:gerer" },
   { key: "sauvegarde",    label: "Sauvegarde",    icone: HardDrive,       droit: "sauvegarde:lancer" },
   { key: "reseau",        label: "Réseau",        icone: Network,         droit: "postes:gerer" },
+  // v3 (D-3) : les sociétés, avec leurs dates de travail (D21).
+  { key: "dossiers",      label: "Dossiers",      icone: FolderOpen,      droit: "dossiers:gerer" },
+  // v3 (E-1, D23) : le plan SYSCOHADA et les sous-comptes du dossier.
+  { key: "comptabilite",  label: "Comptabilité",  icone: BookOpen,        droit: "comptabilite:gerer" },
   { key: "tva",           label: "TVA",           icone: Percent,         droit: "chantiers:gerer" },
   { key: "dettes",        label: "Dettes fourn.", icone: Banknote,        droit: "fournisseurs:regler" },
   { key: "irrecouvrable", label: "Irrécouvrable", icone: XCircle,         droit: "chantiers:gerer" },
   { key: "avoirs",        label: "Avoirs",        icone: Clock,           droit: "avoirs:gerer" },
-  // Les modèles ouvrent l'atelier EN PLEIN ÉCRAN : il lui faut les
-  // trois colonnes et l'aperçu à taille réelle. L'onglet n'est donc
-  // qu'une porte — les autres onglets s'effacent derrière.
-  { key: "modeles",       label: "Modèles de documents", icone: LayoutTemplate, droit: "modeles:gerer" },
 ];

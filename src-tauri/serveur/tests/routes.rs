@@ -240,6 +240,324 @@ fn une_livraison_passe_avec_le_json_de_l_ecran_et_le_stock_suit() {
     assert_eq!(v["code"], "permission");
 }
 
+/// D26 et D27, par le vrai chemin : deux comptes du même rôle vendent,
+/// chacun signe sa vente ; une quantité négative est refusée par le
+/// serveur même si l'écran ne l'enverrait jamais.
+#[test]
+fn deux_comptes_du_meme_role_signent_chacun_leur_vente() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+
+    // Awa, un second compte « employe » à côté de celui de l'amorçage.
+    let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+        "nom": "Awa", "pseudo": "awa", "email": null, "motDePasse": "awa-secret", "roleNom": "employe"
+    }));
+    assert_eq!(code, 200, "{v}");
+    let se_connecter = |identifiant: &str, mdp: &str, poste: &str| -> (String, String) {
+        let (code, v) = requete(
+            port, "POST", "/connexion",
+            Some(&json!({ "identifiant": identifiant, "mot_de_passe": mdp, "poste_nom": poste, "poste_empreinte": poste, "version_protocole": 1 })),
+            None,
+        ).unwrap();
+        assert_eq!(code, 200, "{v}");
+        (v["jeton"].as_str().unwrap().to_string(), v["utilisateur_id"].as_str().unwrap().to_string())
+    };
+    let (jeton_employe, id_employe) = se_connecter("employe", "employe123", "routes-e");
+    let (jeton_awa, id_awa) = se_connecter("awa", "awa-secret", "routes-a");
+    assert_ne!(id_employe, id_awa);
+
+    let (_, a) = rpc(port, &admin, "lire_articles_avec_unites", json!({}));
+    let article = &a["donnee"][0];
+    let unite = &article["unites"][0];
+    let (_, d) = rpc(port, &admin, "lire_depot_defaut", json!({}));
+    let depot = d["donnee"]["id"].as_str().unwrap().to_string();
+    let (_, c) = rpc(port, &admin, "lire_client_generique", json!({}));
+    let client = c["donnee"]["id"].as_str().unwrap().to_string();
+    let vente = |quantite: f64| json!({
+        "clientId": client, "depotId": depot, "modeReglement": "comptant",
+        "lignes": [{
+            "article_id": article["id"], "unite_vente_id": unite["id"], "depot_source_id": depot,
+            "source_approvisionnement": "stock", "quantite": quantite, "facteur": unite["facteur"],
+            "prix_reference": unite["prix_reference"], "prix_pratique": unite["prix_reference"]
+        }]
+    });
+
+    // Awa vend en premier, puis le compte de l'amorçage.
+    let (code, v) = rpc(port, &jeton_awa, "creer_vente", vente(1.0));
+    assert_eq!(code, 200, "{v}");
+    let vente_awa = v["donnee"]["vente_id"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &jeton_employe, "creer_vente", vente(1.0));
+    assert_eq!(code, 200, "{v}");
+    let vente_employe = v["donnee"]["vente_id"].as_str().unwrap().to_string();
+
+    // D27 : une quantité négative, envoyée à la main, est refusée.
+    let (code, v) = rpc(port, &jeton_awa, "creer_vente", vente(-3.0));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap_or("").contains("Quantité"), "{v}");
+
+    let base = rusqlite::Connection::open(&srv.base).unwrap();
+    let auteur = |vente: &str| -> String {
+        base.query_row("SELECT auteur_id FROM vente WHERE id = ?1", [vente], |r| r.get(0)).unwrap()
+    };
+    assert_eq!(auteur(&vente_awa), id_awa, "la vente d'Awa est signée par Awa");
+    assert_eq!(auteur(&vente_employe), id_employe);
+}
+
+#[test]
+fn l_historique_se_lit_avec_journal_lire_et_nomme_qui_a_vendu() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+
+    let (code, _) = rpc(port, &admin, "creer_utilisateur", json!({
+        "nom": "Awa Traoré", "pseudo": "awa", "email": null, "motDePasse": "awa-secret", "roleNom": "employe"
+    }));
+    assert_eq!(code, 200);
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "awa", "mot_de_passe": "awa-secret", "poste_nom": "h", "poste_empreinte": "routes-h", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let awa = v["jeton"].as_str().unwrap().to_string();
+
+    let (_, a) = rpc(port, &admin, "lire_articles_avec_unites", json!({}));
+    let article = &a["donnee"][0];
+    let unite = &article["unites"][0];
+    let (_, d) = rpc(port, &admin, "lire_depot_defaut", json!({}));
+    let depot = d["donnee"]["id"].as_str().unwrap().to_string();
+    let (_, c) = rpc(port, &admin, "lire_client_generique", json!({}));
+    let client = c["donnee"]["id"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &awa, "creer_vente", json!({
+        "clientId": client, "depotId": depot, "modeReglement": "comptant",
+        "lignes": [{
+            "article_id": article["id"], "unite_vente_id": unite["id"], "depot_source_id": depot,
+            "source_approvisionnement": "stock", "quantite": 1.0, "facteur": unite["facteur"],
+            "prix_reference": unite["prix_reference"], "prix_pratique": unite["prix_reference"]
+        }]
+    }));
+    assert_eq!(code, 200, "{v}");
+
+    // Le JSON tel que l'écran l'envoie : `filtre`, champs vides à null.
+    let filtre = |recherche: &str| json!({ "filtre": {
+        "du": null, "au": null, "auteur_id": null, "type_evenement": "vente_creee",
+        "tiers_id": null, "piece_id": null, "article_id": null,
+        "recherche": recherche, "page": 0, "par_page": 50
+    }});
+    let (code, v) = rpc(port, &admin, "lire_historique", filtre("awa"));
+    assert_eq!(code, 200, "{v}");
+    let lignes = v["donnee"]["lignes"].as_array().unwrap();
+    assert_eq!(lignes.len(), 1, "la vente d'Awa, trouvée par son nom : {v}");
+    assert_eq!(lignes[0]["auteur_nom"], "Awa Traoré");
+    assert_eq!(lignes[0]["libelle_type"], "Vente");
+
+    let (code, v) = rpc(port, &admin, "lire_filtres_historique", json!({}));
+    assert_eq!(code, 200, "{v}");
+    assert!(v["donnee"]["auteurs"].as_array().unwrap().iter().any(|a| a["nom"] == "Awa Traoré"));
+
+    // Un employé n'a pas `journal:lire` : le serveur refuse, quel que
+    // soit l'écran.
+    let (code, v) = rpc(port, &awa, "lire_historique", filtre(""));
+    assert_ne!(code, 200, "{v}");
+    assert!(v.to_string().contains("journal:lire"), "le refus nomme la permission : {v}");
+    let (code, _) = rpc(port, &awa, "lire_filtres_historique", json!({}));
+    assert_ne!(code, 200);
+}
+
+#[test]
+fn les_erreurs_d_une_caisse_arrivent_au_journal_et_la_onzieme_est_jetee() {
+    let srv = lancer();
+    let port = srv.port;
+    let (jeton, _) = connexion(port);
+
+    // Sans jeton : refusé, et rien d'écrit sous [POSTE ].
+    let (code, _) = requete(port, "POST", "/journal-poste", Some(&json!({ "message": "anonyme" })), None).unwrap();
+    assert_eq!(code, 401);
+
+    // Plus de 4 Ko : refusé sans être lu.
+    let gros = json!({ "page": "ventes", "message": "x".repeat(5000) });
+    let (code, _) = requete(port, "POST", "/journal-poste", Some(&gros), Some(&jeton)).unwrap();
+    assert_eq!(code, 413);
+
+    // Dix passent — dont une qui essaie d'écrire une fausse ligne.
+    for i in 0..10 {
+        let message = if i == 0 {
+            "TypeError: boum\n2026-01-01T00:00:00 [ERREUR] ligne fabriquée".to_string()
+        } else {
+            format!("erreur n°{i}")
+        };
+        let (code, v) = requete(port, "POST", "/journal-poste",
+            Some(&json!({ "page": "ventes", "message": message, "pile": "at f (Ventes.tsx:12)", "genre": "erreur" })),
+            Some(&jeton)).unwrap();
+        assert_eq!(code, 200, "envoi {i} : {v}");
+    }
+    // La onzième de la minute est jetée ; la douzième aussi, sans ligne.
+    let (code, v) = requete(port, "POST", "/journal-poste", Some(&json!({ "message": "onze" })), Some(&jeton)).unwrap();
+    assert_eq!(code, 429, "{v}");
+    let (code, _) = requete(port, "POST", "/journal-poste", Some(&json!({ "message": "douze" })), Some(&jeton)).unwrap();
+    assert_eq!(code, 429);
+
+    let journal = std::fs::read_to_string(srv.base.with_extension("log")).expect("journal technique");
+    let postes: Vec<&str> = journal.lines().filter(|l| l.contains("[POSTE ]")).collect();
+    assert_eq!(postes.len(), 10, "{journal}");
+    assert!(postes[0].contains("POST /journal-poste · Caisse test · ventes · TypeError: boum"), "{}", postes[0]);
+    assert!(postes[0].contains("pile : at f (Ventes.tsx:12)"), "{}", postes[0]);
+    assert!(!journal.lines().any(|l| l.starts_with("2026-01-01")), "aucune fausse ligne : {journal}");
+    assert_eq!(journal.matches("les suivantes sont jetées").count(), 1, "le trop-plein est dit une fois : {journal}");
+    assert!(!journal.contains("onze") && !journal.contains("douze"), "{journal}");
+}
+
+#[test]
+fn le_journal_technique_se_lit_depuis_la_console_avec_la_permission_de_sauvegarde() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+
+    // Un refus, pour avoir une ligne REFUS.
+    let (code, _) = rpc(port, &admin, "commande_qui_n_existe_pas", json!({}));
+    assert_eq!(code, 404);
+
+    let (code, v) = requete(port, "GET", "/journal", None, None).unwrap();
+    assert_eq!(code, 401, "{v}");
+
+    let (code, v) = requete(port, "GET", "/journal?n=200", None, Some(&admin)).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let lignes = v["lignes"].as_array().unwrap();
+    assert!(lignes.iter().any(|l| l.as_str().unwrap().contains("Serveur démarré")), "{v}");
+    assert!(lignes.len() <= 200);
+
+    let (code, v) = requete(port, "GET", "/journal?niveau=REFUS", None, Some(&admin)).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let refus = v["lignes"].as_array().unwrap();
+    assert!(!refus.is_empty());
+    assert!(refus.iter().all(|l| l.as_str().unwrap().contains("[REFUS ]")), "{v}");
+    assert!(refus.iter().any(|l| l.as_str().unwrap().contains("commande_qui_n_existe_pas")), "{v}");
+
+    let (code, _) = requete(port, "GET", "/journal?niveau=BAVARD", None, Some(&admin)).unwrap();
+    assert_eq!(code, 400);
+
+    // L'employé n'a pas `sauvegarde:lancer` : pas de journal.
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "employe", "mot_de_passe": "employe123", "poste_nom": "j", "poste_empreinte": "routes-j", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let employe = v["jeton"].as_str().unwrap().to_string();
+    let (code, v) = requete(port, "GET", "/journal", None, Some(&employe)).unwrap();
+    assert_eq!(code, 403, "{v}");
+
+    // La console porte l'onglet, et écrit les lignes en texte.
+    let mut flux = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    flux.write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap();
+    let mut page = String::new();
+    flux.read_to_string(&mut page).unwrap();
+    assert!(page.contains("id=\"carte-journal\"") && page.contains("d.textContent = l"), "la console a son journal");
+}
+
+#[test]
+fn le_caissier_recoit_prix_achat_null_et_pas_le_tableau_de_bord() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+    let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+        "nom": "Fanta", "pseudo": "fanta", "email": null, "motDePasse": "fanta-secret", "roleNom": "caissier"
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "fanta", "mot_de_passe": "fanta-secret", "poste_nom": "c", "poste_empreinte": "routes-c1", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let caissier = v["jeton"].as_str().unwrap().to_string();
+
+    // Le patron lit le coût ; le caissier reçoit null — pas un zéro.
+    let (code, v) = rpc(port, &admin, "lire_etat_stock", json!({}));
+    assert_eq!(code, 200, "{v}");
+    assert!(v["donnee"]["lignes"][0]["prix_achat"].is_i64(), "{v}");
+    let (code, v) = rpc(port, &caissier, "lire_etat_stock", json!({}));
+    assert_eq!(code, 200, "{v}");
+    assert!(v["donnee"]["lignes"][0]["prix_achat"].is_null(), "{v}");
+    assert!(v["donnee"]["valeur_totale"].is_null(), "{v}");
+    assert!(v["donnee"]["lignes"][0]["quantite"].is_number(), "le stock se lit : {v}");
+    let (_, v) = rpc(port, &caissier, "lire_articles_avec_unites", json!({}));
+    assert!(v["donnee"].as_array().unwrap().iter().all(|a| a["dernier_prix_achat"].is_null()), "{v}");
+
+    // Le tableau de bord chiffré : refusé, et le refus nomme la permission.
+    let (code, v) = rpc(port, &caissier, "lire_resume_dashboard", json!({}));
+    assert_eq!(code, 403, "{v}");
+    assert!(v.to_string().contains("rapports:lire"), "{v}");
+    let (code, _) = rpc(port, &admin, "lire_resume_dashboard", json!({}));
+    assert_eq!(code, 200);
+
+    // Ce que doivent les clients : masqué dans la liste, refusé en relevé.
+    let (code, v) = rpc(port, &caissier, "lire_clients_pagines", json!({ "page": 0, "limite": 20, "avecCreancesSeulement": true, "tri": "creance" }));
+    assert_eq!(code, 200, "{v}");
+    let donnees = v["donnee"]["donnees"].as_array().unwrap();
+    assert!(!donnees.is_empty(), "le filtre « avec dette seulement » est neutralisé : {v}");
+    assert!(donnees.iter().all(|c| c["total_creances"].is_null()), "{v}");
+    let (code, v) = rpc(port, &caissier, "lire_etat_creances_global", json!({}));
+    assert_eq!(code, 403, "{v}");
+}
+
+#[test]
+fn le_plafond_du_caissier_se_juge_sur_l_argument_de_la_vente() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+    let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+        "nom": "Fanta", "pseudo": "fanta", "email": null, "motDePasse": "fanta-secret", "roleNom": "caissier"
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = rpc(port, &admin, "definir_plafonds_role", json!({
+        "role": "caissier", "plafonds": { "remise_max_pct": 15.0, "remboursement_max": 50000, "credit_max": 1 }
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "fanta", "mot_de_passe": "fanta-secret", "poste_nom": "p", "poste_empreinte": "routes-c3", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let caissier = v["jeton"].as_str().unwrap().to_string();
+
+    let (_, a) = rpc(port, &admin, "lire_articles_avec_unites", json!({}));
+    let article = &a["donnee"][0];
+    let unite = &article["unites"][0];
+    let prix = unite["prix_reference"].as_i64().unwrap();
+    let (_, d) = rpc(port, &admin, "lire_depot_defaut", json!({}));
+    let depot = d["donnee"]["id"].as_str().unwrap().to_string();
+    let (_, c) = rpc(port, &admin, "lire_clients", json!({}));
+    let client = c["donnee"].as_array().unwrap().iter().find(|x| x["code"] != "CLIENT00000")
+        .map(|x| x["id"].as_str().unwrap().to_string()).unwrap();
+    let vente = |pratique: i64, mode: &str| json!({
+        "clientId": client, "depotId": depot, "modeReglement": mode,
+        "lignes": [{
+            "article_id": article["id"], "unite_vente_id": unite["id"], "depot_source_id": depot,
+            "source_approvisionnement": "stock", "quantite": 1.0, "facteur": unite["facteur"],
+            "prix_reference": prix, "prix_pratique": pratique
+        }]
+    });
+
+    // 40 % : refusé, le message dit le plafond et quoi faire.
+    let (code, v) = rpc(port, &caissier, "creer_vente", vente(prix * 60 / 100, "credit"));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap().contains("votre plafond est 15 %. Demander au patron."), "{v}");
+    // Crédit au-delà de 1 F : refusé aussi.
+    let (code, v) = rpc(port, &caissier, "creer_vente", vente(prix, "credit"));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap().starts_with("Crédit de"), "{v}");
+    // Le patron n'a pas de plafond.
+    let (code, v) = rpc(port, &admin, "creer_vente", vente(prix * 60 / 100, "credit"));
+    assert_eq!(code, 200, "{v}");
+    // Rien n'a été écrit pour la caissière.
+    let base = rusqlite::Connection::open(&srv.base).unwrap();
+    let n: i64 = base.query_row("SELECT COUNT(*) FROM vente", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 1, "seule la vente du patron");
+}
+
 #[test]
 fn une_sauvegarde_se_restaure_hors_ligne_et_le_serveur_repart_dessus() {
     // Le diagnostic disait « restaurer la dernière sauvegarde » et rien ne
@@ -310,4 +628,142 @@ fn une_sauvegarde_se_restaure_hors_ligne_et_le_serveur_repart_dessus() {
         }
     }
     let _ = std::fs::remove_dir_all(std::env::temp_dir().join(format!("gescom_routes_sauv_{port}")));
+}
+
+#[test]
+fn une_ecriture_hors_des_dates_de_travail_est_refusee_avant_d_ecrire() {
+    // v3, D-4 (D21) : le garde-fou juge la date de l'écriture — donnée,
+    // ou aujourd'hui — contre les exercices du dossier de la session.
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+
+    let (_, a) = rpc(port, &admin, "lire_articles_avec_unites", json!({}));
+    let article = &a["donnee"][0];
+    let unite = &article["unites"][0];
+    let (_, d) = rpc(port, &admin, "lire_depot_defaut", json!({}));
+    let depot = d["donnee"]["id"].as_str().unwrap().to_string();
+    let (_, c) = rpc(port, &admin, "lire_clients", json!({}));
+    let client = c["donnee"][0]["id"].as_str().unwrap().to_string();
+    let vente = |date: Option<&str>| json!({
+        "clientId": client, "depotId": depot, "modeReglement": "credit", "dateVente": date,
+        "lignes": [{
+            "article_id": article["id"], "unite_vente_id": unite["id"], "depot_source_id": depot,
+            "source_approvisionnement": "stock", "quantite": 1.0, "facteur": unite["facteur"],
+            "prix_reference": unite["prix_reference"], "prix_pratique": unite["prix_reference"]
+        }]
+    });
+
+    // Une date donnée, avant l'exercice : le refus nomme le début.
+    let (code, v) = rpc(port, &admin, "creer_vente", vente(Some("2020-05-01")));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap().starts_with("Le 1er mai 2020 est avant les dates de travail"), "{v}");
+
+    // L'exercice en cours clos : aujourd'hui ne s'écrit plus.
+    let (_, ex) = rpc(port, &admin, "lire_exercices", json!({}));
+    let id = ex["donnee"][0]["id"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &admin, "clore_exercice", json!({ "exerciceId": id }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = rpc(port, &admin, "creer_vente", vente(None));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap().contains("sont closes : on n'y écrit plus"), "{v}");
+    let (code, v) = rpc(port, &admin, "enregistrer_depense", json!({ "montant": 1000, "motif": "x", "categorie": "divers" }));
+    assert_eq!(code, 409, "même sans date donnée : {v}");
+
+    // Ce qui n'est pas une écriture datée passe toujours.
+    let (code, v) = rpc(port, &admin, "creer_client_rapide", json!({ "nom": "Toujours possible" }));
+    assert_eq!(code, 200, "{v}");
+
+    let base = rusqlite::Connection::open(&srv.base).unwrap();
+    let n: i64 = base.query_row("SELECT COUNT(*) FROM vente", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 0, "rien n'a été écrit");
+    let n: i64 = base
+        .query_row("SELECT COUNT(*) FROM journal WHERE type_evenement = 'exercice_clos'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1, "la clôture est au journal");
+}
+
+const ORIGINE: &str = "00000000-0000-0000-0000-000000000001";
+
+#[test]
+fn le_frere_n_ouvre_que_sa_quincaillerie_et_la_comptable_choisit() {
+    // v3, C-2 (décision C2) : un rôle par dossier, relu à chaque requête.
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+    let (code, d) = rpc(port, &admin, "creer_dossier", json!({ "code": "QUINC", "societe": "Quincaillerie du frère" }));
+    assert_eq!(code, 200, "{d}");
+    let quinc = d["donnee"]["id"].as_str().unwrap().to_string();
+    let creer = |pseudo: &str, role: &str| {
+        let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+            "nom": pseudo, "pseudo": pseudo, "email": null, "motDePasse": "secret-123", "roleNom": role
+        }));
+        assert_eq!(code, 200, "{v}");
+    };
+    creer("frere", "patron");
+    creer("awa", "comptable");
+    creer("moussa", "caissier");
+    let (_, u) = rpc(port, &admin, "lire_utilisateurs", json!({}));
+    let id = |pseudo: &str| u["donnee"].as_array().unwrap().iter()
+        .find(|x| x["pseudo"] == pseudo || x["nom"] == pseudo)
+        .map(|x| x["id"].as_str().unwrap().to_string()).expect(pseudo);
+    let (frere, awa) = (id("frere"), id("awa"));
+    let (code, v) = rpc(port, &admin, "definir_dossiers_utilisateur", json!({
+        "utilisateurId": frere, "dossiers": [{ "dossier_id": quinc, "role": "patron" }]
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = rpc(port, &admin, "definir_dossiers_utilisateur", json!({
+        "utilisateurId": awa, "dossiers": [{ "dossier_id": ORIGINE, "role": "comptable" }, { "dossier_id": quinc, "role": "caissier" }]
+    }));
+    assert_eq!(code, 200, "{v}");
+
+    let entrer = |pseudo: &str, dossier: Option<&str>| requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": pseudo, "mot_de_passe": "secret-123", "poste_nom": pseudo,
+                      "poste_empreinte": format!("routes-c2-{pseudo}"), "version_protocole": 1, "dossier_id": dossier })),
+        None,
+    ).unwrap();
+
+    // Le frère : un seul dossier ouvert, le sien, ouvert d'office, patron.
+    let (code, v) = entrer("frere", None);
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["dossier_id"], quinc.as_str(), "{v}");
+    assert_eq!(v["dossiers"].as_array().unwrap().len(), 1, "il ne voit que le sien : {v}");
+    assert_eq!(v["role"], "patron");
+    let perms: Vec<&str> = v["permissions"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(perms.contains(&"ventes:creer") && !perms.contains(&"utilisateurs:gerer"), "{perms:?}");
+    let jeton_frere = v["jeton"].as_str().unwrap().to_string();
+    let (_, c) = rpc(port, &jeton_frere, "lire_clients", json!({}));
+    assert_eq!(c["donnee"].as_array().unwrap().len(), 1, "ses clients : son client de passage, pas les tiens");
+    let (code, v) = rpc(port, &jeton_frere, "creer_utilisateur", json!({
+        "nom": "x", "pseudo": "x", "email": null, "motDePasse": "secret-123", "roleNom": "patron"
+    }));
+    assert_eq!(code, 403, "il ne se crée pas un compte qui verrait ta boutique : {v}");
+    // Ta boutique, demandée : refusée.
+    let (code, v) = entrer("frere", Some(ORIGINE));
+    assert_eq!(code, 403, "{v}");
+
+    // La comptable : deux dossiers, elle choisit ; le rôle suit le dossier.
+    let (code, v) = entrer("awa", None);
+    assert_eq!(code, 200, "{v}");
+    assert!(v["dossier_id"].is_null() && v["dossiers"].as_array().unwrap().len() == 2, "{v}");
+    let jeton_awa = v["jeton"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &jeton_awa, "choisir_dossier", json!({ "dossierId": quinc }));
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["donnee"]["role"], "caissier", "{v}");
+    assert!(!v["donnee"]["permissions"].as_array().unwrap().iter().any(|p| p == "journal:lire"), "caissière ici : {v}");
+
+    // Le caissier sans ligne : le dossier d'origine seulement.
+    let (code, v) = entrer("moussa", None);
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["dossier_id"], ORIGINE);
+    assert_eq!(v["dossiers"].as_array().unwrap().len(), 1);
+
+    // Le frère perd sa quincaillerie : sa session tombe à la requête suivante.
+    let (code, v) = rpc(port, &admin, "definir_dossiers_utilisateur", json!({
+        "utilisateurId": frere, "dossiers": [{ "dossier_id": ORIGINE, "role": "caissier" }]
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = rpc(port, &jeton_frere, "lire_clients", json!({}));
+    assert_eq!(code, 401, "{v}");
 }

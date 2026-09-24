@@ -57,10 +57,10 @@ pub struct Permission {
 /// dans aucune commande serait une case a cocher sans effet, et c'est
 /// pire que pas de case du tout.
 ///
-/// ⚠️ Les LECTURES ne sont pas encore filtrees : `r.lecture(…)` ne
-/// demande aucune permission. N'importe quel utilisateur connecte peut
-/// donc tout lire. Le catalogue ne contient volontairement aucune
-/// permission en `:lire` tant que c'est vrai.
+/// ⚠️ La plupart des LECTURES ne sont pas filtrees : `r.lecture(…)` ne
+/// demande aucune permission. La v3 ajoute des permissions de lecture
+/// une par une (C1), et seulement la ou une commande les verifie :
+/// `journal:lire` (B-1) garde l'Historique.
 pub const CATALOGUE: &[Permission] = &[
     // --- Vente ---
     Permission { code: "ventes:creer", libelle: "Enregistrer une vente", groupe: "Vente" },
@@ -78,7 +78,6 @@ pub const CATALOGUE: &[Permission] = &[
     // `acces_total` ou se donne a la main.
     Permission { code: "avoirs:accorder", libelle: "Accorder un avoir sans marchandise (geste commercial)", groupe: "Pièces" },
     Permission { code: "livraisons:enregistrer", libelle: "Enregistrer livraisons et réceptions", groupe: "Pièces" },
-    Permission { code: "modeles:gerer", libelle: "Modifier les modèles de documents", groupe: "Pièces" },
     // Antidater une vente en especes est la facon de masquer un trou
     // dans le tiroir : ce droit se donne, il ne s'herite pas du role
     // « caissier ».
@@ -104,6 +103,26 @@ pub const CATALOGUE: &[Permission] = &[
     Permission { code: "postes:gerer", libelle: "Gérer les postes du réseau", groupe: "Administration" },
     Permission { code: "sauvegarde:lancer", libelle: "Lancer une sauvegarde", groupe: "Administration" },
     Permission { code: "chantiers:gerer", libelle: "TVA, irrécouvrables, expiration des avoirs", groupe: "Administration" },
+    // v3, E-1 (D23) : les sous-comptes du dossier, puis (E-2) quelle
+    // operation va sur quel compte. Le comptable la porte d'office.
+    Permission { code: "comptabilite:gerer", libelle: "Ajouter des sous-comptes et régler les affectations comptables", groupe: "Administration" },
+    // --- Gescom Equipe (PLAN-EQUIPE, D28-D34) ---
+    Permission { code: "personnel:gerer", libelle: "Créer et modifier les fiches du personnel", groupe: "Équipe" },
+    Permission { code: "personnel:avancer", libelle: "Donner une avance sur salaire (sortie de caisse)", groupe: "Équipe" },
+    Permission { code: "paie:preparer", libelle: "Préparer les fiches de paie et voir les salaires", groupe: "Équipe" },
+    Permission { code: "paie:valider", libelle: "Valider et payer les fiches de paie", groupe: "Équipe" },
+    Permission { code: "crm:suivre", libelle: "Suivre les clients : échanges, rappels, prospects", groupe: "Équipe" },
+    // --- Lecture (v3, C1) ---
+    // Ce qu'un patron veut vraiment cacher, et rien de plus : cinq
+    // permissions, pas une par commande. La table de ce que chacune
+    // refuse ou masque est dans `coeur::lecture`. Le patron les a par
+    // `acces_total` ; le comptable toutes sauf `caisse:lire_autres` ;
+    // caissier, magasinier, employe aucune (D19).
+    Permission { code: "achats:lire_prix", libelle: "Voir les prix d'achat, les marges et la valeur du stock", groupe: "Lecture" },
+    Permission { code: "rapports:lire", libelle: "Voir le tableau de bord chiffré, les rapports et le cahier du jour", groupe: "Lecture" },
+    Permission { code: "tiers:lire_solde", libelle: "Voir ce que doivent les clients et ce qu'on doit aux fournisseurs", groupe: "Lecture" },
+    Permission { code: "journal:lire", libelle: "Lire l'historique (qui a fait quoi)", groupe: "Lecture" },
+    Permission { code: "caisse:lire_autres", libelle: "Voir les sessions de caisse ouvertes par les autres", groupe: "Lecture" },
 ];
 
 /// Cette permission existe-t-elle ?
@@ -275,8 +294,33 @@ pub fn permissions_de_sur(
         )
         .unwrap_or_default();
 
-    calculer_permissions(role, &ligne.0, ligne.1 != 0, &reglages)
+    let mut permissions = calculer_permissions(role, &ligne.0, ligne.1 != 0, &reglages);
+    // v3, C-2 : qui n'a que certains dossiers ne touche pas a ce qui est
+    // commun a TOUS — les comptes et les roles, les postes, la base
+    // entiere, les parametres de la societe. Sinon le frere, patron de
+    // sa quincaillerie, se creerait un compte qui voit ta boutique.
+    let restreint = base
+        .lire_une(
+            "SELECT CAST(COUNT(*) AS BIGINT) FROM utilisateur_dossier WHERE utilisateur_id = ?1",
+            &crate::parametres![utilisateur_id],
+            |r| r.get::<i64>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0)
+        > 0;
+    if restreint {
+        for p in PERMISSIONS_DE_TOUTE_LA_BASE {
+            permissions.remove(*p);
+        }
+    }
+    permissions
 }
+
+/// Ce qui touche tous les dossiers a la fois : reserve a qui les voit
+/// tous (v3, C-2).
+pub const PERMISSIONS_DE_TOUTE_LA_BASE: &[&str] =
+    &["utilisateurs:gerer", "postes:gerer", "sauvegarde:lancer", "parametres:modifier"];
 
 /// Cette personne peut-elle faire cela ?
 ///

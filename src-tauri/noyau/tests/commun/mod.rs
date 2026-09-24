@@ -24,6 +24,17 @@ pub fn base_avec_demo() -> Base {
     };
     amorcage::amorcer(&mut base).expect("amorçage");
     amorcage::donnees_demo(&mut base).expect("démo");
+    // v3, D-6 : `GESCOM_PG_LIMITE=1` rejoue les scenarios sous le compte
+    // limite — le moteur refuse alors ce qui sort du dossier de la
+    // session. Ce qui passe ici passera chez un commercant ainsi installe.
+    if let (Ok(url), Ok(_)) = (std::env::var("GESCOM_PG"), std::env::var("GESCOM_PG_LIMITE")) {
+        const NOM: &str = "gescom_scenarios_limite";
+        const MDP: &str = "scenarios-limite-2026";
+        amorcage::poser_compte_limite(&mut base, NOM, MDP).expect("compte limité");
+        let (schema, reste) = url.split_once("://").expect("URL");
+        let hote = reste.rsplit_once('@').map(|(_, h)| h).unwrap_or(reste);
+        return Base::ouvrir(&format!("{schema}://{NOM}:{MDP}@{hote}")).expect("connexion limitée");
+    }
     base
 }
 

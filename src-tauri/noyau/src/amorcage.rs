@@ -121,7 +121,7 @@ fn roles() -> Vec<(&'static str, &'static str, bool, bool, &'static str)> {
             "Créances, chèques, TVA, règlements fournisseurs.",
             false,
             false,
-            r#"["creances:gerer","cheques:gerer","fournisseurs:regler","avoirs:gerer","chantiers:gerer"]"#,
+            r#"["creances:gerer","cheques:gerer","fournisseurs:regler","avoirs:gerer","chantiers:gerer","journal:lire","achats:lire_prix","rapports:lire","tiers:lire_solde","comptabilite:gerer"]"#,
         ),
     ]
 }
@@ -160,30 +160,10 @@ fn tables_v2(base: &mut Base) {
             derniere_vue    TEXT,
             dossier_id      TEXT
          )",
-        "CREATE TABLE IF NOT EXISTS modele_document (
-            id           TEXT PRIMARY KEY,
-            genre        TEXT NOT NULL,
-            nom          TEXT NOT NULL,
-            format       TEXT NOT NULL,
-            contenu      TEXT NOT NULL,
-            est_defaut   INTEGER NOT NULL DEFAULT 0,
-            actif        INTEGER NOT NULL DEFAULT 0,
-            cree_le      TEXT NOT NULL,
-            modifie_le   TEXT NOT NULL,
-            modifie_par  TEXT
-         )",
-        // Les images POSEES sur un document — cachet, signature, QR — par
-        // opposition aux trois images de la societe (logo, en-tete, pied).
-        // Une identite par image : vingt blocs Image ne pointent plus sur
-        // trois fichiers. Le fichier vit chez le serveur, comme D8 ; la
-        // table ne garde que de quoi le retrouver et le nommer.
-        "CREATE TABLE IF NOT EXISTS image_document (
-            id           TEXT PRIMARY KEY,
-            nom          TEXT NOT NULL,
-            chemin       TEXT NOT NULL,
-            taille       INTEGER NOT NULL DEFAULT 0,
-            cree_le      TEXT NOT NULL
-         )",
+        // L'atelier de modeles est parti avec la v3 (D17) : ses deux
+        // tables aussi, sur les bases qui les ont eues.
+        "DROP TABLE IF EXISTS modele_document",
+        "DROP TABLE IF EXISTS image_document",
         "ALTER TABLE session_caisse ADD COLUMN poste_id TEXT",
         "ALTER TABLE session_caisse ADD COLUMN utilisateur_id TEXT",
         // Le poste qui a saisi le mouvement — pose par v2.rs cote
@@ -206,6 +186,7 @@ fn tables_v2(base: &mut Base) {
         "ALTER TABLE piece_commerciale ADD COLUMN reference TEXT",
         // v3 : le dossier ouvert par la session (NULL = dossier d'origine).
         "ALTER TABLE session_reseau ADD COLUMN dossier_id TEXT",
+        "ALTER TABLE session_reseau ADD COLUMN derniere_commande TEXT",
     ] {
         let _ = base.executer(&adapter(sql), &[]);
     }
@@ -239,6 +220,14 @@ fn colonnes_roles(base: &mut Base) {
         "ALTER TABLE role ADD COLUMN acces_total INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE role ADD COLUMN protege INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE role ADD COLUMN description TEXT",
+        // v3, C-3 : les plafonds du role. Vide = pas de plafond.
+        "ALTER TABLE role ADD COLUMN remise_max_pct REAL",
+        "ALTER TABLE role ADD COLUMN remboursement_max INTEGER",
+        "ALTER TABLE role ADD COLUMN credit_max INTEGER",
+        // Equipe, G-1 : le plafond des avances d'une personne (la table
+        // `employe` a pu naitre en F-2, sans lui).
+        "ALTER TABLE employe ADD COLUMN avance_max INTEGER",
+        "ALTER TABLE avance ADD COLUMN annule_le TEXT",
         "CREATE TABLE IF NOT EXISTS utilisateur_permission (
             utilisateur_id TEXT NOT NULL REFERENCES utilisateur(id),
             permission     TEXT NOT NULL,
@@ -291,6 +280,104 @@ fn acces_total_toujours_reaffirme(base: &mut Base) {
     let _ = base.executer(
         "UPDATE role SET acces_total = 1 WHERE nom IN ('patron', 'superadmin')",
         &[],
+    );
+}
+
+/// Les migrations de DONNEES de la v3 — sur `Base`, appelees par
+/// `amorcer` (PostgreSQL) et par le serveur au demarrage d'un fichier
+/// SQLite (qui ne passe pas par `amorcer`). Chacune se fait une fois ou
+/// est idempotente.
+pub fn migrations_de_donnees(base: &mut Base) {
+    lectures_du_comptable(base);
+    donner_au_role(base, "comptable", "migration_v3_comptabilite", &["comptabilite:gerer"]);
+    // Equipe (F-1, PLAN-EQUIPE) : le comptable prepare la paie ; ceux
+    // qui sont au comptoir suivent les clients.
+    donner_au_role(base, "comptable", "migration_equipe_comptable", &["paie:preparer", "crm:suivre"]);
+    donner_au_role(base, "caissier", "migration_equipe_caissier", &["crm:suivre"]);
+    donner_au_role(base, "employe", "migration_equipe_employe", &["crm:suivre"]);
+    if let Err(e) = crate::plan_comptable::semer_sur(base) {
+        eprintln!("Plan comptable : {e}");
+    }
+}
+
+/// Ajoute des permissions a un role livre d'une base installee, une
+/// fois (marque `cle`) : rejouee, elle reprendrait ce que le patron a
+/// retire. Un role absent (base pas encore amorcee) ne pose pas la
+/// marque : la migration se fera quand il existera.
+fn donner_au_role(base: &mut Base, role: &str, cle: &str, permissions: &[&str]) {
+    let deja = base
+        .lire_une("SELECT valeur FROM config_app WHERE cle = ?1", &parametres![cle], |r| r.get::<String>(0))
+        .ok()
+        .flatten()
+        .is_some();
+    if deja {
+        return;
+    }
+    let actuelles = base
+        .lire_une("SELECT permissions FROM role WHERE nom = ?1", &parametres![role], |r| r.get::<String>(0))
+        .ok()
+        .flatten();
+    let Some(json) = actuelles else { return };
+    let mut liste: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+    for p in permissions {
+        if !liste.iter().any(|x| x == p) {
+            liste.push(p.to_string());
+        }
+    }
+    let _ = base.executer(
+        "UPDATE role SET permissions = ?1, modifie_le = ?2 WHERE nom = ?3",
+        &parametres![serde_json::to_string(&liste).unwrap_or_else(|_| json.clone()), maintenant_iso(), role],
+    );
+    let _ = base.executer(
+        "INSERT INTO config_app (cle, valeur) VALUES (?1, ?2) ON CONFLICT (cle) DO NOTHING",
+        &parametres![cle, maintenant_iso()],
+    );
+}
+
+/// v3, C-1 : le comptable d'une base DEJA installee recoit les
+/// permissions de lecture que son role porte sur une base neuve
+/// (`journal:lire`, `achats:lire_prix`, `rapports:lire`,
+/// `tiers:lire_solde`) — sans quoi la mise a jour lui retirerait le
+/// tableau de bord et les releves qu'il lisait la veille.
+///
+/// Appelee par `amorcer` (PostgreSQL, bases neuves) ET par le serveur
+/// sur une base fichier, qui passe par `persistance::initialiser_tables`
+/// et jamais par `amorcer` : sans ce second appel, le comptable d'une
+/// base SQLite installee perdait son tableau de bord a la mise a jour
+/// (trouve par le banc).
+///
+/// **Une seule fois** (marque `migration_v3_lectures` dans
+/// `config_app`) : si le patron les lui retire ensuite, le prochain
+/// demarrage ne les lui rend pas.
+pub fn lectures_du_comptable(base: &mut Base) {
+    let deja = base
+        .lire_une("SELECT valeur FROM config_app WHERE cle = 'migration_v3_lectures'", &[], |r| r.get::<String>(0))
+        .ok()
+        .flatten()
+        .is_some();
+    if deja {
+        return;
+    }
+    let actuelles = base
+        .lire_une("SELECT permissions FROM role WHERE nom = 'comptable'", &[], |r| r.get::<String>(0))
+        .ok()
+        .flatten();
+    if let Some(json) = actuelles {
+        let mut liste: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+        for p in ["journal:lire", "achats:lire_prix", "rapports:lire", "tiers:lire_solde"] {
+            if !liste.iter().any(|x| x == p) {
+                liste.push(p.to_string());
+            }
+        }
+        let _ = base.executer(
+            "UPDATE role SET permissions = ?1, modifie_le = ?2 WHERE nom = 'comptable'",
+            &parametres![serde_json::to_string(&liste).unwrap_or_else(|_| json.clone()), maintenant_iso()],
+        );
+    }
+    let _ = base.executer(
+        "INSERT INTO config_app (cle, valeur) VALUES ('migration_v3_lectures', ?1)
+         ON CONFLICT (cle) DO NOTHING",
+        &parametres![maintenant_iso()],
     );
 }
 
@@ -462,9 +549,9 @@ fn trigger_stock(base: &mut Base) {
             "CREATE OR REPLACE FUNCTION gescom_stock_suit_les_mouvements()
              RETURNS trigger LANGUAGE plpgsql AS $$
              BEGIN
-                 INSERT INTO stock_depot (id, article_id, depot_id, quantite)
+                 INSERT INTO stock_depot (id, article_id, depot_id, quantite, dossier_id)
                  VALUES (md5(random()::text || clock_timestamp()::text),
-                         NEW.article_id, NEW.depot_id, NEW.quantite_delta)
+                         NEW.article_id, NEW.depot_id, NEW.quantite_delta, NEW.dossier_id)
                  ON CONFLICT (article_id, depot_id)
                  DO UPDATE SET quantite = stock_depot.quantite + NEW.quantite_delta;
                  RETURN NEW;
@@ -476,24 +563,24 @@ fn trigger_stock(base: &mut Base) {
                  FOR EACH ROW EXECUTE FUNCTION gescom_stock_suit_les_mouvements();",
         );
     } else {
-        let _ = base.executer_lot(
-            "CREATE TRIGGER IF NOT EXISTS stock_suit_les_mouvements
-             AFTER INSERT ON mouvement_stock
-             BEGIN
-               INSERT INTO stock_depot (id, article_id, depot_id, quantite)
-               VALUES (lower(hex(randomblob(16))), NEW.article_id, NEW.depot_id,
-                       NEW.quantite_delta)
-               ON CONFLICT(article_id, depot_id)
-               DO UPDATE SET quantite = quantite + NEW.quantite_delta;
-             END;",
-        );
+        // D-1 : le dossier du mouvement, pas la valeur par defaut.
+        let _ = base.executer_lot(crate::dossiers::DECLENCHEUR_STOCK_SQLITE);
     }
+    let _ = base.executer(crate::dossiers::REPARER_STOCK_DOSSIER, &[]);
 }
 
 /// Amorce une base neuve. Ne fait rien si elle ne l'est pas.
 ///
 /// Rend `true` si l'amorcage a eu lieu.
 pub fn amorcer(base: &mut Base) -> Resultat<bool> {
+    // v3, D-6 : le compte limite ne touche pas au schema. Le dire, plutot
+    // qu'un « permission denied for schema public » sans remede.
+    if base.est_postgres() && !base.peut_migrer() {
+        return Err(crate::base::Erreur(
+            "Compte PostgreSQL limité : les migrations se font avec le compte propriétaire (gescom-serveur --base <adresse du propriétaire> --compte-limite NOM)."
+                .to_string(),
+        ));
+    }
     creer_schema(base)?;
     tables_v2(base);
     colonnes_roles(base);
@@ -501,6 +588,12 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
     etiquette_magasin(base);
     cloisonnement(base);
     trigger_stock(base);
+    migrations_de_donnees(base);
+    // v3, D-5 : une base qui existait devient un dossier a son nom, et
+    // a ses dates. Une base neuve : rien a faire, la marque est posee.
+    if let Err(e) = crate::dossiers::migrer_dossier_d_origine_sur(base) {
+        eprintln!("Migration du dossier d'origine : {e}");
+    }
 
     if !base_est_vide(base)? {
         return Ok(false);
@@ -585,6 +678,10 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
          ON CONFLICT (id) DO NOTHING",
         &parametres![now],
     )?;
+
+    // Les roles existent maintenant : les migrations qui leur ajoutent
+    // des droits (et qui attendaient qu'ils existent) passent.
+    migrations_de_donnees(base);
 
     Ok(true)
 }
@@ -730,4 +827,131 @@ pub fn donnees_demo(base: &mut Base) -> Resultat<(usize, usize)> {
     }
 
     Ok((nb_articles, clients.len()))
+}
+
+// =====================================================================
+//  LE COMPTE POSTGRESQL LIMITE (v3, D-6 — D10)
+// =====================================================================
+//
+// Le logiciel se connectait avec `postgres`, le compte tout-puissant :
+// pour lui, PostgreSQL ne refuse rien. La separation des dossiers
+// reposait donc sur le code seul — le detecteur arrete un filtre oublie
+// pendant les tests, mais si le test manque, deux commerces se melangent
+// en silence (PLAN-MULTISOCIETE, decision 7).
+//
+// Le compte limite lit et ecrit les donnees, et rien d'autre : ni
+// schema, ni roles, ni contournement du cloisonnement. Sur chaque table
+// cloisonnee, une politique de ligne (RLS) ne lui montre et ne le laisse
+// ecrire QUE le dossier de sa session (`gescom_dossier()`). Le
+// proprietaire garde la main (il n'est pas soumis aux politiques) : c'est
+// lui qui migre, avec `gescom-serveur --compte-limite NOM`, a chaque mise
+// a jour. Le mot de passe ne s'ecrit nulle part dans le depot (D10).
+
+/// Un nom de role PostgreSQL sans guillemets : lettres, chiffres, `_`.
+pub fn nom_de_compte_valide(nom: &str) -> Result<String, String> {
+    let n = nom.trim();
+    let ok = !n.is_empty()
+        && n.len() <= 63
+        && n.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c == '_')
+        && n.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    if !ok || n == "postgres" || n.starts_with("pg_") {
+        return Err(format!(
+            "Nom de compte refusé : « {n} ». Minuscules, chiffres et _ ; ni postgres ni pg_…"
+        ));
+    }
+    Ok(n.to_string())
+}
+
+/// Les instructions qui cloisonnent une table pour le compte limite.
+/// `exercice` se LIT dans tous les dossiers (des dates, rien de secret :
+/// la liste des dossiers compte leurs exercices ouverts) et ne s'ecrit
+/// que dans le sien. Pure.
+pub fn politiques_de(table: &str) -> Vec<String> {
+    let mut v = vec![
+        format!("ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"),
+        format!("DROP POLICY IF EXISTS gescom_cloison ON {table}"),
+        format!(
+            "CREATE POLICY gescom_cloison ON {table} \
+             USING (dossier_id = gescom_dossier()) WITH CHECK (dossier_id = gescom_dossier())"
+        ),
+        format!("DROP POLICY IF EXISTS gescom_lecture ON {table}"),
+    ];
+    if table == "exercice" {
+        v.push(format!("CREATE POLICY gescom_lecture ON {table} FOR SELECT USING (true)"));
+    }
+    v
+}
+
+/// Cree (ou remet d'aplomb) le compte limite, ses droits, et le
+/// cloisonnement par le moteur. A lancer avec le compte PROPRIETAIRE,
+/// apres `amorcer`. Rejouable : a chaque mise a jour, il couvre les
+/// tables nees depuis.
+pub fn poser_compte_limite(base: &mut Base, nom: &str, mot_de_passe: &str) -> Result<(), String> {
+    if !base.est_postgres() {
+        return Err("Le compte limité est propre à PostgreSQL : sur SQLite, il n'y a pas de comptes.".to_string());
+    }
+    let nom = nom_de_compte_valide(nom)?;
+    if mot_de_passe.chars().count() < 12 {
+        return Err("Mot de passe du compte limité : 12 caractères au moins.".to_string());
+    }
+    let existe = base
+        .lire_une("SELECT rolname::text FROM pg_roles WHERE rolname = ?1", &parametres![nom.clone()], |r| r.get::<String>(0))
+        .map_err(|e| e.0)?
+        .is_some();
+    // Le mot de passe ne se concatene pas : PostgreSQL le cite lui-meme
+    // (`format(%L)`), et l'instruction obtenue s'execute ensuite.
+    let verbe = if existe { "ALTER" } else { "CREATE" };
+    let instruction: String = base
+        .lire_une(
+            &format!(
+                "SELECT format('{verbe} ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS \
+                 NOREPLICATION PASSWORD %L', ?1::text, ?2::text)"
+            ),
+            &parametres![nom.clone(), mot_de_passe],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+        .ok_or("format() n'a rien rendu")?;
+    base.executer_lot(&instruction).map_err(|e| e.0)?;
+
+    let base_courante: String = base
+        .lire_une("SELECT format('%I', current_database())", &[], |r| r.get::<String>(0))
+        .map_err(|e| e.0)?
+        .unwrap_or_default();
+    let mut lot = vec![
+        format!("REVOKE CREATE ON SCHEMA public FROM {nom}"),
+        format!("GRANT CONNECT ON DATABASE {base_courante} TO {nom}"),
+        format!("GRANT USAGE ON SCHEMA public TO {nom}"),
+        format!("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {nom}"),
+        format!("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {nom}"),
+        format!("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO {nom}"),
+        format!("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {nom}"),
+        format!("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {nom}"),
+    ];
+    for table in crate::dossiers::TABLES_CLOISONNEES {
+        lot.extend(politiques_de(table));
+    }
+    base.executer_lot(&(lot.join(";\n") + ";")).map_err(|e| e.0)
+}
+
+#[cfg(test)]
+mod tests_compte_limite {
+    use super::*;
+
+    #[test]
+    fn un_nom_de_compte_se_juge() {
+        assert_eq!(nom_de_compte_valide(" gescom_app ").unwrap(), "gescom_app");
+        for mauvais in ["", "Gescom", "1app", "app;drop", "postgres", "pg_x", "a b", "é"] {
+            assert!(nom_de_compte_valide(mauvais).is_err(), "{mauvais}");
+        }
+    }
+
+    #[test]
+    fn chaque_table_cloisonnee_a_sa_politique_et_exercice_se_lit_partout() {
+        let p = politiques_de("vente");
+        assert!(p.iter().any(|l| l.contains("ENABLE ROW LEVEL SECURITY")));
+        assert!(p.iter().any(|l| l.contains("WITH CHECK (dossier_id = gescom_dossier())")));
+        assert!(!p.iter().any(|l| l.contains("USING (true)")));
+        assert!(politiques_de("exercice").iter().any(|l| l.contains("FOR SELECT USING (true)")));
+    }
 }

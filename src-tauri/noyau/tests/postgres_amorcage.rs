@@ -254,7 +254,7 @@ fn le_catalogue_se_lit_sur_postgresql() {
     assert_eq!(depots[0]["est_defaut"], true);
 
     let articles =
-        catalogue::lire_articles_avec_unites_sur(&mut base, Some("patron".into()), None)
+        catalogue::lire_articles_avec_unites_sur(&mut base, true, None)
             .unwrap();
     assert_eq!(articles.len(), 8);
 
@@ -272,7 +272,7 @@ fn le_prix_d_achat_ne_sort_que_pour_le_patron_sur_postgresql() {
     let Some(mut base) = base_peuplee() else { return };
 
     let employe =
-        catalogue::lire_articles_avec_unites_sur(&mut base, Some("employe".into()), None)
+        catalogue::lire_articles_avec_unites_sur(&mut base, false, None)
             .unwrap();
     assert!(
         employe.iter().all(|a| a.get("dernier_prix_achat").is_none()),
@@ -287,7 +287,7 @@ fn un_depot_inconnu_retombe_sur_le_defaut_sur_postgresql() {
     use gescom_noyau::catalogue;
     let Some(mut base) = base_peuplee() else { return };
     let a = catalogue::lire_articles_avec_unites_sur(
-        &mut base, None, Some("depot-fantome".into()),
+        &mut base, false, Some("depot-fantome".into()),
     )
     .expect("l'écran doit s'ouvrir");
     assert_eq!(a.len(), 8);
@@ -558,7 +558,7 @@ fn tout_ce_qui_est_porte_passe_le_detecteur_sur_postgresql() {
     catalogue::lire_client_generique_sur(&mut base).expect("client générique");
     catalogue::lire_depots_sur(&mut base).expect("magasins");
     catalogue::lire_depot_defaut_sur(&mut base).expect("magasin par défaut");
-    catalogue::lire_articles_avec_unites_sur(&mut base, Some("patron".into()), None)
+    catalogue::lire_articles_avec_unites_sur(&mut base, true, None)
         .expect("catalogue");
 
     let client = comptoir::creer_client_rapide_sur(&mut base, "Awa".into(), None)
@@ -686,4 +686,83 @@ fn un_champ_vide_passe_sur_une_colonne_numerique() {
         None,
     )
     .expect("un article sans prix d'achat doit pouvoir naître");
+}
+
+/// v3, D-6 (D10) : le compte limite. Meme si une requete oublie le
+/// filtre de dossier ET que le test manque, PostgreSQL ne rend et
+/// n'accepte que le dossier de la session.
+#[test]
+fn le_compte_limite_ne_voit_et_n_ecrit_que_le_dossier_de_sa_session() {
+    let Some(mut proprio) = pg() else { return };
+    proprio.executer_lot("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").unwrap();
+    amorcage::amorcer(&mut proprio).unwrap();
+    amorcage::donnees_demo(&mut proprio).unwrap();
+    let defaut = gescom_noyau::dossiers::DOSSIER_DEFAUT;
+    let b = gescom_noyau::dossiers::creer_dossier_sur(&mut proprio, "B".into(), "Boutique B".into(), None, None)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    const NOM: &str = "gescom_essai_limite";
+    const MDP: &str = "essai-limite-2026";
+    amorcage::poser_compte_limite(&mut proprio, NOM, MDP).expect("compte limité posé");
+    amorcage::poser_compte_limite(&mut proprio, NOM, MDP).expect("rejouable (mise à jour)");
+    assert!(amorcage::poser_compte_limite(&mut proprio, "postgres", MDP).is_err());
+    assert!(amorcage::poser_compte_limite(&mut proprio, NOM, "court").is_err());
+
+    let url = std::env::var("GESCOM_PG").unwrap();
+    let (schema, reste) = url.split_once("://").unwrap();
+    let hote = reste.rsplit_once('@').map(|(_, h)| h).unwrap_or(reste);
+    let mut lim = Base::ouvrir(&format!("{schema}://{NOM}:{MDP}@{hote}")).expect("connexion du compte limité");
+    assert!(proprio.peut_migrer(), "le propriétaire migre");
+    assert!(!lim.peut_migrer(), "le compte limité, non");
+
+    let compter = |b: &mut Base, sql: &str, p: &[gescom_noyau::base::Valeur]| {
+        b.lire_une(sql, p, |r| r.get::<i64>(0)).unwrap().unwrap_or(0)
+    };
+    let clients_defaut = compter(&mut proprio, "SELECT COUNT(*) FROM client WHERE dossier_id = ?1", &parametres![defaut]);
+    let tous = compter(&mut proprio, "SELECT COUNT(*) FROM client", &[]);
+    assert_eq!(tous, clients_defaut + 1, "le propriétaire voit tout (le client de passage de B en plus)");
+
+    // La requête qui OUBLIE le filtre : le moteur le met lui-même.
+    lim.choisir_dossier(defaut).unwrap();
+    assert_eq!(compter(&mut lim, "SELECT COUNT(*) FROM client", &[]), clients_defaut);
+    lim.choisir_dossier(&b).unwrap();
+    assert_eq!(compter(&mut lim, "SELECT COUNT(*) FROM client", &[]), 1, "dans B : son seul client");
+
+    // Écrire chez l'autre : refusé par le moteur ; le modifier : invisible.
+    lim.choisir_dossier(defaut).unwrap();
+    let e = lim
+        .executer(
+            "INSERT INTO client (id, code, nom, est_generique, actif, cree_le, modifie_le, origine, dossier_id)
+             VALUES ('intrus', 'X-1', 'Intrus', 0, 1, '2026', '2026', 'essai', ?1)",
+            &parametres![b.clone()],
+        )
+        .unwrap_err();
+    assert!(e.0.contains("row-level security"), "{}", e.0);
+    let touche = lim.executer("UPDATE client SET nom = 'volé' WHERE dossier_id = ?1", &parametres![b.clone()]).unwrap();
+    assert_eq!(touche, 0, "les lignes de B n'existent pas pour une session dans l'origine");
+
+    // Ni schéma ni destruction.
+    assert!(lim.executer_lot("CREATE TABLE intrus (id int)").is_err());
+    assert!(lim.executer_lot("DROP TABLE vente").is_err());
+    assert!(lim.executer_lot("ALTER TABLE vente DISABLE ROW LEVEL SECURITY").is_err());
+
+    // Le travail normal passe : la liste des dossiers (exercices lus
+    // partout), un client, une caisse, et même créer un dossier — ses
+    // affaires s'écrivent chez lui (`ecrire_dans`).
+    let dossiers = gescom_noyau::dossiers::lire_dossiers_sur(&mut lim).unwrap();
+    assert!(dossiers.iter().all(|d| d["exercices_ouverts"] == 1), "{dossiers:?}");
+    gescom_noyau::comptoir::creer_client_rapide_sur(&mut lim, "Client du limité".into(), None).unwrap();
+    gescom_noyau::caisse::ouvrir_session_caisse_sur(&mut lim, 0, "patron".into()).unwrap();
+    let c = gescom_noyau::dossiers::creer_dossier_sur(&mut lim, "C".into(), "Boutique C".into(), None, None)
+        .expect("créer un dossier sous le compte limité")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let depots_c = compter(&mut proprio, "SELECT COUNT(*) FROM depot WHERE dossier_id = ?1", &parametres![c.clone()]);
+    assert_eq!(depots_c, 1, "son magasin est chez lui");
+    assert_eq!(lim.dossier(), defaut, "la session est restée dans son dossier");
+    assert_eq!(compter(&mut lim, "SELECT COUNT(*) FROM depot", &[]), 1, "et n'y voit que le sien");
 }

@@ -296,6 +296,16 @@ pub struct LignePieceInput {
     pub taux_tva: f64,
 }
 
+/// D27 : quantite positive, prix positif ou nul, remise entre 0 et 100.
+/// Une piece sans ligne reste permise (avoir accorde, K7).
+fn verifier_lignes_piece(lignes: &[LignePieceInput]) -> Result<(), String> {
+    for l in lignes {
+        crate::coeur::saisie::verifier_ligne(l.quantite, 1.0, l.prix_unitaire)?;
+        crate::coeur::saisie::verifier_remise_pct(l.remise_pct)?;
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn creer_piece(
     conn: &rusqlite::Connection,
@@ -333,6 +343,7 @@ pub fn creer_piece_sur(
     depot_id: Option<String>,
     date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    verifier_lignes_piece(&lignes)?;
     let auteur = crate::argent::id_utilisateur_courant_pub(&conn);
     let depot = depot_de_piece(&conn, depot_id);
     let now = maintenant_iso();
@@ -1102,7 +1113,7 @@ pub fn lire_donnees_piece(
     let mut stmt = conn.prepare(
         "SELECT a.nom, uv.libelle, lp.quantite, lp.prix_unitaire,
                 lp.remise_pct, lp.remise_montant,
-                lp.taux_tva, lp.montant_tva, lp.montant_ht
+                lp.taux_tva, lp.montant_tva, lp.montant_ht, a.code_barre
          FROM ligne_piece lp
          JOIN article a ON a.id = lp.article_id
          JOIN unite_vente uv ON uv.id = lp.unite_vente_id
@@ -1131,6 +1142,9 @@ pub fn lire_donnees_piece(
                 "taux_tva":       taux_tva,
                 "montant_tva":    montant_tva,
                 "montant_ht":     montant_ht,
+                // A-2 : la « référence de l'article » que le réglage du
+                // document peut afficher.
+                "article_reference": row.get::<_,Option<String>>(9)?,
             }))
         }
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
@@ -1198,7 +1212,7 @@ pub fn lire_donnees_piece(
 
     let societe = conn.query_row(
         "SELECT nom, adresse, telephone, telephone2, email, nif, rccm,
-                pied_facture, devise
+                pied_facture, devise, site_web
          FROM parametres_societe WHERE id = 1",
         [], |row| Ok(serde_json::json!({
             "nom":        row.get::<_,String>(0)?,
@@ -1210,6 +1224,7 @@ pub fn lire_donnees_piece(
             "rccm":       row.get::<_,Option<String>>(6)?,
             "pied_facture": row.get::<_,Option<String>>(7)?,
             "devise":     row.get::<_,String>(8).unwrap_or("FCFA".to_string()),
+            "site_web":   row.get::<_,Option<String>>(9)?,
         }))
     ).unwrap_or(serde_json::json!({"nom":"Ma Société","devise":"FCFA"}));
 
@@ -1479,6 +1494,7 @@ pub fn creer_piece_fournisseur(
     piece_origine_id: Option<String>,
     date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    verifier_lignes_piece(&lignes)?;
     let auteur = crate::argent::id_utilisateur_courant_pub(&conn);
     let now = crate::utils::maintenant_iso();
     let (date_piece, _) = crate::argent::date_de_la_piece(&now, date_piece.as_deref())?;
@@ -1542,6 +1558,7 @@ pub fn modifier_piece(
     lignes: Option<Vec<LignePieceInput>>,
     date_piece: Option<String>,
 ) -> Result<(), String> {
+    if let Some(ls) = lignes.as_deref() { verifier_lignes_piece(ls)?; }
 
     // Immuabilite : voir coeur::pieces. Une piece engageante (facture,
     // avoir) est figee des son emission, pas seulement une fois validee.
@@ -2577,6 +2594,7 @@ pub fn creer_piece_sur_base(
     depot_id: Option<String>,
     date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    verifier_lignes_piece(&lignes)?;
     let dossier = base.dossier().to_string();
     let auteur = id_utilisateur_courant_sur(base);
     let depot = depot_de_piece_sur(base, depot_id);
@@ -2666,6 +2684,7 @@ pub fn creer_piece_fournisseur_sur_base(
     piece_origine_id: Option<String>,
     date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    verifier_lignes_piece(&lignes)?;
     let dossier = base.dossier().to_string();
     let auteur = id_utilisateur_courant_sur(base);
     let now = maintenant_iso();
@@ -3013,6 +3032,7 @@ pub fn modifier_piece_sur_base(
     lignes: Option<Vec<LignePieceInput>>,
     date_piece: Option<String>,
 ) -> Result<(), String> {
+    if let Some(ls) = lignes.as_deref() { verifier_lignes_piece(ls)?; }
     let dossier = base.dossier().to_string();
     let en_tete = lire_en_tete(base, &piece_id)?;
 
@@ -3349,7 +3369,7 @@ pub fn lire_donnees_piece_sur_base(
         .lire_plusieurs(
             "SELECT a.nom, uv.libelle, lp.quantite, lp.prix_unitaire,
                     lp.remise_pct, lp.remise_montant,
-                    lp.taux_tva, lp.montant_tva, lp.montant_ht
+                    lp.taux_tva, lp.montant_tva, lp.montant_ht, a.code_barre
              FROM ligne_piece lp
              JOIN article a ON a.id = lp.article_id
              JOIN unite_vente uv ON uv.id = lp.unite_vente_id
@@ -3375,6 +3395,7 @@ pub fn lire_donnees_piece_sur_base(
                     "taux_tva":       taux_tva,
                     "montant_tva":    montant_tva,
                     "montant_ht":     montant_ht,
+                    "article_reference": r.get::<Option<String>>(9)?,
                 }))
             },
         )
@@ -3443,7 +3464,7 @@ pub fn lire_donnees_piece_sur_base(
     let societe = base
         .lire_une(
             "SELECT nom, adresse, telephone, telephone2, email, nif, rccm,
-                    pied_facture, devise
+                    pied_facture, devise, site_web
              FROM parametres_societe WHERE id = 1",
             &[],
             |r| {
@@ -3457,6 +3478,7 @@ pub fn lire_donnees_piece_sur_base(
                     "rccm":         r.get::<Option<String>>(6)?,
                     "pied_facture": r.get::<Option<String>>(7)?,
                     "devise":       r.get::<String>(8).unwrap_or_else(|_| "FCFA".to_string()),
+                    "site_web":     r.get::<Option<String>>(9)?,
                 }))
             },
         )

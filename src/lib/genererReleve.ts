@@ -9,6 +9,11 @@
 // « ce que vous me devez » d'un côté et « ce que je vous dois » de
 // l'autre. C'est la seule chose que porte `cote`.
 
+import {
+  type Habillage, blocSociete, blocSignatures, imagePied, mention,
+} from "@/lib/impression";
+import { libellePourCote } from "@/lib/genererRecu";
+
 export interface LigneReleve {
   date: string;
   numero: string;
@@ -117,6 +122,18 @@ function fmtDate(iso: string): string {
 }
 
 /** Échappe le HTML : un nom de tiers est une saisie libre. */
+/**
+ * Les signatures d'un relevé : celles réglées pour le genre « relevé »
+ * (Paramètres → Documents), tournées vers le côté fournisseur au
+ * besoin ; sans réglage, celles du générateur historique.
+ */
+function signaturesReleve(h: Habillage, usine: string[], cote: "client" | "fournisseur"): string {
+  if (!h.reglage) {
+    return `<div class="sign">${usine.map(l => `<div>${esc(l)}</div>`).join("")}</div>`;
+  }
+  return blocSignatures(h.reglage.signatures.map(s => ({ ...s, libelle: libellePourCote(s.libelle, cote) })));
+}
+
 function esc(s: string): string {
   return s.replace(/[&<>"']/g, c => (
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!
@@ -136,9 +153,9 @@ function esc(s: string): string {
 export function genererReleveGlobalHTML(
   d: DonneesReleveGlobal,
   cote: "client" | "fournisseur",
-  logoBase64?: string | null,
-  enteteBase64?: string | null,
+  h: Habillage = {},
 ): string {
+  const enteteBase64 = h.entete;
   const maintenant = new Date();
   const titre = cote === "client"
     ? "ÉTAT GLOBAL DES CRÉANCES" : "ÉTAT GLOBAL DES DETTES";
@@ -158,16 +175,13 @@ export function genererReleveGlobalHTML(
       <td class="d fort">${fmt(l.total_du)}</td>
     </tr>`).join("");
 
-  const entete = enteteBase64
+  // Avec un en-tête image, l'image remplace le nom et les coordonnées,
+  // pas le titre (trouvé par le banc d'écran, 23/09).
+  const entete = (enteteBase64
     ? `<img src="${enteteBase64}" style="width:100%;display:block;margin-bottom:10px">`
-    : `<div class="entete">
+    : "") + `<div class="entete">
          <div>
-           ${logoBase64
-             ? `<img src="${logoBase64}" style="max-height:52px;margin-bottom:4px">`
-             : ""}
-           <div class="soc">${esc(d.societe.nom)}</div>
-           ${d.societe.adresse
-             ? `<div class="det">${esc(d.societe.adresse)}</div>` : ""}
+           ${enteteBase64 ? "" : `${blocSociete(d.societe as Record<string, unknown>, h, 16)}`}
          </div>
          <div style="text-align:right">
            <div class="titre">${titre}</div>
@@ -285,9 +299,9 @@ export function genererHistoriqueReglementsHTML(
   criteres: string,
   totalDuTiers: number,
   societe: { nom: string; adresse?: string | null; telephone?: string | null },
-  logoBase64?: string | null,
-  enteteBase64?: string | null,
+  h: Habillage = {},
 ): string {
+  const enteteBase64 = h.entete;
   const m = MOTS_HISTO[cote];
   const maintenant = new Date();
   const totalPeriode = lignes.reduce((s, l) => s + l.montant, 0);
@@ -302,16 +316,13 @@ export function genererHistoriqueReglementsHTML(
       <td class="d det">${fmt(l.reste_apres)}</td>
     </tr>`).join("");
 
-  const entete = enteteBase64
+  // Avec un en-tête image, l'image remplace le nom et les coordonnées,
+  // pas le titre (trouvé par le banc d'écran, 23/09).
+  const entete = (enteteBase64
     ? `<img src="${enteteBase64}" style="width:100%;display:block;margin-bottom:10px">`
-    : `<div class="entete">
+    : "") + `<div class="entete">
          <div>
-           ${logoBase64
-             ? `<img src="${logoBase64}" style="max-height:52px;margin-bottom:4px">`
-             : ""}
-           <div class="soc">${esc(societe.nom)}</div>
-           ${societe.adresse
-             ? `<div class="det">${esc(societe.adresse)}</div>` : ""}
+           ${enteteBase64 ? "" : `${blocSociete(societe as Record<string, unknown>, h, 16)}`}
          </div>
          <div style="text-align:right">
            <div class="titre">${m.titre}</div>
@@ -402,10 +413,7 @@ ${lignes.length === 0 ? `
   un versement annulé ; une ligne en rouge est l'annulation elle-même.
 </p>
 
-<div class="sign">
-  <div>${m.gauche}</div>
-  <div>Pour l'entreprise</div>
-</div>
+${signaturesReleve(h, [m.gauche, "Pour l'entreprise"], cote)}
 
 <script>window.onload = () => { window.focus(); window.print(); }</script>
 </body></html>`;
@@ -414,9 +422,9 @@ ${lignes.length === 0 ? `
 export function genererReleveHTML(
   d: DonneesReleve,
   cote: "client" | "fournisseur",
-  logoBase64?: string | null,
-  enteteBase64?: string | null,
+  h: Habillage = {},
 ): string {
+  const enteteBase64 = h.entete;
   const m = MOTS[cote];
   const maintenant = new Date();
   const avecType = cote === "fournisseur";
@@ -434,18 +442,13 @@ export function genererReleveHTML(
   // Bandeau à en-tête s'il existe : il porte déjà nom, adresse et
   // téléphone, les répéter ferait doublon sur le papier (cf. D4 et le
   // même choix dans genererPDF).
-  const entete = enteteBase64
+  // Avec un en-tête image, l'image remplace le nom et les coordonnées,
+  // pas le titre (trouvé par le banc d'écran, 23/09).
+  const entete = (enteteBase64
     ? `<img src="${enteteBase64}" style="width:100%;display:block;margin-bottom:10px">`
-    : `<div class="entete">
+    : "") + `<div class="entete">
          <div>
-           ${logoBase64
-             ? `<img src="${logoBase64}" style="max-height:52px;margin-bottom:4px">`
-             : ""}
-           <div class="soc">${esc(d.societe.nom)}</div>
-           ${d.societe.adresse
-             ? `<div class="det">${esc(d.societe.adresse)}</div>` : ""}
-           ${d.societe.telephone
-             ? `<div class="det">Tél. ${esc(d.societe.telephone)}</div>` : ""}
+           ${enteteBase64 ? "" : `${blocSociete(d.societe as Record<string, unknown>, h, 16)}`}
          </div>
          <div style="text-align:right">
            <div class="titre">${m.titre}</div>
@@ -526,12 +529,10 @@ ${d.lignes.length === 0 ? `
 </table>
 `}
 
-<p class="mention">${m.mention}</p>
+${h.pied ? "" : `<p class="mention">${mention(h, m.mention)}</p>`}
 
-<div class="sign">
-  <div>${m.gauche}</div>
-  <div>${m.droite}</div>
-</div>
+${signaturesReleve(h, [m.gauche, m.droite], cote)}
+${imagePied(h)}
 
 <script>window.onload = () => { window.focus(); window.print(); }</script>
 </body></html>`;

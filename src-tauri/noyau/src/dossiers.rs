@@ -24,7 +24,7 @@
 //! ## Ce qui n'est PAS cloisonne
 //!
 //! Les personnes et les machines : `utilisateur`, `role`, `poste`,
-//! `session_reseau`, `modele_document`. Un caissier qui change de
+//! `session_reseau`. Un caissier qui change de
 //! societe reste le meme caissier ; l'obliger a un compte par dossier
 //! multiplierait les mots de passe sans rien proteger.
 //!
@@ -51,6 +51,38 @@
 /// valeur par defaut dans le DDL SQLite, qui n'accepte qu'une
 /// constante.
 pub const DOSSIER_DEFAUT: &str = "00000000-0000-0000-0000-000000000001";
+
+/// Le declencheur qui fait suivre le stock aux mouvements, sur SQLite
+/// (v3, D-1 — ETAPES item 9).
+///
+/// L'ancien ne posait pas `dossier_id` : la ligne de stock d'un
+/// magasin de `dossier-b` naissait avec la valeur par defaut de la
+/// colonne — le dossier d'origine — et `dossier-b` ne voyait jamais
+/// son stock. Sur PostgreSQL le defaut suivait la session ; on ne s'y
+/// fie plus non plus : le dossier est celui du MOUVEMENT.
+///
+/// `DROP` puis `CREATE` : un `CREATE ... IF NOT EXISTS` aurait garde
+/// l'ancien corps sur toutes les bases deja installees.
+pub const DECLENCHEUR_STOCK_SQLITE: &str = "
+DROP TRIGGER IF EXISTS stock_suit_les_mouvements;
+CREATE TRIGGER stock_suit_les_mouvements
+AFTER INSERT ON mouvement_stock
+BEGIN
+  INSERT INTO stock_depot (id, article_id, depot_id, quantite, dossier_id)
+  VALUES (lower(hex(randomblob(16))), NEW.article_id, NEW.depot_id,
+          NEW.quantite_delta, NEW.dossier_id)
+  ON CONFLICT(article_id, depot_id)
+  DO UPDATE SET quantite = quantite + NEW.quantite_delta;
+END;";
+
+/// Les lignes de stock posees dans le mauvais dossier par l'ancien
+/// declencheur reviennent au dossier de leur magasin. Rejouable : ne
+/// touche que ce qui est faux.
+pub const REPARER_STOCK_DOSSIER: &str = "
+UPDATE stock_depot
+SET dossier_id = (SELECT d.dossier_id FROM depot d WHERE d.id = stock_depot.depot_id)
+WHERE EXISTS (SELECT 1 FROM depot d
+              WHERE d.id = stock_depot.depot_id AND d.dossier_id <> stock_depot.dossier_id)";
 
 /// Les tables dont chaque ligne appartient a un dossier.
 ///
@@ -79,6 +111,15 @@ pub const TABLES_CLOISONNEES: &[&str] = &[
     "creance_irrecouvrable",
     "relance_creance",
     "journal",
+    "anomalie_vue",
+    "affectation_comptable",
+    "employe",
+    "presence",
+    "avance",
+    "fiche_paie",
+    "ligne_paie",
+    "versement_paie",
+    "cotisation",
 ];
 
 /// La cle d'un compteur, cloisonnee par dossier.
@@ -302,26 +343,31 @@ impl Exercice {
     /// seul oblige le commercant a deviner de quel cote il deborde, et
     /// il corrigera au hasard.
     pub fn accepte(&self, date: &str) -> Result<(), String> {
-        if self.clos {
-            return Err("Cet exercice est clos : on n'y écrit plus.".to_string());
-        }
+        use crate::coeur::dates::en_lettres;
         let jour = &date[..date.len().min(10)];
+        if self.clos {
+            return Err(format!(
+                "Les dates de travail du {} au {} sont closes : on n'y écrit plus.",
+                en_lettres(&self.date_debut),
+                en_lettres(self.fin_effective())
+            ));
+        }
         if jour < self.date_debut.as_str() {
             return Err(format!(
-                "Le {jour} précède l'exercice, qui commence le {}.",
-                self.date_debut
+                "Le {} est avant les dates de travail (à partir du {}).",
+                en_lettres(jour),
+                en_lettres(&self.date_debut)
             ));
         }
         if jour > self.fin_effective() {
-            let fin = self.fin_effective();
-            return Err(if self.prolonge_jusqu_au.is_some() {
-                format!("Le {jour} dépasse l'exercice, prolongé jusqu'au {fin}.")
-            } else {
-                format!(
-                    "Le {jour} dépasse l'exercice, qui finit le {fin}. \
-                     Le prolonger, ou ouvrir l'exercice suivant."
-                )
-            });
+            // D21 : le refus dit la borne ET quoi faire.
+            return Err(format!(
+                "Le {} est hors des dates de travail (jusqu'au {}{}). \
+                 Prolonger l'exercice ou en ouvrir un nouveau.",
+                en_lettres(jour),
+                en_lettres(self.fin_effective()),
+                if self.prolonge_jusqu_au.is_some() { ", prolongation comprise" } else { "" }
+            ));
         }
         Ok(())
     }
@@ -362,14 +408,17 @@ mod tests_exercice {
     #[test]
     fn avant_l_exercice_le_refus_nomme_le_debut() {
         let e = exercice_2026().accepte("2025-12-31").unwrap_err();
-        assert!(e.contains("2026-01-01"), "le refus dit jusqu'où reculer");
+        assert!(e.contains("1er janvier 2026"), "le refus dit jusqu'où reculer : {e}");
     }
 
     #[test]
     fn apres_l_exercice_le_refus_propose_la_suite() {
         let e = exercice_2026().accepte("2027-01-01").unwrap_err();
-        assert!(e.contains("2026-12-31"));
-        assert!(e.contains("prolonger"), "le refus dit quoi faire");
+        assert_eq!(
+            e,
+            "Le 1er janvier 2027 est hors des dates de travail (jusqu'au 31 décembre 2026). \
+             Prolonger l'exercice ou en ouvrir un nouveau."
+        );
     }
 
     #[test]
@@ -394,7 +443,7 @@ mod tests_exercice {
         let mut e = exercice_2026();
         e.prolonge_jusqu_au = Some("2027-03-31".into());
         let err = e.accepte("2027-04-01").unwrap_err();
-        assert!(err.contains("2027-03-31"));
+        assert!(err.contains("31 mars 2027, prolongation comprise"), "{err}");
     }
 
     #[test]
@@ -443,11 +492,97 @@ pub fn dossier_accepte(exercices: &[Exercice], date: &str) -> Result<(), String>
         Some(e) => e.accepte(date),
         None => {
             let jour = &date[..date.len().min(10)];
-            Err(format!(
-                "Le {jour} ne tombe dans aucun exercice ouvert pour ce dossier. \
-                 Ouvrir un exercice qui le couvre."
-            ))
+            // D21 : le cas courant est une date APRES la fin des dates de
+            // travail — le refus nomme cette fin et dit quoi faire, comme
+            // `accepte`. Un dernier exercice clos : il faut en ouvrir un.
+            let dernier = exercices
+                .iter()
+                .filter(|e| e.fin_effective() < jour)
+                .max_by(|a, b| a.fin_effective().cmp(b.fin_effective()));
+            // Avant le tout premier exercice : le refus nomme le debut.
+            let premier = exercices.iter().min_by(|a, b| a.date_debut.cmp(&b.date_debut));
+            if let Some(p) = premier.filter(|p| jour < p.date_debut.as_str()) {
+                return p.accepte(date);
+            }
+            match dernier {
+                Some(e) if !e.clos => e.accepte(date),
+                _ => Err(format!(
+                    "Le {} ne tombe dans aucun exercice ouvert pour ce dossier. \
+                     Ouvrir un exercice qui le couvre.",
+                    crate::coeur::dates::en_lettres(jour)
+                )),
+            }
         }
+    }
+}
+
+/// Le jour ou commence l'exercice suivant : le lendemain de la fin
+/// (prolongation comprise) du dernier. `None` sans exercice. D21 : un
+/// dossier n'a jamais de trou.
+pub fn debut_suivant(exercices: &[Exercice]) -> Option<String> {
+    let fin = exercices.iter().map(|e| e.fin_effective()).max()?;
+    let jour = crate::coeur::dates::jour(fin)?;
+    Some((jour + chrono::Duration::days(1)).format("%Y-%m-%d").to_string())
+}
+
+/// Les ecritures DATEES, et le parametre qui porte leur date (v3, D-4).
+/// Absent ou vide, c'est aujourd'hui. Le serveur les juge contre les
+/// dates de travail du dossier (`verifier_date_sur`) avant de les
+/// executer. Ni les reglages, ni les comptes, ni l'ouverture ou la
+/// fermeture de la caisse : on peut toujours fermer son tiroir.
+pub fn date_d_ecriture(commande: &str) -> Option<&'static [&'static str]> {
+    const AUJOURDHUI: &[&str] = &[];
+    match commande {
+        "creer_vente" => Some(&["dateVente", "date_vente"]),
+        "creer_piece" | "modifier_piece" | "creer_piece_fournisseur" => Some(&["datePiece", "date_piece"]),
+        "regler_creance" | "regler_dette_fournisseur" => Some(&["datePaiement", "date_paiement"]),
+        "enregistrer_achat" => Some(&["dateReception", "date_reception"]),
+        "accorder_avoir_client" | "annuler_facture_fournisseur_par_avoir" | "annuler_facture_par_avoir"
+        | "annuler_paiement_fournisseur" | "annuler_piece" | "annuler_reglement" | "appliquer_avoir_vente"
+        | "changer_statut_cheque" | "convertir_commande_en_livraison_et_facture" | "convertir_piece"
+        | "creer_facture_depuis_vente" | "dupliquer_piece" | "enregistrer_ajustement_inventaire" | "enregistrer_cheque"
+        | "enregistrer_depense" | "enregistrer_entree_stock" | "enregistrer_livraison"
+        | "enregistrer_paiement" | "enregistrer_retour" | "enregistrer_retour_fournisseur"
+        | "enregistrer_retour_sans_facture" | "enregistrer_transfert" | "marquer_irrecouvrable"
+        | "modifier_depense" | "modifier_facture_pos" | "regler_creance_exceptionnel"
+        | "rembourser_avoir" | "solder_residus_creances"
+        | "valider_facture" | "valider_facture_credit" | "valider_facture_fournisseur"
+        | "donner_avance" | "annuler_avance" | "valider_fiche_paie" | "verser_paie" => Some(AUJOURDHUI),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests_debut_suivant {
+    use super::*;
+
+    fn ex(debut: &str, fin: &str, prolonge: Option<&str>) -> Exercice {
+        Exercice {
+            id: debut.into(),
+            dossier_id: DOSSIER_DEFAUT.into(),
+            date_debut: debut.into(),
+            date_fin: fin.into(),
+            prolonge_jusqu_au: prolonge.map(str::to_string),
+            clos: false,
+        }
+    }
+
+    #[test]
+    fn le_suivant_commence_le_lendemain_prolongation_comprise() {
+        assert_eq!(debut_suivant(&[]), None);
+        assert_eq!(debut_suivant(&[ex("2026-03-01", "2027-02-28", None)]).as_deref(), Some("2027-03-01"));
+        assert_eq!(
+            debut_suivant(&[ex("2026-01-01", "2026-12-31", Some("2027-03-31"))]).as_deref(),
+            Some("2027-04-01")
+        );
+    }
+
+    #[test]
+    fn les_ecritures_datees_sont_nommees_et_les_reglages_non() {
+        assert_eq!(date_d_ecriture("creer_vente"), Some(&["dateVente", "date_vente"][..]));
+        assert_eq!(date_d_ecriture("enregistrer_depense"), Some(&[][..]));
+        assert_eq!(date_d_ecriture("fermer_session_caisse"), None, "on ferme toujours son tiroir");
+        assert_eq!(date_d_ecriture("creer_client_rapide"), None);
     }
 }
 
@@ -488,9 +623,21 @@ mod tests_dossier_accepte {
     }
 
     #[test]
-    fn aucun_exercice_ne_couvrant_la_date_le_dit() {
+    fn apres_les_dates_de_travail_le_refus_nomme_la_fin_et_dit_quoi_faire() {
         let err = dossier_accepte(&deux_exercices(), "2027-01-05").unwrap_err();
-        assert!(err.contains("aucun exercice"), "{err}");
+        assert_eq!(
+            err,
+            "Le 5 janvier 2027 est hors des dates de travail (jusqu'au 31 décembre 2026). \
+             Prolonger l'exercice ou en ouvrir un nouveau."
+        );
+    }
+
+    #[test]
+    fn apres_un_dernier_exercice_clos_il_faut_en_ouvrir_un() {
+        let mut ex = deux_exercices();
+        ex[1].clos = true;
+        let err = dossier_accepte(&ex, "2027-01-05").unwrap_err();
+        assert!(err.contains("aucun exercice ouvert"), "{err}");
     }
 
     #[test]
@@ -504,10 +651,9 @@ mod tests_dossier_accepte {
 //  LES EXERCICES, EN BASE
 // =====================================================================
 //
-// Sur l'un ou l'autre moteur, comme `catalogue` et `comptoir`. Pas
-// encore appele par un ecran — celui-ci attend que le serveur tienne
-// une `Base` (D11) — mais deja teste et pret a l'etre : c'est le meme
-// garde-fou qu'appellera `creer_vente_sur` avant d'ecrire.
+// Sur l'un ou l'autre moteur. Le serveur appelle `verifier_date_sur`
+// avant chaque ecriture datee (`date_d_ecriture`, v3 D-4) ; l'ecran
+// Parametres -> Dossiers ouvre, prolonge et clot.
 
 use crate::base::Base;
 use crate::parametres;
@@ -575,11 +721,18 @@ pub fn ouvrir_exercice_sur(
     date_debut: String,
     date_fin: String,
 ) -> Result<serde_json::Value, String> {
-    if date_fin < date_debut {
-        return Err("La date de fin précède la date de début.".to_string());
-    }
+    let (date_debut, date_fin) = dates_de_travail(Some(&date_debut), Some(&date_fin), &date_debut)?;
     let dossier = base.dossier().to_string();
     let existants = lire_les_exercices(base, &dossier)?;
+    // D21 : pas de trou — le suivant commence le lendemain du dernier.
+    if let Some(attendu) = debut_suivant(&existants) {
+        if date_debut > attendu {
+            return Err(format!(
+                "Un exercice commence le lendemain du précédent : le {}. Pas de trou dans les dates de travail.",
+                crate::coeur::dates::en_lettres(&attendu)
+            ));
+        }
+    }
     if let Some(chevauche) = existants
         .iter()
         .find(|e| {
@@ -588,65 +741,155 @@ pub fn ouvrir_exercice_sur(
     {
         return Err(format!(
             "Chevauche l'exercice du {} au {}.",
-            chevauche.date_debut,
-            chevauche.fin_effective()
+            crate::coeur::dates::en_lettres(&chevauche.date_debut),
+            crate::coeur::dates::en_lettres(chevauche.fin_effective())
         ));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = crate::utils::maintenant_iso();
-    base.executer(
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
         "INSERT INTO exercice
            (id, dossier_id, date_debut, date_fin, clos, cree_le, modifie_le)
          VALUES (?1,?2,?3,?4,0,?5,?5)",
         &parametres![id.clone(), dossier, date_debut.clone(), date_fin.clone(), now],
     )
     .map_err(|e| e.0)?;
+    noter_exercice(
+        &mut tx,
+        "exercice_ouvert",
+        &id,
+        None,
+        serde_json::json!({ "du": date_debut, "au": date_fin }),
+    )?;
+    tx.valider().map_err(|e| e.0)?;
 
     Ok(serde_json::json!({
         "id": id, "date_debut": date_debut, "date_fin": date_fin, "clos": false
     }))
 }
 
-/// Repousse la fin d'un exercice DU DOSSIER COURANT.
+/// L'exercice `id` du dossier courant, ou un refus qui le dit.
 ///
 /// Le filtre de dossier compte ici autant que l'identifiant : sans lui,
-/// un identifiant devine ou vole permettrait de prolonger l'exercice
-/// d'une autre societe.
+/// un identifiant devine ou vole permettrait de prolonger ou de clore
+/// l'exercice d'une autre societe.
+fn exercice_du_dossier(base: &mut Base, exercice_id: &str) -> Result<(Exercice, Vec<Exercice>), String> {
+    let dossier = base.dossier().to_string();
+    let tous = lire_les_exercices(base, &dossier)?;
+    let ex = tous
+        .iter()
+        .find(|e| e.id == exercice_id)
+        .cloned()
+        .ok_or_else(|| "Exercice introuvable.".to_string())?;
+    Ok((ex, tous))
+}
+
+/// Au journal : qui a ouvert, prolonge, clos quel exercice (v3, D-4).
+fn noter_exercice(
+    acces: &mut impl crate::base::Acces,
+    type_evenement: &str,
+    exercice_id: &str,
+    ancien: Option<serde_json::Value>,
+    nouveau: serde_json::Value,
+) -> Result<(), String> {
+    let auteur = crate::argent::id_utilisateur_courant_sur(acces);
+    let dossier = acces.dossier().to_string();
+    acces
+        .executer(
+            "INSERT INTO journal
+               (id, type_evenement, entite_type, entite_id, auteur_id,
+                ancien_valeur, nouveau_valeur, origine, date_evenement, dossier_id)
+             VALUES (?1, ?2, 'exercice', ?3, ?4, ?5, ?6, 'app', ?7, ?8)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                type_evenement,
+                exercice_id,
+                auteur,
+                ancien.map(|v| v.to_string()),
+                nouveau.to_string(),
+                crate::utils::maintenant_iso(),
+                dossier
+            ],
+        )
+        .map(|_| ())
+        .map_err(|e| e.0)
+}
+
+/// Repousse la fin d'un exercice DU DOSSIER COURANT.
+///
+/// On prolonge un exercice ouvert, vers l'avant, et jamais jusque dans
+/// le suivant : deux exercices qui se recouvrent rendraient le choix de
+/// `exercice_pour_date` arbitraire.
 pub fn prolonger_exercice_sur(
     base: &mut Base,
     exercice_id: String,
     prolonge_jusqu_au: String,
 ) -> Result<(), String> {
-    let dossier = base.dossier().to_string();
-    let now = crate::utils::maintenant_iso();
-    let touche = base
-        .executer(
-            "UPDATE exercice SET prolonge_jusqu_au = ?1, modifie_le = ?2
-             WHERE id = ?3 AND dossier_id = ?4",
-            &parametres![prolonge_jusqu_au, now, exercice_id, dossier],
-        )
-        .map_err(|e| e.0)?;
-    if touche == 0 {
-        return Err("Exercice introuvable.".to_string());
+    let (ex, tous) = exercice_du_dossier(base, &exercice_id)?;
+    if ex.clos {
+        return Err("Cet exercice est clos : on ne le prolonge plus.".to_string());
     }
-    Ok(())
+    let jusqu_au = crate::coeur::dates::jour(prolonge_jusqu_au.trim())
+        .map(|d| d.format("%Y-%m-%d").to_string())
+        .ok_or_else(|| format!("Date illisible : « {} »", prolonge_jusqu_au.trim()))?;
+    if jusqu_au.as_str() <= ex.fin_effective() {
+        return Err(format!(
+            "L'exercice va déjà jusqu'au {} : une prolongation va plus loin.",
+            crate::coeur::dates::en_lettres(ex.fin_effective())
+        ));
+    }
+    if let Some(suivant) = tous.iter().find(|e| e.date_debut > ex.date_debut) {
+        if jusqu_au >= suivant.date_debut {
+            return Err(format!(
+                "L'exercice suivant commence le {} : la prolongation doit s'arrêter avant.",
+                crate::coeur::dates::en_lettres(&suivant.date_debut)
+            ));
+        }
+    }
+    let now = crate::utils::maintenant_iso();
+    let dossier = base.dossier().to_string();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE exercice SET prolonge_jusqu_au = ?1, modifie_le = ?2
+         WHERE id = ?3 AND dossier_id = ?4",
+        &parametres![jusqu_au.clone(), now, exercice_id.clone(), dossier],
+    )
+    .map_err(|e| e.0)?;
+    noter_exercice(
+        &mut tx,
+        "exercice_prolonge",
+        &exercice_id,
+        Some(serde_json::json!({ "jusqu_au": ex.fin_effective() })),
+        serde_json::json!({ "jusqu_au": jusqu_au }),
+    )?;
+    tx.valider().map_err(|e| e.0)
 }
 
-/// Clot un exercice DU DOSSIER COURANT. On n'y ecrit plus ensuite.
+/// Clot un exercice DU DOSSIER COURANT. On n'y ecrit plus ensuite, et
+/// on ne le rouvre pas : c'est ce que le comptable a arrete.
 pub fn clore_exercice_sur(base: &mut Base, exercice_id: String) -> Result<(), String> {
-    let dossier = base.dossier().to_string();
-    let now = crate::utils::maintenant_iso();
-    let touche = base
-        .executer(
-            "UPDATE exercice SET clos = 1, modifie_le = ?1 WHERE id = ?2 AND dossier_id = ?3",
-            &parametres![now, exercice_id, dossier],
-        )
-        .map_err(|e| e.0)?;
-    if touche == 0 {
-        return Err("Exercice introuvable.".to_string());
+    let (ex, _) = exercice_du_dossier(base, &exercice_id)?;
+    if ex.clos {
+        return Err("Cet exercice est déjà clos.".to_string());
     }
-    Ok(())
+    let now = crate::utils::maintenant_iso();
+    let dossier = base.dossier().to_string();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE exercice SET clos = 1, modifie_le = ?1 WHERE id = ?2 AND dossier_id = ?3",
+        &parametres![now, exercice_id.clone(), dossier],
+    )
+    .map_err(|e| e.0)?;
+    noter_exercice(
+        &mut tx,
+        "exercice_clos",
+        &exercice_id,
+        None,
+        serde_json::json!({ "du": ex.date_debut, "au": ex.fin_effective() }),
+    )?;
+    tx.valider().map_err(|e| e.0)
 }
 
 // =====================================================================
@@ -659,6 +902,54 @@ pub fn clore_exercice_sur(base: &mut Base, exercice_id: String) -> Result<(), St
 // faut pour vendre — un magasin par defaut et un client de passage —
 // sinon la premiere vente echoue sur un « aucun depot » que personne
 // ne comprend.
+
+/// Les dates de travail d'un dossier neuf (D21) : donnees, ou l'annee
+/// civile d'`aujourd_hui` par defaut. Lisibles, et la fin apres le
+/// debut. Pure : la regle se teste sans horloge.
+pub fn dates_de_travail(
+    debut: Option<&str>,
+    fin: Option<&str>,
+    aujourd_hui: &str,
+) -> Result<(String, String), String> {
+    let annee = &aujourd_hui[..4.min(aujourd_hui.len())];
+    let lire = |v: Option<&str>, defaut: String| -> Result<String, String> {
+        match v.map(str::trim).filter(|v| !v.is_empty()) {
+            None => Ok(defaut),
+            Some(t) => crate::coeur::dates::jour(t)
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .ok_or_else(|| format!("Date illisible : « {t} »")),
+        }
+    };
+    let d = lire(debut, format!("{annee}-01-01"))?;
+    let f = lire(fin, format!("{annee}-12-31"))?;
+    if f < d {
+        return Err("La fin des dates de travail précède leur début.".to_string());
+    }
+    Ok((d, f))
+}
+
+#[cfg(test)]
+mod tests_dates_de_travail {
+    use super::dates_de_travail;
+
+    #[test]
+    fn par_defaut_l_annee_civile() {
+        assert_eq!(
+            dates_de_travail(None, Some(" "), "2026-03-15T10:00:00").unwrap(),
+            ("2026-01-01".to_string(), "2026-12-31".to_string())
+        );
+    }
+
+    #[test]
+    fn des_dates_donnees_se_gardent_et_se_jugent() {
+        assert_eq!(
+            dates_de_travail(Some("2026-03-01"), Some("2027-02-28"), "2026-03-15").unwrap(),
+            ("2026-03-01".to_string(), "2027-02-28".to_string())
+        );
+        assert!(dates_de_travail(Some("2026-03-01"), Some("2026-02-01"), "2026-03-15").is_err());
+        assert!(dates_de_travail(Some("mars"), None, "2026-03-15").unwrap_err().contains("illisible"));
+    }
+}
 
 /// Le code d'un dossier : ce qu'on tape, ce qui figure dans les
 /// compteurs de numerotation. Majuscules, chiffres, tiret, souligne.
@@ -723,22 +1014,18 @@ pub fn dossier_ouvert_sur(base: &mut Base, dossier_id: &str) -> Result<Dossier, 
 /// de passage. Tout dans UNE transaction — un dossier a moitie ne, sans
 /// magasin, ne vaut rien.
 ///
-/// Sur SQLite, refus : les commandes de la fenetre (`Connection`) ne
-/// savent servir que le dossier d'origine, et un second dossier y
-/// recevrait des ecritures rangees dans le premier. Plusieurs dossiers
-/// demandent PostgreSQL (D11, plan §10).
+/// Ses dates de travail sont DONNEES (D21), proposees a l'annee
+/// civile : c'est son premier exercice. Sur SQLite comme sur
+/// PostgreSQL (D22) — le serveur sert tout par `Base` (D-2). La fenetre
+/// monoposte, elle, n'a pas de commande pour creer un dossier : elle
+/// reste a un seul.
 pub fn creer_dossier_sur(
     base: &mut Base,
     code: String,
     societe: String,
+    date_debut: Option<String>,
+    date_fin: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    if !base.est_postgres() {
-        return Err(
-            "Plusieurs dossiers demandent un serveur PostgreSQL : sur une base fichier, \
-             seul le dossier d'origine se sert correctement."
-                .to_string(),
-        );
-    }
     let code = valider_code_dossier(&code)?;
     let societe = societe.trim().to_string();
     if societe.is_empty() {
@@ -753,7 +1040,12 @@ pub fn creer_dossier_sur(
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = crate::utils::maintenant_iso();
-    let annee: String = now.chars().take(4).collect();
+    let (debut, fin) = dates_de_travail(date_debut.as_deref(), date_fin.as_deref(), &now)?;
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let dossier_courant = base.dossier().to_string();
+    // C-2 : qui n'a que certains dossiers entre dans celui qu'il cree,
+    // avec le role qu'il a ici.
+    let role_ici = crate::acces_dossiers::role_dans_sur(base, &auteur, &dossier_courant)?;
 
     let mut tx = base.transaction().map_err(|e| e.0)?;
     tx.executer(
@@ -762,16 +1054,14 @@ pub fn creer_dossier_sur(
         &parametres![id.clone(), code.clone(), societe.clone(), now.clone()],
     )
     .map_err(|e| e.0)?;
+    // Ses affaires a lui s'ecrivent CHEZ LUI : sous le compte limite de
+    // PostgreSQL (D-6), une ligne d'un autre dossier que la session est
+    // refusee par le moteur.
+    tx.ecrire_dans(&id).map_err(|e| e.0)?;
     tx.executer(
         "INSERT INTO exercice (id, dossier_id, date_debut, date_fin, clos, cree_le, modifie_le)
          VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)",
-        &parametres![
-            uuid::Uuid::new_v4().to_string(),
-            id.clone(),
-            format!("{annee}-01-01"),
-            format!("{annee}-12-31"),
-            now.clone()
-        ],
+        &parametres![uuid::Uuid::new_v4().to_string(), id.clone(), debut.clone(), fin.clone(), now.clone()],
     )
     .map_err(|e| e.0)?;
     // Le magasin et le client de passage portent EXPLICITEMENT le
@@ -792,14 +1082,32 @@ pub fn creer_dossier_sur(
         &parametres![
             uuid::Uuid::new_v4().to_string(),
             format!("{code}-CLIENT00000"),
-            now,
+            now.clone(),
             id.clone()
         ],
     )
     .map_err(|e| e.0)?;
+    // Au journal du dossier ou l'on est : c'est la qu'on a agi.
+    tx.ecrire_dans(&dossier_courant).map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO journal
+           (id, type_evenement, entite_type, entite_id, auteur_id,
+            nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'dossier_cree', 'dossier', ?2, ?3, ?4, 'app', ?5, ?6)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            id.clone(),
+            auteur.clone(),
+            serde_json::json!({ "code": code, "societe": societe, "du": debut, "au": fin }).to_string(),
+            now,
+            dossier_courant
+        ],
+    )
+    .map_err(|e| e.0)?;
+    crate::acces_dossiers::donner_au_createur_sur(&mut tx, &auteur, &id, role_ici.as_deref())?;
     tx.valider().map_err(|e| e.0)?;
 
-    Ok(serde_json::json!({ "id": id, "code": code, "societe": societe }))
+    Ok(serde_json::json!({ "id": id, "code": code, "societe": societe, "date_debut": debut, "date_fin": fin }))
 }
 
 /// Le prefixe des codes de tiers du dossier courant : rien pour le
@@ -862,5 +1170,213 @@ mod tests_code_dossier {
         assert!(valider_code_dossier("é").is_err());
         assert!(valider_code_dossier("a b").is_err());
         assert!(valider_code_dossier(&"X".repeat(21)).is_err());
+    }
+}
+
+// =====================================================================
+//  LE DOSSIER D'ORIGINE — la migration d'une base existante (v3, D-5)
+// =====================================================================
+//
+// Tout ce qu'une base v2 contient porte `dossier_id = defaut` (la
+// colonne est posee avec ce defaut) : c'est deja le premier dossier.
+// Deux choses manquaient pour qu'il soit le SIEN : son nom — il
+// s'appelait « Ma boutique » quel que soit le commerce — et ses dates —
+// un exercice de l'annee en cours, alors que les ventes remontent
+// parfois a deux ans : un reglement tardif d'une vente de 2024 aurait
+// ete refuse par le garde-fou.
+
+/// Le nom pose d'office au dossier d'origine.
+pub const NOM_D_USINE: &str = "Ma boutique";
+
+/// Le nom du dossier d'origine a la migration : celui que le patron a
+/// deja donne a sa societe (Parametres -> Societe), si le dossier porte
+/// encore le nom d'usine et que la societe en a un vrai. Pure.
+pub fn nom_d_origine(societe_actuelle: &str, nom_societe: Option<&str>) -> Option<String> {
+    if societe_actuelle != NOM_D_USINE {
+        return None;
+    }
+    let nom = nom_societe.map(str::trim).filter(|n| !n.is_empty())?;
+    if ["Ma Société", "Ma Societe", NOM_D_USINE].iter().any(|u| u.eq_ignore_ascii_case(nom)) {
+        return None;
+    }
+    Some(nom.to_string())
+}
+
+/// Le debut du premier exercice a la migration : le 1er janvier de
+/// l'annee de la plus ancienne ecriture, si elle precede le debut
+/// actuel. Pure.
+pub fn debut_d_origine(debut_actuel: &str, plus_ancienne: Option<&str>) -> Option<String> {
+    let jour = crate::coeur::dates::jour(plus_ancienne?)?;
+    let debut = format!("{}-01-01", jour.format("%Y"));
+    (debut.as_str() < debut_actuel).then_some(debut)
+}
+
+/// Les ecritures datees dont la plus ancienne fixe le debut du dossier
+/// d'origine. `SUBSTR(MIN(..))` : un seul aller-retour par table, et le
+/// meme SQL sur les deux moteurs.
+const DATES_ECRITES: &[(&str, &str)] = &[
+    ("vente", "date_vente"),
+    ("piece_commerciale", "date_piece"),
+    ("paiement", "date_paiement"),
+    ("mouvement_caisse", "date_mouvement"),
+    ("mouvement_stock", "date_mouvement"),
+    ("retour", "date_retour"),
+    ("paiement_fournisseur", "date_paiement"),
+];
+
+/// La migration du dossier d'origine, une fois par base (marque
+/// `migration_v3_dossier_origine`). Nomme le dossier comme la societe,
+/// et recule le debut de son exercice unique jusqu'a couvrir la plus
+/// ancienne ecriture. Rend ce qu'elle a fait (`None` : deja faite).
+///
+/// Appelee par `amorcage::amorcer` (PostgreSQL, base neuve) et par le
+/// serveur au demarrage sur un fichier SQLite ; la fenetre monoposte
+/// n'en a pas besoin (un dossier, pas de garde-fou de dates).
+pub fn migrer_dossier_d_origine_sur(base: &mut Base) -> Result<Option<serde_json::Value>, String> {
+    let deja = base
+        .lire_une(
+            "SELECT valeur FROM config_app WHERE cle = 'migration_v3_dossier_origine'",
+            &[],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?;
+    if deja.is_some() {
+        return Ok(None);
+    }
+    let precedent = base.dossier().to_string();
+    base.choisir_dossier(DOSSIER_DEFAUT).map_err(|e| e.0)?;
+    let r = migrer_dans_le_dossier_d_origine(base);
+    let _ = base.choisir_dossier(&precedent);
+    r.map(Some)
+}
+
+fn migrer_dans_le_dossier_d_origine(base: &mut Base) -> Result<serde_json::Value, String> {
+    let now = crate::utils::maintenant_iso();
+    let societe: Option<String> = base
+        .lire_une("SELECT societe FROM dossier WHERE id = ?1", &parametres![DOSSIER_DEFAUT], |r| r.get::<String>(0))
+        .map_err(|e| e.0)?;
+    let nom_societe: Option<String> = base
+        .lire_une("SELECT nom FROM parametres_societe WHERE id = 1", &[], |r| r.get::<String>(0))
+        .ok()
+        .flatten();
+    let nouveau_nom = societe.as_deref().and_then(|s| nom_d_origine(s, nom_societe.as_deref()));
+
+    let mut plus_ancienne: Option<String> = None;
+    for (table, colonne) in DATES_ECRITES {
+        let sql = format!("SELECT SUBSTR(MIN({colonne}), 1, 10) FROM {table} WHERE dossier_id = ?1");
+        let d: Option<String> = base
+            .lire_une(&sql, &parametres![DOSSIER_DEFAUT], |r| r.get::<Option<String>>(0))
+            .map_err(|e| e.0)?
+            .flatten();
+        if let Some(d) = d.filter(|d| crate::coeur::dates::jour(d).is_some()) {
+            if plus_ancienne.as_deref().is_none_or(|p| d.as_str() < p) {
+                plus_ancienne = Some(d);
+            }
+        }
+    }
+    // Un exercice unique et ouvert : celui que la migration a pose. S'il
+    // y en a plusieurs, le patron a deja decide ; on n'y touche pas.
+    let exercices = lire_les_exercices(base, DOSSIER_DEFAUT)?;
+    let recul = match exercices.as_slice() {
+        [seul] if !seul.clos => debut_d_origine(&seul.date_debut, plus_ancienne.as_deref()).map(|d| (seul.id.clone(), d)),
+        _ => None,
+    };
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    if let Some(nom) = &nouveau_nom {
+        tx.executer(
+            "UPDATE dossier SET societe = ?1, modifie_le = ?2 WHERE id = ?3",
+            &parametres![nom.clone(), now.clone(), DOSSIER_DEFAUT],
+        )
+        .map_err(|e| e.0)?;
+    }
+    if let Some((id, debut)) = &recul {
+        tx.executer(
+            "UPDATE exercice SET date_debut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
+            &parametres![debut.clone(), now.clone(), id.clone(), DOSSIER_DEFAUT],
+        )
+        .map_err(|e| e.0)?;
+    }
+    let fait = serde_json::json!({
+        "societe": nouveau_nom,
+        "debut": recul.as_ref().map(|(_, d)| d.clone()),
+        "plus_ancienne_ecriture": plus_ancienne,
+    });
+    if nouveau_nom.is_some() || recul.is_some() {
+        tx.executer(
+            "INSERT INTO journal
+               (id, type_evenement, entite_type, entite_id, nouveau_valeur, origine, date_evenement, dossier_id)
+             VALUES (?1, 'dossier_d_origine', 'dossier', ?2, ?3, 'migration', ?4, ?2)",
+            &parametres![uuid::Uuid::new_v4().to_string(), DOSSIER_DEFAUT, fait.to_string(), now.clone()],
+        )
+        .map_err(|e| e.0)?;
+    }
+    tx.executer(
+        "INSERT INTO config_app (cle, valeur) VALUES ('migration_v3_dossier_origine', ?1)
+         ON CONFLICT (cle) DO NOTHING",
+        &parametres![now],
+    )
+    .map_err(|e| e.0)?;
+    tx.valider().map_err(|e| e.0)?;
+    Ok(fait)
+}
+
+/// Renomme un dossier (sa societe). Le code ne change pas : il prefixe
+/// deja les codes de ses tiers. Au journal du dossier renomme.
+pub fn renommer_dossier_sur(base: &mut Base, dossier_id: String, societe: String) -> Result<serde_json::Value, String> {
+    let societe = societe.trim().to_string();
+    if societe.is_empty() {
+        return Err("Le nom de la société est vide.".to_string());
+    }
+    let ancien: String = base
+        .lire_une("SELECT societe FROM dossier WHERE id = ?1", &parametres![dossier_id.clone()], |r| r.get::<String>(0))
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Dossier introuvable.".to_string())?;
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let now = crate::utils::maintenant_iso();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE dossier SET societe = ?1, modifie_le = ?2 WHERE id = ?3",
+        &parametres![societe.clone(), now.clone(), dossier_id.clone()],
+    )
+    .map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO journal
+           (id, type_evenement, entite_type, entite_id, auteur_id,
+            ancien_valeur, nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1, 'dossier_renomme', 'dossier', ?2, ?3, ?4, ?5, 'app', ?6, ?2)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            dossier_id.clone(),
+            auteur,
+            serde_json::json!({ "societe": ancien }).to_string(),
+            serde_json::json!({ "societe": societe }).to_string(),
+            now
+        ],
+    )
+    .map_err(|e| e.0)?;
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({ "id": dossier_id, "societe": societe }))
+}
+
+#[cfg(test)]
+mod tests_dossier_d_origine {
+    use super::*;
+
+    #[test]
+    fn le_dossier_prend_le_nom_de_la_societe_s_il_porte_encore_celui_d_usine() {
+        assert_eq!(nom_d_origine("Ma boutique", Some(" Quincaillerie Traoré ")).as_deref(), Some("Quincaillerie Traoré"));
+        assert_eq!(nom_d_origine("Ma boutique", Some("Ma Société")), None, "un nom d'usine n'en remplace pas un autre");
+        assert_eq!(nom_d_origine("Ma boutique", Some("  ")), None);
+        assert_eq!(nom_d_origine("Ma boutique", None), None);
+        assert_eq!(nom_d_origine("Déjà nommé", Some("Autre")), None, "le patron a déjà décidé");
+    }
+
+    #[test]
+    fn le_premier_exercice_recule_au_premier_janvier_de_la_plus_ancienne_ecriture() {
+        assert_eq!(debut_d_origine("2026-01-01", Some("2024-06-15")).as_deref(), Some("2024-01-01"));
+        assert_eq!(debut_d_origine("2026-01-01", Some("2026-03-02")), None, "déjà couverte");
+        assert_eq!(debut_d_origine("2026-01-01", None), None, "une base vide");
+        assert_eq!(debut_d_origine("2026-01-01", Some("n'importe quoi")), None);
     }
 }

@@ -20,6 +20,9 @@ Une règle qui n'est pas ici est une règle qu'aucun test ne protège.
   types de mouvement, source unique. Marges, découvert.
 - [coeur/caisse.rs](../../src-tauri/noyau/src/coeur/caisse.rs) (52 l.) — solde
   théorique et écart, espèces seulement.
+- [coeur/saisie.rs](../../src-tauri/noyau/src/coeur/saisie.rs) (130 l.) —
+  la saisie jugée au serveur (D27) : modes de paiement, montant,
+  quantité, prix, remise.
 - [coeur/codebarre.rs](../../src-tauri/noyau/src/coeur/codebarre.rs) (127 l.) —
   EAN-13 : clé de contrôle, génération interne préfixe `20`.
 - [coeur/dates.rs](../../src-tauri/noyau/src/coeur/dates.rs) (124 l.) — la
@@ -71,6 +74,21 @@ toujours la sortie. Ne pas les remplacer par des codes.
 ### caisse.rs
 - `solde_theorique(fond, entrées, sorties) -> i64`
 - `ecart_caisse(compté, théorique) -> i64`
+
+### saisie.rs (23/09/2026, D27)
+Ce que le serveur refuse d'une saisie, quel que soit l'écran.
+- `MODES_ENCAISSEMENT` = `especes`, `orange_money`, `moov_money`,
+  `cheque`, `virement` ; `verifier_mode_encaissement(mode)` — **`avoir`
+  refusé** : un avoir se consomme, il ne se déclare pas.
+- `verifier_montant(i64)` — strictement positif.
+- `verifier_ligne(quantité, facteur, prix)` — quantité et facteur > 0
+  et finis, prix ≥ 0 (0 = cadeau, accepté). Le sens du stock est porté
+  par le geste, jamais par le signe.
+- `verifier_remise_pct(f64)` — 0 à 100.
+
+Appelé par `creer_vente*`, `regler_creance*` (donc `enregistrer_paiement*`),
+`regler_dette_fournisseur*`, `enregistrer_achat*`, `creer_piece*`,
+`creer_piece_fournisseur*`, `modifier_piece*`.
 
 ### codebarre.rs
 - `PREFIXE_INTERNE = "20"`

@@ -1,5 +1,16 @@
 // lib/genererPDF.ts — Génération PDF via impression HTML → PDF navigateur
 // Pas de dépendance externe — utilise window.print() avec CSS @page
+//
+// v3 (A-2, D17) : UN générateur par genre, une mise en page fixe. Ce
+// qui varie d'une boutique à l'autre vient de l'HABILLAGE — images de la
+// société et réglage du genre (Paramètres → Documents), voir
+// lib/impression.ts.
+
+import {
+  type Habillage, blocSociete, imageEntete, imagePied, mention,
+  blocSignatures, blocMontantLettres, choisir, esc, pourGenre,
+} from "@/lib/impression";
+import type { ReglagesDocuments } from "@/lib/documents";
 
 /** Formats d'impression. Un seul generateur pour toutes les pieces. */
 // =====================================================================
@@ -57,66 +68,6 @@ export interface DonneesPiece {
   totaux: any;
 }
 
-/**
- * Les deux noms au bas des documents, réglés dans Paramètres → Société.
- *
- * Une paire par famille : une facture se signe « Pour acquit » face au
- * fournisseur, un bon de livraison se signe entre le chauffeur et celui
- * qui réceptionne. Mettre « Le chauffeur » au bas d'une facture n'aurait
- * aucun sens, d'où trois paires plutôt qu'une.
- */
-export interface Signatures {
-  signature_facture_gauche: string;
-  signature_facture_droite: string;
-  signature_livraison_gauche: string;
-  signature_livraison_droite: string;
-  signature_defaut_gauche: string;
-  signature_defaut_droite: string;
-}
-
-/** Quelle paire pour quel type de pièce. */
-function paireSignature(
-  signatures: Signatures | null | undefined,
-  typePiece: string,
-): [string, string] {
-  if (!signatures) return ["", ""];
-  const famille =
-    typePiece === "bon_livraison" || typePiece === "bon_reception"
-      ? "livraison"
-      : typePiece === "facture" || typePiece === "facture_acompte"
-        ? "facture"
-        : "defaut";
-  return [
-    (signatures as any)[`signature_${famille}_gauche`] ?? "",
-    (signatures as any)[`signature_${famille}_droite`] ?? "",
-  ];
-}
-
-/**
- * Bloc de signature — deux noms, un trait sous chacun.
- *
- * Rendu vide si les deux noms le sont : c'est ainsi qu'on retire les
- * signatures d'une famille de documents, sans réglage on/off en plus.
- *
- * `page-break-inside:avoid` : sur un document qui déborde sur une
- * seconde page, le bloc part en entier plutôt que de se couper en deux
- * — un trait de signature orphelin en haut de page ne se signe pas.
- */
-function blocSignature(gauche: string, droite: string): string {
-  if (!gauche.trim() && !droite.trim()) return "";
-  const colonne = (nom: string) => `
-    <div style="width:45%">
-      <div style="font-size:10px;color:#333;margin-bottom:26px">${nom}</div>
-      <div style="border-bottom:1px solid #000"></div>
-    </div>`;
-  return `
-    <div style="display:flex;justify-content:space-between;
-                margin-top:18px;padding-top:4px;page-break-inside:avoid">
-      ${gauche.trim() ? colonne(gauche) : "<div style=\"width:45%\"></div>"}
-      ${droite.trim() ? colonne(droite) : "<div style=\"width:45%\"></div>"}
-    </div>`;
-}
-
 function fmt(n: number, devise = "FCFA"): string {
   return new Intl.NumberFormat("fr-ML").format(n) + " " + devise;
 }
@@ -157,61 +108,52 @@ const TITRES: Record<string, string> = {
 };
 
 // =====================================================================
-//  Générer HTML A4 — avec support nb_copies (factures en 5 exemplaires)
+//  Générer HTML A4 / A5
 // =====================================================================
+
+/** Un habillage vide : la mise en page d'usine, sans image. */
+const NU: Habillage = {};
 
 export function genererPieceHTML(
   donnees: DonneesPiece,
-  logoBase64?: string | null,
   format: "a4" | "a5" = "a4",
-  // Bandeau pleine largeur. Present, il REMPLACE le logo et le bloc de
-  // coordonnees : c'est le papier a en-tete du commercant, qui porte
-  // deja son nom, son adresse et son telephone. Les repeter dessous
-  // ferait doublon sur le document imprime.
-  enteteBase64?: string | null,
-  // Bandeau de bas de page. Present, il remplace la ligne de texte
-  // `pied_facture`, qu'il porte deja en general.
-  piedBase64?: string | null,
-  // Les deux noms a signer, regles dans Parametres → Societe.
-  signatures?: Signatures | null,
+  h: Habillage = NU,
 ): string {
   const { piece, lignes, societe, totaux } = donnees;
   const devise = societe.devise ?? "FCFA";
   const titre = TITRES[piece.type_piece] ?? "PIÈCE COMMERCIALE";
   const isA5 = format === "a5";
+  const r = h.reglage;
 
-  const logoHtml = logoBase64
-    ? `<img src="${logoBase64}" alt="Logo"
-           style="max-height:55px;max-width:180px;object-fit:contain;display:block"/>`
-    : "";
-
-  const avecEntete = !!enteteBase64;
-  // Le bandeau colle au bord PHYSIQUE de la page — c'est le papier à
-  // en-tête du commerçant, il n'a pas de marge chez l'imprimeur non
-  // plus. `margin-bottom` reste : c'est l'espace avant le contenu, pas
-  // une marge autour de l'image elle-même.
-  const enteteHtml = avecEntete
-    ? `<img src="${enteteBase64}" alt=""
-            style="width:100%;height:auto;display:block;margin-bottom:12px"/>`
-    : "";
-
+  const avecEntete = !!h.entete;
   const hasTVA = lignes.some((l: any) => l.taux_tva && l.taux_tva > 0);
+  const aRemise = lignes.some((l: any) => l.remise_pct > 0);
+  // Ce que le réglage du genre décide, contre ce que le document contient.
+  const colRemise = choisir(r?.colonne_remise, aRemise);
+  const colTVA = choisir(r?.colonne_tva, hasTVA);
+  const recapTVA = choisir(r?.recap_tva, hasTVA);
+  const colRef = !!r?.reference_article && lignes.some((l: any) => l.article_reference);
+  // Sans réglage lisible, la remise se montre sous la désignation,
+  // comme le générateur historique ; « Jamais » la retire tout à fait.
+  const remiseEnLigne = !colRemise && r?.colonne_remise !== "non";
 
   function lignesTableau(): string {
     return lignes.map((l: any, i: number) => {
       const tva_pct = l.taux_tva ? (l.taux_tva * 100).toFixed(0) + "%" : "—";
       return `
         <tr style="background:${i % 2 === 0 ? "#fff" : "#f9f9f9"};border-bottom:1px solid #eee">
-          <td style="padding:5px 6px">${l.article_nom}
-            ${l.remise_pct > 0
+          ${colRef ? `<td style="padding:5px 6px;font-family:monospace;font-size:10px;color:#555">${esc(l.article_reference ?? "")}</td>` : ""}
+          <td style="padding:5px 6px">${esc(l.article_nom)}
+            ${remiseEnLigne && l.remise_pct > 0
               ? `<br><small style="color:#888">Remise ${l.remise_pct}%</small>`
               : ""}
           </td>
           <td style="text-align:center;padding:5px 4px">
-            ${l.quantite % 1 === 0 ? l.quantite : l.quantite.toFixed(2)} ${l.unite_libelle}
+            ${l.quantite % 1 === 0 ? l.quantite : l.quantite.toFixed(2)} ${esc(l.unite_libelle)}
           </td>
           <td style="text-align:right;padding:5px 4px">${fmt(l.prix_unitaire, devise)}</td>
-          ${hasTVA ? `<td style="text-align:center;padding:5px 4px;color:#555">${tva_pct}</td>` : ""}
+          ${colRemise ? `<td style="text-align:center;padding:5px 4px;color:#e65c00">${l.remise_pct > 0 ? l.remise_pct + "%" : "—"}</td>` : ""}
+          ${colTVA ? `<td style="text-align:center;padding:5px 4px;color:#555">${tva_pct}</td>` : ""}
           <td style="text-align:right;padding:5px 4px;font-weight:600">
             ${fmt(l.montant_ht, devise)}
           </td>
@@ -252,7 +194,7 @@ export function genererPieceHTML(
         ${hasTVA && totaux.total_tva > 0 ? "TOTAL TTC" : "TOTAL"}
       </td>
       <td style="padding:7px 8px;text-align:right;font-weight:bold;font-size:14px">
-        ${fmt(hasTVA ? totaux.total_ttc : totaux.total_net, devise)}
+        ${fmt(totalAPayer, devise)}
       </td>
     </tr>`);
 
@@ -278,25 +220,55 @@ export function genererPieceHTML(
     return rows.join("");
   }
 
+  /**
+   * Base HT et TVA par taux — la question du comptable, sous les totaux.
+   * Pas de colonne TTC : le total TTC imprimé suit l'arrondi du prix
+   * unitaire (celui que `valider_facture` enregistre), et une somme par
+   * taux qui s'en écarterait d'un franc sèmerait le doute.
+   */
+  function recapitulatifTVA(): string {
+    const parTaux = new Map<number, { ht: number; tva: number }>();
+    for (const l of lignes) {
+      const t = Number(l.taux_tva) || 0;
+      const x = parTaux.get(t) ?? { ht: 0, tva: 0 };
+      x.ht += Number(l.montant_ht) || 0;
+      x.tva += Number(l.montant_tva) || 0;
+      parTaux.set(t, x);
+    }
+    const lignesRecap = [...parTaux.entries()].sort((a, b) => a[0] - b[0]).map(([t, x]) => `
+      <tr>
+        <td style="padding:3px 8px">${(t * 100).toFixed(0)} %</td>
+        <td style="padding:3px 8px;text-align:right">${fmt(x.ht, devise)}</td>
+        <td style="padding:3px 8px;text-align:right">${fmt(x.tva, devise)}</td>
+      </tr>`).join("");
+    return `
+      <table class="doc-recap-tva" style="border-collapse:collapse;font-size:10px;margin:0 0 8px auto;min-width:260px">
+        <thead><tr style="background:#f0f0f0">
+          <th style="padding:3px 8px;text-align:left">Taux</th>
+          <th style="padding:3px 8px;text-align:right">Base HT</th>
+          <th style="padding:3px 8px;text-align:right">TVA</th>
+        </tr></thead>
+        <tbody>${lignesRecap}</tbody>
+      </table>`;
+  }
+
+  const totalAPayer = hasTVA ? totaux.total_ttc : totaux.total_net;
+  const montantLettres = r ? r.montant_lettres : piece.type_piece === "facture";
+
   function uneFacture(): string {
     return `
     <div class="page">
-      ${enteteHtml}
+      ${imageEntete(h)}
       <div class="corps">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
         <div>
-          ${avecEntete ? "" : `
-          ${logoHtml}
-          <div style="font-size:${isA5 ? "14" : "17"}px;font-weight:bold;margin-top:4px">${societe.nom}</div>
-          ${societe.adresse ? `<div style="font-size:10px;color:#555">${societe.adresse}</div>` : ""}
-          ${societe.telephone ? `<div style="font-size:10px;color:#555">Tél: ${societe.telephone}${societe.telephone2 ? " / " + societe.telephone2 : ""}</div>` : ""}
-          ${societe.nif ? `<div style="font-size:10px;color:#555">NIF: ${societe.nif}</div>` : ""}
-          ${societe.rccm ? `<div style="font-size:10px;color:#555">RCCM: ${societe.rccm}</div>` : ""}`}
+          ${avecEntete ? "" : blocSociete(societe, h, isA5 ? 14 : 17)}
         </div>
         <div style="text-align:right">
-          <div style="font-size:15px;font-weight:bold;color:#333">${titre}</div>
+          <div class="doc-titre" style="font-size:15px;font-weight:bold;color:#333">${titre}</div>
 
-          <div style="margin-top:4px">N° <strong>${piece.numero}</strong></div>
+          <div style="margin-top:4px">N° <strong>${esc(piece.numero)}</strong></div>
+          ${piece.reference ? `<div style="font-size:10px;color:#555">Réf. : ${esc(piece.reference)}</div>` : ""}
           <div style="font-size:10px;color:#555">Date : ${fmtDateHeure(piece.date_piece)}</div>
           ${piece.date_echeance
             ? `<div style="font-size:10px;color:#e65c00">Échéance : ${fmtDate(piece.date_echeance)}</div>`
@@ -310,20 +282,22 @@ export function genererPieceHTML(
         <div style="font-size:9px;color:#777;text-transform:uppercase;margin-bottom:2px">
           ${piece.tiers_type === "fournisseur" ? "Fournisseur" : "Client"}
         </div>
-        <div style="font-weight:bold">${piece.client_nom}</div>
-        ${piece.client_code ? `<div style="font-size:10px;color:#555">${piece.client_code}</div>` : ""}
-        ${piece.client_telephone ? `<div style="font-size:10px;color:#555">Tél: ${piece.client_telephone}</div>` : ""}
-        ${piece.client_adresse ? `<div style="font-size:10px;color:#555">${piece.client_adresse}</div>` : ""}
-        ${piece.client_nif ? `<div style="font-size:10px;color:#555">NIF: ${piece.client_nif}</div>` : ""}
+        <div style="font-weight:bold">${esc(piece.client_nom)}</div>
+        ${piece.client_code ? `<div style="font-size:10px;color:#555">${esc(piece.client_code)}</div>` : ""}
+        ${piece.client_telephone ? `<div style="font-size:10px;color:#555">Tél: ${esc(piece.client_telephone)}</div>` : ""}
+        ${piece.client_adresse ? `<div style="font-size:10px;color:#555">${esc(piece.client_adresse)}</div>` : ""}
+        ${piece.client_nif ? `<div style="font-size:10px;color:#555">NIF: ${esc(piece.client_nif)}</div>` : ""}
       </div>
 
-      <table style="width:100%;border-collapse:collapse;margin:10px 0">
+      <table class="doc-lignes" style="width:100%;border-collapse:collapse;margin:10px 0">
         <thead>
           <tr style="background:#f0f0f0;border-bottom:2px solid #000">
+            ${colRef ? '<th style="text-align:left;padding:5px 6px;font-size:11px">Réf.</th>' : ""}
             <th style="text-align:left;padding:5px 6px;font-size:11px">Désignation</th>
             <th style="text-align:center;padding:5px 4px;font-size:11px">Qté</th>
             <th style="text-align:right;padding:5px 4px;font-size:11px">P.U.</th>
-            ${hasTVA ? '<th style="text-align:center;padding:5px 4px;font-size:11px">TVA</th>' : ""}
+            ${colRemise ? '<th style="text-align:center;padding:5px 4px;font-size:11px">Remise</th>' : ""}
+            ${colTVA ? '<th style="text-align:center;padding:5px 4px;font-size:11px">TVA</th>' : ""}
             <th style="text-align:right;padding:5px 4px;font-size:11px">${hasTVA ? "Montant HT" : "Montant"}</th>
           </tr>
         </thead>
@@ -336,26 +310,29 @@ export function genererPieceHTML(
         </table>
       </div>
 
+      ${recapTVA ? recapitulatifTVA() : ""}
+      ${montantLettres ? blocMontantLettres(titre, totalAPayer) : ""}
+
       ${piece.note ? `
         <div style="border-top:1px solid #ddd;padding-top:6px;margin-top:6px;
                     font-size:10px;color:#555;font-style:italic">
-          ${piece.note}
+          ${esc(piece.note)}
         </div>` : ""}
 
       <div class="bas-page">
-        ${blocSignature(...paireSignature(signatures, piece.type_piece))}
-        ${piedBase64
+        ${blocSignatures(r ? r.signatures : SIGNATURES_USINE(piece.type_piece))}
+        ${h.pied
           ? `<div style="padding-top:14px;font-size:9px;
                       color:#aaa;text-align:center">
                Imprimé le ${fmtDateHeure(new Date().toISOString())}
              </div>`
           : `<div style="border-top:1px solid #ddd;
                       padding-top:6px;text-align:center;margin-top:14px">
-            <div style="font-size:10px;color:#555">
+            <div class="doc-mention" style="font-size:10px;color:#555">
               ${/* Interpole BRUT : le commercant peut y mettre du HTML
                     (gras, retours a la ligne, petit tableau). Une balise
                     non fermee casse la mise en page — c'est le prix. */
-                societe.pied_facture ?? "Merci de votre confiance"}
+                mention(h, societe.pied_facture ?? "Merci de votre confiance")}
             </div>
             <div style="font-size:9px;color:#aaa;margin-top:2px">
               Imprimé le ${fmtDateHeure(new Date().toISOString())}
@@ -363,9 +340,7 @@ export function genererPieceHTML(
           </div>`}
       </div>
       </div>
-      ${piedBase64
-        ? `<img src="${piedBase64}" alt="" style="width:100%;height:auto;display:block"/>`
-        : ""}
+      ${imagePied(h)}
     </div>`;
   }
 
@@ -376,14 +351,14 @@ export function genererPieceHTML(
   // garde sa marge habituelle des deux côtés (comportement inchangé).
   const padSide = isA5 ? "10mm" : "14mm";
   const padHaut = avecEntete ? "0mm" : (isA5 ? "10mm" : "14mm");
-  const padBas  = piedBase64 ? "0mm" : "10mm";
+  const padBas  = h.pied ? "0mm" : "10mm";
   const padding = `${padHaut} ${padSide} ${padBas} ${padSide}`;
 
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>${titre} ${piece.numero}</title>
+  <title>${titre} ${esc(piece.numero)}</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body { font-family:Arial,sans-serif; font-size:11px; color:#000; }
@@ -398,18 +373,10 @@ export function genererPieceHTML(
     .corps {
       flex: 1 1 auto;
       padding: ${padding};
-      /* Colonne flex À SON TOUR : le pied de secours (texte, pas image)
-         se colle en bas via margin-top:auto, au lieu de flotter au
-         milieu d'une facture courte. */
       display: flex;
       flex-direction: column;
     }
-    /* Signature et pied descendent ENSEMBLE au bas de la page. Le
-       margin-top:auto est porté par le GROUPE, pas par le pied seul :
-       autrement la signature flotterait au milieu d'une facture courte
-       pendant que le pied, lui, collerait en bas.
-       Sur un document qui déborde sur une seconde page, le groupe suit
-       le contenu et atterrit à la fin — donc sur la dernière page. */
+    /* Signature et pied descendent ENSEMBLE au bas de la page. */
     .bas-page { margin-top: auto; }
     .page:last-child { page-break-after: avoid; }
     @media print {
@@ -425,6 +392,21 @@ export function genererPieceHTML(
 </html>`;
 }
 
+/**
+ * Les signatures d'usine, quand aucun réglage n'a pu être lu : celles
+ * du générateur historique, par famille. Un réglage illisible ne doit
+ * jamais faire sortir une facture sans ses signatures.
+ */
+function SIGNATURES_USINE(typePiece: string) {
+  const [g, d] =
+    typePiece === "bon_livraison" || typePiece === "bon_reception"
+      ? ["Le chauffeur", "Le réceptionnaire"]
+      : typePiece === "facture" || typePiece === "facture_acompte"
+        ? ["Pour acquit", "Le fournisseur"]
+        : ["Le vendeur", "Le client"];
+  return [{ libelle: g }, { libelle: d }];
+}
+
 // =====================================================================
 //  Point d'entree unique
 // =====================================================================
@@ -432,41 +414,23 @@ export function genererPieceHTML(
 /**
  * Genere le HTML d'une piece dans le format demande.
  *
- * Remplace l'ancien couple genererFactureHTML (POS) / genererPieceHTML
- * (Pieces) : les deux ecrans lisent desormais lire_donnees_piece, donc
- * une seule mise en page a maintenir. Un client ne recoit plus deux
- * presentations differentes pour le meme document.
+ * `h` est l'habillage du genre de la pièce ; `reglages` (facultatif)
+ * sert au bon de sortie, qui prend les signatures du bon de livraison.
  */
 export function genererImpression(
   donnees: DonneesPiece,
   format: FormatImpression,
-  logoBase64?: string | null,
-  // Bandeau d'en-tete, ignore sur thermique : 58 ou 80 mm en noir et
-  // blanc ne rendent qu'une tache grise, et le papier a en-tete n'a
-  // pas de sens sur un ticket de caisse.
-  enteteBase64?: string | null,
-  piedBase64?: string | null,
-  // Les deux noms a signer. Le ticket thermique les ignore : on ne
-  // signe pas un recu de 58 mm de large.
-  signatures?: Signatures | null,
+  h: Habillage & { reglages?: ReglagesDocuments | null } = NU,
 ): string {
+  const hBon = pourGenre(h, "bon_livraison");
   switch (format) {
-    case "thermique_58": return genererTicketThermique(donnees, logoBase64, 58);
-    case "thermique_80": return genererTicketThermique(donnees, logoBase64, 80);
-    case "bon_sortie":
-      return genererBonSortieHTML(donnees, logoBase64, enteteBase64, signatures);
-    case "a4_et_bon":
-      return genererFactureEtBonHTML(
-        donnees, "a4", logoBase64, enteteBase64, piedBase64, signatures);
-    case "a5_et_bon":
-      return genererFactureEtBonHTML(
-        donnees, "a5", logoBase64, enteteBase64, piedBase64, signatures);
-    case "a5":
-      return genererPieceHTML(
-        donnees, logoBase64, "a5", enteteBase64, piedBase64, signatures);
-    default:
-      return genererPieceHTML(
-        donnees, logoBase64, "a4", enteteBase64, piedBase64, signatures);
+    case "thermique_58": return genererTicketThermique(donnees, pourGenre(h, "ticket"), 58);
+    case "thermique_80": return genererTicketThermique(donnees, pourGenre(h, "ticket"), 80);
+    case "bon_sortie":   return genererBonSortieHTML(donnees, hBon);
+    case "a4_et_bon":    return genererFactureEtBonHTML(donnees, "a4", h, hBon);
+    case "a5_et_bon":    return genererFactureEtBonHTML(donnees, "a5", h, hBon);
+    case "a5":           return genererPieceHTML(donnees, "a5", h);
+    default:             return genererPieceHTML(donnees, "a4", h);
   }
 }
 
@@ -476,9 +440,12 @@ export function genererImpression(
 
 export function genererTicketThermique(
   donnees: DonneesPiece,
-  logoBase64?: string | null,
+  h: Habillage = NU,
   largeurMm: 58 | 80 = 80,
 ): string {
+  // Le ticket ignore en-tête et pied images (largeur) et garde le nom et
+  // le téléphone (A2) : un ticket est un ticket.
+  const logoBase64 = h.logo;
   const { piece, lignes, societe, totaux } = donnees;
   const devise = societe.devise ?? "F";
   const titre = TITRES[piece.type_piece] ?? "FACTURE";
@@ -567,7 +534,7 @@ export function genererTicketThermique(
     </div>` : ""}
   <div style="border-top:1px dashed #000;margin:4px 0"></div>
   <div style="text-align:center;font-size:10px;margin-top:4px">
-    ${societe.pied_facture ?? "Merci de votre confiance !"}
+    ${mention(h, societe.pied_facture ?? "Merci de votre confiance !")}
   </div>
   <div style="text-align:center;font-size:9px;color:#888;margin-top:2px">
     ${fmtDate(new Date().toISOString())}
@@ -650,14 +617,28 @@ const STYLES_BON_SORTIE = `
                 text-align:center; }
 `;
 
+/**
+ * Les cadres à signer des bons (sortie, échange) : un cadre par
+ * signature réglée pour le bon de livraison, le cachet dedans. Sans
+ * réglage lisible, ceux du générateur historique.
+ */
+function cadresSignature(h: Habillage, usine: string[], classe: string, classeLbl: string): string {
+  const sigs = h.reglage
+    ? h.reglage.signatures
+    : usine.map(libelle => ({ libelle, image: null }));
+  return sigs.filter(s => s.libelle.trim()).map(s => `
+        <div class="${classe}"><span class="${classeLbl}">${esc(s.libelle)}</span>
+          ${s.image ? `<div style="text-align:center"><img src="${s.image}" alt="" style="max-height:16mm;max-width:100%;object-fit:contain"/></div>` : ""}
+        </div>`).join("");
+}
+
 /** Corps du bon, sans balise html — reutilisable dans un document mixte. */
 function corpsBonSortie(
   donnees: DonneesPiece,
-  logoBase64?: string | null,
-  enteteBase64?: string | null,
-  signatures?: Signatures | null,
+  h: Habillage = NU,
 ): string {
   const { piece, lignes, societe } = donnees;
+  const enteteBase64 = h.entete;
   const avecEntete = !!enteteBase64;
 
   const lignesHTML = lignes.map((l: any, i: number) => {
@@ -685,14 +666,7 @@ function corpsBonSortie(
     <div class="bs-corps${avecEntete ? " sans-marge-haut" : ""}">
     <div class="bs-entete">
       <div>
-        ${avecEntete ? "" : `
-        ${logoBase64
-          ? `<img src="${logoBase64}" alt=""
-                 style="max-height:42px;max-width:150px;object-fit:contain;display:block"/>`
-          : ""}
-        <div class="bs-soc">${societe.nom}</div>
-        ${societe.adresse ? `<div class="bs-soc-det">${societe.adresse}</div>` : ""}
-        ${societe.telephone ? `<div class="bs-soc-det">Tél : ${societe.telephone}</div>` : ""}`}
+        ${avecEntete ? "" : blocSociete(societe, h, 15)}
       </div>
       <div>
         <div class="bs-titre">BON DE SORTIE</div>
@@ -741,12 +715,7 @@ function corpsBonSortie(
 
     <div class="bs-pied">
       <div class="bs-signatures">
-        <div class="bs-sig"><span class="bs-lbl">${
-          (signatures?.signature_livraison_gauche || "Le magasinier").trim()
-        } (nom et signature)</span></div>
-        <div class="bs-sig"><span class="bs-lbl">${
-          (signatures?.signature_livraison_droite || "Le client").trim()
-        } (reçu la marchandise)</span></div>
+        ${cadresSignature(h, ["Le magasinier (nom et signature)", "Le client (reçu la marchandise)"], "bs-sig", "bs-lbl")}
       </div>
       <div class="bs-mention">
         Ce bon ne vaut pas facture et ne porte aucun montant.
@@ -760,9 +729,7 @@ function corpsBonSortie(
 /** Bon de sortie seul, en A5. */
 export function genererBonSortieHTML(
   donnees: DonneesPiece,
-  logoBase64?: string | null,
-  enteteBase64?: string | null,
-  signatures?: Signatures | null,
+  h: Habillage = NU,
 ): string {
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -777,7 +744,7 @@ export function genererBonSortieHTML(
   </style>
 </head>
 <body>
-  ${corpsBonSortie(donnees, logoBase64, enteteBase64, signatures)}
+  ${corpsBonSortie(donnees, h)}
   ${SCRIPT_IMPRESSION}
 </body>
 </html>`;
@@ -798,13 +765,10 @@ export function genererBonSortieHTML(
 export function genererFactureEtBonHTML(
   donnees: DonneesPiece,
   format: "a4" | "a5" = "a4",
-  logoBase64?: string | null,
-  enteteBase64?: string | null,
-  piedBase64?: string | null,
-  signatures?: Signatures | null,
+  h: Habillage = NU,
+  hBon: Habillage = h,
 ): string {
-  const facture = genererPieceHTML(
-    donnees, logoBase64, format, enteteBase64, piedBase64, signatures);
+  const facture = genererPieceHTML(donnees, format, h);
 
   // On reprend le document facture et on lui greffe le bon : styles
   // dans le <head>, corps avant le script d'impression.
@@ -812,7 +776,7 @@ export function genererFactureEtBonHTML(
     .replace("</style>", STYLES_BON_SORTIE + "\n  </style>")
     .replace(
       SCRIPT_IMPRESSION,
-      corpsBonSortie(donnees, logoBase64, enteteBase64, signatures)
+      corpsBonSortie(donnees, hBon)
         + "\n  " + SCRIPT_IMPRESSION,
     );
 }
@@ -849,11 +813,11 @@ export interface DonneesEchange {
  */
 export function genererBonEchangeHTML(
   d: DonneesEchange,
-  logoBase64?: string | null,
-  // Un echange fait bouger de la marchandise : il prend la paire
-  // « livraison » du reglage, comme le bon de sortie.
-  signatures?: Signatures | null,
+  // Un echange fait bouger de la marchandise : il prend l'habillage du
+  // bon de livraison, comme le bon de sortie.
+  h: Habillage = NU,
 ): string {
+  const logoBase64 = h.logo;
   const q = (n: number) => (n % 1 === 0 ? n : n.toFixed(2));
 
   const bloc = (
@@ -944,12 +908,7 @@ export function genererBonEchangeHTML(
 
     <div class="pied">
       <div class="signatures">
-        <div class="sig"><span class="lbl">${
-          (signatures?.signature_livraison_gauche || "Le magasinier").trim()
-        } (nom et signature)</span></div>
-        <div class="sig"><span class="lbl">${
-          (signatures?.signature_livraison_droite || "Le client").trim()
-        } (échange effectué)</span></div>
+        ${cadresSignature(h, ["Le magasinier (nom et signature)", "Le client (échange effectué)"], "sig", "lbl")}
       </div>
       <div class="mention">
         Ce bon ne porte aucun montant. Toute différence de prix se règle

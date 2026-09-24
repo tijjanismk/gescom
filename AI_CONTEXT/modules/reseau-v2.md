@@ -47,7 +47,7 @@ Trois crates : `noyau` (lib, sans Tauri), `serveur` (`gescom-serveur.exe`),
 - [CONFIRMÉ] Désactiver un poste ou un utilisateur coupe ses sessions ; un poste `serveur` ou `console` **ne se désactive pas** (plus de chemin pour le rallumer) — [postes.rs](../../src-tauri/noyau/src/postes.rs).
 - [CONFIRMÉ] `caisse_par_utilisateur` vaut 0 par défaut (un tiroir, D46) ; en nominatif, un index partiel interdit deux caisses au même nom, et une opération sans utilisateur est refusée (`CAISSE_SANS_UTILISATEUR`) ; on ne change pas de mode caisse ouverte — [caisses.rs](../../src-tauri/noyau/src/caisses.rs).
 - [CONFIRMÉ] Le canal ne renvoie jamais un événement au poste qui l'a provoqué, et seulement si la commande a **réussi** — [canal.rs](../../src-tauri/serveur/src/canal.rs), `api.rs::rpc`.
-- [CONFIRMÉ] Sur PostgreSQL, une commande sans poignée `Base` **refuse** (« pas encore disponible ») au lieu de retomber sur SQLite — D11. Aujourd'hui : 193/193 en ont une.
+- [CONFIRMÉ] **Depuis la v3 (D-2, D22), le serveur sert TOUT par `Base`**, sur SQLite comme sur PostgreSQL : le registre n'a plus qu'une poignée par commande (`Registre::sur_base`), le chemin `Connection` (D11) est parti avec ses ~190 poignées, `Serveur.conn` aussi (la connexion brute prépare le fichier au démarrage puis se ferme ; intégrité et `VACUUM INTO` passent par `Base::sqlite()`). Plusieurs dossiers se servent donc sur une base fichier.
 - [CONFIRMÉ] Le mot de passe de l'URL ne s'affiche jamais : masqué au démarrage (`main.rs::sans_mot_de_passe`), passé à `pg_dump` par `PGPASSWORD` — D10.
 - [CONFIRMÉ] `portes::verifier_permission` est une liste **blanche** : une commande nouvelle est refusée aux rôles restreints par défaut.
 
@@ -76,12 +76,36 @@ même permission que la sauvegarde (D9).
 `CodeErreur::DossierAChoisir` sur toute commande d'une session sans
 dossier, sauf `lire_dossiers` et `choisir_dossier`. `Appelant` porte
 `dossier_id` et `session_id` ; `api::rpc` fait `base.choisir_dossier`
-avant chaque poignée `Base`. Commandes : `lire_dossiers`,
+avant chaque poignée `Base`, et **pose l'auteur** de la requête
+(`noyau::auteur::poser(&appelant.utilisateur_id)`, D26) — comme
+`/sauvegarde` et `/entretien`. Toute nouvelle route authentifiée fait
+de même. Commandes : `lire_dossiers`,
 `creer_dossier` (`dossiers:gerer`), `choisir_dossier`,
 `oublier_dossier_memorise`, `lire_exercices`, `ouvrir_exercice`,
 `prolonger_exercice`, `clore_exercice`. L'écran : `PageLogin.tsx`
 demande « Quel dossier ouvrir ? » quand il y en a plusieurs ;
 `Layout` affiche le dossier ouvert sous le nom.
+
+## Qui est connecté, et le couper (v3, C-4)
+
+- `session_reseau.derniere_commande` (deux chemins de migration) :
+  `api::authentifier` la pose avec `derniere_vue` en **une** écriture
+  (`sessions::toucher_sur(base, id, commande)`), lue d'un struct à un
+  champ — le corps n'est pas reconstruit deux fois. Les routes sans
+  commande (canal) ne l'effacent pas.
+- `auth::activer_utilisateur_sur(base, id, actif)` — commande
+  `activer_utilisateur` (`utilisateurs:gerer`, née sur `Base`).
+  **Désactiver ferme les sessions du compte dans la même transaction**
+  (`sessions::revoquer_utilisateur_sur`, `revoque_par` = la session qui
+  agit) et écrit `utilisateur_desactive` au journal. Refus : son propre
+  compte, un rôle protégé (superadmin), le dernier compte actif dont le
+  rôle donne tout. Réactiver ne rouvre aucune session.
+- Écran : Paramètres → Utilisateurs, bouton Désactiver / Réactiver
+  (absent sur son propre compte) et `components/SessionsOuvertes.tsx`
+  (qui, poste, depuis, dernière action et commande, « Déconnecter »
+  avec `postes:gerer` ; les sessions de ce poste disent « ce poste »).
+- Preuves : `noyau/tests/sessions_base.rs` (3 scénarios, deux moteurs),
+  banc `c4-sessions.mjs` (deux navigateurs, deux postes).
 
 ## Ce qui reste
 

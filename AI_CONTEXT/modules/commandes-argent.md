@@ -43,6 +43,23 @@ filtrent. Depuis le 18/09, la **réception** aussi :
 `achats::enregistrer_achat_date*` (« Réception du 03/09 »), le stock
 et la caisse au jour de la saisie.
 
+## Qui signe, et ce que le serveur refuse (23/09/2026, D26–D27)
+
+**L'auteur** (`auteur_id`, `cree_par`, `ouvert_par`…) vient de
+`noyau::auteur::courant()`, posé par le serveur pour la durée de la
+requête. Les aides `argent::id_utilisateur_par_role[_sur]` et
+`id_utilisateur_courant[_pub|_sur]` le lisent d'abord ; le rôle passé
+en paramètre ne sert plus qu'au repli hors serveur (fenêtre v1).
+
+**La saisie** : `creer_vente*` refuse une vente sans ligne, une
+quantité ≤ 0, un prix négatif, et un mode d'encaissement hors liste
+quand il y a un montant payé. `regler_creance*` refuse `avoir` et tout
+mode inconnu ; `enregistrer_paiement*` n'est plus qu'une enveloppe de
+`regler_creance_datee*` (plafond au reste, `peut_regler`, caisse
+exigée). `regler_dette_fournisseur*` refuse un montant ≤ 0. Règles dans
+[coeur/saisie.rs](../../src-tauri/noyau/src/coeur/saisie.rs).
+`regler_creance_datee` (version `Connection`) est en transaction.
+
 ## L'irrécouvrable et le règlement exceptionnel (18/09/2026)
 
 `regler_creance*` refuse une vente `irrecouvrable` ou `annulee`

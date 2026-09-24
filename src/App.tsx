@@ -1,3 +1,4 @@
+import { poserDroits, relireDroits } from "@/lib/droits";
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
@@ -16,16 +17,16 @@ import { Fournisseurs } from "@/pages/Fournisseurs";
 import { FicheFournisseur } from "@/pages/FicheFournisseur";
 import { Caisse } from "@/pages/Caisse";
 import { Parametres } from "@/pages/Parametres";
-import { Modeles } from "@/pages/Modeles";
-import { assurerModelesParDefaut } from "@/lib/modeles/service";
 import {
   synchroniserConfig, ecouterCanal, enReseau,
-  surSessionPerdue, sessionUtilisable, serveurConfigure,
+  surSessionPerdue, sessionUtilisable, serveurConfigure, noterPage,
 } from "@/lib/pont";
 import { Retours } from "@/pages/Retours";
 import { Relances } from "@/pages/Relances";
 import { Rapports } from "@/pages/Rapports";
 import { Journal } from "@/pages/Journal";
+import { Historique, type FiltreHistorique } from "@/pages/Historique";
+import { peut } from "@/lib/droits";
 import { Transferts } from "@/pages/Transferts";
 import { Cheques } from "@/pages/Cheques";
 
@@ -139,6 +140,9 @@ function App() {
 
   // ⚠️ NE PAS remettre cette affectation dans un useEffect.
   //
+  // La page ouverte accompagne les erreurs envoyees au serveur (B-2).
+  useEffect(() => { noterPage(pageActive); }, [pageActive]);
+
   // Les effets des ENFANTS s'executent avant ceux du parent. Parametres
   // lisait donc UTILISATEUR_ACTIF encore null au premier rendu et
   // concluait « employe » : seuls 4 onglets apparaissaient, et il
@@ -155,20 +159,13 @@ function App() {
   // et « aucun reglage », sans qu'aucune reconnexion n'y change rien.
   if (utilisateur && UTILISATEUR_ACTIF !== utilisateur) {
     UTILISATEUR_ACTIF = utilisateur;
+    poserDroits(utilisateur);
   }
 
   useEffect(() => {
     if (utilisateur?.doit_changer_mdp) setModalMdp(true);
   }, []);
 
-  // Les modeles d'usine sont poses au premier demarrage, jamais
-  // reecrits ensuite. Ici et pas dans l'ecran Modeles : une facture
-  // doit pouvoir s'imprimer par un modele sans que personne ne soit
-  // jamais alle voir l'atelier.
-  //
-  // L'echec est silencieux et volontairement : une base en lecture
-  // seule ou un disque plein ne doit pas empecher d'ouvrir la caisse.
-  // L'impression retombe alors sur le generateur historique.
   // Le mode reseau vit dans `poste.json`, pas dans le navigateur. On
   // aligne le pont AVANT tout le reste : un poste caisse dont le cache
   // a ete vide se croirait sinon monoposte, ouvrirait sa base locale
@@ -181,19 +178,6 @@ function App() {
   useEffect(() => {
     synchroniserConfig().finally(() => setPontPret(true));
   }, []);
-
-  // Les modeles d'usine s'installent APRES la connexion.
-  //
-  // C'etait des le demarrage : en mode caisse, avant que quiconque se
-  // soit identifie, l'appel partait au serveur sans jeton et revenait
-  // « Jeton absent ». L'ecran Modeles affichait alors cette erreur a la
-  // place de ses modeles.
-  useEffect(() => {
-    if (!pontPret || !utilisateur || !sessionUtilisable()) return;
-    assurerModelesParDefaut().catch((e) =>
-      console.error("Modeles par defaut :", e),
-    );
-  }, [pontPret, utilisateur?.id]);
 
   // Le jeton du serveur est la SOURCE.
   //
@@ -213,6 +197,21 @@ function App() {
       return;
     }
     return surSessionPerdue(() => handleDeconnecter());
+  }, [pontPret, utilisateur?.id]);
+
+  // Les droits gardés par le navigateur datent de la connexion : on les
+  // relit une fois le pont prêt (lib/droits.ts, relireDroits).
+  useEffect(() => {
+    if (!pontPret || !utilisateur || (enReseau() && !sessionUtilisable())) return;
+    let annule = false;
+    relireDroits(utilisateur).then(u => {
+      if (annule || !u) return;
+      UTILISATEUR_ACTIF = u;
+      poserDroits(u);
+      setUtilisateur(u);
+      sauvegarderSession(u, pageActive, navParams);
+    });
+    return () => { annule = true; };
   }, [pontPret, utilisateur?.id]);
 
   // Le canal : ce que les autres caisses viennent de faire.
@@ -242,7 +241,10 @@ function App() {
    * l'être. C'est tout l'intérêt de la fonction.
    */
   useEffect(() => {
-    if (!utilisateur) return;
+    // Seulement pour qui peut sauvegarder : pour les autres, le serveur
+    // refusait à chaque connexion — une ligne REFUS au journal et une
+    // erreur dans la console, pour rien (trouvé par le banc, v3 C-1).
+    if (!utilisateur || !peut("sauvegarde:lancer")) return;
     invoke<{ effectuee: boolean; chemin?: string; erreur?: string }>(
       "sauvegarde_auto_si_necessaire",
     )
@@ -262,8 +264,14 @@ function App() {
     if (utilisateur) sauvegarderSession(utilisateur, page, params ?? null);
   }
 
+  /** L'Historique filtré sur une fiche, avec le chemin du retour. */
+  function ouvrirHistorique(filtre: FiltreHistorique, page: string, params: unknown) {
+    naviguer("historique", { filtre, retour: { page, params } });
+  }
+
   function handleConnecte(u: UtilisateurConnecte) {
     UTILISATEUR_ACTIF = u;
+    poserDroits(u);
     setUtilisateur(u);
     sauvegarderSession(u, "dashboard");
     setPageActive("dashboard");
@@ -274,6 +282,7 @@ function App() {
   function handleDeconnecter() {
     supprimerSession();
     UTILISATEUR_ACTIF = null;
+    poserDroits(null);
     setUtilisateur(null);
     setPageActive("dashboard");
     setNavParams(null);
@@ -282,7 +291,16 @@ function App() {
   function rendrePage() {
     if (!utilisateur) return null;
     switch (pageActive) {
-      case "dashboard":  return <Dashboard />;
+      case "dashboard":
+        return (
+          <Dashboard
+            onAnomalies={peut("journal:lire") ? () =>
+              ouvrirHistorique(
+                { type_evenement: "anomalie", a_verifier: true, libelle: "Anomalies à vérifier" },
+                "dashboard", null)
+              : undefined}
+          />
+        );
       case "ventes":     return <Ventes />;
       case "pieces":
         return (
@@ -291,10 +309,20 @@ function App() {
               naviguer("fiche_client", { clientId })}
             onOuvrirFicheFournisseur={fournisseurId =>
               naviguer("fiche_fournisseur", { fournisseurId })}
+            onHistorique={peut("journal:lire") ? (pieceId, numero) =>
+              ouvrirHistorique({ piece_id: pieceId, libelle: `Pièce : ${numero}` }, "pieces", null)
+              : undefined}
           />
         );
       case "achats":     return <Achats />;
-      case "stock":      return <Stock />;
+      case "stock":
+        return (
+          <Stock
+            onHistorique={peut("journal:lire") ? (articleId, nom) =>
+              ouvrirHistorique({ article_id: articleId, libelle: `Article : ${nom}` }, "stock", null)
+              : undefined}
+          />
+        );
       case "clients":
         return (
           <Clients
@@ -307,6 +335,11 @@ function App() {
           <FicheClient
             clientId={navParams.clientId}
             onRetour={() => naviguer("clients")}
+            onHistorique={peut("journal:lire") ? (nom: string) =>
+              ouvrirHistorique(
+                { tiers_id: navParams.clientId, libelle: `Client : ${nom}` },
+                "fiche_client", { clientId: navParams.clientId })
+              : undefined}
           />
         ) : (
           <Clients
@@ -326,6 +359,11 @@ function App() {
           <FicheFournisseur
             fournisseurId={navParams.fournisseurId}
             onRetour={() => naviguer("fournisseurs")}
+            onHistorique={peut("journal:lire") ? (nom: string) =>
+              ouvrirHistorique(
+                { tiers_id: navParams.fournisseurId, libelle: `Fournisseur : ${nom}` },
+                "fiche_fournisseur", { fournisseurId: navParams.fournisseurId })
+              : undefined}
           />
         ) : (
           <Fournisseurs
@@ -337,10 +375,18 @@ function App() {
       case "retours":    return <Retours />;
       case "relances":   return <Relances />;
       case "journal":    return <Journal />;
+      case "historique":
+        return (
+          <Historique
+            filtreInitial={navParams?.filtre}
+            onRetour={navParams?.retour
+              ? () => naviguer(navParams.retour.page, navParams.retour.params)
+              : undefined}
+          />
+        );
       case "transferts": return <Transferts />;
       case "cheques":    return <Cheques />;
       case "rapports":   return <Rapports />;
-      case "modeles":    return <Modeles />;
       case "parametres": return <Parametres ongletInitial={navParams?.onglet} />;
       default:           return <Dashboard />;
     }
@@ -401,6 +447,7 @@ function App() {
           const u = { ...utilisateur, doit_changer_mdp: false };
           setUtilisateur(u);
           UTILISATEUR_ACTIF = u;
+          poserDroits(u);
           sauvegarderSession(u, pageActive, navParams);
         }}
       />

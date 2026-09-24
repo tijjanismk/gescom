@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { message, confirm } from "@tauri-apps/plugin-dialog";
 import { DEPOT_ACTIF, definirDepotActif } from "@/App";
+import { peut } from "@/lib/droits";
 import {
   Warehouse, Plus, Loader2, Star, Pencil, Power, PowerOff, RefreshCw,
   TrendingUp,
@@ -30,7 +31,7 @@ import {
 interface DepotDetail {
   id: string; nom: string;
   est_defaut: boolean; actif: boolean;
-  nb_articles: number; valeur_stock: number; nb_ventes: number;
+  nb_articles: number; valeur_stock: number | null; nb_ventes: number;
   // Unités encore présentes et unités manquantes (stock négatif) :
   // servent à prévenir avant une désactivation qui gèlerait le tout.
   unites_stock: number; unites_manque: number;
@@ -152,9 +153,12 @@ export function OngletDepots() {
     try {
       const [d, r] = await Promise.all([
         invoke<DepotDetail[]>("lire_depots_detail"),
-        invoke<ResumeDepot[]>("lire_resume_par_depot", {
-          dateDebut: null, dateFin: null,
-        }),
+        // Le chiffre par magasin est un rapport (v3, C-1) : sans
+        // `rapports:lire`, le serveur le refuse — on ne le demande pas,
+        // et les magasins s'affichent quand même.
+        peut("rapports:lire")
+          ? invoke<ResumeDepot[]>("lire_resume_par_depot", { dateDebut: null, dateFin: null })
+          : Promise.resolve([] as ResumeDepot[]),
       ]);
       setDepots(d);
       setResume(r);
@@ -296,10 +300,13 @@ export function OngletDepots() {
                 {d.nb_articles} article(s) en stock · {d.nb_ventes} vente(s)
               </p>
             </div>
-            <div className="text-right min-w-[110px]">
-              <p className="text-xs text-muted-foreground">Valeur du stock</p>
-              <p className="text-sm font-semibold">{fmt(d.valeur_stock)}</p>
-            </div>
+            {/* Null sans `achats:lire_prix` : pas de valeur, pas de zéro. */}
+            {d.valeur_stock !== null && (
+              <div className="text-right min-w-[110px]">
+                <p className="text-xs text-muted-foreground">Valeur du stock</p>
+                <p className="text-sm font-semibold">{fmt(d.valeur_stock)}</p>
+              </div>
+            )}
             <div className="flex items-center gap-1">
               {!d.est_defaut && d.actif && (
                 <button onClick={() => definirDefaut(d)}

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import {
   AlertTriangle, Package, RefreshCw, Loader2,
-  ArrowUpCircle, ClipboardList, X, Printer,
+  ArrowUpCircle, ClipboardList, X, Printer, History,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -321,7 +321,7 @@ interface MouvementStock {
   date: string; type: string; libelle: string;
   article: string; unite_base: string; quantite: number; entrant: boolean;
   depot: string; motif: string; auteur: string;
-  fournisseur: string; prix_achat: number; numero_facture: string;
+  fournisseur: string; prix_achat: number | null; numero_facture: string;
 }
 
 /**
@@ -548,7 +548,10 @@ function OngletMouvements() {
   );
 }
 
-export function Stock() {
+export function Stock({ onHistorique }: {
+  /** Absent sans `journal:lire` : pas de bouton. */
+  onHistorique?: (articleId: string, nom: string) => void;
+} = {}) {
   const [resultat, setResultat] = useState<PageResult>({
     donnees: [], total: 0, pages: 0, page: 0,
   });
@@ -713,6 +716,13 @@ export function Stock() {
                             className="h-7 text-xs px-2">
                             <ClipboardList className="h-3 w-3 mr-1" /> Ajuster
                           </Button>
+                          {onHistorique && (
+                            <Button size="sm" variant="ghost"
+                              onClick={() => onHistorique(s.article_id, s.article_nom)}
+                              className="h-7 text-xs px-2">
+                              <History className="h-3 w-3 mr-1" /> Historique
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -760,13 +770,17 @@ function genererEtatStockHTML(d: any): string {
   const fmt = (n: number) =>
     new Intl.NumberFormat("fr-ML").format(n) + " F";
   const fmtQ = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(2));
+  // Sans `achats:lire_prix`, le serveur rend la valeur à null (v3, C-1) :
+  // la colonne disparaît plutôt que d'imprimer des zéros qui mentent.
+  const avecValeur = d.valeur_totale !== null && d.valeur_totale !== undefined;
+  const nbCol = avecValeur ? 6 : 5;
 
   let categorieCourante = "";
   const lignes = d.lignes.map((l: any) => {
     let entete = "";
     if (l.categorie !== categorieCourante) {
       categorieCourante = l.categorie;
-      entete = `<tr><td colspan="6" style="background:#eee;padding:5px 8px;
+      entete = `<tr><td colspan="${nbCol}" style="background:#eee;padding:5px 8px;
         font-weight:bold;font-size:11px">${l.categorie}</td></tr>`;
     }
     return entete + `
@@ -775,7 +789,7 @@ function genererEtatStockHTML(d: any): string {
         <td style="padding:5px 8px;font-size:10px;color:#666">${l.depot}</td>
         <td style="padding:5px 8px;text-align:right">${fmtQ(l.quantite)}</td>
         <td style="padding:5px 8px;font-size:10px;color:#666">${l.unite}</td>
-        <td style="padding:5px 8px;text-align:right">${fmt(l.valeur)}</td>
+        ${avecValeur ? `<td style="padding:5px 8px;text-align:right">${fmt(l.valeur)}</td>` : ""}
         <td style="padding:5px 8px;width:70px;border-left:1px solid #ccc"></td>
       </tr>`;
   }).join("");
@@ -812,12 +826,12 @@ function genererEtatStockHTML(d: any): string {
       <th style="text-align:left;padding:6px 8px">Magasin</th>
       <th style="text-align:right;padding:6px 8px">Théorique</th>
       <th style="text-align:left;padding:6px 8px">Unité</th>
-      <th style="text-align:right;padding:6px 8px">Valeur</th>
+      ${avecValeur ? `<th style="text-align:right;padding:6px 8px">Valeur</th>` : ""}
       <th style="text-align:center;padding:6px 8px;border-left:1px solid #ccc">Compté</th>
     </tr>
   </thead>
   <tbody>${lignes}</tbody>
-  <tfoot>
+  ${avecValeur ? `<tfoot>
     <tr style="border-top:2px solid #000;background:#f5f5f5">
       <td colspan="4" style="padding:7px 8px;font-weight:bold">
         VALEUR TOTALE DU STOCK
@@ -827,11 +841,11 @@ function genererEtatStockHTML(d: any): string {
       </td>
       <td style="border-left:1px solid #ccc"></td>
     </tr>
-  </tfoot>
+  </tfoot>` : ""}
 </table>
 
 <div style="font-size:10px;color:#777;margin-top:12px">
-  Valeur calculée au dernier prix d'achat connu. La colonne « Compté »
+  ${avecValeur ? "Valeur calculée au dernier prix d'achat connu. " : ""}La colonne « Compté »
   est à remplir lors de l'inventaire, puis à saisir dans l'application.
 </div>
 

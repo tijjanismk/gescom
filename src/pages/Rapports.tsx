@@ -3,9 +3,10 @@ import { appeler as invoke } from "@/lib/pont";
 import {
   TrendingUp, Users, Package, FileText,
   Loader2, Printer, Download, RefreshCw,
-  BarChart2, AlertTriangle,
+  BarChart2, AlertTriangle, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { JournauxComptables } from "@/components/JournauxComptables";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { message } from "@tauri-apps/plugin-dialog";
@@ -15,7 +16,9 @@ import { appeler as tauriInvoke } from "@/lib/pont";
 //  Types
 // =====================================================================
 
-interface MoisCA { mois: string; ca: number; nb_ventes: number; encaisse: number; }
+// `salaires` / `apres_salaires` : le coût de la paie du mois (Gescom
+// Équipe), null pour qui ne lit pas la paie.
+interface MoisCA { mois: string; ca: number; nb_ventes: number; encaisse: number; salaires?: number | null; apres_salaires?: number | null; }
 interface ClientRapport {
   id: string; code: string; nom: string; telephone?: string;
   ca: number; nb_ventes: number; creances: number;
@@ -139,6 +142,8 @@ const ONGLETS = [
   { key: "stock",    label: "Stock",        icone: FileText      },
   { key: "creances", label: "Créances",     icone: AlertTriangle },
   { key: "tva",      label: "TVA",          icone: TrendingUp    },
+  // v3, E-3 (D23) : les journaux pour le comptable, et leur export.
+  { key: "journaux", label: "Journaux comptables", icone: BookOpen },
 ];
 
 // =====================================================================
@@ -153,6 +158,7 @@ export function Rapports() {
 
   // Données
   const [moisCA, setMoisCA] = useState<MoisCA[]>([]);
+  const voitSalaires = moisCA.some(m => typeof m.salaires === "number");
   const [topClients, setTopClients] = useState<ClientRapport[]>([]);
   const [topArticles, setTopArticles] = useState<ArticleRapport[]>([]);
   const [stock, setStock] = useState<StockRapport[]>([]);
@@ -206,15 +212,18 @@ export function Rapports() {
         <td class="droite">${fmt(m.ca)}</td>
         <td class="droite">${fmt(m.encaisse)}</td>
         <td class="droite">${fmt(m.ca - m.encaisse)}</td>
+        ${voitSalaires ? `<td class="droite">${fmt(m.salaires ?? 0)}</td><td class="droite">${fmt(m.apres_salaires ?? 0)}</td>` : ""}
       </tr>`).join("");
     const totalCA = moisCA.reduce((s, m) => s + m.ca, 0);
     const totalEnc = moisCA.reduce((s, m) => s + m.encaisse, 0);
+    const totalSal = moisCA.reduce((s, m) => s + (m.salaires ?? 0), 0);
     const html = genererHTMLRapport("Rapport CA mensuel", `
       <table>
         <thead><tr>
           <th>Mois</th><th class="droite">Ventes</th>
           <th class="droite">CA (F)</th><th class="droite">Encaissé (F)</th>
           <th class="droite">Créances (F)</th>
+          ${voitSalaires ? `<th class="droite">Salaires (F)</th><th class="droite">Après salaires (F)</th>` : ""}
         </tr></thead>
         <tbody>${lignes}</tbody>
         <tfoot><tr class="total">
@@ -222,6 +231,7 @@ export function Rapports() {
           <td class="droite">${fmt(totalCA)}</td>
           <td class="droite">${fmt(totalEnc)}</td>
           <td class="droite">${fmt(totalCA - totalEnc)}</td>
+          ${voitSalaires ? `<td class="droite">${fmt(totalSal)}</td><td class="droite">${fmt(totalCA - totalSal)}</td>` : ""}
         </tr></tfoot>
       </table>`);
     await imprimerRapport(html, "rapport_ca_mensuel");
@@ -236,6 +246,7 @@ export function Rapports() {
         "CA (F)": m.ca,
         "Encaissé (F)": m.encaisse,
         "Créances (F)": m.ca - m.encaisse,
+        ...(voitSalaires ? { "Salaires (F)": m.salaires ?? 0, "Après salaires (F)": m.apres_salaires ?? 0 } : {}),
       }))
     }], "rapport_ca_mensuel.xlsx");
   }
@@ -446,6 +457,8 @@ export function Rapports() {
                         <th className="text-right px-4 py-2.5">CA</th>
                         <th className="text-right px-4 py-2.5">Encaissé</th>
                         <th className="text-right px-4 py-2.5">Créances</th>
+                        {voitSalaires && <th className="text-right px-4 py-2.5">Salaires</th>}
+                        {voitSalaires && <th className="text-right px-4 py-2.5">Après salaires</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -458,6 +471,16 @@ export function Rapports() {
                           <td className="px-4 py-2 text-right text-orange-600">
                             {m.ca - m.encaisse > 0 ? fmt(m.ca - m.encaisse) : "—"}
                           </td>
+                          {voitSalaires && (
+                            <td className="px-4 py-2 text-right text-muted-foreground" data-testid="salaires-mois">
+                              {m.salaires ? fmt(m.salaires) : "—"}
+                            </td>
+                          )}
+                          {voitSalaires && (
+                            <td className={`px-4 py-2 text-right font-semibold ${(m.apres_salaires ?? 0) < 0 ? "text-red-600" : ""}`} data-testid="apres-salaires">
+                              {fmt(m.apres_salaires ?? 0)}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -476,6 +499,16 @@ export function Rapports() {
                         <td className="px-4 py-2 text-right font-bold text-orange-600">
                           {fmt(moisCA.reduce((s, m) => s + (m.ca - m.encaisse), 0))}
                         </td>
+                        {voitSalaires && (
+                          <td className="px-4 py-2 text-right font-bold">
+                            {fmt(moisCA.reduce((s, m) => s + (m.salaires ?? 0), 0))}
+                          </td>
+                        )}
+                        {voitSalaires && (
+                          <td className="px-4 py-2 text-right font-bold">
+                            {fmt(moisCA.reduce((s, m) => s + (m.apres_salaires ?? 0), 0))}
+                          </td>
+                        )}
                       </tr>
                     </tfoot>
                   </table>
@@ -724,6 +757,8 @@ export function Rapports() {
               </div>
             )}
             {/* ---- TVA ---- */}
+            {onglet === "journaux" && <JournauxComptables />}
+
             {onglet === "tva" && tva && (
               <div className="space-y-4">
                 <div className="flex gap-2">

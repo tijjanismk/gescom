@@ -602,6 +602,20 @@ impl Transaction<'_> {
         }
     }
 
+    /// Ecrit, le temps de cette transaction, dans un AUTRE dossier (v3,
+    /// D-6) : creer un dossier pose son exercice, son magasin et son
+    /// client de passage chez lui, pas chez celui qui le cree. Sur
+    /// PostgreSQL, `set_config(.., true)` est LOCAL a la transaction —
+    /// la session retrouve son dossier au `COMMIT` comme au `ROLLBACK` —
+    /// et c'est ce que le cloisonnement du compte limite juge.
+    pub fn ecrire_dans(&mut self, dossier_id: &str) -> Resultat<()> {
+        self.dossier = dossier_id.to_string();
+        if let MoteurTx::Pg(t) = &mut self.moteur {
+            t.execute("SELECT set_config('gescom.dossier', $1, true)", &[&self.dossier])?;
+        }
+        Ok(())
+    }
+
     pub fn lire_une<T>(
         &mut self,
         sql: &str,
@@ -629,10 +643,29 @@ impl Transaction<'_> {
     }
 
     /// Ecrit tout, pour de bon.
+    ///
+    /// Sur PostgreSQL, une instruction qui echoue AVORTE la transaction :
+    /// toutes les suivantes sont ignorees, et `COMMIT` repond `ROLLBACK`
+    /// sans erreur. Une ecriture dont l'echec etait ignore expres
+    /// (`let _ =`, `.ok()` — journal, trace de remise) faisait donc
+    /// disparaitre TOUTE la vente, pendant que la commande rendait `Ok`.
+    /// On demande a PostgreSQL si la transaction vit encore avant de
+    /// valider : sinon, refus net — rien n'est ecrit, et on le dit
+    /// (revue du 23/09/2026). SQLite n'avorte pas : rien ne change.
     pub fn valider(self) -> Resultat<()> {
         match self.moteur {
             MoteurTx::Sqlite(t) => Ok(t.commit()?),
-            MoteurTx::Pg(t) => Ok(t.commit()?),
+            MoteurTx::Pg(mut t) => {
+                if let Err(e) = t.batch_execute("SELECT 1") {
+                    let _ = t.rollback();
+                    return Err(Erreur(format!(
+                        "Rien n'a été enregistré : une instruction a échoué \
+                         pendant l'opération et PostgreSQL l'a annulée ({}).",
+                        Erreur::from(e)
+                    )));
+                }
+                Ok(t.commit()?)
+            }
         }
     }
 }
@@ -716,6 +749,19 @@ impl Base {
             }
         }
         Ok(())
+    }
+
+    /// Ce compte peut-il poser le schema (migrations) ? Toujours sur
+    /// SQLite ; sur PostgreSQL, pas le compte limite (D-6) : ses
+    /// migrations passent par le proprietaire (`--compte-limite`).
+    pub fn peut_migrer(&mut self) -> bool {
+        match &mut self.moteur {
+            Moteur::Sqlite(_) => true,
+            Moteur::Pg(c) => c
+                .query_one("SELECT has_schema_privilege('public', 'CREATE')", &[])
+                .map(|l| l.get::<_, bool>(0))
+                .unwrap_or(false),
+        }
     }
 
     pub fn est_postgres(&self) -> bool {

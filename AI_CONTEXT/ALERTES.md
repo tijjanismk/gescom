@@ -11,6 +11,52 @@ semblent vivantes.
 
 ---
 
+## Trouvé en v3, pas encore corrigé
+
+- **Le mode « caisse par utilisateur » casse tout encaissement.**
+  `caisses::exiger_sur(base, None)` : les **17** appelants passent
+  `None` (argent, creances, retours, achats, pieces, avoirs,
+  fournisseurs, caisse, utils). Mode actif (`config_app.caisse_par_utilisateur
+  = '1'`, commande `definir_mode_caisse`), chacun échoue en
+  `CAISSE_SANS_UTILISATEUR`. Et `ouvrir_session_caisse(_sur)` refuse dès
+  qu'**une** session est ouverte dans le dossier et n'écrit jamais
+  `session_caisse.utilisateur_id` / `poste_id`. Aucun écran ne propose
+  le mode : dormant, pas vécu. À régler avant de l'offrir — passer
+  `auteur::courant()` là où `None` est écrit. (Relevé par l'étude de
+  C-1, 23/09.)
+- `lire_lignes_piece` d'une pièce fournisseur rend ses prix d'achat
+  sans `achats:lire_prix` (la réponse ne dit pas le type de pièce) —
+  écrit dans [permissions](modules/permissions.md).
+
+## Ce que la revue du 23/09/2026 a corrigé (branche `correctif/revue-v2`)
+
+Trois règles, qui valent pour tout ce qui s'écrit ensuite :
+
+⚠️ **L'auteur vient de la session, jamais du rôle** (D26). Ne jamais
+retrouver « qui » par `WHERE role = ? LIMIT 1` : passer par les aides
+`argent::id_utilisateur_*` / `comptoir::auteur_courant`, qui lisent
+d'abord `noyau::auteur::courant()`. **Une nouvelle route authentifiée
+du serveur pose `auteur::poser(&appelant.utilisateur_id)`** avant
+d'appeler le noyau, comme `/rpc`, `/sauvegarde` et `/entretien`.
+L'auteur vit sur le FIL de la requête : ne pas déléguer une écriture à
+un autre fil sans le reposer.
+
+⚠️ **Le serveur juge la saisie** (D27). Une commande qui reçoit un
+montant, un mode de paiement, une quantité, un prix ou une remise
+appelle [coeur/saisie.rs](../src-tauri/noyau/src/coeur/saisie.rs) dans
+ses deux versions — l'écran ne protège rien, la commande s'appelle
+sans lui. `avoir` n'est pas un mode de paiement.
+
+⚠️ **PostgreSQL : une erreur ignorée avorte TOUTE la transaction.**
+Un `let _ = tx.executer(...)` ou un `.ok()` en échec rend les
+instructions suivantes muettes et `COMMIT` répond `ROLLBACK` sans
+erreur — la vente disparaissait pendant que la commande rendait `Ok`.
+`Transaction::valider` vérifie maintenant que la transaction vit
+encore et **refuse** sinon (« Rien n'a été enregistré… »). Conséquence :
+sur PostgreSQL, une écriture « non bloquante » qui échoue fait échouer
+le geste entier. Si elle doit vraiment être facultative, l'écrire
+APRÈS `valider()`, hors transaction.
+
 ## Ce que la revue du 16/09/2026 a corrigé
 
 Les cinq écarts R1…R5 sont fermés (détail dans [ETAPES.md](ETAPES.md)

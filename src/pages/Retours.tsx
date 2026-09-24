@@ -5,6 +5,7 @@ import {
   Wallet, Gift, ChevronDown, ChevronRight, Truck
 } from "lucide-react";
 import { RetourFournisseur } from "@/components/RetourFournisseur";
+import { peutUne } from "@/lib/droits";
 import { RetourSansFacture } from "@/components/RetourSansFacture";
 import {
   ModalRemboursement, ModalAvoirConserve, ModalEchange,
@@ -124,7 +125,13 @@ export function Retours() {
         {[
           { key: "retours", label: "Retours", icone: RotateCcw },
           { key: "avoirs", label: `Avoirs ouverts (${avoirs.length})`, icone: Gift },
-          { key: "fournisseur", label: "Retour fournisseur", icone: Truck },
+          // Rendre au fournisseur, c'est manier ses prix d'achat : les
+          // deux gestes du serveur demandent `achats:creer` ou
+          // `fournisseurs:regler` (et, sans eux, les prix arrivent à
+          // null — v3, C-1). L'onglet suit.
+          ...(peutUne("achats:creer", "fournisseurs:regler")
+            ? [{ key: "fournisseur", label: "Retour fournisseur", icone: Truck }]
+            : []),
         ].map(o => {
           const Icone = o.icone;
           return (

@@ -65,6 +65,24 @@ pub fn verifier_date_saisie(iso: &str, aujourd_hui: NaiveDate) -> Result<NaiveDa
     Ok(d)
 }
 
+/// `2027-04-05` → « 5 avril 2027 » ; le premier du mois : « 1er ».
+/// Pour les messages qu'un commercant lit (v3, D21) — pas les dates
+/// ISO de la base. Une date illisible se rend telle quelle.
+pub fn en_lettres(iso: &str) -> String {
+    const MOIS: [&str; 12] = [
+        "janvier", "février", "mars", "avril", "mai", "juin",
+        "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+    ];
+    use chrono::Datelike;
+    match jour(iso) {
+        Some(d) => {
+            let j = if d.day() == 1 { "1er".to_string() } else { d.day().to_string() };
+            format!("{j} {} {}", MOIS[d.month0() as usize], d.year())
+        }
+        None => iso.to_string(),
+    }
+}
+
 /// Meme verification, contre l'horloge de la machine.
 pub fn verifier_date_saisie_maintenant(iso: &str) -> Result<NaiveDate, String> {
     verifier_date_saisie(iso, chrono::Local::now().date_naive())
@@ -73,6 +91,14 @@ pub fn verifier_date_saisie_maintenant(iso: &str) -> Result<NaiveDate, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn une_date_se_dit_en_lettres() {
+        assert_eq!(en_lettres("2027-04-05"), "5 avril 2027");
+        assert_eq!(en_lettres("2027-03-01T10:00:00"), "1er mars 2027");
+        assert_eq!(en_lettres("2026-12-31"), "31 décembre 2026");
+        assert_eq!(en_lettres("hier"), "hier");
+    }
 
     fn le(annee: i32, mois: u32, jour: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(annee, mois, jour).unwrap()

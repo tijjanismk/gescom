@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { peut } from "@/lib/droits";
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight,
   Loader2, RefreshCw,
@@ -126,11 +127,18 @@ function MiniBar({ valeur, max, couleur = "bg-primary" }: {
 //  Dashboard
 // =====================================================================
 
-export function Dashboard() {
+export function Dashboard({ onAnomalies }: {
+  /** Ouvre l'Historique sur les anomalies à vérifier. Absent sans
+   *  `journal:lire` : ni compteur, ni lecture. */
+  onAnomalies?: () => void;
+} = {}) {
   const [resume, setResume] = useState<ResumeDashboard | null>(null);
   // Ventes à découvert : marchandise sortie au-delà du stock connu.
   // Chacune signale soit un stock faux, soit une entrée non saisie.
   const [nbDecouverts, setNbDecouverts] = useState(0);
+  // Les anomalies que personne n'a encore marquées vues (B-4). Rouge,
+  // et seulement s'il y en a.
+  const [nbAnomalies, setNbAnomalies] = useState(0);
   // Graphe : échelle choisie par l'utilisateur, rechargée seule quand
   // elle change — inutile de refaire tout le tableau de bord pour
   // passer de la journée à la semaine.
@@ -147,19 +155,39 @@ export function Dashboard() {
 
   const estPatron = UTILISATEUR_ACTIF?.role === "patron";
 
+  // v3, C-1 : les chiffres de la boutique demandent `rapports:lire`.
+  // Sans elle, le serveur refuse chaque lecture du tableau de bord : on
+  // ne les demande pas, et l'accueil se réduit au bonjour (et aux
+  // anomalies, qui relèvent de `journal:lire`).
+  const voitChiffres = peut("rapports:lire");
+
   async function charger() {
+    if (!voitChiffres) {
+      setChargement(true);
+      const ano = onAnomalies
+        ? await invoke<{ nombre: number }>("lire_anomalies_a_verifier").catch(() => ({ nombre: 0 }))
+        : { nombre: 0 };
+      setNbAnomalies(ano.nombre);
+      setDerniereActu(new Date());
+      setChargement(false);
+      return;
+    }
     setChargement(true);
     setErreur(null);
     try {
       const auj = new Date().toISOString().slice(0, 10);
-      const [res, tc, ta, dec] = await Promise.all([
+      const [res, tc, ta, dec, ano] = await Promise.all([
         invoke<ResumeDashboard>("lire_resume_dashboard", { depotId: DEPOT_ACTIF }),
         estPatron ? invoke<TopClient[]>("lire_top_clients") : Promise.resolve([]),
         estPatron ? invoke<TopArticle[]>("lire_top_articles") : Promise.resolve([]),
         invoke<{ nb: number }>("lire_ventes_a_decouvert", {
           dateDebut: auj, dateFin: auj,
         }).catch(() => ({ nb: 0 })),
+        onAnomalies
+          ? invoke<{ nombre: number }>("lire_anomalies_a_verifier").catch(() => ({ nombre: 0 }))
+          : Promise.resolve({ nombre: 0 }),
       ]);
+      setNbAnomalies(ano?.nombre ?? 0);
       setResume(res);
       setNbDecouverts(dec?.nb ?? 0);
       setTopClients(tc);
@@ -182,6 +210,7 @@ export function Dashboard() {
   // tableau de bord pour passer de la journée à la semaine ferait
   // clignoter des chiffres qui, eux, n'ont pas bougé.
   useEffect(() => {
+    if (!voitChiffres) return;
     let annule = false;
     setChargeGraphe(true);
     invoke<VentesPeriode>("lire_ventes_periode", {
@@ -192,6 +221,36 @@ export function Dashboard() {
       .finally(() => { if (!annule) setChargeGraphe(false); });
     return () => { annule = true; };
   }, [periode, derniereActu]);
+
+  if (!voitChiffres) {
+    return (
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-3xl mx-auto space-y-6">
+          <div>
+            <h1 className="text-2xl font-semibold">
+              Bonjour, {UTILISATEUR_ACTIF?.nom?.split(" ")[0] ?? "..."}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {new Date().toLocaleDateString("fr-ML", {
+                weekday: "long", day: "numeric", month: "long", year: "numeric",
+              })}
+            </p>
+          </div>
+          {nbAnomalies > 0 && onAnomalies && (
+            <button onClick={onAnomalies} data-testid="compteur-anomalies"
+              className="px-3 py-2 bg-red-600 border border-red-700 text-sm text-white hover:bg-red-700">
+              <strong>{nbAnomalies}</strong> anomalie{nbAnomalies > 1 ? "s" : ""} à vérifier
+            </button>
+          )}
+          <p className="text-sm text-muted-foreground" data-testid="accueil-sans-chiffres">
+            Les chiffres de la boutique (ventes, encaissements, stock,
+            créances) ne sont pas ouverts à votre compte. Le menu à gauche
+            mène à votre travail.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (chargement && !resume) {
     return (
@@ -275,8 +334,17 @@ export function Dashboard() {
 
         {/* ── Alertes ── */}
         {(r.nb_creances_en_retard > 0 || r.stock_ruptures > 0 ||
-          r.factures_brouillon > 0 || nbDecouverts > 0) && (
+          r.factures_brouillon > 0 || nbDecouverts > 0 || nbAnomalies > 0) && (
           <div className="flex gap-2 flex-wrap">
+            {/* En tête : une anomalie, c'est le logiciel qui dit
+                « je n'ai pas su faire » — à regarder avant le reste. */}
+            {nbAnomalies > 0 && onAnomalies && (
+              <button onClick={onAnomalies} data-testid="compteur-anomalies"
+                className="px-3 py-2 bg-red-600 border border-red-700 text-sm text-white
+                           hover:bg-red-700 transition-colors">
+                <span><strong>{nbAnomalies}</strong> anomalie{nbAnomalies > 1 ? "s" : ""} à vérifier</span>
+              </button>
+            )}
             {r.nb_creances_en_retard > 0 && (
               <div className="px-3 py-2
                               bg-red-50 border border-red-200 text-sm text-red-700">

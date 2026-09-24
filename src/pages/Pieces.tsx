@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-import { peut } from "@/lib/droits";
+import { peut, peutUne } from "@/lib/droits";
 import { appeler as invoke } from "@/lib/pont";
 import {
   Plus, Printer, Loader2, Search, X, Wallet, PackageCheck, MoreHorizontal, Eye,
   RotateCcw, ArrowLeftRight,
   ArrowRight, FileText, ClipboardList,
   Package, Truck, Receipt, Gift,
-  ShoppingBag, CheckCircle2, Copy, Ban, Edit2,
+  ShoppingBag, CheckCircle2, Copy, Ban, Edit2, History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,8 @@ import {
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { genererImpression, type FormatImpression } from "@/lib/genererPDF";
+import { chargerHabillage } from "@/lib/impression";
+import { genreDePiece } from "@/lib/documents";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -745,9 +747,11 @@ function ModalModifierPiece({
 //  Page Pièces
 // =====================================================================
 
-export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
+export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistorique }: {
   onOuvrirFicheClient?: (clientId: string) => void;
   onOuvrirFicheFournisseur?: (fournisseurId: string) => void;
+  /** Absent sans `journal:lire` : pas de bouton. */
+  onHistorique?: (pieceId: string, numero: string) => void;
 }) {
   const [onglet, setOnglet] = useState<"client"|"fournisseur">("client");
   const [pieces, setPieces] = useState<Piece[]>([]);
@@ -994,16 +998,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
   async function handleImprimer(p: Piece, format: FormatImpression = "a4") {
     setImpressionEnCours(p.id);
     try {
-      const [donnees, logo, entete, pied, signatures] = await Promise.all([
-        invoke<any>("lire_donnees_piece", { pieceId: p.id }),
-        invoke<string | null>("lire_logo_base64"),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
-        invoke<string | null>("lire_pied_base64").catch(() => null),
-        invoke<any>("lire_config_signatures").catch(() => null),
-      ]);
+      const donnees = await invoke<any>("lire_donnees_piece", { pieceId: p.id });
+      // v3 (A-2) : l'habillage du genre de la pièce (Paramètres → Documents).
+      const habillage = await chargerHabillage(genreDePiece(donnees.piece?.type_piece));
       const suffixe = format === "bon_sortie" ? "-BS" : "";
       await invoke("imprimer_piece", {
-        html: genererImpression(donnees, format, logo, entete, pied, signatures),
+        html: genererImpression(donnees, format, habillage),
         nomFichier: `${p.numero.replace(/\//g, "-")}${suffixe}.html`,
       });
     } catch (e) {
@@ -1213,7 +1213,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
         <div className="flex gap-1">
           {[
             { key: "client",      label: "Pièces client",      icone: Receipt    },
-            { key: "fournisseur", label: "Pièces fournisseur", icone: ShoppingBag },
+            // Les montants d'une pièce fournisseur sont des prix
+            // d'achat : sans `achats:creer` ni `achats:lire_prix`, le
+            // serveur les rend à null (v3, C-1). L'onglet ne s'offre pas.
+            ...(peutUne("achats:creer", "achats:lire_prix")
+              ? [{ key: "fournisseur", label: "Pièces fournisseur", icone: ShoppingBag }]
+              : []),
           ].map(o => {
             const Icone = o.icone;
             return (
@@ -1722,6 +1727,16 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur }: {
                                      text-muted-foreground hover:text-foreground">
                           <Copy className="h-3.5 w-3.5" />
                         </button>
+
+                        {/* Historique — tout ce qui a touché cette pièce */}
+                        {onHistorique && (
+                          <button onClick={() => onHistorique(p.id, p.numero)}
+                            title="Historique" aria-label={`Historique ${p.numero}`}
+                            className="p-1.5 rounded hover:bg-muted transition-colors
+                                       text-muted-foreground hover:text-foreground">
+                            <History className="h-3.5 w-3.5" />
+                          </button>
+                        )}
 
                         {/* Annuler — `peut_annuler` refuse aussi `paye`
                             et `transfere`. Les proposer donnait un

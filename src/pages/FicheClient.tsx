@@ -5,7 +5,7 @@ import {
   ArrowLeft, User, Phone, MapPin, Mail, FileText,
   Loader2, Plus, Printer, ArrowRight, Eye, Pencil, RotateCcw,
   Receipt, Package, Truck, ClipboardList, Gift,
-  AlertTriangle, TrendingUp, Clock, Search, X,
+  AlertTriangle, TrendingUp, Clock, Search, X, History,
 } from "lucide-react";
 import { GlassHalos } from "@/components/ui/GlassIcon";
 import { KpiLigne, CARTE, GRILLE } from "@/components/ui/KpiVerre";
@@ -23,6 +23,8 @@ import {
 import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { genererImpression } from "@/lib/genererPDF";
+import { chargerHabillage } from "@/lib/impression";
+import { genreDePiece } from "@/lib/documents";
 import {
   genererReleveHTML, genererHistoriqueReglementsHTML, type DonneesReleve,
 } from "@/lib/genererReleve";
@@ -41,7 +43,7 @@ interface Client {
   cree_le: string;
 }
 interface Stats {
-  ca_total: number; nb_ventes: number; encours: number;
+  ca_total: number; nb_ventes: number; encours: number | null;
   avoirs_total: number; nb_pieces: number; derniere_vente?: string;
 }
 interface Piece {
@@ -697,9 +699,13 @@ function ModalReglementCreance({
 interface FicheClientProps {
   clientId: string;
   onRetour: () => void;
+  /** Absent sans `journal:lire` : pas de bouton. */
+  onHistorique?: (nom: string) => void;
 }
 
-export function FicheClient({ clientId, onRetour }: FicheClientProps) {
+export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientProps) {
+  // v3, C-1 : ce que doit ce client demande `tiers:lire_solde`.
+  const voitSoldes = peut("tiers:lire_solde");
   const [fiche, setFiche] = useState<{ client: Client; stats: Stats } | null>(null);
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [creances, setCreances] = useState<CreanceVente[]>([]);
@@ -768,13 +774,12 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
   async function imprimerReleve() {
     setReleveEnCours(true);
     try {
-      const [donnees, logo, entete] = await Promise.all([
+      const [donnees, habillage] = await Promise.all([
         invoke<DonneesReleve>("lire_etat_creances_client", { clientId }),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       await invoke("imprimer_facture", {
-        html: genererReleveHTML(donnees, "client", logo, entete),
+        html: genererReleveHTML(donnees, "client", habillage),
         nomFichier: `creance_${donnees.tiers.code || donnees.tiers.nom}`
           .replace(/[\\/:*?"<>|]/g, "-") + ".html",
       });
@@ -815,10 +820,9 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
     if (!fiche) return;
     setHistoEnCours(true);
     try {
-      const [societeP, logo, entete] = await Promise.all([
+      const [societeP, habillage] = await Promise.all([
         invoke<any>("lire_parametres_societe"),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
+        chargerHabillage("releve"),
       ]);
       const criteres = [
         regDu ? `du ${fmtDate(regDu)}` : null,
@@ -833,7 +837,7 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
           // Le reste dû du client, toutes factures confondues — le
           // chiffre qu'il vient vérifier, distinct du solde par ligne.
           creances.reduce((s, c) => s + c.reste, 0),
-          societeP, logo, entete),
+          societeP, habillage),
         nomFichier: `reglements_${fiche.client.code || fiche.client.nom}`
           .replace(/[\\/:*?"<>|]/g, "-") + ".html",
       });
@@ -850,7 +854,11 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
       const [ficheData, piecesData, creancesData, avoirsData] = await Promise.all([
         invoke<{ client: Client; stats: Stats }>("lire_fiche_client", { clientId }),
         invoke<Piece[]>("lire_pieces_client", { clientId, typeFiltre: null }),
-        invoke<CreanceOuverteApi[]>("lire_creances_ouvertes")
+        // Refusé sans `tiers:lire_solde` (v3, C-1) : on ne le demande
+        // pas, sinon toute la fiche tomberait avec lui.
+        (voitSoldes
+          ? invoke<CreanceOuverteApi[]>("lire_creances_ouvertes")
+          : Promise.resolve([] as CreanceOuverteApi[]))
           .then(all => all.filter((c: any) =>
             (c.client_id ?? c.vente_id) && true
           )),
@@ -880,15 +888,11 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
       // `genererImpression` et non `genererPieceHTML` : cet écran
       // appelait le générateur directement et sortait donc sans
       // en-tête ni pied de page, contrairement à Pièces et au POS.
-      const [donnees, logo, entete, pied, signatures] = await Promise.all([
-        invoke<any>("lire_donnees_piece", { pieceId: piece.id }),
-        invoke<string | null>("lire_logo_base64").catch(() => null),
-        invoke<string | null>("lire_entete_base64").catch(() => null),
-        invoke<string | null>("lire_pied_base64").catch(() => null),
-        invoke<any>("lire_config_signatures").catch(() => null),
-      ]);
+      const donnees = await invoke<any>("lire_donnees_piece", { pieceId: piece.id });
+      // v3 (A-2) : l'habillage du genre de la pièce (Paramètres → Documents).
+      const habillage = await chargerHabillage(genreDePiece(donnees.piece?.type_piece));
       await invoke("imprimer_piece", {
-        html: genererImpression(donnees, "a4", logo, entete, pied, signatures),
+        html: genererImpression(donnees, "a4", habillage),
         nomFichier: `${piece.numero.replace(/\//g, "-")}.html`,
       });
     } catch (e) {
@@ -947,17 +951,22 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
           <p className="text-xs text-muted-foreground">{client.code}</p>
         </div>
         <div className="ml-auto flex gap-2">
+          {onHistorique && (
+            <Button size="sm" variant="outline" onClick={() => onHistorique(client.nom)}>
+              <History className="h-4 w-4 mr-1" /> Historique
+            </Button>
+          )}
           <Button size="sm" variant="outline"
             onClick={() => setModalModifier(true)}>
             <Pencil className="h-4 w-4 mr-1" /> Modifier
           </Button>
-          <Button size="sm" variant="outline" onClick={imprimerReleve}
+          {voitSoldes && <Button size="sm" variant="outline" onClick={imprimerReleve}
             disabled={releveEnCours}>
             {releveEnCours
               ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
               : <Printer className="h-4 w-4 mr-1" />}
             État de créance
-          </Button>
+          </Button>}
           <Button size="sm" onClick={() => setModalNouv(true)}>
             <Plus className="h-4 w-4 mr-1" /> Nouvelle pièce
           </Button>
@@ -969,7 +978,7 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
         {[
           { key: "resume", label: "Résumé" },
           { key: "pieces", label: `Pièces (${pieces.length})` },
-          { key: "creances", label: `Créances (${creances.length})` },
+          ...(voitSoldes ? [{ key: "creances", label: `Créances (${creances.length})` }] : []),
           { key: "reglements", label: `Règlements (${reglements.length})` },
           { key: "avoirs", label: `Avoirs` },
         ].map(o => (
@@ -1035,10 +1044,12 @@ export function FicheClient({ clientId, onRetour }: FicheClientProps) {
                   icone: TrendingUp, variante: "tinted" as const, inactif: false },
                 { label: "Nb ventes", val: stats.nb_ventes.toString(),
                   icone: Receipt, variante: "neutral" as const, inactif: false },
-                { label: "Encours", val: fmt(stats.encours),
+                // Null sans `tiers:lire_solde` : la tuile part, plutôt
+                // qu'un zéro qui dirait « rien à devoir ».
+                ...(stats.encours === null ? [] : [{ label: "Encours", val: fmt(stats.encours),
                   icone: AlertTriangle,
                   variante: stats.encours > 0 ? ("tinted" as const) : ("clear" as const),
-                  inactif: false },
+                  inactif: false }]),
                 { label: "Avoirs disponibles", val: fmt(stats.avoirs_total),
                   icone: Gift, variante: "neutral" as const, inactif: false },
                 { label: "Pièces", val: stats.nb_pieces.toString(),
