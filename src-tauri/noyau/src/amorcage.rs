@@ -187,6 +187,32 @@ fn tables_v2(base: &mut Base) {
         // v3 : le dossier ouvert par la session (NULL = dossier d'origine).
         "ALTER TABLE session_reseau ADD COLUMN dossier_id TEXT",
         "ALTER TABLE session_reseau ADD COLUMN derniere_commande TEXT",
+        // Les colonnes que seule la migration de la fenetre posait
+        // (persistance/mod.rs), jamais rejouees ici : une base
+        // PostgreSQL amorcee avant leur entree dans schema.sql ne les a
+        // jamais recues. Trouve chez le proprietaire le 24/09 :
+        // l'Historique refusait « la colonne av.piece_id n'existe pas ».
+        // Le test `chaque_colonne_de_la_fenetre_est_rejouee_ici` garde
+        // les deux listes d'accord.
+        "ALTER TABLE ligne_vente ADD COLUMN taux_tva REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE ligne_vente ADD COLUMN montant_tva INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE session_caisse ADD COLUMN solde_theorique INTEGER",
+        "ALTER TABLE session_caisse ADD COLUMN especes_comptees INTEGER",
+        "ALTER TABLE session_caisse ADD COLUMN ecart INTEGER",
+        "ALTER TABLE session_caisse ADD COLUMN ferme_le TEXT",
+        "ALTER TABLE parametres_societe ADD COLUMN logo_chemin TEXT",
+        "ALTER TABLE article ADD COLUMN taux_tva_defaut REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE vente ADD COLUMN piece_id TEXT",
+        "ALTER TABLE mouvement_stock ADD COLUMN fournisseur_id TEXT",
+        "ALTER TABLE mouvement_stock ADD COLUMN prix_achat_unitaire INTEGER",
+        "ALTER TABLE paiement_fournisseur ADD COLUMN piece_id TEXT",
+        "ALTER TABLE avoir ADD COLUMN piece_id TEXT",
+        "ALTER TABLE mouvement_caisse ADD COLUMN libelle TEXT",
+        "ALTER TABLE mouvement_caisse ADD COLUMN categorie TEXT",
+        "ALTER TABLE transfert ADD COLUMN bon TEXT",
+        "ALTER TABLE transfert ADD COLUMN unite_vente_id TEXT",
+        "ALTER TABLE transfert ADD COLUMN motif TEXT",
+        "ALTER TABLE retour ADD COLUMN ligne_vente_id TEXT",
     ] {
         let _ = base.executer(&adapter(sql), &[]);
     }
@@ -953,5 +979,37 @@ mod tests_compte_limite {
         assert!(p.iter().any(|l| l.contains("WITH CHECK (dossier_id = gescom_dossier())")));
         assert!(!p.iter().any(|l| l.contains("USING (true)")));
         assert!(politiques_de("exercice").iter().any(|l| l.contains("FOR SELECT USING (true)")));
+    }
+}
+
+#[cfg(test)]
+mod tests_colonnes {
+    /// Les couples (table, colonne) des `ALTER TABLE t ADD COLUMN c` d'un source.
+    fn colonnes(source: &str) -> std::collections::BTreeSet<(String, String)> {
+        let mut v = std::collections::BTreeSet::new();
+        for morceau in source.split("ALTER TABLE ").skip(1) {
+            let mots: Vec<&str> = morceau.split_whitespace().take(4).collect();
+            if mots.len() == 4 && mots[1] == "ADD" && mots[2] == "COLUMN" {
+                let nettoie = |s: &str| s.trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_string();
+                v.insert((nettoie(mots[0]), nettoie(mots[3])));
+            }
+        }
+        v
+    }
+
+    /// Une colonne que la fenetre (SQLite, persistance/) ajoute a une
+    /// base existante doit aussi etre rejouee par l'amorcage, qui est le
+    /// chemin du serveur et de PostgreSQL. Sinon une base amorcee avant
+    /// que la colonne entre dans schema.sql ne la recoit jamais.
+    #[test]
+    fn chaque_colonne_de_la_fenetre_est_rejouee_ici() {
+        let ici = colonnes(include_str!("amorcage.rs"));
+        for (nom, source) in [("persistance/mod.rs", include_str!("persistance/mod.rs")), ("persistance/v2.rs", include_str!("persistance/v2.rs"))] {
+            let manque: Vec<_> = colonnes(source)
+                .into_iter()
+                .filter(|(t, c)| t != "{table}" && !ici.contains(&(t.clone(), c.clone())))
+                .collect();
+            assert!(manque.is_empty(), "{nom} ajoute des colonnes que l'amorcage ne rejoue pas : {manque:?}");
+        }
     }
 }

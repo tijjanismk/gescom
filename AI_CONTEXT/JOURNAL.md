@@ -1821,3 +1821,9 @@ dit d'où vient l'argent. Le coût des salaires (brut + charges
 patronales des fiches validées) apparaît dans Rapports → CA mensuel, à
 côté du CA, avec ce qui reste après les salaires — pour qui voit la
 paie seulement.
+
+**Correctif** — « la colonne av.piece_id n'existe pas » dans l'Historique,
+chez le propriétaire, sur sa base PostgreSQL d'avant certaines colonnes.
+Dix-neuf colonnes n'étaient rejouées que par la fenêtre SQLite ; le
+serveur les rejoue maintenant à chaque démarrage, et un test garde les
+deux listes d'accord.
