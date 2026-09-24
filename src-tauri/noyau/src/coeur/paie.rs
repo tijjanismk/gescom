@@ -317,6 +317,26 @@ pub fn validable(lignes: &[Ligne]) -> Result<(), String> {
     Ok(())
 }
 
+/// Le CA mensuel et le cout des salaires, mois par mois (Rapports ->
+/// CA mensuel) : chaque mois des ventes recoit `salaires` et
+/// `apres_salaires` ; un mois de salaires sans vente apparait aussi.
+/// Les mois restent du plus recent au plus ancien.
+pub fn avec_salaires(mut mois: Vec<serde_json::Value>, salaires: &std::collections::HashMap<String, i64>) -> Vec<serde_json::Value> {
+    for m in salaires.keys() {
+        if !mois.iter().any(|x| x["mois"] == m.as_str()) {
+            mois.push(serde_json::json!({ "mois": m, "ca": 0, "nb_ventes": 0, "encaisse": 0 }));
+        }
+    }
+    for x in &mut mois {
+        let s = x["mois"].as_str().and_then(|m| salaires.get(m)).copied().unwrap_or(0);
+        let ca = x["ca"].as_i64().unwrap_or(0);
+        x["salaires"] = s.into();
+        x["apres_salaires"] = (ca - s).into();
+    }
+    mois.sort_by(|a, b| b["mois"].as_str().cmp(&a["mois"].as_str()));
+    mois
+}
+
 /// Peut-on verser ce montant ? `reste` : ce qui reste du sur la fiche.
 pub fn verifier_versement(montant: i64, reste: i64, nom: &str) -> Result<(), String> {
     if montant <= 0 {
@@ -472,6 +492,21 @@ mod tests {
         assert!(valider_cotisation(&c).unwrap_err().contains("43 ou 44"));
         c.compte = Some("447".into());
         assert!(valider_cotisation(&c).is_ok());
+    }
+
+    #[test]
+    fn le_ca_mensuel_recoit_les_salaires() {
+        let ventes = vec![
+            serde_json::json!({ "mois": "2026-09", "ca": 500_000, "nb_ventes": 10, "encaisse": 400_000 }),
+            serde_json::json!({ "mois": "2026-07", "ca": 300_000, "nb_ventes": 5, "encaisse": 300_000 }),
+        ];
+        let salaires: std::collections::HashMap<String, i64> = [("2026-09".to_string(), 180_000), ("2026-08".to_string(), 90_000)].into();
+        let m = avec_salaires(ventes, &salaires);
+        let mois: Vec<&str> = m.iter().map(|x| x["mois"].as_str().unwrap()).collect();
+        assert_eq!(mois, vec!["2026-09", "2026-08", "2026-07"], "un mois de salaires sans vente apparaît, dans l'ordre");
+        assert_eq!((m[0]["salaires"].as_i64(), m[0]["apres_salaires"].as_i64()), (Some(180_000), Some(320_000)));
+        assert_eq!((m[1]["ca"].as_i64(), m[1]["apres_salaires"].as_i64()), (Some(0), Some(-90_000)));
+        assert_eq!(m[2]["salaires"], 0);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 // G-3 : Equipe -> Paie -> Fiches du mois. Une fiche validee se paie en
-// deux versements depuis la caisse (le reste suit), puis le bulletin
+// deux versements, hors caisse (le reste suit), puis le bulletin
 // s'affiche : lignes, net en lettres, versements, deux signatures. Dans
 // Gescom, Parametres -> Documents regle le bulletin comme les autres.
 import { navigateur, connecter, capture, parametres, verifieur, erreursUtiles, URL, URL_EQUIPE } from "./pw.mjs";
@@ -33,7 +33,7 @@ await page.waitForTimeout(1200);
 await page.getByLabel("Montant à verser").fill("20000");
 await page.getByRole("button", { name: /^Verser$/ }).click();
 await page.waitForTimeout(1500);
-ok((await statut()).includes(`20 000 F versés à ${awa}, sortis de la caisse. Reste 40 000 F.`), "20 000 F versés, reste 40 000 F");
+ok((await statut()).includes(`20 000 F versés à ${awa}. Reste 40 000 F.`), "20 000 F versés, reste 40 000 F");
 ok(net(await page.getByTestId("reste-a-verser").innerText()) === "40 000 F", "le reste à verser se lit sur la fiche");
 ok(net(await page.getByTestId("fiche").filter({ hasText: awa }).innerText()).includes("reste 40 000 F"), "la liste le dit aussi");
 

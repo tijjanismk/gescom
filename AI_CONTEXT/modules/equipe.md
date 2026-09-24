@@ -15,11 +15,11 @@ fenêtre qui ne parle qu'au serveur ; modules en version `Base` seule
 | Jours (base) | [presences.rs](../../src-tauri/noyau/src/presences.rs) | `lire_mois_sur` (grille ; les partis du mois y restent), `jours_travailles_sur(employe, du, au)` (lu par la paie), `marquer_sur` (ou effacer), `tous_presents_sur` (sans toucher une absence) |
 | Écran jours | [src/equipe/JoursTravailles.tsx](../../src/equipe/JoursTravailles.tsx) | grille du mois, case qui tourne P → ½ → A → vide, numéro du jour = tous présents |
 | Avances (pur) | [coeur/avances.rs](../../src-tauri/noyau/src/coeur/avances.rs) | `reste(montant, retenu)`, `verifier(montant, en_cours, plafond, nom)` (le plafond compte ce qui est en cours) |
-| Avances (base) | [avances.rs](../../src-tauri/noyau/src/avances.rs) | `donner_sur` (sortie de caisse + avance + journal, une transaction, caisse ouverte exigée), `annuler_sur` (l'argent revient, seulement si rien n'est retenu), `en_cours_sur`, `lister_sur` |
+| Avances (base) | [avances.rs](../../src-tauri/noyau/src/avances.rs) | `donner_sur` (avance + journal, une transaction, **hors caisse**), `annuler_sur` (datée `annule_le`, seulement si rien n'est retenu), `en_cours_sur`, `lister_sur` |
 | Écran paie | [src/equipe/Paie.tsx](../../src/equipe/Paie.tsx) | onglets Avances / Fiches du mois ; donner, en cours par personne, annuler |
 | Paie (pur) | [coeur/paie.rs](../../src-tauri/noyau/src/coeur/paie.rs) | `gains_calcules` (mois, prorata jours travaillés / jours marqués, jours × tarif, % des ventes signées), `ligne_saisie` (tâche, prime, retenue), `retenir_avances` (les plus anciennes d'abord, le reste reporté), `calculer`, `totaux`, `validable`, `verifier_periode`, `se_chevauchent` |
 | Paie (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `preparer_sur`, `recalculer_sur`, `ajouter_ligne_sur`, `retirer_ligne_sur`, `supprimer_sur` (brouillon), `valider_sur` (refuse ce qui n'est plus à jour ; numéro `PAIE-AAAA-NNNNN`, avances retenues), `rectifier_sur`, `lire_sur`, `lister_sur(du, au)` (fiches + personnes à préparer) |
-| Payer (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `verser_sur` (sortie de caisse, pas plus que le reste), `donnees_bulletin_sur` ; la fiche lue porte `verse`, `reste`, `versements` |
+| Payer (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `verser_sur` (hors caisse, pas plus que le reste), `salaires_par_mois_sur` (Rapports → CA mensuel : brut + charges des fiches validées, au mois de fin de période ; masqué sans la paie), `donnees_bulletin_sur` ; la fiche lue porte `verse`, `reste`, `versements` |
 | Bulletin | [lib/genererBulletin.ts](../../src/lib/genererBulletin.ts), [ApercuBulletin.tsx](../../src/equipe/ApercuBulletin.tsx) | genre de document `bulletin` (Paramètres → Documents), aperçu = impression |
 | Cotisations | `coeur::paie::{Cotisation, valider_cotisation, cotisations, charges}`, `paie::{cotisations_sur, enregistrer_cotisation_sur, retirer_cotisation_sur}`, [Cotisations.tsx](../../src/equipe/Cotisations.tsx) | vides par défaut, seulement pour les déclarés ; la charge patronale hors du net |
 | Écran fiches | [src/equipe/FichesPaie.tsx](../../src/equipe/FichesPaie.tsx) | le mois ; à préparer (au prorata ou non) ; la liste ; la fiche : lignes, brut / retenues / net, report, ajouter / retirer une saisie, recalculer, jeter, valider, rectifier |
@@ -41,8 +41,8 @@ marqué (`UNIQUE (employe_id, jour)`) ; un jour sans ligne n'est pas su.
 
 **Table** `avance` (cloisonnée, RLS) : montant, `retenu` (ce que les
 fiches de paie en ont déjà pris), moyen, motif, statut `ouverte` /
-`annulee`, `mouvement_caisse_id`. Le mouvement de caisse porte
-`motif = 'avance'`, `categorie = 'salaire'`, `operation_id` = l'avance.
+`annulee`, `annule_le`. **Hors caisse** (D31/D32 révisées le 24/09) :
+`mouvement_caisse_id` reste vide.
 Droits : `personnel:avancer` pour donner et annuler ; lecture par qui
 avance ou paie.
 
@@ -59,7 +59,7 @@ avait retenu. Préparer / corriger : `paie:preparer` ; valider,
 rectifier, verser : `paie:valider` ; lire : l'un des deux.
 
 **Table** `versement_paie` (cloisonnée, RLS) : fiche, montant, moyen,
-date, `mouvement_caisse_id` (motif et catégorie `salaire`). La
+date (hors caisse : `mouvement_caisse_id` vide). La
 rectificative validée reprend les versements de l'ancienne.
 
 Preuves : `personnel_base.rs` (6), `presences_base.rs` (5), `avances_base.rs` (5),

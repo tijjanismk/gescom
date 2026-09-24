@@ -604,13 +604,13 @@ pub fn lister_sur(base: &mut Base, du: String, au: String) -> Result<serde_json:
 }
 
 // =====================================================================
-//  G-3 : payer (D31) — des versements, chacun une sortie de caisse
+//  G-3 : payer (D31) — des versements, hors caisse (24/09)
 // =====================================================================
 
-/// Verse tout ou partie du net d'une fiche validee : une sortie de
-/// caisse (caisse ouverte exigee, categorie `salaire`), dans la meme
-/// transaction que le versement. Plusieurs versements possibles ; pas
-/// plus que ce qui reste du.
+/// Verse tout ou partie du net d'une fiche validee. Plusieurs
+/// versements possibles ; pas plus que ce qui reste du. **Hors caisse**
+/// (decision du proprietaire, 24/09) : la paie ne passe pas par le
+/// tiroir du jour, le moyen dit d'ou vient l'argent.
 pub fn verser_sur(base: &mut Base, fiche_id: String, montant: i64, moyen: Option<String>) -> Result<serde_json::Value, String> {
     let f = lire_sur(base, &fiche_id)?;
     match f["statut"].as_str() {
@@ -629,36 +629,14 @@ pub fn verser_sur(base: &mut Base, fiche_id: String, montant: i64, moyen: Option
     let moyen = moyen.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).unwrap_or_else(|| "especes".into());
     crate::coeur::saisie::verifier_mode_encaissement(&moyen)?;
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
-    // L'argent sort du tiroir : la caisse d'abord (regle 4).
-    let session_id = crate::caisses::exiger_sur(base, Some(&auteur))
-        .map_err(|_| "Aucune session de caisse ouverte — ouvrir la caisse d'abord.".to_string())?;
     let dossier = base.dossier().to_string();
     let now = crate::utils::maintenant_iso();
     let id = uuid::Uuid::new_v4().to_string();
-    let mouvement = uuid::Uuid::new_v4().to_string();
     let mut tx = base.transaction().map_err(|e| e.0)?;
     tx.executer(
-        "INSERT INTO mouvement_caisse
-           (id, session_id, sens, moyen, montant, motif, operation_id, libelle, categorie,
-            date_mouvement, cree_le, cree_par, origine, dossier_id)
-         VALUES (?1, ?2, 'sortie', ?3, ?4, 'salaire', ?5, ?6, 'salaire', ?7, ?7, ?8, 'app', ?9)",
-        &parametres![
-            mouvement.clone(),
-            session_id,
-            moyen.clone(),
-            montant,
-            id.clone(),
-            format!("Salaire — {nom} ({numero})"),
-            now.clone(),
-            auteur.clone(),
-            dossier.clone()
-        ],
-    )
-    .map_err(|e| e.0)?;
-    tx.executer(
         "INSERT INTO versement_paie (id, dossier_id, fiche_id, montant, moyen, date_versement, mouvement_caisse_id, cree_par, cree_le)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?6)",
-        &parametres![id.clone(), dossier.clone(), fiche_id.clone(), montant, moyen.clone(), now, mouvement, auteur.clone()],
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?6)",
+        &parametres![id.clone(), dossier.clone(), fiche_id.clone(), montant, moyen.clone(), now, auteur.clone()],
     )
     .map_err(|e| e.0)?;
     // Deux versements en meme temps ne paient pas plus que le net.
@@ -827,4 +805,26 @@ pub fn retirer_cotisation_sur(base: &mut Base, id: String) -> Result<serde_json:
     base.executer("DELETE FROM cotisation WHERE id = ?1 AND dossier_id = ?2", &parametres![id, dossier]).map_err(|e| e.0)?;
     noter_cotisation(base, "cotisation_retiree", &c)?;
     serde_json::to_value(&c).map_err(|e| e.to_string())
+}
+
+/// Le cout des salaires par mois (`AAAA-MM`), depuis un mois donne :
+/// le brut des fiches validees et leurs charges patronales, rangees au
+/// mois de la fin de leur periode (le mois pour lequel on paie). Une
+/// fiche remplacee ne compte pas : sa rectificative la remplace. Lu par
+/// Rapports -> CA mensuel.
+pub fn salaires_par_mois_sur(acces: &mut impl Acces, depuis_mois: &str) -> Result<std::collections::HashMap<String, i64>, String> {
+    let dossier = acces.dossier().to_string();
+    let lignes = acces
+        .lire_plusieurs(
+            "SELECT SUBSTR(f.au, 1, 7),
+                    CAST(SUM(f.brut + COALESCE((SELECT SUM(l.montant) FROM ligne_paie l
+                        WHERE l.fiche_id = f.id AND l.dossier_id = f.dossier_id AND l.genre = ?3), 0)) AS BIGINT)
+             FROM fiche_paie f
+             WHERE f.dossier_id = ?1 AND f.statut = 'validee' AND SUBSTR(f.au, 1, 7) >= ?2
+             GROUP BY SUBSTR(f.au, 1, 7)",
+            &parametres![dossier, depuis_mois, regles::CHARGE],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?)),
+        )
+        .map_err(|e| e.0)?;
+    Ok(lignes.into_iter().collect())
 }

@@ -101,10 +101,16 @@ pub fn regles(commande: &str) -> &'static [Regle] {
     match commande {
         // --- rapports:lire : le chiffre de la boutique ---
         "lire_resume_dashboard" | "lire_ventes_periode" | "lire_top_articles" | "lire_top_clients"
-        | "lire_rapport_ca_mensuel" | "lire_rapport_top_clients" | "lire_rapport_tva"
+        | "lire_rapport_top_clients" | "lire_rapport_tva"
         | "lire_journal_du_jour" | "lire_resume_par_depot" | "lire_ventes_a_decouvert" => {
             &[Refus(RAPPORTS_LIRE)]
         }
+        // Gescom Equipe : le cout des salaires, pour qui prepare ou
+        // valide la paie seulement.
+        "lire_rapport_ca_mensuel" => &[
+            Refus(RAPPORTS_LIRE),
+            Masque { permissions: PAIE_LIRE, cles: &["salaires", "apres_salaires"], si: None },
+        ],
         "lire_rapport_top_articles" | "lire_rapport_stock" => &[
             Refus(RAPPORTS_LIRE),
             Masque { permissions: &[ACHATS_LIRE_PRIX], cles: PRIX, si: None },

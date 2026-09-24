@@ -1,12 +1,12 @@
 //! Les avances sur salaire en base (PLAN-EQUIPE, G-1 — D32). Version
 //! `Base` seule (D29).
 //!
-//! Une avance sort de la caisse (caisse ouverte exigee, regle 4 de
-//! CLAUDE.md), rattachee a la personne, dans la meme transaction que le
-//! mouvement de caisse. Ce qui n'est pas retenu est « en cours » ; la
-//! fiche de paie le retient (G-2, colonne `retenu`). Annuler une avance
-//! (une erreur de saisie) remet l'argent dans le tiroir, seulement si
-//! rien n'en a ete retenu.
+//! Une avance est rattachee a la personne. Elle est **independante de
+//! la caisse** (decision du proprietaire, 24/09) : l'argent de la paie
+//! ne passe pas par le tiroir du jour, le moyen dit d'ou il vient. Ce
+//! qui n'est pas retenu est « en cours » ; la fiche de paie le retient
+//! (G-2, colonne `retenu`). Annuler une avance (une erreur de saisie) se
+//! fait seulement si rien n'en a ete retenu.
 
 use crate::base::Base;
 use crate::coeur::avances as regles;
@@ -69,7 +69,7 @@ fn noter(
         .map_err(|e| e.0)
 }
 
-/// Donne une avance : une sortie de caisse rattachee a la personne.
+/// Donne une avance, rattachee a la personne, hors caisse.
 pub fn donner_sur(
     base: &mut Base,
     employe_id: String,
@@ -85,41 +85,18 @@ pub fn donner_sur(
     crate::coeur::saisie::verifier_mode_encaissement(&moyen)?;
     let en_cours = en_cours_sur(base, &employe_id)?;
     regles::verifier(montant, en_cours, p.plafond, &p.nom)?;
-    // L'argent sort du tiroir : la caisse d'abord (regle 4).
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
-    let session_id = crate::caisses::exiger_sur(base, Some(&auteur))
-        .map_err(|_| "Aucune session de caisse ouverte — ouvrir la caisse d'abord.".to_string())?;
-
     let dossier = base.dossier().to_string();
     let now = crate::utils::maintenant_iso();
     let motif = motif.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
     let id = uuid::Uuid::new_v4().to_string();
-    let mouvement = uuid::Uuid::new_v4().to_string();
     let mut tx = base.transaction().map_err(|e| e.0)?;
-    tx.executer(
-        "INSERT INTO mouvement_caisse
-           (id, session_id, sens, moyen, montant, motif, operation_id, libelle, categorie,
-            date_mouvement, cree_le, cree_par, origine, dossier_id)
-         VALUES (?1, ?2, 'sortie', ?3, ?4, 'avance', ?5, ?6, 'salaire', ?7, ?7, ?8, 'app', ?9)",
-        &parametres![
-            mouvement.clone(),
-            session_id,
-            moyen.clone(),
-            montant,
-            id.clone(),
-            format!("Avance — {}", p.nom),
-            now.clone(),
-            auteur.clone(),
-            dossier.clone()
-        ],
-    )
-    .map_err(|e| e.0)?;
     tx.executer(
         "INSERT INTO avance
            (id, dossier_id, employe_id, montant, retenu, moyen, motif, date_avance, statut,
             mouvement_caisse_id, cree_par, cree_le)
-         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, 'ouverte', ?8, ?9, ?7)",
-        &parametres![id.clone(), dossier, employe_id.clone(), montant, moyen.clone(), motif.clone(), now.clone(), mouvement, auteur.clone()],
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, 'ouverte', NULL, ?8, ?7)",
+        &parametres![id.clone(), dossier, employe_id.clone(), montant, moyen.clone(), motif.clone(), now.clone(), auteur.clone()],
     )
     .map_err(|e| e.0)?;
     noter(&mut tx, "avance_donnee", &id, &auteur, serde_json::json!({ "nom": p.nom, "montant": montant, "moyen": moyen }))?;
@@ -130,16 +107,15 @@ pub fn donner_sur(
     }))
 }
 
-/// Annule une avance donnee par erreur : l'argent revient dans le
-/// tiroir (une entree de caisse), et l'avance ne se retiendra pas.
+/// Annule une avance donnee par erreur : elle ne se retiendra pas.
 /// Refuse si une fiche de paie en a deja retenu une partie.
 pub fn annuler_sur(base: &mut Base, avance_id: String, motif: Option<String>) -> Result<serde_json::Value, String> {
     let dossier = base.dossier().to_string();
-    let (employe_id, montant, retenu, statut, moyen): (String, i64, i64, String, String) = base
+    let (employe_id, montant, retenu, statut): (String, i64, i64, String) = base
         .lire_une(
-            "SELECT employe_id, montant, retenu, statut, moyen FROM avance WHERE id = ?1 AND dossier_id = ?2",
+            "SELECT employe_id, montant, retenu, statut FROM avance WHERE id = ?1 AND dossier_id = ?2",
             &parametres![avance_id.clone(), dossier.clone()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .map_err(|e| e.0)?
         .ok_or_else(|| "Avance introuvable.".to_string())?;
@@ -151,32 +127,12 @@ pub fn annuler_sur(base: &mut Base, avance_id: String, motif: Option<String>) ->
     }
     let p = personne(base, &employe_id)?;
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
-    let session_id = crate::caisses::exiger_sur(base, Some(&auteur))
-        .map_err(|_| "Aucune session de caisse ouverte — ouvrir la caisse d'abord.".to_string())?;
     let now = crate::utils::maintenant_iso();
     let motif = motif.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
     let mut tx = base.transaction().map_err(|e| e.0)?;
     tx.executer(
-        "INSERT INTO mouvement_caisse
-           (id, session_id, sens, moyen, montant, motif, operation_id, libelle, categorie,
-            date_mouvement, cree_le, cree_par, origine, dossier_id)
-         VALUES (?1, ?2, 'entree', ?3, ?4, 'avance_annulee', ?5, ?6, 'salaire', ?7, ?7, ?8, 'app', ?9)",
-        &parametres![
-            uuid::Uuid::new_v4().to_string(),
-            session_id,
-            moyen,
-            montant,
-            avance_id.clone(),
-            format!("Avance annulée — {}", p.nom),
-            now.clone(),
-            auteur.clone(),
-            dossier.clone()
-        ],
-    )
-    .map_err(|e| e.0)?;
-    tx.executer(
-        "UPDATE avance SET statut = 'annulee' WHERE id = ?1 AND dossier_id = ?2",
-        &parametres![avance_id.clone(), dossier],
+        "UPDATE avance SET statut = 'annulee', annule_le = ?1 WHERE id = ?2 AND dossier_id = ?3",
+        &parametres![now, avance_id.clone(), dossier],
     )
     .map_err(|e| e.0)?;
     noter(&mut tx, "avance_annulee", &avance_id, &auteur, serde_json::json!({ "nom": p.nom, "montant": montant, "motif": motif }))?;

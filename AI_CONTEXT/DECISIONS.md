@@ -429,8 +429,8 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
 | D34 | le **suivi client** s'appuie sur la fiche client de Gescom : échanges, rappels, prospects, fiche 360 — pas de second fichier — [PLAN-EQUIPE.md](PLAN-EQUIPE.md) |
 | D33 | **cotisations facultatives, jamais devinées** : lignes de réglage du dossier, vides par défaut, seulement pour les personnes déclarées |
-| D32 | **les avances d'abord** : sortie de caisse rattachée à la personne, retenue d'office sur la fiche suivante |
-| D31 | **la fiche de paie se stocke** (un document remis) : brouillon → validée (figée, numérotée) → payée depuis la caisse ; une erreur = une rectificative |
+| D32 | **les avances d'abord** : rattachées à la personne, retenues d'office sur la fiche suivante ; **hors caisse** (révisé le 24/09) |
+| D31 | **la fiche de paie se stocke** (un document remis) : brouillon → validée (figée, numérotée) → payée ; une erreur = une rectificative. **Révisé le 24/09** : la paie est indépendante de la caisse (ni session exigée, ni mouvement), son coût se lit dans Rapports → CA mensuel |
 | D30 | **une personne, pas un contrat** : nom, ce qu'elle fait, comment elle est payée (au mois, à la journée, à la commission, à la tâche, rien de fixe) ; tout le reste facultatif |
 | D29 | **Équipe vit dans le même dépôt** : `equipe.html`, `src/equipe/`, `src-tauri/equipe/`, modules `personnel`/`paie`/`crm` en version `Base` seule (exception écrite à la règle 2) |
 | D28 | **Gescom Équipe est une seconde fenêtre qui ne parle qu'au serveur** : aucune base à elle ; mêmes comptes, droits, dossiers ; le monoposte lance le serveur sur sa machine (D22) |

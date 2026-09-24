@@ -80,6 +80,13 @@ ok(pa.includes("équilibré") && !pa.includes("DÉSÉQUILIBRÉ"), "PA affiché, 
 ok(["661", "422", "431", "664"].every(c => pa.includes(c)) && pa.includes(kadia), "salaires 661, dus 422, organismes 431, charges 664");
 await capture(page, "g4-02-journal-pa");
 
+// Rapports -> CA mensuel : le coût des salaires du mois à côté du CA.
+await page.getByRole("button", { name: /CA mensuel/ }).click();
+await page.waitForTimeout(1500);
+const sal = (await page.getByTestId("salaires-mois").first().innerText()).replace(/\s/g, " ");
+ok(sal !== "—" && /\d/.test(sal) && await page.getByTestId("apres-salaires").count() > 0, `CA mensuel : les salaires du mois (${sal}) et ce qui reste après`);
+await capture(page, "g4-03-ca-mensuel");
+
 // Le patron (qui a la paie) le reçoit aussi dans « Tous ».
 const refus = await page.evaluate(async jour => {
   const { appeler } = await import("/src/lib/pont.ts");

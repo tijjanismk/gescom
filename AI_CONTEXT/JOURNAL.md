@@ -1813,3 +1813,11 @@ PA se lit comme les autres ; la preuve qui compte : ce qu'il doit au
 personnel (422) égale ce qui reste à verser sur les fiches. Il n'est
 servi qu'à qui prépare la paie — il nomme ce que chacun gagne. Le
 chantier G est fait.
+
+**Révision** — le propriétaire : « la paie doit être indépendante de la
+caisse mais visible dans les chiffres ». Avances et versements ne
+touchent plus la caisse du jour (ni session, ni mouvement) : le moyen
+dit d'où vient l'argent. Le coût des salaires (brut + charges
+patronales des fiches validées) apparaît dans Rapports → CA mensuel, à
+côté du CA, avec ce qui reste après les salaires — pour qui voit la
+paie seulement.

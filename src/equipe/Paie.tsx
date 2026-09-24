@@ -1,7 +1,8 @@
 // equipe/Paie.tsx — la paie (PLAN-EQUIPE, chantier G).
 //
-// Les avances d'abord (D32) : une sortie de caisse au nom de la
-// personne, que la fiche de paie retiendra. Les fiches du mois (G-2) :
+// Les avances d'abord (D32) : rattachées à la personne, que la fiche de
+// paie retiendra. Hors caisse (décision du 24/09) : le moyen dit d'où
+// vient l'argent, le tiroir du jour n'est pas touché. Les fiches du mois (G-2) :
 // FichesPaie.tsx.
 
 import { useState, useEffect, useCallback } from "react";
@@ -83,8 +84,8 @@ function Avances() {
             <label className="text-xs text-muted-foreground flex flex-col gap-1">Montant
               <Input value={montant} onChange={e => setMontant(e.target.value)} aria-label="Montant de l'avance"
                 inputMode="numeric" className="h-9 w-32" /></label>
-            <label className="text-xs text-muted-foreground flex flex-col gap-1">Sortie par
-              <select value={moyen} onChange={e => setMoyen(e.target.value)} aria-label="Sortie par"
+            <label className="text-xs text-muted-foreground flex flex-col gap-1">Donnée en
+              <select value={moyen} onChange={e => setMoyen(e.target.value)} aria-label="Donnée en"
                 className="h-9 px-2 text-sm border border-border rounded-md bg-background">
                 {MOYENS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select></label>
@@ -93,12 +94,12 @@ function Avances() {
             <Button size="sm" disabled={enCours || !qui || !montant.trim()}
               onClick={() => faire(
                 () => invoke("donner_avance", { employeId: qui, montant: Number(montant.replace(/\s/g, "")), moyen, motif: motif || null }),
-                (nom, m) => `Avance de ${f(m)} à ${nom}, sortie de la caisse. Elle se retiendra sur sa prochaine paie.`,
+                (nom, m) => `Avance de ${f(m)} à ${nom} notée. Elle se retiendra sur sa prochaine paie.`,
               ).then(() => { setMontant(""); setMotif(""); })}>
               <HandCoins className="h-4 w-4 mr-1" /> Donner l'avance
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">La caisse doit être ouverte : l'avance sort du tiroir comme une dépense.</p>
+          <p className="text-xs text-muted-foreground">La paie ne passe pas par la caisse du jour : noter seulement comment l'argent a été donné.</p>
         </div>
       )}
 
@@ -138,7 +139,7 @@ function Avances() {
                 <Button size="sm" variant="ghost" aria-label={`Annuler l'avance de ${a.nom}`} disabled={enCours}
                   onClick={() => faire(
                     () => invoke("annuler_avance", { avanceId: a.id, motif: null }),
-                    (nom, m) => `Avance de ${f(m)} à ${nom} annulée : l'argent revient dans la caisse.`,
+                    (nom, m) => `Avance de ${f(m)} à ${nom} annulée : elle ne sera pas retenue.`,
                   )}>
                   <Undo2 className="h-4 w-4" />
                 </Button>

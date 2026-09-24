@@ -251,37 +251,31 @@ fn la_rectificative_remplace_sans_reecrire() {
     assert!(paie::preparer_sur(&mut base, e.awa.clone(), jour(-5), jour(0), false).is_err());
 }
 
-/// G-3 : deux versements, le reste dû ; chacun sort de la caisse.
+/// G-3 : deux versements, le reste dû ; hors caisse (décision du 24/09).
 #[test]
-fn payer_en_deux_fois_depuis_la_caisse() {
+fn payer_en_deux_fois_hors_caisse() {
     let mut base = base_avec_demo();
     let e = equipe(&mut base);
     let f = paie::preparer_sur(&mut base, e.awa.clone(), jour(-30), jour(0), false).unwrap();
     let id = f["id"].as_str().unwrap().to_string();
     assert!(paie::verser_sur(&mut base, id.clone(), 10_000, None).unwrap_err().contains("brouillon"));
     paie::valider_sur(&mut base, id.clone()).unwrap();
-    // Caisse fermée : rien ne sort.
-    assert!(paie::verser_sur(&mut base, id.clone(), 10_000, None).unwrap_err().contains("ouvrir la caisse"));
-    ouvrir_caisse(&mut base);
+    // Caisse fermée : la paie se verse quand même.
     let v = paie::verser_sur(&mut base, id.clone(), 20_000, None).unwrap();
     assert_eq!((v["verse"].as_i64(), v["reste"].as_i64()), (Some(20_000), Some(40_000)));
     assert!(paie::verser_sur(&mut base, id.clone(), 50_000, None).unwrap_err().contains("Il ne reste que 40 000 F"));
     assert!(paie::verser_sur(&mut base, id.clone(), 1_000, Some("bitcoin".into())).unwrap_err().contains("inconnu"));
+    ouvrir_caisse(&mut base);
     let v = paie::verser_sur(&mut base, id.clone(), 40_000, Some("orange_money".into())).unwrap();
     assert_eq!(v["reste"], 0);
     assert_eq!(v["versements"].as_array().unwrap().len(), 2);
     assert!(paie::verser_sur(&mut base, id.clone(), 1, None).unwrap_err().contains("déjà tout reçu"));
-    // La caisse le sait : 20 000 en espèces, 40 000 en Orange Money, catégorie salaire.
+    // La caisse n'en sait rien.
     let dossier = base.dossier().to_string();
-    let sorties = compter(
-        &mut base,
-        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM mouvement_caisse
-         WHERE motif = 'salaire' AND categorie = 'salaire' AND sens = 'sortie' AND dossier_id = ?1",
-        &parametres![dossier.clone()],
-    );
-    assert_eq!(sorties, 60_000);
+    let n = compter(&mut base, "SELECT CAST(COUNT(*) AS BIGINT) FROM mouvement_caisse WHERE motif = 'salaire' AND dossier_id = ?1", &parametres![dossier.clone()]);
+    assert_eq!(n, 0, "aucun mouvement de caisse");
     let especes = caisse::lire_sessions_caisse_sur_base(&mut base, None).unwrap()[0]["sorties_especes"].as_i64().unwrap_or(0);
-    assert_eq!(especes, 20_000, "Orange Money ne sort pas du tiroir");
+    assert_eq!(especes, 0);
 
     // Une rectificative (une prime oubliée) reprend les versements : il reste la prime.
     let r = paie::rectifier_sur(&mut base, id.clone()).unwrap();
@@ -367,6 +361,9 @@ fn le_journal_de_paie_est_equilibre() {
     paie::enregistrer_cotisation_sur(&mut base, cotisation("INPS employeur", "employeur", 16.4, None, None)).unwrap();
     ouvrir_caisse(&mut base);
     avances::donner_sur(&mut base, e.awa.clone(), 10_000, None, None).unwrap();
+    // Une avance donnée par erreur puis annulée : aller et retour dans PA.
+    let erreur = avances::donner_sur(&mut base, e.moussa.clone(), 3_000, None, None).unwrap();
+    avances::annuler_sur(&mut base, erreur["id"].as_str().unwrap().into(), None).unwrap();
     let f = paie::preparer_sur(&mut base, e.awa.clone(), jour(-30), jour(0), false).unwrap();
     let fid = f["id"].as_str().unwrap().to_string();
     paie::ajouter_ligne_sur(&mut base, fid.clone(), "retenue".into(), "Casse".into(), None, None, Some(2_000)).unwrap();
@@ -404,6 +401,7 @@ fn le_journal_de_paie_est_equilibre() {
     assert_eq!(solde("571"), 10_000 + 30_000, "l'avance et le premier versement sortent des espèces (au crédit)");
     assert_eq!(solde("552"), 10_000, "le second, d'Orange Money");
     assert!(pa.iter().any(|e| e.libelle.contains("remplacée par sa rectificative")));
+    assert!(pa.iter().any(|e| e.libelle.starts_with("Avance annulée")), "l'annulation a son écriture");
     // Tout le journal reste équilibré avec les autres.
     let tout = journaux_comptables::ecritures_sur(&mut base, &du, &au, None, true).unwrap();
     assert!(tout.iter().any(|e| e.journal == "PA"));
@@ -416,6 +414,38 @@ fn le_journal_de_paie_est_equilibre() {
     let mut params = json!({ "du": du });
     lecture::neutraliser("lire_journaux_comptables", |p| p == "paie:preparer", &mut params);
     assert!(params["avecPaie"].is_null());
+}
+
+/// Rapports -> CA mensuel : le coût des salaires du mois à côté du CA,
+/// pour qui prépare ou valide la paie seulement.
+#[test]
+fn le_ca_mensuel_montre_les_salaires() {
+    use gescom_noyau::rapports;
+    let mut base = base_avec_demo();
+    let e = equipe(&mut base);
+    let kadia = creer(&mut base, json!({ "nom": "Kadia", "fonction": "comptable", "salaire_mensuel": 100000, "declare": true }));
+    paie::enregistrer_cotisation_sur(&mut base, cotisation("INPS employeur", "employeur", 16.4, None, None)).unwrap();
+    let ventes = { let _g = auteur::poser(&e.compte_fanta); vendre(&mut base, 10.0) };
+    let (du, au) = (jour(-30), jour(0));
+    for p in [&e.awa, &kadia] {
+        let f = paie::preparer_sur(&mut base, p.clone(), du.clone(), au.clone(), false).unwrap();
+        paie::valider_sur(&mut base, f["id"].as_str().unwrap().into()).unwrap();
+    }
+    // Un brouillon ne compte pas.
+    paie::preparer_sur(&mut base, e.moussa.clone(), du, au.clone(), false).unwrap();
+    let r = rapports::lire_rapport_ca_mensuel_sur_base(&mut base, Some(12)).unwrap();
+    let mois = r.iter().find(|m| m["mois"] == &au[..7]).expect("le mois courant");
+    let attendu = 60_000 + 100_000 + 16_400;
+    assert_eq!(mois["salaires"], attendu, "brut des fiches validées + charges patronales");
+    assert!(mois["ca"].as_i64().unwrap() >= ventes);
+    assert_eq!(mois["apres_salaires"].as_i64().unwrap(), mois["ca"].as_i64().unwrap() - attendu);
+    // Sans la paie : les salaires masqués, le CA lisible.
+    let mut v = serde_json::to_value(&r).unwrap();
+    lecture::filtrer("lire_rapport_ca_mensuel", |p| p == "rapports:lire", "u", &mut v);
+    assert!(v[0]["salaires"].is_null() && v[0]["apres_salaires"].is_null() && v[0]["ca"].is_i64());
+    let mut w = serde_json::to_value(&r).unwrap();
+    lecture::filtrer("lire_rapport_ca_mensuel", |p| p == "paie:preparer", "u", &mut w);
+    assert!(w[0]["salaires"].is_i64());
 }
 
 #[test]

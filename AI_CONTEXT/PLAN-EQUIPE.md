@@ -21,7 +21,7 @@ compte PostgreSQL limité, plan comptable et journaux).
 | Le serveur, `/rpc`, le registre, `api::rpc` (permissions, lectures, dates de travail) | Équipe n'a **aucune base à elle** : elle appelle les mêmes commandes, plus les siennes |
 | Comptes, rôles, sessions, **droits par dossier** (C-2) | la même connexion ; un employé peut avoir un compte, pas l'inverse |
 | Dossiers et exercices (D) | un employé appartient à un dossier (une société) ; une fiche de paie tombe dans les dates de travail |
-| La caisse : ouverture, dépenses par catégorie (`salaire` existe déjà) | les avances et les salaires sortent **de la caisse**, comme aujourd'hui, mais rattachés à la personne |
+| La caisse : ouverture, dépenses par catégorie (`salaire` existe déjà) | **plus rien** depuis la révision du 24/09 (D31, D32) : la paie est indépendante de la caisse ; avant : comme aujourd'hui, mais rattachés à la personne |
 | Ventes signées par l'utilisateur de la session (D26) | la commission sur les ventes d'un vendeur se calcule sans rien saisir |
 | Les clients, ventes, créances, relances | le suivi client (CRM) **n'a pas de seconde fiche client** |
 | Plan comptable, affectations, journaux lus (E) | un journal de paie de plus, lu comme les autres |
@@ -98,8 +98,12 @@ changer si on corrige un tarif le mois suivant — comme une vente.
   dans le dossier) ; une erreur se corrige par une **fiche
   rectificative**, jamais en réécrivant. Validée par qui a `paie:valider`.
 - **Payée** en un ou plusieurs versements (espèces, Orange Money, Moov
-  Money, virement) : chaque versement est une **sortie de caisse** —
-  caisse ouverte exigée (règle 4 de CLAUDE.md), catégorie `salaire`.
+  Money, virement). **Révisé le 24/09 par le propriétaire** : « la paie
+  doit être indépendante de la caisse mais visible dans les chiffres ».
+  Un versement ne touche **pas** la caisse du jour (ni session exigée,
+  ni mouvement) ; le moyen dit d'où vient l'argent. Le coût des
+  salaires se lit dans Rapports → CA mensuel, à côté du chiffre
+  d'affaires.
 - **Le bulletin** s'imprime par le générateur de pièces (A-2), avec en-
   tête, pied et signatures (« L'employé », « Pour la société ») ; un
   employé sans compte le signe sur papier.
@@ -107,9 +111,9 @@ changer si on corrige un tarif le mois suivant — comme une vente.
 ### D32 — Les avances d'abord
 
 Le trou le plus courant n'est pas le calcul du salaire : c'est
-**l'avance** donnée au milieu du mois, sortie de la caisse sur un bout
-de papier, et oubliée à la paie. Une avance est une sortie de caisse
-**rattachée à la personne** ; elle se retient d'office sur sa
+**l'avance** donnée au milieu du mois sur un bout de papier, et
+oubliée à la paie. Une avance est **rattachée à la personne** (hors
+caisse depuis la révision du 24/09, comme les versements — D31) ; elle se retient d'office sur sa
 prochaine fiche (reportable si elle dépasse le net). Le plafond d'une
 avance est un réglage (par personne ou par rôle, comme C-3).
 
@@ -143,7 +147,7 @@ comme les autres, pas une liste de plus.
 | permission | pour | livré à |
 |---|---|---|
 | `personnel:gerer` | créer, modifier, faire partir une fiche | patron (accès total) |
-| `personnel:avancer` | donner une avance (sortie de caisse) | — (à donner) |
+| `personnel:avancer` | donner une avance | — (à donner) |
 | `paie:preparer` | calculer et corriger les brouillons | comptable |
 | `paie:valider` | valider, payer, faire une rectificative | patron |
 | `crm:suivre` | échanges, rappels, prospects | caissier, employé, comptable |
@@ -172,9 +176,9 @@ compte limité, une ligne dans ETAPES, un parcours du banc.
 | **F-1** ✓ | La fenêtre Équipe : `equipe.html`, connexion au serveur (même écran de connexion, même choix de dossier), menu selon les droits, coque Tauri | banc : connexion, dossier, menu d'un patron / d'un caissier |
 | **F-2** ✓ | Les fiches du personnel (D30) : liste, fiche, modes de paiement, départ ; lien facultatif avec un compte | scénario : trois fiches — mensuel sans contrat, journalier, vendeur à la commission lié à un compte ; cloisonnement par dossier ; historique |
 | **F-3** ✓ | Les jours travaillés : une grille du mois, présent / absent / demi-journée | scénario : un journalier, 22 jours, la paie en lira le compte |
-| **G-1** ✓ | Les avances (D32) : sortie de caisse rattachée, plafond | scénario : caisse fermée refusée, plafond, l'avance apparaît dans la caisse et sur la personne |
+| **G-1** ✓ | Les avances (D32) : rattachées à la personne, plafond (hors caisse depuis le 24/09) | scénario : caisse fermée refusée, plafond, l'avance apparaît dans la caisse et sur la personne |
 | **G-2** ✓ | La fiche de paie : calcul, brouillon, validation, numéro, rectificative (D31) | scénario : les trois personnes de F-2 ; la commission égale les ventes signées ; l'avance retenue ; validée, plus rien ne change |
-| **G-3** ✓ | Payer et imprimer : versements depuis la caisse, bulletin par le générateur | scénario : deux versements, reste dû ; banc : le bulletin |
+| **G-3** ✓ | Payer et imprimer : versements (hors caisse depuis le 24/09), bulletin par le générateur | scénario : deux versements, reste dû ; banc : le bulletin |
 | **G-4** ✓ | Cotisations facultatives (D33) et journal PA | scénario : déclaré / non déclaré ; PA équilibré |
 | **H-1** | Échanges et fiche 360 (D34) | scénario : un appel, une relance existante, la créance, sur la fiche |
 | **H-2** | Rappels et prospects | scénario : un rappel attribué apparaît à la bonne personne ; un prospect devient client à sa première vente |

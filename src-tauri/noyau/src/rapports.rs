@@ -38,7 +38,27 @@ pub fn lire_rapport_ca_mensuel(
             "encaisse":  row.get::<_,i64>(3)?,
         }))
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-    Ok(x)
+    // Gescom Equipe : le cout des salaires du mois, a cote du CA.
+    let depuis = chrono::Local::now()
+        .date_naive()
+        .checked_sub_months(chrono::Months::new(mois as u32))
+        .unwrap_or_else(|| chrono::Local::now().date_naive())
+        .format("%Y-%m")
+        .to_string();
+    let salaires: std::collections::HashMap<String, i64> = conn
+        .prepare(
+            "SELECT SUBSTR(f.au, 1, 7),
+                    CAST(SUM(f.brut + COALESCE((SELECT SUM(l.montant) FROM ligne_paie l
+                        WHERE l.fiche_id = f.id AND l.genre = ?2), 0)) AS INTEGER)
+             FROM fiche_paie f WHERE f.statut = 'validee' AND SUBSTR(f.au, 1, 7) >= ?1
+             GROUP BY SUBSTR(f.au, 1, 7)",
+        )
+        .and_then(|mut s| {
+            s.query_map(rusqlite::params![depuis, crate::coeur::paie::CHARGE], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+                .map(|it| it.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+    Ok(crate::coeur::paie::avec_salaires(x, &salaires))
 }
 
 // =====================================================================
@@ -306,7 +326,7 @@ pub fn lire_rapport_ca_mensuel_sur_base(
            AND v.dossier_id = ?2
          GROUP BY SUBSTR(v.date_vente, 1, 7)
          ORDER BY SUBSTR(v.date_vente, 1, 7) DESC",
-        &parametres![depuis, dossier],
+        &parametres![depuis.clone(), dossier],
         |r| {
             Ok(serde_json::json!({
                 "mois":      r.get::<String>(0)?,
@@ -317,6 +337,11 @@ pub fn lire_rapport_ca_mensuel_sur_base(
         },
     )
     .map_err(|e| e.0)
+    .and_then(|ventes| {
+        // Gescom Equipe : le cout des salaires du mois, a cote du CA.
+        let salaires = crate::paie::salaires_par_mois_sur(base, &depuis[..7])?;
+        Ok(crate::coeur::paie::avec_salaires(ventes, &salaires))
+    })
 }
 
 pub fn lire_rapport_top_clients_sur_base(

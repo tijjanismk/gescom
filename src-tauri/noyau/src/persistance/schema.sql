@@ -554,9 +554,10 @@ CREATE TABLE IF NOT EXISTS presence (
     UNIQUE (employe_id, jour)
 );
 
--- Les avances sur salaire (PLAN-EQUIPE, G-1 — D32) : une sortie de
--- caisse rattachee a la personne ; `retenu` monte quand une fiche de
--- paie la retient (G-2).
+-- Les avances sur salaire (PLAN-EQUIPE, G-1 — D32) : rattachees a la
+-- personne ; `retenu` monte quand une fiche de paie la retient (G-2).
+-- Hors caisse (decision du 24/09) : `mouvement_caisse_id` reste vide
+-- pour les nouvelles ; `annule_le` date une annulation.
 CREATE TABLE IF NOT EXISTS avance (
     id                   TEXT PRIMARY KEY,
     dossier_id           TEXT NOT NULL,
@@ -569,7 +570,8 @@ CREATE TABLE IF NOT EXISTS avance (
     statut               TEXT NOT NULL DEFAULT 'ouverte',
     mouvement_caisse_id  TEXT,
     cree_par             TEXT,
-    cree_le              TEXT NOT NULL
+    cree_le              TEXT NOT NULL,
+    annule_le            TEXT
 );
 
 -- La fiche de paie (PLAN-EQUIPE, G-2 — D31) : un papier qu'on remet,
@@ -618,8 +620,9 @@ CREATE TABLE IF NOT EXISTS ligne_paie (
     saisie      INTEGER NOT NULL DEFAULT 0
 );
 
--- Les versements d'une fiche de paie (G-3, D31) : chacun une sortie de
--- caisse (`mouvement_caisse` motif 'salaire'). Une rectificative
+-- Les versements d'une fiche de paie (G-3, D31) : hors caisse (decision
+-- du 24/09 ; `mouvement_caisse_id` vide), le moyen dit d'ou vient
+-- l'argent. Une rectificative
 -- validee reprend les versements de la fiche qu'elle remplace.
 CREATE TABLE IF NOT EXISTS versement_paie (
     id                   TEXT PRIMARY KEY,

@@ -402,18 +402,19 @@ fn paie(base: &mut Base, p: &Periode, a: &HashMap<String, String>) -> Result<Vec
             montant,
         ));
     }
-    // Une avance annulee : l'argent revient (l'entree de caisse le date).
+    // Une avance annulee : l'ecriture inverse, le jour de l'annulation.
     let annulees = base
         .lire_plusieurs(
-            "SELECT m.operation_id, m.date_mouvement, m.montant, m.moyen, COALESCE(m.libelle, '') FROM mouvement_caisse m
-             WHERE m.motif = 'avance_annulee' AND m.dossier_id = ?1
-               AND SUBSTR(m.date_mouvement, 1, 10) >= ?2 AND SUBSTR(m.date_mouvement, 1, 10) <= ?3",
+            "SELECT a.id, a.annule_le, a.montant, a.moyen, e.nom FROM avance a
+             JOIN employe e ON e.id = a.employe_id AND e.dossier_id = a.dossier_id
+             WHERE a.dossier_id = ?1 AND a.statut = 'annulee' AND a.annule_le IS NOT NULL
+               AND SUBSTR(a.annule_le, 1, 10) >= ?2 AND SUBSTR(a.annule_le, 1, 10) <= ?3",
             &parametres![dossier, p.du.clone(), p.au.clone()],
             |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<String>(3)?, r.get::<String>(4)?)),
         )
         .map_err(|e| e.0)?;
-    for (id, date, montant, moyen, libelle) in annulees {
-        v.extend(simple("PA", &date, piece_courte("AV", &id), libelle, &a[cle_tresorerie(&moyen)], &a["paie:avances"], montant));
+    for (id, date, montant, moyen, nom) in annulees {
+        v.extend(simple("PA", &date, piece_courte("AV", &id), format!("Avance annulée — {nom}"), &a[cle_tresorerie(&moyen)], &a["paie:avances"], montant));
     }
     v.sort_by(|x, y| x.date.cmp(&y.date));
     Ok(v)

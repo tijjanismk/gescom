@@ -302,6 +302,7 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         "ALTER TABLE role ADD COLUMN credit_max INTEGER",
         // Equipe, G-1 : le plafond des avances (employe ne en F-2).
         "ALTER TABLE employe ADD COLUMN avance_max INTEGER",
+        "ALTER TABLE avance ADD COLUMN annule_le TEXT",
     ] {
         conn.execute(sql, []).ok();
     }

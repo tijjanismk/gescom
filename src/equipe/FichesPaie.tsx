@@ -153,12 +153,12 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
                 onClick={async () => {
                   const m = aVerser.trim() ? nombre(aVerser) : fiche.reste;
                   const r = await faire("verser_paie", { ficheId: fiche.id, montant: m, moyen },
-                    r => `${f(m)} versés à ${r.nom}, sortis de la caisse.${r.reste > 0 ? ` Reste ${f(r.reste)}.` : " Fiche payée."}`);
+                    r => `${f(m)} versés à ${r.nom}.${r.reste > 0 ? ` Reste ${f(r.reste)}.` : " Fiche payée."}`);
                   if (r) setAVerser("");
                 }}>
                 <Banknote className="h-4 w-4 mr-1" /> Verser
               </Button>
-              <p className="text-xs text-muted-foreground w-full">Vide : tout ce qui reste. La caisse doit être ouverte.</p>
+              <p className="text-xs text-muted-foreground w-full">Vide : tout ce qui reste. La paie ne passe pas par la caisse du jour.</p>
             </div>
           )}
         </div>
