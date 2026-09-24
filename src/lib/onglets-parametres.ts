@@ -12,7 +12,7 @@
 import {
   Package, Tag, Building2, Users, HardDrive, ShoppingCart,
   Percent, Banknote, XCircle, Clock, Warehouse, Barcode,
-  FileSpreadsheet, Network, Shield, FileText, FolderOpen,
+  FileSpreadsheet, Network, Shield, FileText, FolderOpen, BookOpen,
 } from "lucide-react";
 
 export const ONGLETS_PARAMETRES = [
@@ -31,6 +31,8 @@ export const ONGLETS_PARAMETRES = [
   { key: "reseau",        label: "Réseau",        icone: Network,         droit: "postes:gerer" },
   // v3 (D-3) : les sociétés, avec leurs dates de travail (D21).
   { key: "dossiers",      label: "Dossiers",      icone: FolderOpen,      droit: "dossiers:gerer" },
+  // v3 (E-1, D23) : le plan SYSCOHADA et les sous-comptes du dossier.
+  { key: "comptabilite",  label: "Comptabilité",  icone: BookOpen,        droit: "comptabilite:gerer" },
   { key: "tva",           label: "TVA",           icone: Percent,         droit: "chantiers:gerer" },
   { key: "dettes",        label: "Dettes fourn.", icone: Banknote,        droit: "fournisseurs:regler" },
   { key: "irrecouvrable", label: "Irrécouvrable", icone: XCircle,         droit: "chantiers:gerer" },

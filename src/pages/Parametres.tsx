@@ -30,6 +30,7 @@ import { OngletCodesBarres } from "@/components/OngletCodesBarres";
 import { OngletImportExport } from "@/components/OngletImportExport";
 import { OngletReseau } from "@/components/OngletReseau";
 import { OngletDossiers } from "@/components/OngletDossiers";
+import { OngletComptabilite } from "@/components/OngletComptabilite";
 import { OngletRoles } from "@/components/OngletRoles";
 import { OngletDocuments } from "@/components/OngletDocuments";
 import {
@@ -1131,6 +1132,7 @@ export function Parametres({ ongletInitial }: { ongletInitial?: string } = {}) {
       {onglet === "sauvegarde"    && <OngletSauvegarde />}
       {onglet === "reseau"        && <OngletReseau />}
       {onglet === "dossiers"      && <OngletDossiers />}
+      {onglet === "comptabilite"  && <OngletComptabilite />}
       {onglet === "tva"           && <OngletTVA />}
       {onglet === "dettes"        && <OngletDettes />}
       {onglet === "irrecouvrable" && <OngletIrrecouvrable />}

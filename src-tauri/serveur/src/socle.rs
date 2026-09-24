@@ -72,6 +72,14 @@ pub fn registre() -> Registre {
         )?;
         Ok(serde_json::Value::Null)
     });
+    // v3, E-1 (D23) : le plan SYSCOHADA, commun, et les sous-comptes du
+    // dossier. Le plan se lit par tous (c'est un vocabulaire).
+    r.sur_base("lire_plan_comptable", None, false, |c, _| {
+        serde_json::to_value(gescom_noyau::plan_comptable::lire_sur(c.base)?).map_err(|e| e.to_string())
+    });
+    r.sur_base("ajouter_sous_compte", Some("comptabilite:gerer"), true, |c, p| {
+        gescom_noyau::plan_comptable::ajouter_sous_compte_sur(c.base, arg(&p, "numero", "numero")?, arg(&p, "libelle", "libelle")?)
+    });
     // v3, C-2 : les dossiers d'une personne, et son role dans chacun.
     r.sur_base("lire_dossiers_utilisateur", Some("utilisateurs:gerer"), false, |c, p| {
         gescom_noyau::acces_dossiers::lire_sur(c.base, &arg::<String>(&p, "utilisateurId", "utilisateur_id")?)

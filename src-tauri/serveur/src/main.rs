@@ -230,8 +230,8 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
     };
     if !est_postgres {
         // Le chemin fichier ne passe pas par `amorcer` : les migrations
-        // qui vivent sur `Base` s'appellent ici (v3, C-1).
-        amorcage::lectures_du_comptable(&mut base);
+        // qui vivent sur `Base` s'appellent ici (v3, C-1, E-1).
+        amorcage::migrations_de_donnees(&mut base);
         // v3, D-5 : la base d'avant devient un dossier a son nom et a
         // ses dates, une fois.
         match gescom_noyau::dossiers::migrer_dossier_d_origine_sur(&mut base) {

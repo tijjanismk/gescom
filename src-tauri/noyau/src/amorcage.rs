@@ -121,7 +121,7 @@ fn roles() -> Vec<(&'static str, &'static str, bool, bool, &'static str)> {
             "Créances, chèques, TVA, règlements fournisseurs.",
             false,
             false,
-            r#"["creances:gerer","cheques:gerer","fournisseurs:regler","avoirs:gerer","chantiers:gerer","journal:lire","achats:lire_prix","rapports:lire","tiers:lire_solde"]"#,
+            r#"["creances:gerer","cheques:gerer","fournisseurs:regler","avoirs:gerer","chantiers:gerer","journal:lire","achats:lire_prix","rapports:lire","tiers:lire_solde","comptabilite:gerer"]"#,
         ),
     ]
 }
@@ -276,6 +276,52 @@ fn acces_total_toujours_reaffirme(base: &mut Base) {
     let _ = base.executer(
         "UPDATE role SET acces_total = 1 WHERE nom IN ('patron', 'superadmin')",
         &[],
+    );
+}
+
+/// Les migrations de DONNEES de la v3 — sur `Base`, appelees par
+/// `amorcer` (PostgreSQL) et par le serveur au demarrage d'un fichier
+/// SQLite (qui ne passe pas par `amorcer`). Chacune se fait une fois ou
+/// est idempotente.
+pub fn migrations_de_donnees(base: &mut Base) {
+    lectures_du_comptable(base);
+    donner_au_comptable(base, "migration_v3_comptabilite", &["comptabilite:gerer"]);
+    if let Err(e) = crate::plan_comptable::semer_sur(base) {
+        eprintln!("Plan comptable : {e}");
+    }
+}
+
+/// Ajoute des permissions au role `comptable` d'une base installee, une
+/// fois (marque `cle`) : rejouee, elle reprendrait ce que le patron a
+/// retire.
+fn donner_au_comptable(base: &mut Base, cle: &str, permissions: &[&str]) {
+    let deja = base
+        .lire_une("SELECT valeur FROM config_app WHERE cle = ?1", &parametres![cle], |r| r.get::<String>(0))
+        .ok()
+        .flatten()
+        .is_some();
+    if deja {
+        return;
+    }
+    let actuelles = base
+        .lire_une("SELECT permissions FROM role WHERE nom = 'comptable'", &[], |r| r.get::<String>(0))
+        .ok()
+        .flatten();
+    if let Some(json) = actuelles {
+        let mut liste: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+        for p in permissions {
+            if !liste.iter().any(|x| x == p) {
+                liste.push(p.to_string());
+            }
+        }
+        let _ = base.executer(
+            "UPDATE role SET permissions = ?1, modifie_le = ?2 WHERE nom = 'comptable'",
+            &parametres![serde_json::to_string(&liste).unwrap_or_else(|_| json.clone()), maintenant_iso()],
+        );
+    }
+    let _ = base.executer(
+        "INSERT INTO config_app (cle, valeur) VALUES (?1, ?2) ON CONFLICT (cle) DO NOTHING",
+        &parametres![cle, maintenant_iso()],
     );
 }
 
@@ -530,10 +576,10 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
     tables_v2(base);
     colonnes_roles(base);
     acces_total_toujours_reaffirme(base);
-    lectures_du_comptable(base);
     etiquette_magasin(base);
     cloisonnement(base);
     trigger_stock(base);
+    migrations_de_donnees(base);
     // v3, D-5 : une base qui existait devient un dossier a son nom, et
     // a ses dates. Une base neuve : rien a faire, la marque est posee.
     if let Err(e) = crate::dossiers::migrer_dossier_d_origine_sur(base) {

@@ -483,9 +483,22 @@ CREATE TABLE IF NOT EXISTS utilisateur_plafond (
     modifie_par         TEXT
 );
 
--- Une anomalie VUE (v3, B-4) : par qui, quand. Le journal reste tel
--- qu'il a ete ecrit ; le « vu » vit a cote. Sans lui, le compteur du
--- tableau de bord ne redescendrait jamais.
+-- Le plan comptable SYSCOHADA (v3, E-1 — D23). Commun a tous les
+-- dossiers (`dossier_id` vide) ; un sous-compte ajoute par le patron ou
+-- le comptable (`4111 Client Coulibaly`) porte son dossier. Pas dans
+-- les tables cloisonnees : le plan commun se lit de partout, et chaque
+-- lecture filtre `dossier_id IN ('', dossier courant)`.
+CREATE TABLE IF NOT EXISTS compte_comptable (
+    numero      TEXT NOT NULL,
+    dossier_id  TEXT NOT NULL DEFAULT '',
+    libelle     TEXT NOT NULL,
+    classe      INTEGER NOT NULL,
+    parent      TEXT,
+    origine     TEXT NOT NULL DEFAULT 'syscohada',
+    cree_le     TEXT NOT NULL,
+    PRIMARY KEY (numero, dossier_id)
+);
+
 -- Le role d'une personne DANS un dossier (v3, C-2 — decision C2).
 -- Aucune ligne : comme avant (son role partout s'il a l'acces total,
 -- sinon dans le dossier d'origine). Des lignes : exactement ces
@@ -500,6 +513,9 @@ CREATE TABLE IF NOT EXISTS utilisateur_dossier (
     PRIMARY KEY (utilisateur_id, dossier_id)
 );
 
+-- Une anomalie VUE (v3, B-4) : par qui, quand. Le journal reste tel
+-- qu'il a ete ecrit ; le « vu » vit a cote. Sans lui, le compteur du
+-- tableau de bord ne redescendrait jamais.
 CREATE TABLE IF NOT EXISTS anomalie_vue (
     journal_id  TEXT PRIMARY KEY,
     vue_par     TEXT NOT NULL,

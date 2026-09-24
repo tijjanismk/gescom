@@ -103,6 +103,9 @@ pub const CATALOGUE: &[Permission] = &[
     Permission { code: "postes:gerer", libelle: "Gérer les postes du réseau", groupe: "Administration" },
     Permission { code: "sauvegarde:lancer", libelle: "Lancer une sauvegarde", groupe: "Administration" },
     Permission { code: "chantiers:gerer", libelle: "TVA, irrécouvrables, expiration des avoirs", groupe: "Administration" },
+    // v3, E-1 (D23) : les sous-comptes du dossier, puis (E-2) quelle
+    // operation va sur quel compte. Le comptable la porte d'office.
+    Permission { code: "comptabilite:gerer", libelle: "Ajouter des sous-comptes et régler les affectations comptables", groupe: "Administration" },
     // --- Lecture (v3, C1) ---
     // Ce qu'un patron veut vraiment cacher, et rien de plus : cinq
     // permissions, pas une par commande. La table de ce que chacune

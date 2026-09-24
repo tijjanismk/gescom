@@ -11,3 +11,4 @@ pub mod documents;
 pub mod historique;
 pub mod lecture;
 pub mod plafonds;
+pub mod plan_comptable;
