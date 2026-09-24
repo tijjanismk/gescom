@@ -17,8 +17,8 @@ ok(await page.getByTestId("module-personnel").count() === 1 && await page.getByT
 ok((await page.getByTestId("dossier-ouvert").innerText()).length > 0, "le dossier ouvert est dit");
 await capture(page, "f1-01-patron");
 
-await menu.getByRole("button", { name: /Paie/ }).click();
-ok((await page.getByTestId("bientot-paie").innerText()).includes("étape G"), "Paie : annoncée pour l'étape G, pas un écran vide");
+await menu.getByRole("button", { name: /Suivi clients/ }).click();
+ok((await page.getByTestId("bientot-clients").innerText()).includes("étape H"), "Suivi clients : annoncé pour l'étape H, pas un écran vide");
 
 // Des comptes, créés par le serveur comme dans Gescom.
 await page.evaluate(async s => {

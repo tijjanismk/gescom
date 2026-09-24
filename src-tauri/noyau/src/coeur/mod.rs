@@ -16,3 +16,4 @@ pub mod affectations;
 pub mod journaux;
 pub mod personnel;
 pub mod presences;
+pub mod avances;

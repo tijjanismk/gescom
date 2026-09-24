@@ -7,6 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::coeur::plafonds::francs;
+
 /// Comment la personne est payee. Tout vide : rien de fixe (des
 /// primes saisies sur la fiche de paie).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -29,19 +31,6 @@ impl Remuneration {
     pub fn rien_de_fixe(&self) -> bool {
         self.salaire_mensuel.is_none() && self.tarif_journalier.is_none() && self.commission_pct.is_none() && !self.a_la_tache
     }
-}
-
-fn francs(n: i64) -> String {
-    let s = n.abs().to_string();
-    let mut groupes: Vec<&str> = Vec::new();
-    let mut fin = s.len();
-    while fin > 3 {
-        groupes.push(&s[fin - 3..fin]);
-        fin -= 3;
-    }
-    groupes.push(&s[..fin]);
-    groupes.reverse();
-    format!("{}{} F", if n < 0 { "-" } else { "" }, groupes.join(" "))
 }
 
 /// « 60 000 F par mois + 2 % des ventes », « rien de fixe ». Pure.

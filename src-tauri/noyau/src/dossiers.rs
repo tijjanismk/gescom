@@ -115,6 +115,7 @@ pub const TABLES_CLOISONNEES: &[&str] = &[
     "affectation_comptable",
     "employe",
     "presence",
+    "avance",
 ];
 
 /// La cle d'un compteur, cloisonnee par dossier.
@@ -541,7 +542,8 @@ pub fn date_d_ecriture(commande: &str) -> Option<&'static [&'static str]> {
         | "enregistrer_retour_sans_facture" | "enregistrer_transfert" | "marquer_irrecouvrable"
         | "modifier_depense" | "modifier_facture_pos" | "regler_creance_exceptionnel"
         | "rembourser_avoir" | "solder_residus_creances"
-        | "valider_facture" | "valider_facture_credit" | "valider_facture_fournisseur" => Some(AUJOURDHUI),
+        | "valider_facture" | "valider_facture_credit" | "valider_facture_fournisseur"
+        | "donner_avance" | "annuler_avance" => Some(AUJOURDHUI),
         _ => None,
     }
 }

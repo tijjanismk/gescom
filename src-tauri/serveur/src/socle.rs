@@ -130,6 +130,28 @@ pub fn registre() -> Registre {
     r.sur_base("marquer_tous_presents", Some("personnel:gerer"), true, |c, p| {
         gescom_noyau::presences::tous_presents_sur(c.base, arg(&p, "jour", "jour")?)
     });
+    // G-1 (D32) : les avances sur salaire, sorties de la caisse.
+    r.sur_base("lire_avances", None, false, |c, p| {
+        let en_cours: Option<bool> = arg(&p, "enCoursSeulement", "en_cours_seulement")?;
+        serde_json::to_value(gescom_noyau::avances::lister_sur(
+            c.base,
+            arg(&p, "employeId", "employe_id")?,
+            en_cours.unwrap_or(false),
+        )?)
+        .map_err(|e| e.to_string())
+    });
+    r.sur_base("donner_avance", Some("personnel:avancer"), true, |c, p| {
+        gescom_noyau::avances::donner_sur(
+            c.base,
+            arg(&p, "employeId", "employe_id")?,
+            arg(&p, "montant", "montant")?,
+            arg(&p, "moyen", "moyen")?,
+            arg(&p, "motif", "motif")?,
+        )
+    });
+    r.sur_base("annuler_avance", Some("personnel:avancer"), true, |c, p| {
+        gescom_noyau::avances::annuler_sur(c.base, arg(&p, "avanceId", "avance_id")?, arg(&p, "motif", "motif")?)
+    });
     // v3, E-3 : les journaux, fabriques a la lecture, et leur export.
     // Ce sont les chiffres de la boutique : `rapports:lire`.
     r.sur_base("lire_journaux_comptables", Some("rapports:lire"), false, |c, p| {

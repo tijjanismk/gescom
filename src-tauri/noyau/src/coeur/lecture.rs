@@ -84,9 +84,12 @@ const TOTAUX_PIECE: &[&str] = &[
     "total_ht", "total_tva", "total_net", "total_ttc", "total_paye", "reste", "reste_du",
 ];
 const ACHATS: &[&str] = &[ACHATS_LIRE_PRIX, "achats:creer"];
-const PERSONNEL_LIRE: &[&str] = &["personnel:gerer", "paie:preparer", "paie:valider"];
+// `personnel:avancer` lit la liste : on ne donne pas une avance sans
+// choisir a qui. Les montants restent masques (PAIE_LIRE).
+const PERSONNEL_LIRE: &[&str] = &["personnel:gerer", "paie:preparer", "paie:valider", "personnel:avancer"];
 const PAIE_LIRE: &[&str] = &["paie:preparer", "paie:valider"];
-const REMUNERATION: &[&str] = &["salaire_mensuel", "tarif_journalier", "commission_pct", "remuneration_dite"];
+const REMUNERATION: &[&str] = &["salaire_mensuel", "tarif_journalier", "commission_pct", "remuneration_dite", "avance_max"];
+const AVANCES_LIRE: &[&str] = &["personnel:avancer", "paie:preparer", "paie:valider"];
 
 fn piece_fournisseur(v: &Value) -> bool {
     v.pointer("/piece/tiers_type").and_then(Value::as_str) == Some("fournisseur")
@@ -158,6 +161,7 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         // gere ou le paie ; ce qu'il gagne, par qui prepare ou valide la
         // paie seulement. ---
         "lire_presences_mois" => &[RefusSaufUne(PERSONNEL_LIRE)],
+        "lire_avances" => &[RefusSaufUne(AVANCES_LIRE)],
         "lire_personnel" | "lire_employe" => &[
             RefusSaufUne(PERSONNEL_LIRE),
             Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None },

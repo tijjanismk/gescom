@@ -1758,3 +1758,23 @@ du jour, chaque opération sur son compte affecté — sur SQLite,
 PostgreSQL et sous le compte limité. Pas encore : les retours de
 marchandise (leur effet passe par l'avoir utilisé), les OD, la TVA sur
 achats (non saisie). La v3 du plan est faite.
+
+## 24/09/2026 (suite) — Gescom Équipe : personnel, puis paie
+
+Le patron veut une seconde application pour le personnel, la paie et le
+suivi client, sur la même base. Décidé (PLAN-EQUIPE, D28–D34) : une
+seconde fenêtre qui ne parle qu'au serveur Gescom, dans le même dépôt ;
+et une paie **souple**, parce que la plupart de ces commerces n'ont pas
+de contrat : une personne, une façon d'être payée, rien d'obligatoire
+au-delà.
+
+**F** — la fenêtre (F-1), les fiches (F-2 : au mois, à la journée, à la
+commission, à la tâche, cumulables, ou rien de fixe ; les montants
+masqués à qui ne paie pas), les jours travaillés (F-3). PostgreSQL a
+trouvé un `?2 = 1` typé `int4` ; le banc un « -0 » (somme vide d'un
+`f64`).
+
+**G-1** — les avances d'abord, parce que le trou le plus courant n'est
+pas le calcul du salaire mais l'avance sortie du tiroir au milieu du
+mois et oubliée à la paie. Une avance est une sortie de caisse au nom
+de la personne ; la fiche de paie retiendra ce qui est en cours.

@@ -25,7 +25,7 @@ export const MODULES: ModuleEquipe[] = [
   {
     cle: "paie", libelle: "Paie", icone: Wallet,
     description: "Avances, fiches du mois, versements depuis la caisse, bulletins.",
-    droits: ["paie:preparer", "paie:valider", "personnel:avancer"], aVenir: "G",
+    droits: ["paie:preparer", "paie:valider", "personnel:avancer"],
   },
   {
     cle: "clients", libelle: "Suivi clients", icone: MessageSquareText,

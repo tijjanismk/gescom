@@ -224,6 +224,9 @@ fn colonnes_roles(base: &mut Base) {
         "ALTER TABLE role ADD COLUMN remise_max_pct REAL",
         "ALTER TABLE role ADD COLUMN remboursement_max INTEGER",
         "ALTER TABLE role ADD COLUMN credit_max INTEGER",
+        // Equipe, G-1 : le plafond des avances d'une personne (la table
+        // `employe` a pu naitre en F-2, sans lui).
+        "ALTER TABLE employe ADD COLUMN avance_max INTEGER",
         "CREATE TABLE IF NOT EXISTS utilisateur_permission (
             utilisateur_id TEXT NOT NULL REFERENCES utilisateur(id),
             permission     TEXT NOT NULL,

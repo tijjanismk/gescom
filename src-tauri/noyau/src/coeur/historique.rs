@@ -52,6 +52,8 @@ pub const TYPES: &[(&str, &str)] = &[
     ("employe_modifie", "Fiche du personnel modifiée"),
     ("employe_parti", "Départ du personnel"),
     ("employe_revenu", "Retour dans le personnel"),
+    ("avance_donnee", "Avance sur salaire"),
+    ("avance_annulee", "Avance annulée"),
     ("dossier_d_origine", "Dossier d'origine nommé et daté"),
     ("exercice_ouvert", "Exercice ouvert"),
     ("exercice_prolonge", "Exercice prolongé"),

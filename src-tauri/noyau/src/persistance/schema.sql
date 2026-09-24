@@ -529,6 +529,8 @@ CREATE TABLE IF NOT EXISTS employe (
     tarif_journalier INTEGER,
     commission_pct   REAL,
     a_la_tache       INTEGER NOT NULL DEFAULT 0,
+    -- G-1 : le plafond de ses avances en cours ; vide = pas de plafond.
+    avance_max       INTEGER,
     utilisateur_id   TEXT REFERENCES utilisateur(id),
     depot_id         TEXT,
     statut           TEXT NOT NULL DEFAULT 'actif',
@@ -550,6 +552,24 @@ CREATE TABLE IF NOT EXISTS presence (
     saisi_par   TEXT,
     saisi_le    TEXT NOT NULL,
     UNIQUE (employe_id, jour)
+);
+
+-- Les avances sur salaire (PLAN-EQUIPE, G-1 — D32) : une sortie de
+-- caisse rattachee a la personne ; `retenu` monte quand une fiche de
+-- paie la retient (G-2).
+CREATE TABLE IF NOT EXISTS avance (
+    id                   TEXT PRIMARY KEY,
+    dossier_id           TEXT NOT NULL,
+    employe_id           TEXT NOT NULL REFERENCES employe(id),
+    montant              INTEGER NOT NULL,
+    retenu               INTEGER NOT NULL DEFAULT 0,
+    moyen                TEXT NOT NULL,
+    motif                TEXT,
+    date_avance          TEXT NOT NULL,
+    statut               TEXT NOT NULL DEFAULT 'ouverte',
+    mouvement_caisse_id  TEXT,
+    cree_par             TEXT,
+    cree_le              TEXT NOT NULL
 );
 
 -- Le role d'une personne DANS un dossier (v3, C-2 — decision C2).

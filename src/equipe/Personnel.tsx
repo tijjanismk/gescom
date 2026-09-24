@@ -35,6 +35,7 @@ export interface Employe {
   utilisateur_nom: string | null;
   depot_id: string | null;
   depot_nom: string | null;
+  avance_max: number | null;
   statut: "actif" | "partie";
   date_depart: string | null;
   motif_depart: string | null;
@@ -51,12 +52,14 @@ interface Saisie {
   contrat: boolean; contratDate: string;
   declare: boolean; inps: string;
   utilisateurId: string; depotId: string; note: string;
+  avanceMax: string;
 }
 
 const VIDE: Saisie = {
   nom: "", fonction: "", auMois: false, salaire: "", aLaJournee: false, tarif: "",
   aLaCommission: false, commission: "", aLaTache: false, telephone: "", dateEntree: "", piece: "",
   contrat: false, contratDate: "", declare: false, inps: "", utilisateurId: "", depotId: "", note: "",
+  avanceMax: "",
 };
 
 function depuis(e: Employe): Saisie {
@@ -70,6 +73,7 @@ function depuis(e: Employe): Saisie {
     contrat: e.contrat_ecrit, contratDate: e.contrat_date ?? "",
     declare: e.declare, inps: e.numero_inps ?? "",
     utilisateurId: e.utilisateur_id ?? "", depotId: e.depot_id ?? "", note: e.note ?? "",
+    avanceMax: e.avance_max?.toString() ?? "",
   };
 }
 
@@ -89,6 +93,7 @@ function versFiche(s: Saisie) {
     contrat_ecrit: s.contrat, contrat_date: s.contrat ? s.contratDate || null : null,
     declare: s.declare, numero_inps: s.inps || null,
     utilisateur_id: s.utilisateurId || null, depot_id: s.depotId || null, note: s.note || null,
+    avance_max: nombre(s.avanceMax),
   };
 }
 
@@ -192,6 +197,11 @@ function Formulaire({ initial, voitMontants, onEnregistrer, onAnnuler }: {
             </label>
             {s.declare && <Input value={s.inps} onChange={e => maj({ inps: e.target.value })} aria-label="Numéro INPS" placeholder="Numéro INPS" className="h-9" />}
           </div>
+          {voitMontants && (
+            <label className="text-xs text-muted-foreground flex flex-col gap-1">Plafond de ses avances en cours
+              <Input value={s.avanceMax} onChange={e => maj({ avanceMax: e.target.value })} aria-label="Plafond d'avance"
+                placeholder="vide : pas de plafond" inputMode="numeric" className="h-9" /></label>
+          )}
           <label className="text-xs text-muted-foreground flex flex-col gap-1 sm:col-span-2">Note
             <Input value={s.note} onChange={e => maj({ note: e.target.value })} aria-label="Note" className="h-9" /></label>
         </div>
@@ -263,6 +273,7 @@ function Fiches() {
       fiche.salaire_mensuel = s.auMois ? edition.salaire_mensuel : null;
       fiche.tarif_journalier = s.aLaJournee ? edition.tarif_journalier : null;
       fiche.commission_pct = s.aLaCommission ? edition.commission_pct : null;
+      fiche.avance_max = edition.avance_max;
     }
     await agir(
       () => edition === "nouveau"

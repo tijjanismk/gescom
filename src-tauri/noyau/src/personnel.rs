@@ -35,6 +35,9 @@ pub struct Fiche {
     pub numero_inps: Option<String>,
     #[serde(default)]
     pub utilisateur_id: Option<String>,
+    /// G-1 : le plafond de ses avances en cours (vide = aucun).
+    #[serde(default)]
+    pub avance_max: Option<i64>,
     #[serde(default)]
     pub depot_id: Option<String>,
     #[serde(default)]
@@ -67,6 +70,7 @@ struct Propre {
     declare: bool,
     numero_inps: Option<String>,
     utilisateur_id: Option<String>,
+    avance_max: Option<i64>,
     depot_id: Option<String>,
     note: Option<String>,
 }
@@ -110,7 +114,11 @@ fn juger(base: &mut Base, f: &Fiche, soi: Option<&str>) -> Result<Propre, String
             return Err("Ce magasin n'est pas dans ce dossier.".to_string());
         }
     }
+    if f.avance_max.is_some_and(|m| m <= 0) {
+        return Err("Le plafond d'avance doit être plus grand que zéro — ou vide.".to_string());
+    }
     Ok(Propre {
+        avance_max: f.avance_max,
         nom,
         fonction,
         r: f.remuneration.clone(),
@@ -159,7 +167,7 @@ fn noter(
 const COLONNES: &str = "e.id, e.nom, e.fonction, e.telephone, e.date_entree, e.piece_identite,
     e.contrat_ecrit, e.contrat_date, e.declare, e.numero_inps, e.salaire_mensuel,
     e.tarif_journalier, e.commission_pct, e.a_la_tache, e.utilisateur_id, u.nom, e.depot_id, d.nom,
-    e.statut, e.date_depart, e.motif_depart, e.note, e.cree_le";
+    e.statut, e.date_depart, e.motif_depart, e.note, e.cree_le, e.avance_max";
 
 fn ligne(r: &crate::base::Ligne<'_>) -> crate::base::Resultat<serde_json::Value> {
     let remu = Remuneration {
@@ -209,6 +217,7 @@ fn ligne(r: &crate::base::Ligne<'_>) -> crate::base::Resultat<serde_json::Value>
         "motif_depart": r.get::<Option<String>>(20)?,
         "note": r.get::<Option<String>>(21)?,
         "cree_le": r.get::<String>(22)?,
+        "avance_max": r.get::<Option<i64>>(23)?,
     }))
 }
 
@@ -256,8 +265,8 @@ pub fn creer_sur(base: &mut Base, f: Fiche) -> Result<serde_json::Value, String>
         "INSERT INTO employe
            (id, dossier_id, nom, fonction, telephone, date_entree, piece_identite, contrat_ecrit,
             contrat_date, declare, numero_inps, salaire_mensuel, tarif_journalier, commission_pct,
-            a_la_tache, utilisateur_id, depot_id, statut, note, cree_le, modifie_le)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,'actif',?18,?19,?19)",
+            a_la_tache, utilisateur_id, depot_id, statut, note, cree_le, modifie_le, avance_max)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,'actif',?18,?19,?19,?20)",
         &parametres![
             id.clone(),
             dossier,
@@ -277,7 +286,8 @@ pub fn creer_sur(base: &mut Base, f: Fiche) -> Result<serde_json::Value, String>
             p.utilisateur_id,
             p.depot_id,
             p.note,
-            now
+            now,
+            p.avance_max
         ],
     )
     .map_err(|e| e.0)?;
@@ -296,7 +306,7 @@ pub fn modifier_sur(base: &mut Base, id: String, f: Fiche) -> Result<serde_json:
         "UPDATE employe SET nom = ?1, fonction = ?2, telephone = ?3, date_entree = ?4, piece_identite = ?5,
                 contrat_ecrit = ?6, contrat_date = ?7, declare = ?8, numero_inps = ?9, salaire_mensuel = ?10,
                 tarif_journalier = ?11, commission_pct = ?12, a_la_tache = ?13, utilisateur_id = ?14,
-                depot_id = ?15, note = ?16, modifie_le = ?17
+                depot_id = ?15, note = ?16, modifie_le = ?17, avance_max = ?20
          WHERE id = ?18 AND dossier_id = ?19",
         &parametres![
             p.nom.clone(),
@@ -317,7 +327,8 @@ pub fn modifier_sur(base: &mut Base, id: String, f: Fiche) -> Result<serde_json:
             p.note,
             now,
             id.clone(),
-            dossier
+            dossier,
+            p.avance_max
         ],
     )
     .map_err(|e| e.0)?;

@@ -20,6 +20,7 @@ import { MODULES } from "./modules";
 import { Accueil } from "./Accueil";
 import { Bientot } from "./Bientot";
 import { Personnel } from "./Personnel";
+import { Paie } from "./Paie";
 
 const CLE_SESSION = "gescom_equipe_session";
 
@@ -158,6 +159,7 @@ export function AppEquipe() {
         {courant.cle === "accueil"
           ? <Accueil nom={utilisateur.nom} modules={visibles.filter(m => m.cle !== "accueil")} onOuvrir={setPage} />
           : courant.cle === "personnel" ? <Personnel />
+          : courant.cle === "paie" ? <Paie />
           : <Bientot module={courant} />}
       </main>
 
