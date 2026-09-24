@@ -1318,6 +1318,7 @@ pub fn prefixe_de(type_piece: &str) -> &'static str {
         "bon_reception" => "BRF",
         "facture_fournisseur" => "FAF",
         "avoir_fournisseur" => "AVF",
+        "fiche_paie" => "PAIE",
         _ => "PIE",
     }
 }

@@ -17,3 +17,4 @@ pub mod journaux;
 pub mod personnel;
 pub mod presences;
 pub mod avances;
+pub mod paie;

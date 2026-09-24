@@ -163,6 +163,51 @@ pub fn registre() -> Registre {
     r.sur_base("annuler_avance", Some("personnel:avancer"), true, |c, p| {
         gescom_noyau::avances::annuler_sur(c.base, arg(&p, "avanceId", "avance_id")?, arg(&p, "motif", "motif")?)
     });
+    // G-2 (D31) : la fiche de paie. Preparer et corriger un brouillon :
+    // `paie:preparer` ; valider et rectifier : `paie:valider`. Lire :
+    // qui prepare ou valide (`coeur::lecture`).
+    r.sur_base("lire_fiches_paie", None, false, |c, p| {
+        gescom_noyau::paie::lister_sur(c.base, arg(&p, "du", "du")?, arg(&p, "au", "au")?)
+    });
+    r.sur_base("lire_fiche_paie", None, false, |c, p| {
+        gescom_noyau::paie::lire_sur(c.base, &arg::<String>(&p, "ficheId", "fiche_id")?)
+    });
+    r.sur_base("preparer_fiche_paie", Some("paie:preparer"), true, |c, p| {
+        let prorata: Option<bool> = arg(&p, "prorata", "prorata")?;
+        gescom_noyau::paie::preparer_sur(
+            c.base,
+            arg(&p, "employeId", "employe_id")?,
+            arg(&p, "du", "du")?,
+            arg(&p, "au", "au")?,
+            prorata.unwrap_or(false),
+        )
+    });
+    r.sur_base("recalculer_fiche_paie", Some("paie:preparer"), true, |c, p| {
+        gescom_noyau::paie::recalculer_sur(c.base, arg(&p, "ficheId", "fiche_id")?, arg(&p, "prorata", "prorata")?)
+    });
+    r.sur_base("ajouter_ligne_paie", Some("paie:preparer"), true, |c, p| {
+        gescom_noyau::paie::ajouter_ligne_sur(
+            c.base,
+            arg(&p, "ficheId", "fiche_id")?,
+            arg(&p, "genre", "genre")?,
+            arg::<Option<String>>(&p, "libelle", "libelle")?.unwrap_or_default(),
+            arg(&p, "quantite", "quantite")?,
+            arg(&p, "prix", "prix")?,
+            arg(&p, "montant", "montant")?,
+        )
+    });
+    r.sur_base("retirer_ligne_paie", Some("paie:preparer"), true, |c, p| {
+        gescom_noyau::paie::retirer_ligne_sur(c.base, arg(&p, "ficheId", "fiche_id")?, arg(&p, "ligneId", "ligne_id")?)
+    });
+    r.sur_base("supprimer_fiche_paie", Some("paie:preparer"), true, |c, p| {
+        gescom_noyau::paie::supprimer_sur(c.base, arg(&p, "ficheId", "fiche_id")?)
+    });
+    r.sur_base("valider_fiche_paie", Some("paie:valider"), true, |c, p| {
+        gescom_noyau::paie::valider_sur(c.base, arg(&p, "ficheId", "fiche_id")?)
+    });
+    r.sur_base("rectifier_fiche_paie", Some("paie:valider"), true, |c, p| {
+        gescom_noyau::paie::rectifier_sur(c.base, arg(&p, "ficheId", "fiche_id")?)
+    });
     // v3, E-3 : les journaux, fabriques a la lecture, et leur export.
     // Ce sont les chiffres de la boutique : `rapports:lire`.
     r.sur_base("lire_journaux_comptables", Some("rapports:lire"), false, |c, p| {

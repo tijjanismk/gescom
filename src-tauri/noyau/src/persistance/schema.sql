@@ -572,6 +572,52 @@ CREATE TABLE IF NOT EXISTS avance (
     cree_le              TEXT NOT NULL
 );
 
+-- La fiche de paie (PLAN-EQUIPE, G-2 — D31) : un papier qu'on remet,
+-- donc STOCKE et fige a la validation (numero PAIE-AAAA-NNNNN par
+-- dossier). `nom`, `fonction` : ce qu'etait la personne a la paie.
+-- statut : brouillon | validee | remplacee (par une rectificative, qui
+-- porte `rectifie_id`). `retenues` : en positif, avances comprises ;
+-- `reporte` : les avances qui n'ont pas pu etre retenues.
+CREATE TABLE IF NOT EXISTS fiche_paie (
+    id           TEXT PRIMARY KEY,
+    dossier_id   TEXT NOT NULL,
+    employe_id   TEXT NOT NULL REFERENCES employe(id),
+    nom          TEXT NOT NULL,
+    fonction     TEXT NOT NULL,
+    du           TEXT NOT NULL,
+    au           TEXT NOT NULL,
+    prorata      INTEGER NOT NULL DEFAULT 0,
+    statut       TEXT NOT NULL DEFAULT 'brouillon',
+    numero       TEXT,
+    brut         INTEGER NOT NULL DEFAULT 0,
+    retenues     INTEGER NOT NULL DEFAULT 0,
+    net          INTEGER NOT NULL DEFAULT 0,
+    reporte      INTEGER NOT NULL DEFAULT 0,
+    rectifie_id  TEXT,
+    cree_par     TEXT,
+    cree_le      TEXT NOT NULL,
+    modifie_le   TEXT NOT NULL,
+    valide_par   TEXT,
+    valide_le    TEXT
+);
+
+-- Les lignes d'une fiche : `montant` signe (gain +, retenue -) ;
+-- `saisie` = 1 pour tache / prime / retenue, 0 pour ce qui se calcule ;
+-- `source` = l'avance retenue.
+CREATE TABLE IF NOT EXISTS ligne_paie (
+    id          TEXT PRIMARY KEY,
+    dossier_id  TEXT NOT NULL,
+    fiche_id    TEXT NOT NULL REFERENCES fiche_paie(id),
+    rang        INTEGER NOT NULL,
+    genre       TEXT NOT NULL,
+    libelle     TEXT NOT NULL,
+    quantite    REAL,
+    prix        INTEGER,
+    montant     INTEGER NOT NULL,
+    source      TEXT,
+    saisie      INTEGER NOT NULL DEFAULT 0
+);
+
 -- Le role d'une personne DANS un dossier (v3, C-2 — decision C2).
 -- Aucune ligne : comme avant (son role partout s'il a l'acces total,
 -- sinon dans le dossier d'origine). Des lignes : exactement ces

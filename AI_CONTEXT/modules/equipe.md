@@ -17,6 +17,9 @@ fenêtre qui ne parle qu'au serveur ; modules en version `Base` seule
 | Avances (pur) | [coeur/avances.rs](../../src-tauri/noyau/src/coeur/avances.rs) | `reste(montant, retenu)`, `verifier(montant, en_cours, plafond, nom)` (le plafond compte ce qui est en cours) |
 | Avances (base) | [avances.rs](../../src-tauri/noyau/src/avances.rs) | `donner_sur` (sortie de caisse + avance + journal, une transaction, caisse ouverte exigée), `annuler_sur` (l'argent revient, seulement si rien n'est retenu), `en_cours_sur`, `lister_sur` |
 | Écran paie | [src/equipe/Paie.tsx](../../src/equipe/Paie.tsx) | onglets Avances / Fiches du mois ; donner, en cours par personne, annuler |
+| Paie (pur) | [coeur/paie.rs](../../src-tauri/noyau/src/coeur/paie.rs) | `gains_calcules` (mois, prorata jours travaillés / jours marqués, jours × tarif, % des ventes signées), `ligne_saisie` (tâche, prime, retenue), `retenir_avances` (les plus anciennes d'abord, le reste reporté), `calculer`, `totaux`, `validable`, `verifier_periode`, `se_chevauchent` |
+| Paie (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `preparer_sur`, `recalculer_sur`, `ajouter_ligne_sur`, `retirer_ligne_sur`, `supprimer_sur` (brouillon), `valider_sur` (refuse ce qui n'est plus à jour ; numéro `PAIE-AAAA-NNNNN`, avances retenues), `rectifier_sur`, `lire_sur`, `lister_sur(du, au)` (fiches + personnes à préparer) |
+| Écran fiches | [src/equipe/FichesPaie.tsx](../../src/equipe/FichesPaie.tsx) | le mois ; à préparer (au prorata ou non) ; la liste ; la fiche : lignes, brut / retenues / net, report, ajouter / retirer une saisie, recalculer, jeter, valider, rectifier |
 
 **Table** `employe` (cloisonnée, RLS) : nom, fonction, modes de
 rémunération, facultatifs (téléphone, entrée, pièce, contrat écrit +
@@ -40,6 +43,19 @@ fiches de paie en ont déjà pris), moyen, motif, statut `ouverte` /
 Droits : `personnel:avancer` pour donner et annuler ; lecture par qui
 avance ou paie.
 
+**Tables** `fiche_paie` et `ligne_paie` (cloisonnées, RLS) : la fiche
+se stocke (D31) ; `nom`, `fonction` figés à la paie ; statut
+`brouillon` → `validee` → `remplacee` (par une rectificative, qui porte
+`rectifie_id`) ; `brut`, `retenues` (en positif, avances comprises),
+`net`, `reporte`. Une ligne : `genre` (base, jours, commission, tache,
+prime, retenue, avance), `montant` signé, `saisie`, `source` (l'avance
+retenue). Une fiche vivante par personne et par période (pas de
+chevauchement). À la validation, `avance.retenu` monte (sans jamais
+dépasser le montant) ; la rectificative rend d'abord ce que l'ancienne
+avait retenu. Préparer / corriger : `paie:preparer` ; valider,
+rectifier : `paie:valider` ; lire : l'un des deux.
+
 Preuves : `personnel_base.rs` (6), `presences_base.rs` (5), `avances_base.rs` (5),
-trois moteurs ; bancs `f1-fenetre-equipe.mjs`, `f2-personnel.mjs`,
-`f3-jours-travailles.mjs`, `g1-avances.mjs`.
+`paie_base.rs` (7), trois moteurs ; bancs `f1-fenetre-equipe.mjs`,
+`f2-personnel.mjs`, `f3-jours-travailles.mjs`, `g1-avances.mjs`,
+`g2-fiches-paie.mjs`.

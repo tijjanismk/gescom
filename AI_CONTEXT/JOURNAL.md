@@ -1778,3 +1778,22 @@ trouvé un `?2 = 1` typé `int4` ; le banc un « -0 » (somme vide d'un
 pas le calcul du salaire mais l'avance sortie du tiroir au milieu du
 mois et oubliée à la paie. Une avance est une sortie de caisse au nom
 de la personne ; la fiche de paie retiendra ce qui est en cours.
+
+**G-2** — la fiche de paie, **stockée** (contrairement aux journaux) :
+c'est un papier qu'on remet, et ce qu'une personne a touché ne doit pas
+bouger si l'on corrige son salaire le mois suivant. Chaque ligne dit
+d'où elle vient (« 22 jours × 2 500 F », « 3 % de 250 000 F de ventes
+signées », « Avance du 05/09/2026 »). Choix : le prorata d'un salaire au
+mois se mesure sur les jours **marqués** (un jour non marqué n'est pas
+su, on ne le retire pas) ; une avance qui dépasse le net se reporte ;
+la validation refuse une fiche qui n'est plus à jour (un jour marqué
+après le calcul) plutôt que de figer un chiffre périmé ; une erreur se
+corrige par une rectificative qui rend d'abord ce que l'ancienne avait
+retenu. Au passage, les avances passent l'auteur à `exiger_sur` : sous
+une caisse nominative, elles auraient été refusées.
+
+**Correctif** — « Les chiffres de la boutique ne sont pas ouverts à votre
+compte » chez le patron : sa session gardée par le navigateur datait
+d'avant la v3 et ne connaissait pas `rapports:lire`. Les droits sont
+maintenant relus auprès du serveur à chaque démarrage (`lire_mes_droits`).
+Le banc complet oubliait les parcours F et G (`[a-e]`) : corrigé.

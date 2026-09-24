@@ -86,11 +86,11 @@ pub fn donner_sur(
     let en_cours = en_cours_sur(base, &employe_id)?;
     regles::verifier(montant, en_cours, p.plafond, &p.nom)?;
     // L'argent sort du tiroir : la caisse d'abord (regle 4).
-    let session_id = crate::caisses::exiger_sur(base, None)
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let session_id = crate::caisses::exiger_sur(base, Some(&auteur))
         .map_err(|_| "Aucune session de caisse ouverte — ouvrir la caisse d'abord.".to_string())?;
 
     let dossier = base.dossier().to_string();
-    let auteur = crate::argent::id_utilisateur_courant_sur(base);
     let now = crate::utils::maintenant_iso();
     let motif = motif.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
     let id = uuid::Uuid::new_v4().to_string();
@@ -150,9 +150,9 @@ pub fn annuler_sur(base: &mut Base, avance_id: String, motif: Option<String>) ->
         return Err("Une fiche de paie en a déjà retenu une partie : elle ne s'annule plus.".to_string());
     }
     let p = personne(base, &employe_id)?;
-    let session_id = crate::caisses::exiger_sur(base, None)
-        .map_err(|_| "Aucune session de caisse ouverte — ouvrir la caisse d'abord.".to_string())?;
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let session_id = crate::caisses::exiger_sur(base, Some(&auteur))
+        .map_err(|_| "Aucune session de caisse ouverte — ouvrir la caisse d'abord.".to_string())?;
     let now = crate::utils::maintenant_iso();
     let motif = motif.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
     let mut tx = base.transaction().map_err(|e| e.0)?;

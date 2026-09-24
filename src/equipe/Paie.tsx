@@ -1,8 +1,8 @@
 // equipe/Paie.tsx — la paie (PLAN-EQUIPE, chantier G).
 //
 // Les avances d'abord (D32) : une sortie de caisse au nom de la
-// personne, que la fiche de paie retiendra. Les fiches du mois
-// arrivent avec G-2.
+// personne, que la fiche de paie retiendra. Les fiches du mois (G-2) :
+// FichesPaie.tsx.
 
 import { useState, useEffect, useCallback } from "react";
 import { Loader2, HandCoins, Undo2 } from "lucide-react";
@@ -11,6 +11,7 @@ import { peut } from "@/lib/droits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { FichesPaie } from "./FichesPaie";
 
 interface Avance {
   id: string; employe_id: string; nom: string; montant: number; retenu: number; reste: number;
@@ -162,9 +163,7 @@ export function Paie() {
           </button>
         ))}
       </div>
-      {vue === "avances" ? <Avances /> : (
-        <p className="text-sm text-muted-foreground" data-testid="bientot-fiches">Les fiches de paie arrivent avec l'étape G-2 du plan.</p>
-      )}
+      {vue === "avances" ? <Avances /> : <FichesPaie />}
     </div>
   );
 }
