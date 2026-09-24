@@ -157,6 +157,7 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         // --- Gescom Equipe (PLAN-EQUIPE) : le personnel se lit par qui le
         // gere ou le paie ; ce qu'il gagne, par qui prepare ou valide la
         // paie seulement. ---
+        "lire_presences_mois" => &[RefusSaufUne(PERSONNEL_LIRE)],
         "lire_personnel" | "lire_employe" => &[
             RefusSaufUne(PERSONNEL_LIRE),
             Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None },

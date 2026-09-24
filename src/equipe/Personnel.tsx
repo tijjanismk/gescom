@@ -12,6 +12,7 @@ import { peut } from "@/lib/droits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { JoursTravailles } from "./JoursTravailles";
 
 export interface Employe {
   id: string;
@@ -208,6 +209,23 @@ function Formulaire({ initial, voitMontants, onEnregistrer, onAnnuler }: {
 }
 
 export function Personnel() {
+  const [vue, setVue] = useState<"fiches" | "jours">("fiches");
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1" role="tablist">
+        {([["fiches", "Fiches"], ["jours", "Jours travaillés"]] as const).map(([cle, libelle]) => (
+          <button key={cle} role="tab" aria-selected={vue === cle} onClick={() => setVue(cle)}
+            className={`px-3 py-1.5 text-sm rounded-lg ${vue === cle ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+            {libelle}
+          </button>
+        ))}
+      </div>
+      {vue === "fiches" ? <Fiches /> : <JoursTravailles />}
+    </div>
+  );
+}
+
+function Fiches() {
   const [liste, setListe] = useState<Employe[] | null>(null);
   const [avecPartis, setAvecPartis] = useState(false);
   const [edition, setEdition] = useState<Employe | "nouveau" | null>(null);

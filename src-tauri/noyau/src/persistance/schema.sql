@@ -539,6 +539,19 @@ CREATE TABLE IF NOT EXISTS employe (
     modifie_le       TEXT NOT NULL
 );
 
+-- Les jours travailles (PLAN-EQUIPE, F-3) : une ligne par personne et
+-- par jour marque ; un jour sans ligne n'est pas su.
+CREATE TABLE IF NOT EXISTS presence (
+    id          TEXT PRIMARY KEY,
+    dossier_id  TEXT NOT NULL,
+    employe_id  TEXT NOT NULL REFERENCES employe(id),
+    jour        TEXT NOT NULL,
+    etat        TEXT NOT NULL,
+    saisi_par   TEXT,
+    saisi_le    TEXT NOT NULL,
+    UNIQUE (employe_id, jour)
+);
+
 -- Le role d'une personne DANS un dossier (v3, C-2 — decision C2).
 -- Aucune ligne : comme avant (son role partout s'il a l'acces total,
 -- sinon dans le dossier d'origine). Des lignes : exactement ces

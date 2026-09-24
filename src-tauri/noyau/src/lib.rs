@@ -54,6 +54,7 @@ pub mod plan_comptable;
 pub mod affectations;
 pub mod journaux_comptables;
 pub mod personnel;
+pub mod presences;
 pub mod caisses;
 pub mod argent;
 pub mod catalogue;

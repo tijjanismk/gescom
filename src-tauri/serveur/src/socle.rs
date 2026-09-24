@@ -115,6 +115,21 @@ pub fn registre() -> Registre {
     r.sur_base("faire_revenir_employe", Some("personnel:gerer"), true, |c, p| {
         gescom_noyau::personnel::faire_revenir_sur(c.base, arg(&p, "employeId", "employe_id")?)
     });
+    // F-3 : les jours travailles.
+    r.sur_base("lire_presences_mois", None, false, |c, p| {
+        gescom_noyau::presences::lire_mois_sur(c.base, &arg::<String>(&p, "mois", "mois")?)
+    });
+    r.sur_base("marquer_presence", Some("personnel:gerer"), true, |c, p| {
+        gescom_noyau::presences::marquer_sur(
+            c.base,
+            arg(&p, "employeId", "employe_id")?,
+            arg(&p, "jour", "jour")?,
+            arg(&p, "etat", "etat")?,
+        )
+    });
+    r.sur_base("marquer_tous_presents", Some("personnel:gerer"), true, |c, p| {
+        gescom_noyau::presences::tous_presents_sur(c.base, arg(&p, "jour", "jour")?)
+    });
     // v3, E-3 : les journaux, fabriques a la lecture, et leur export.
     // Ce sont les chiffres de la boutique : `rapports:lire`.
     r.sur_base("lire_journaux_comptables", Some("rapports:lire"), false, |c, p| {

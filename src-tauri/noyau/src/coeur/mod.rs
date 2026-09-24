@@ -15,3 +15,4 @@ pub mod plan_comptable;
 pub mod affectations;
 pub mod journaux;
 pub mod personnel;
+pub mod presences;

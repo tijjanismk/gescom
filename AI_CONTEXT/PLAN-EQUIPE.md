@@ -171,7 +171,7 @@ compte limité, une ligne dans ETAPES, un parcours du banc.
 |---|---|---|
 | **F-1** ✓ | La fenêtre Équipe : `equipe.html`, connexion au serveur (même écran de connexion, même choix de dossier), menu selon les droits, coque Tauri | banc : connexion, dossier, menu d'un patron / d'un caissier |
 | **F-2** ✓ | Les fiches du personnel (D30) : liste, fiche, modes de paiement, départ ; lien facultatif avec un compte | scénario : trois fiches — mensuel sans contrat, journalier, vendeur à la commission lié à un compte ; cloisonnement par dossier ; historique |
-| **F-3** | Les jours travaillés : une grille du mois, présent / absent / demi-journée | scénario : un journalier, 22 jours, la paie en lira le compte |
+| **F-3** ✓ | Les jours travaillés : une grille du mois, présent / absent / demi-journée | scénario : un journalier, 22 jours, la paie en lira le compte |
 | **G-1** | Les avances (D32) : sortie de caisse rattachée, plafond | scénario : caisse fermée refusée, plafond, l'avance apparaît dans la caisse et sur la personne |
 | **G-2** | La fiche de paie : calcul, brouillon, validation, numéro, rectificative (D31) | scénario : les trois personnes de F-2 ; la commission égale les ventes signées ; l'avance retenue ; validée, plus rien ne change |
 | **G-3** | Payer et imprimer : versements depuis la caisse, bulletin par le générateur | scénario : deux versements, reste dû ; banc : le bulletin |
