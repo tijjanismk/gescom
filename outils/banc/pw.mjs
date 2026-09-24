@@ -10,6 +10,8 @@ export const TRAVAIL = path.join(ICI, ".travail");
 export const CAPTURES = path.join(TRAVAIL, "captures");
 fs.mkdirSync(CAPTURES, { recursive: true });
 export const URL = `http://127.0.0.1:${process.env.PORT_ECRAN ?? 1420}/?serveur=127.0.0.1:${process.env.PORT_SERVEUR ?? 7300}`;
+/** Gescom Équipe (PLAN-EQUIPE) : la seconde entrée du même écran. */
+export const URL_EQUIPE = URL.replace("/?", "/equipe.html?");
 
 export async function navigateur() {
   // CHROMIUM : un Chromium deja installe (sinon celui de Playwright).
@@ -47,8 +49,8 @@ export function verifieur() {
 }
 
 /** Connexion ; change le mot de passe d'usine si l'ecran l'exige. */
-export async function connecter(page, id = "admin", mdp = "admin123", nouveau = "Admin-2026!", dossier = "Ma boutique") {
-  await page.goto(URL);
+export async function connecter(page, id = "admin", mdp = "admin123", nouveau = "Admin-2026!", dossier = "Ma boutique", adresse = URL) {
+  await page.goto(adresse);
   await page.waitForTimeout(1500);
   const essayer = async (m) => {
     await page.locator("input").nth(0).fill(id);
@@ -86,7 +88,7 @@ export async function connecter(page, id = "admin", mdp = "admin123", nouveau = 
       // L'identite gardee par la page dit encore « doit changer » :
       // on l'oublie, et on se reconnecte.
       await page.evaluate(() => localStorage.clear());
-      await page.goto(URL); await page.waitForTimeout(1500);
+      await page.goto(adresse); await page.waitForTimeout(1500);
       await essayer(nouveau);
       await choisirDossier();
     }

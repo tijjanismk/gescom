@@ -285,16 +285,22 @@ fn acces_total_toujours_reaffirme(base: &mut Base) {
 /// est idempotente.
 pub fn migrations_de_donnees(base: &mut Base) {
     lectures_du_comptable(base);
-    donner_au_comptable(base, "migration_v3_comptabilite", &["comptabilite:gerer"]);
+    donner_au_role(base, "comptable", "migration_v3_comptabilite", &["comptabilite:gerer"]);
+    // Equipe (F-1, PLAN-EQUIPE) : le comptable prepare la paie ; ceux
+    // qui sont au comptoir suivent les clients.
+    donner_au_role(base, "comptable", "migration_equipe_comptable", &["paie:preparer", "crm:suivre"]);
+    donner_au_role(base, "caissier", "migration_equipe_caissier", &["crm:suivre"]);
+    donner_au_role(base, "employe", "migration_equipe_employe", &["crm:suivre"]);
     if let Err(e) = crate::plan_comptable::semer_sur(base) {
         eprintln!("Plan comptable : {e}");
     }
 }
 
-/// Ajoute des permissions au role `comptable` d'une base installee, une
+/// Ajoute des permissions a un role livre d'une base installee, une
 /// fois (marque `cle`) : rejouee, elle reprendrait ce que le patron a
-/// retire.
-fn donner_au_comptable(base: &mut Base, cle: &str, permissions: &[&str]) {
+/// retire. Un role absent (base pas encore amorcee) ne pose pas la
+/// marque : la migration se fera quand il existera.
+fn donner_au_role(base: &mut Base, role: &str, cle: &str, permissions: &[&str]) {
     let deja = base
         .lire_une("SELECT valeur FROM config_app WHERE cle = ?1", &parametres![cle], |r| r.get::<String>(0))
         .ok()
@@ -304,21 +310,20 @@ fn donner_au_comptable(base: &mut Base, cle: &str, permissions: &[&str]) {
         return;
     }
     let actuelles = base
-        .lire_une("SELECT permissions FROM role WHERE nom = 'comptable'", &[], |r| r.get::<String>(0))
+        .lire_une("SELECT permissions FROM role WHERE nom = ?1", &parametres![role], |r| r.get::<String>(0))
         .ok()
         .flatten();
-    if let Some(json) = actuelles {
-        let mut liste: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
-        for p in permissions {
-            if !liste.iter().any(|x| x == p) {
-                liste.push(p.to_string());
-            }
+    let Some(json) = actuelles else { return };
+    let mut liste: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+    for p in permissions {
+        if !liste.iter().any(|x| x == p) {
+            liste.push(p.to_string());
         }
-        let _ = base.executer(
-            "UPDATE role SET permissions = ?1, modifie_le = ?2 WHERE nom = 'comptable'",
-            &parametres![serde_json::to_string(&liste).unwrap_or_else(|_| json.clone()), maintenant_iso()],
-        );
     }
+    let _ = base.executer(
+        "UPDATE role SET permissions = ?1, modifie_le = ?2 WHERE nom = ?3",
+        &parametres![serde_json::to_string(&liste).unwrap_or_else(|_| json.clone()), maintenant_iso(), role],
+    );
     let _ = base.executer(
         "INSERT INTO config_app (cle, valeur) VALUES (?1, ?2) ON CONFLICT (cle) DO NOTHING",
         &parametres![cle, maintenant_iso()],
@@ -669,6 +674,10 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
          ON CONFLICT (id) DO NOTHING",
         &parametres![now],
     )?;
+
+    // Les roles existent maintenant : les migrations qui leur ajoutent
+    // des droits (et qui attendaient qu'ils existent) passent.
+    migrations_de_donnees(base);
 
     Ok(true)
 }

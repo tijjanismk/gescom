@@ -35,5 +35,13 @@ export default defineConfig({
     // défaut se déclencherait à chaque build sans rien signaler
     // d'anormal.
     chunkSizeWarningLimit: 1200,
+    // Deux fenetres, un seul projet (PLAN-EQUIPE, D29) : la caisse
+    // (index.html) et Gescom Equipe (equipe.html).
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        equipe: path.resolve(__dirname, "equipe.html"),
+      },
+    },
   },
 });

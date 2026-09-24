@@ -1,3 +1,4 @@
+import { poserDroits } from "@/lib/droits";
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
@@ -158,6 +159,7 @@ function App() {
   // et « aucun reglage », sans qu'aucune reconnexion n'y change rien.
   if (utilisateur && UTILISATEUR_ACTIF !== utilisateur) {
     UTILISATEUR_ACTIF = utilisateur;
+    poserDroits(utilisateur);
   }
 
   useEffect(() => {
@@ -254,6 +256,7 @@ function App() {
 
   function handleConnecte(u: UtilisateurConnecte) {
     UTILISATEUR_ACTIF = u;
+    poserDroits(u);
     setUtilisateur(u);
     sauvegarderSession(u, "dashboard");
     setPageActive("dashboard");
@@ -264,6 +267,7 @@ function App() {
   function handleDeconnecter() {
     supprimerSession();
     UTILISATEUR_ACTIF = null;
+    poserDroits(null);
     setUtilisateur(null);
     setPageActive("dashboard");
     setNavParams(null);
@@ -428,6 +432,7 @@ function App() {
           const u = { ...utilisateur, doit_changer_mdp: false };
           setUtilisateur(u);
           UTILISATEUR_ACTIF = u;
+          poserDroits(u);
           sauvegarderSession(u, pageActive, navParams);
         }}
       />

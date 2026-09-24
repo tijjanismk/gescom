@@ -13,11 +13,18 @@
 // noyau, à chaque appel. Un écran périmé ne peut pas ouvrir une porte
 // que le serveur ferme.
 
-import { UTILISATEUR_ACTIF } from "@/App";
+// Les droits de la personne connectée, posés par la fenêtre qui l'a
+// connectée (Gescom ou Équipe) : ce fichier ne dépend d'aucune des deux.
+let actif: { permissions?: string[] } | null = null;
+
+/** La personne connectée change (connexion, dossier choisi, déconnexion). */
+export function poserDroits(u: { permissions?: string[] } | null): void {
+  actif = u;
+}
 
 /** Cette personne peut-elle faire cela ? */
 export function peut(permission: string): boolean {
-  return UTILISATEUR_ACTIF?.permissions?.includes(permission) ?? false;
+  return actif?.permissions?.includes(permission) ?? false;
 }
 
 /** Au moins une des permissions données. */

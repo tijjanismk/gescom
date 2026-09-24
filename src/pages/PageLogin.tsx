@@ -24,9 +24,12 @@ export interface UtilisateurConnecte {
 
 interface PageLoginProps {
   onConnecte: (utilisateur: UtilisateurConnecte) => void;
+  /** Gescom Équipe se présente sous son nom (PLAN-EQUIPE, D28). */
+  titre?: string;
+  sousTitre?: string;
 }
 
-export function PageLogin({ onConnecte }: PageLoginProps) {
+export function PageLogin({ onConnecte, titre = "Gescom", sousTitre = "Gestion commerciale" }: PageLoginProps) {
   const [identifiant, setIdentifiant] = useState("");
   const [motDePasse, setMotDePasse] = useState("");
   const [visible, setVisible] = useState(false);
@@ -145,8 +148,8 @@ export function PageLogin({ onConnecte }: PageLoginProps) {
           <Store className="h-6 w-6 text-primary-foreground" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold">Gescom</h1>
-          <p className="text-xs text-muted-foreground">Gestion commerciale</p>
+          <h1 className="text-2xl font-bold">{titre}</h1>
+          <p className="text-xs text-muted-foreground">{sousTitre}</p>
         </div>
       </div>
 

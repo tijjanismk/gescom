@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "build:strict": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "equipe:dev": "cd src-tauri/equipe && tauri dev",
+    "equipe:build": "cd src-tauri/equipe && tauri build"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
