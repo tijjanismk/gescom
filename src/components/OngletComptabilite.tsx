@@ -3,7 +3,8 @@
 // Le plan SYSCOHADA est commun à tous les dossiers ; on y ajoute des
 // sous-comptes pour le dossier ouvert (« 4111 Client Coulibaly »).
 // Gescom n'écrit aucune écriture : il présentera ses opérations au
-// comptable, compte par compte (E-2, E-3). Ici, le vocabulaire.
+// comptable, compte par compte (E-3). Ici, le vocabulaire (E-1) et
+// quelle opération va sur quel compte (E-2).
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Loader2, Plus } from "lucide-react";
@@ -11,6 +12,7 @@ import { appeler as invoke } from "@/lib/pont";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { AffectationsComptables } from "@/components/AffectationsComptables";
 
 interface Compte {
   numero: string;
@@ -77,6 +79,8 @@ export function OngletComptabilite() {
         Le plan SYSCOHADA révisé ({plan.length - nbSous} comptes), commun à tous les dossiers.
         Les sous-comptes ajoutés ici n'appartiennent qu'au dossier ouvert.
       </p>
+
+      <AffectationsComptables plan={plan} />
 
       <div className="border border-border rounded-lg p-4 space-y-3">
         <h3 className="text-sm font-semibold">Nouveau sous-compte</h3>

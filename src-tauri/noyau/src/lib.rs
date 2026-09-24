@@ -51,6 +51,7 @@ pub mod base;
 pub mod dossiers;
 pub mod acces_dossiers;
 pub mod plan_comptable;
+pub mod affectations;
 pub mod caisses;
 pub mod argent;
 pub mod catalogue;

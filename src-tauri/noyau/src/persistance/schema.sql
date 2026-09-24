@@ -499,6 +499,17 @@ CREATE TABLE IF NOT EXISTS compte_comptable (
     PRIMARY KEY (numero, dossier_id)
 );
 
+-- L'affectation comptable (v3, E-2 — D23) : ce qui a ete CHANGE, par
+-- dossier. Une operation absente vaut son defaut (coeur::affectations).
+CREATE TABLE IF NOT EXISTS affectation_comptable (
+    dossier_id  TEXT NOT NULL,
+    operation   TEXT NOT NULL,
+    compte      TEXT NOT NULL,
+    modifie_le  TEXT NOT NULL,
+    modifie_par TEXT,
+    PRIMARY KEY (dossier_id, operation)
+);
+
 -- Le role d'une personne DANS un dossier (v3, C-2 — decision C2).
 -- Aucune ligne : comme avant (son role partout s'il a l'acces total,
 -- sinon dans le dossier d'origine). Des lignes : exactement ces

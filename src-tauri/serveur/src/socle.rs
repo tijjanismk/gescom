@@ -80,6 +80,13 @@ pub fn registre() -> Registre {
     r.sur_base("ajouter_sous_compte", Some("comptabilite:gerer"), true, |c, p| {
         gescom_noyau::plan_comptable::ajouter_sous_compte_sur(c.base, arg(&p, "numero", "numero")?, arg(&p, "libelle", "libelle")?)
     });
+    // v3, E-2 : quelle operation va sur quel compte, par dossier.
+    r.sur_base("lire_affectations", Some("comptabilite:gerer"), false, |c, _| {
+        serde_json::to_value(gescom_noyau::affectations::lire_sur(c.base)?).map_err(|e| e.to_string())
+    });
+    r.sur_base("definir_affectation", Some("comptabilite:gerer"), true, |c, p| {
+        gescom_noyau::affectations::definir_sur(c.base, arg(&p, "operation", "operation")?, arg(&p, "compte", "compte")?)
+    });
     // v3, C-2 : les dossiers d'une personne, et son role dans chacun.
     r.sur_base("lire_dossiers_utilisateur", Some("utilisateurs:gerer"), false, |c, p| {
         gescom_noyau::acces_dossiers::lire_sur(c.base, &arg::<String>(&p, "utilisateurId", "utilisateur_id")?)

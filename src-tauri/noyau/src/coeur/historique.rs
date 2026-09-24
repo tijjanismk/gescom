@@ -47,6 +47,7 @@ pub const TYPES: &[(&str, &str)] = &[
     ("dossier_cree", "Dossier créé"),
     ("dossier_renomme", "Dossier renommé"),
     ("sous_compte_cree", "Sous-compte créé"),
+    ("affectation_modifiee", "Affectation comptable modifiée"),
     ("dossier_d_origine", "Dossier d'origine nommé et daté"),
     ("exercice_ouvert", "Exercice ouvert"),
     ("exercice_prolonge", "Exercice prolongé"),
