@@ -427,6 +427,13 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D34 | le **suivi client** s'appuie sur la fiche client de Gescom : échanges, rappels, prospects, fiche 360 — pas de second fichier — [PLAN-EQUIPE.md](PLAN-EQUIPE.md) |
+| D33 | **cotisations facultatives, jamais devinées** : lignes de réglage du dossier, vides par défaut, seulement pour les personnes déclarées |
+| D32 | **les avances d'abord** : sortie de caisse rattachée à la personne, retenue d'office sur la fiche suivante |
+| D31 | **la fiche de paie se stocke** (un document remis) : brouillon → validée (figée, numérotée) → payée depuis la caisse ; une erreur = une rectificative |
+| D30 | **une personne, pas un contrat** : nom, ce qu'elle fait, comment elle est payée (au mois, à la journée, à la commission, à la tâche, rien de fixe) ; tout le reste facultatif |
+| D29 | **Équipe vit dans le même dépôt** : `equipe.html`, `src/equipe/`, `src-tauri/equipe/`, modules `personnel`/`paie`/`crm` en version `Base` seule (exception écrite à la règle 2) |
+| D28 | **Gescom Équipe est une seconde fenêtre qui ne parle qu'au serveur** : aucune base à elle ; mêmes comptes, droits, dossiers ; le monoposte lance le serveur sur sa machine (D22) |
 | D27 | **le serveur juge la saisie** : pas de mode « avoir » sans avoir consommé, montant > 0, quantité > 0, prix ≥ 0, remise 0–100 — règles dans `coeur/saisie.rs`, les deux versions |
 | D26 | **l'auteur d'un geste est l'utilisateur de la session**, posé par le serveur sur le fil de la requête (`noyau::auteur`) — plus le premier compte du rôle |
 | D25 | **le serveur gagne une fenêtre** : une coque Tauri fine qui affiche la console existante — pas une interface reconstruite |

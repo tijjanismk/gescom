@@ -5,7 +5,10 @@ Le récit daté de chaque avancée vit dans [JOURNAL.md](JOURNAL.md), les
 décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md).
 
-Dernière mise à jour : **23 septembre 2026 — revue de la v2, trois
+Dernière mise à jour : **24 septembre 2026 — la v3 est faite (A à E,
+branche `v3`, poussée) ; Gescom Équipe (personnel, paie, suivi
+client) est planifiée** — [PLAN-EQUIPE.md](PLAN-EQUIPE.md), D28 à D34,
+chantiers F, G, H, sur la branche `rh`. Avant : **23 septembre 2026 — revue de la v2, trois
 défauts corrigés sur la branche `correctif/revue-v2`** (à fusionner
 dans `main` ; § « Revue du 23/09/2026 » plus bas). Avant : **21
 septembre 2026 — la v2 est close.** Le
