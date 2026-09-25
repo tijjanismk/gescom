@@ -77,7 +77,7 @@ function esc(s: string): string {
 // Le montant en lettres vit dans lib/impression.ts, partagé par tous
 // les documents ; ré-exporté ici pour ses anciens appelants.
 import {
-  type Habillage, enLettres, blocSociete, imagePied, mention, blocSignatures,
+  type Habillage, enLettres, blocSociete, mention, blocSignatures, documentHTML,
 } from "@/lib/impression";
 export { enLettres };
 
@@ -127,20 +127,7 @@ export function genererRecuHTML(
          </div>
          ${titreEtDate}
        </div>`;
-  const bandeau = enteteBase64
-    ? `<img src="${enteteBase64}" alt=""
-            style="width:100%;height:auto;display:block;margin-bottom:8px"/>`
-    : "";
-
-  return `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8">
-<title>${titre} — ${esc(d.tiers.nom)}</title>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:Arial,sans-serif; font-size:12px; color:#000; }
-  .page { min-height:${a4 ? "277mm" : "190mm"}; display:flex; flex-direction:column; }
-  .corps { flex:1 1 auto; display:flex; flex-direction:column;
-           padding:${enteteBase64 ? "0" : "12mm"} 12mm 12mm 12mm; }
+  const css = `
   .entete { display:flex; justify-content:space-between;
             border-bottom:2px solid #000; padding-bottom:7px; }
   .soc { font-size:15px; font-weight:bold; }
@@ -149,7 +136,7 @@ export function genererRecuHTML(
   .titre.annule { color:#c00; }
 
   .tiers { margin:12px 0; padding:7px 9px; border:1px solid #bbb;
-           background:#fafafa; }
+           background:rgba(0,0,0,.02); }
   .lbl { font-size:9px; color:#777; text-transform:uppercase; }
   .nom { font-size:14px; font-weight:bold; }
 
@@ -172,20 +159,9 @@ export function genererRecuHTML(
   .solde { background:#f0f9f2; }
   .solde td { color:#1b6b3a; font-weight:bold; }
 
-  .bas { margin-top:auto; }
-  .mention { font-size:9.5px; color:#666; border-top:1px solid #ddd;
-             padding-top:6px; margin-top:10px; }
-  .sign { display:flex; justify-content:flex-end; margin-top:20px; }
-  .sign > div { width:52%; }
-  .sign .lbl2 { font-size:10px; color:#333; margin-bottom:26px; }
-  .sign .trait { border-bottom:1px solid #000; }
+`;
 
-  @media print { body { margin:0; } @page { size:${a4 ? "210mm 297mm" : "148mm 210mm"}; margin:0; } }
-</style></head>
-<body>
-<div class="page">
-  ${bandeau}
-  <div class="corps">
+  const contenu = `
     ${entete}
 
     <div class="tiers">
@@ -236,14 +212,17 @@ export function genererRecuHTML(
       </tr>`}
     </table>
 
-    <div class="bas">
-      ${blocSignatures((r ? r.signatures : [{ libelle: m.signature }])
-          .map(s => ({ ...s, libelle: libellePourCote(s.libelle, d.cote) })))}
-      ${h.pied ? "" : `<p class="mention">${mention(h, m.pied)}</p>`}
-    </div>
-  </div>
-  ${imagePied(h)}
-</div>
-<script>window.onload = () => { window.focus(); window.print(); }</script>
-</body></html>`;
+    ${blocSignatures((r ? r.signatures : [{ libelle: m.signature }])
+        .map(s => ({ ...s, libelle: libellePourCote(s.libelle, d.cote) })))}`;
+
+  return documentHTML(h, {
+    titre: `${titre} — ${d.tiers.nom}`,
+    papier: a4 ? "a4" : "a5",
+    marge: "12mm",
+    mention: mention(h, m.pied),
+    police: 12,
+    css,
+    contenu,
+    script: `<script>window.onload = () => { window.focus(); window.print(); }</script>`,
+  });
 }

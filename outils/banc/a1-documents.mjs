@@ -30,7 +30,7 @@ await page.waitForTimeout(300);
 ok(await ex.locator("th", { hasText: "Remise" }).count() === 1, "l'exemple suit la case, avant d'enregistrer");
 await page.getByRole("button", { name: "Ajouter une signature" }).click();
 await page.getByRole("textbox", { name: "Signature 3" }).fill("Le magasinier");
-await page.getByRole("button", { name: "Enregistrer" }).click();
+await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
 await page.waitForTimeout(1200);
 ok(await page.getByText("Facture : réglages enregistrés.").count() === 1, "facture enregistrée");
 

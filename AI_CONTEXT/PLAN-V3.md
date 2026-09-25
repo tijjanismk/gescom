@@ -78,7 +78,9 @@ avec la v3 (une migration qui la supprime, idempotente).
 
 > Tu fais faire ton en-tête chez l'imprimeur, en PNG, avec ton logo,
 > ton adresse, ton NIF, comme sur ton papier à lettres. Tu le
-> téléverses une fois. Il s'imprime en haut de chaque pièce.
+> téléverses une fois. Il s'imprime en haut de chaque pièce — de
+> chaque PAGE, collé au bord du papier, sans marge d'aucun côté, et le
+> pied de même en bas (25/09, comme dans Word).
 
 - **En-tête** : une image, largeur de la page, hauteur libre (30 mm
   conseillés). Sans image : le nom de la société en gros et ses

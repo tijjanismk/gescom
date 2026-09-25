@@ -375,6 +375,15 @@ pub fn registre() -> Registre {
         let image: Option<String> = arg(&p, "image", "image")?;
         gescom_noyau::documents::poser_image_signature_sur(c.base, &genre, rang, image)
     });
+    // Le filigrane (25/09) : un reglage, une image, pour tous les genres.
+    r.sur_base("enregistrer_filigrane_documents", Some("parametres:modifier"), true, |c, p| {
+        let reglage: Value = arg(&p, "reglage", "reglage")?;
+        gescom_noyau::documents::enregistrer_filigrane_sur(c.base, reglage)
+    });
+    r.sur_base("poser_image_filigrane", Some("parametres:modifier"), true, |c, p| {
+        let image: Option<String> = arg(&p, "image", "image")?;
+        gescom_noyau::documents::poser_image_filigrane_sur(c.base, image)
+    });
 
     r.sur_base("lire_stock_multi_depots", None, false, |c, _| {
         serde_json::to_value(depots::lire_stock_multi_depots_sur_base(c.base)?)

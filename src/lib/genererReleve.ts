@@ -10,7 +10,7 @@
 // l'autre. C'est la seule chose que porte `cote`.
 
 import {
-  type Habillage, blocSociete, blocSignatures, imagePied, mention,
+  type Habillage, blocSociete, blocSignatures, mention, documentHTML,
 } from "@/lib/impression";
 import { libellePourCote } from "@/lib/genererRecu";
 
@@ -129,7 +129,7 @@ function fmtDate(iso: string): string {
  */
 function signaturesReleve(h: Habillage, usine: string[], cote: "client" | "fournisseur"): string {
   if (!h.reglage) {
-    return `<div class="sign">${usine.map(l => `<div>${esc(l)}</div>`).join("")}</div>`;
+    return blocSignatures(usine.map(libelle => ({ libelle })));
   }
   return blocSignatures(h.reglage.signatures.map(s => ({ ...s, libelle: libellePourCote(s.libelle, cote) })));
 }
@@ -177,9 +177,7 @@ export function genererReleveGlobalHTML(
 
   // Avec un en-tête image, l'image remplace le nom et les coordonnées,
   // pas le titre (trouvé par le banc d'écran, 23/09).
-  const entete = (enteteBase64
-    ? `<img src="${enteteBase64}" style="width:100%;display:block;margin-bottom:10px">`
-    : "") + `<div class="entete">
+  const entete = `<div class="entete">
          <div>
            ${enteteBase64 ? "" : `${blocSociete(d.societe as Record<string, unknown>, h, 16)}`}
          </div>
@@ -193,12 +191,7 @@ export function genererReleveGlobalHTML(
          </div>
        </div>`;
 
-  return `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8">
-<title>${titre}</title>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:Arial,sans-serif; font-size:12px; padding:12mm; }
+  const css = `
   .entete { display:flex; justify-content:space-between;
             border-bottom:2px solid #000; padding-bottom:8px;
             margin-bottom:12px; }
@@ -206,26 +199,21 @@ export function genererReleveGlobalHTML(
   .titre { font-size:18px; font-weight:bold; letter-spacing:1px; }
   .det { font-size:10px; color:#555; }
   table { width:100%; border-collapse:collapse; }
-  th { background:#eee; border-bottom:2px solid #000; padding:6px 8px;
+  th { background:rgba(0,0,0,.07); border-bottom:2px solid #000; padding:6px 8px;
        text-align:left; font-size:10px; text-transform:uppercase; }
   td { padding:6px 8px; border-bottom:1px solid #e5e5e5;
        vertical-align:top; }
   .rang { color:#999; width:28px; }
   .d { text-align:right; }
   .fort { font-weight:bold; }
-  .total { border-top:2px solid #000; background:#f5f5f5; }
+  .total { border-top:2px solid #000; background:rgba(0,0,0,.04); }
   .total td { padding:9px 8px; font-size:14px; font-weight:bold; }
   .vide { text-align:center; padding:26px; color:#777; }
   .mention { margin-top:10px; font-size:10px; color:#666;
              border-top:1px solid #ddd; padding-top:6px; }
-  .sign { display:flex; justify-content:space-between; margin-top:34px; }
-  .sign > div { width:45%; border-top:1px solid #000; padding-top:6px;
-                text-align:center; font-size:11px; }
-  @media print { body { margin:0; } @page { size:A4; margin:8mm; }
-                 thead { display:table-header-group; } }
-</style></head>
-<body>
+`;
 
+  const contenu = `
 ${entete}
 
 ${d.lignes.length === 0 ? `
@@ -256,13 +244,18 @@ ${d.lignes.length === 0 ? `
   enregistrés.
 </p>
 
-<div class="sign">
-  <div>Établi par</div>
-  <div>Vérifié par</div>
-</div>
+${blocSignatures([{ libelle: "Établi par" }, { libelle: "Vérifié par" }])}
+`;
 
-<script>window.onload = () => { window.focus(); window.print(); }</script>
-</body></html>`;
+  return documentHTML(h, {
+    titre: titre,
+    papier: "a4",
+    marge: "12mm",
+    police: 12,
+    css,
+    contenu,
+    script: `<script>window.onload = () => { window.focus(); window.print(); }</script>`,
+  });
 }
 
 export interface LigneHistorique {
@@ -318,9 +311,7 @@ export function genererHistoriqueReglementsHTML(
 
   // Avec un en-tête image, l'image remplace le nom et les coordonnées,
   // pas le titre (trouvé par le banc d'écran, 23/09).
-  const entete = (enteteBase64
-    ? `<img src="${enteteBase64}" style="width:100%;display:block;margin-bottom:10px">`
-    : "") + `<div class="entete">
+  const entete = `<div class="entete">
          <div>
            ${enteteBase64 ? "" : `${blocSociete(societe as Record<string, unknown>, h, 16)}`}
          </div>
@@ -333,23 +324,18 @@ export function genererHistoriqueReglementsHTML(
          </div>
        </div>`;
 
-  return `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8">
-<title>${m.onglet} — ${esc(tiers.nom)}</title>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:Arial,sans-serif; font-size:12px; padding:12mm; }
+  const css = `
   .entete { display:flex; justify-content:space-between;
             border-bottom:2px solid #000; padding-bottom:8px; }
   .soc { font-size:16px; font-weight:bold; }
   .titre { font-size:17px; font-weight:bold; letter-spacing:.5px; }
   .det { font-size:10px; color:#555; }
   .tiers { margin:12px 0 10px; padding:8px 10px; border:1px solid #bbb;
-           background:#fafafa; }
+           background:rgba(0,0,0,.02); }
   .lbl { font-size:9px; color:#777; text-transform:uppercase; }
   .nom { font-size:14px; font-weight:bold; }
   table { width:100%; border-collapse:collapse; margin-top:6px; }
-  th { background:#eee; border-bottom:2px solid #000; padding:6px 8px;
+  th { background:rgba(0,0,0,.07); border-bottom:2px solid #000; padding:6px 8px;
        text-align:left; font-size:10px; text-transform:uppercase; }
   td { padding:6px 8px; border-bottom:1px solid #e5e5e5; }
   .d { text-align:right; }
@@ -357,21 +343,16 @@ export function genererHistoriqueReglementsHTML(
   .rouge { color:#c00; font-weight:bold; }
   .mono { font-family:'Courier New',monospace; font-size:11px; }
   .barre td { color:#999; text-decoration:line-through; }
-  .total { border-top:2px solid #000; background:#f5f5f5; }
+  .total { border-top:2px solid #000; background:rgba(0,0,0,.04); }
   .total td { padding:9px 8px; font-size:13px; font-weight:bold; }
-  .du { background:#fff5f5; }
+  .du { background:rgba(204,0,0,.05); }
   .du td { padding:9px 8px; font-size:13px; font-weight:bold; color:#c00; }
   .vide { text-align:center; padding:26px; color:#777; }
   .mention { margin-top:10px; font-size:10px; color:#666;
              border-top:1px solid #ddd; padding-top:6px; }
-  .sign { display:flex; justify-content:space-between; margin-top:34px; }
-  .sign > div { width:45%; border-top:1px solid #000; padding-top:6px;
-                text-align:center; font-size:11px; }
-  @media print { body { margin:0; } @page { size:A4; margin:8mm; }
-                 thead { display:table-header-group; } }
-</style></head>
-<body>
+`;
 
+  const contenu = `
 ${entete}
 
 <div class="tiers">
@@ -414,9 +395,17 @@ ${lignes.length === 0 ? `
 </p>
 
 ${signaturesReleve(h, [m.gauche, "Pour l'entreprise"], cote)}
+`;
 
-<script>window.onload = () => { window.focus(); window.print(); }</script>
-</body></html>`;
+  return documentHTML(h, {
+    titre: `${m.onglet} — ${tiers.nom}`,
+    papier: "a4",
+    marge: "12mm",
+    police: 12,
+    css,
+    contenu,
+    script: `<script>window.onload = () => { window.focus(); window.print(); }</script>`,
+  });
 }
 
 export function genererReleveHTML(
@@ -444,9 +433,7 @@ export function genererReleveHTML(
   // même choix dans genererPDF).
   // Avec un en-tête image, l'image remplace le nom et les coordonnées,
   // pas le titre (trouvé par le banc d'écran, 23/09).
-  const entete = (enteteBase64
-    ? `<img src="${enteteBase64}" style="width:100%;display:block;margin-bottom:10px">`
-    : "") + `<div class="entete">
+  const entete = `<div class="entete">
          <div>
            ${enteteBase64 ? "" : `${blocSociete(d.societe as Record<string, unknown>, h, 16)}`}
          </div>
@@ -458,41 +445,32 @@ export function genererReleveHTML(
          </div>
        </div>`;
 
-  return `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8">
-<title>${m.titre} — ${esc(d.tiers.nom)}</title>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:Arial,sans-serif; font-size:12px; padding:12mm; }
+  const css = `
   .entete { display:flex; justify-content:space-between;
             border-bottom:2px solid #000; padding-bottom:8px; }
   .soc { font-size:16px; font-weight:bold; }
   .titre { font-size:18px; font-weight:bold; letter-spacing:1px; }
   .det { font-size:10px; color:#555; }
   .tiers { margin:12px 0 10px; padding:8px 10px; border:1px solid #bbb;
-           background:#fafafa; }
+           background:rgba(0,0,0,.02); }
   .tiers .lbl { font-size:9px; color:#777; text-transform:uppercase; }
   .tiers .nom { font-size:14px; font-weight:bold; }
   table { width:100%; border-collapse:collapse; margin-top:6px; }
-  th { background:#eee; border-bottom:2px solid #000; padding:6px 8px;
+  th { background:rgba(0,0,0,.07); border-bottom:2px solid #000; padding:6px 8px;
        text-align:left; font-size:10px; text-transform:uppercase; }
   td { padding:6px 8px; border-bottom:1px solid #e5e5e5; }
   .d { text-align:right; }
   .fort { font-weight:bold; }
   .mono { font-family:'Courier New',monospace; font-size:11px; }
-  .total { border-top:2px solid #000; background:#f5f5f5; }
+  .total { border-top:2px solid #000; background:rgba(0,0,0,.04); }
   .total td { padding:9px 8px; font-size:14px; font-weight:bold; }
   .avoir td { color:#0a7; font-weight:normal; }
   .vide { text-align:center; padding:26px; color:#777; }
   .mention { margin-top:10px; font-size:10px; color:#666;
              border-top:1px solid #ddd; padding-top:6px; }
-  .sign { display:flex; justify-content:space-between; margin-top:34px; }
-  .sign > div { width:45%; border-top:1px solid #000; padding-top:6px;
-                text-align:center; font-size:11px; }
-  @media print { body { margin:0; } @page { size:A4; margin:8mm; } }
-</style></head>
-<body>
+`;
 
+  const contenu = `
 ${entete}
 
 <div class="tiers">
@@ -529,11 +507,17 @@ ${d.lignes.length === 0 ? `
 </table>
 `}
 
-${h.pied ? "" : `<p class="mention">${mention(h, m.mention)}</p>`}
-
 ${signaturesReleve(h, [m.gauche, m.droite], cote)}
-${imagePied(h)}
+`;
 
-<script>window.onload = () => { window.focus(); window.print(); }</script>
-</body></html>`;
+  return documentHTML(h, {
+    titre: `${m.titre} — ${d.tiers.nom}`,
+    papier: "a4",
+    mention: mention(h, m.mention),
+    marge: "12mm",
+    police: 12,
+    css,
+    contenu,
+    script: `<script>window.onload = () => { window.focus(); window.print(); }</script>`,
+  });
 }

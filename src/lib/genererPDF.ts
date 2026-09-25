@@ -7,7 +7,7 @@
 // lib/impression.ts.
 
 import {
-  type Habillage, blocSociete, imageEntete, imagePied, mention,
+  type Habillage, type PageDoc, blocSociete, mention, documentHTML,
   blocSignatures, blocMontantLettres, choisir, esc, pourGenre,
 } from "@/lib/impression";
 import type { ReglagesDocuments } from "@/lib/documents";
@@ -114,11 +114,12 @@ const TITRES: Record<string, string> = {
 /** Un habillage vide : la mise en page d'usine, sans image. */
 const NU: Habillage = {};
 
-export function genererPieceHTML(
+/** Le contenu d'une pièce et le réglage de sa page, sans les assembler. */
+function pieceEnPage(
   donnees: DonneesPiece,
-  format: "a4" | "a5" = "a4",
-  h: Habillage = NU,
-): string {
+  format: "a4" | "a5",
+  h: Habillage,
+): { page: Omit<PageDoc, "contenu">; contenu: string } {
   const { piece, lignes, societe, totaux } = donnees;
   const devise = societe.devise ?? "FCFA";
   const titre = TITRES[piece.type_piece] ?? "PIÈCE COMMERCIALE";
@@ -141,7 +142,7 @@ export function genererPieceHTML(
     return lignes.map((l: any, i: number) => {
       const tva_pct = l.taux_tva ? (l.taux_tva * 100).toFixed(0) + "%" : "—";
       return `
-        <tr style="background:${i % 2 === 0 ? "#fff" : "#f9f9f9"};border-bottom:1px solid #eee">
+        <tr style="background:${i % 2 === 0 ? "transparent" : "rgba(0,0,0,.025)"};border-bottom:1px solid #eee">
           ${colRef ? `<td style="padding:5px 6px;font-family:monospace;font-size:10px;color:#555">${esc(l.article_reference ?? "")}</td>` : ""}
           <td style="padding:5px 6px">${esc(l.article_nom)}
             ${remiseEnLigne && l.remise_pct > 0
@@ -189,7 +190,7 @@ export function genererPieceHTML(
       </tr>`);
     }
     // Total
-    rows.push(`<tr style="border-top:2px solid #000;background:#f5f5f5">
+    rows.push(`<tr style="border-top:2px solid #000;background:rgba(0,0,0,.04)">
       <td style="padding:7px 8px;font-weight:bold;font-size:13px">
         ${hasTVA && totaux.total_tva > 0 ? "TOTAL TTC" : "TOTAL"}
       </td>
@@ -210,7 +211,7 @@ export function genererPieceHTML(
           </td>
         </tr>`);
       }
-      rows.push(`<tr style="border-top:1px solid #000;background:#fff5f5">
+      rows.push(`<tr style="border-top:1px solid #000;background:rgba(204,0,0,.05)">
         <td style="padding:7px 8px;font-weight:bold;color:#c00">RESTE DÛ</td>
         <td style="padding:7px 8px;text-align:right;font-weight:bold;color:#c00">
           ${fmt(totaux.reste_du, devise)}
@@ -243,7 +244,7 @@ export function genererPieceHTML(
       </tr>`).join("");
     return `
       <table class="doc-recap-tva" style="border-collapse:collapse;font-size:10px;margin:0 0 8px auto;min-width:260px">
-        <thead><tr style="background:#f0f0f0">
+        <thead><tr style="background:rgba(0,0,0,.06)">
           <th style="padding:3px 8px;text-align:left">Taux</th>
           <th style="padding:3px 8px;text-align:right">Base HT</th>
           <th style="padding:3px 8px;text-align:right">TVA</th>
@@ -255,11 +256,9 @@ export function genererPieceHTML(
   const totalAPayer = hasTVA ? totaux.total_ttc : totaux.total_net;
   const montantLettres = r ? r.montant_lettres : piece.type_piece === "facture";
 
-  function uneFacture(): string {
+  /** Le corps de la pièce : ce qui s'écrit entre l'en-tête et le pied. */
+  function corps(): string {
     return `
-    <div class="page">
-      ${imageEntete(h)}
-      <div class="corps">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
         <div>
           ${avecEntete ? "" : blocSociete(societe, h, isA5 ? 14 : 17)}
@@ -277,8 +276,7 @@ export function genererPieceHTML(
       </div>
 
       <div style="margin-bottom:12px;padding:8px;border:1px solid #ddd;
-                  border-radius:4px;display:inline-block;min-width:210px;
-                  align-self:flex-start">
+                  border-radius:4px;display:inline-block;min-width:210px">
         <div style="font-size:9px;color:#777;text-transform:uppercase;margin-bottom:2px">
           ${piece.tiers_type === "fournisseur" ? "Fournisseur" : "Client"}
         </div>
@@ -291,7 +289,7 @@ export function genererPieceHTML(
 
       <table class="doc-lignes" style="width:100%;border-collapse:collapse;margin:10px 0">
         <thead>
-          <tr style="background:#f0f0f0;border-bottom:2px solid #000">
+          <tr style="background:rgba(0,0,0,.06);border-bottom:2px solid #000">
             ${colRef ? '<th style="text-align:left;padding:5px 6px;font-size:11px">Réf.</th>' : ""}
             <th style="text-align:left;padding:5px 6px;font-size:11px">Désignation</th>
             <th style="text-align:center;padding:5px 4px;font-size:11px">Qté</th>
@@ -304,7 +302,7 @@ export function genererPieceHTML(
         <tbody>${lignesTableau()}</tbody>
       </table>
 
-      <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;page-break-inside:avoid">
         <table style="border-collapse:collapse;min-width:230px">
           ${totauxHTML()}
         </table>
@@ -319,77 +317,33 @@ export function genererPieceHTML(
           ${esc(piece.note)}
         </div>` : ""}
 
-      <div class="bas-page">
-        ${blocSignatures(r ? r.signatures : SIGNATURES_USINE(piece.type_piece))}
-        ${h.pied
-          ? `<div style="padding-top:14px;font-size:9px;
-                      color:#aaa;text-align:center">
-               Imprimé le ${fmtDateHeure(new Date().toISOString())}
-             </div>`
-          : `<div style="border-top:1px solid #ddd;
-                      padding-top:6px;text-align:center;margin-top:14px">
-            <div class="doc-mention" style="font-size:10px;color:#555">
-              ${/* Interpole BRUT : le commercant peut y mettre du HTML
-                    (gras, retours a la ligne, petit tableau). Une balise
-                    non fermee casse la mise en page — c'est le prix. */
-                mention(h, societe.pied_facture ?? "Merci de votre confiance")}
-            </div>
-            <div style="font-size:9px;color:#aaa;margin-top:2px">
-              Imprimé le ${fmtDateHeure(new Date().toISOString())}
-            </div>
-          </div>`}
-      </div>
-      </div>
-      ${imagePied(h)}
-    </div>`;
+      ${blocSignatures(r ? r.signatures : SIGNATURES_USINE(piece.type_piece))}`;
   }
 
-  const pageSize = isA5 ? "148mm 210mm" : "210mm 297mm";
-  // Le bandeau réel — en-tête ou pied fourni par le commerçant — colle
-  // au bord physique de la page : sa marge devient 0, et c'est `.corps`
-  // qui porte la marge normale pour tout le reste. Sans bandeau, `.page`
-  // garde sa marge habituelle des deux côtés (comportement inchangé).
-  const padSide = isA5 ? "10mm" : "14mm";
-  const padHaut = avecEntete ? "0mm" : (isA5 ? "10mm" : "14mm");
-  const padBas  = h.pied ? "0mm" : "10mm";
-  const padding = `${padHaut} ${padSide} ${padBas} ${padSide}`;
+  return {
+    page: {
+      titre: `${titre} ${piece.numero ?? ""}`,
+      papier: isA5 ? "a5" : "a4",
+      marge: isA5 ? "10mm" : "14mm",
+      // Interpolée BRUTE : le commerçant peut y mettre du HTML (gras,
+      // retours à la ligne). Une balise non fermée casse la mise en
+      // page — c'est le prix.
+      mention: mention(h, societe.pied_facture ?? "Merci de votre confiance"),
+      imprimeLe: fmtDateHeure(new Date().toISOString()),
+      script: SCRIPT_IMPRESSION,
+    },
+    contenu: corps(),
+  };
+}
 
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <title>${titre} ${esc(piece.numero)}</title>
-  <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:Arial,sans-serif; font-size:11px; color:#000; }
-    .page {
-      min-height: ${isA5 ? "190mm" : "277mm"};
-      page-break-after: always;
-      /* Colonne flex : l'entête colle en haut, le pied colle en bas —
-         tous deux hors de .corps, donc hors de sa marge. */
-      display: flex;
-      flex-direction: column;
-    }
-    .corps {
-      flex: 1 1 auto;
-      padding: ${padding};
-      display: flex;
-      flex-direction: column;
-    }
-    /* Signature et pied descendent ENSEMBLE au bas de la page. */
-    .bas-page { margin-top: auto; }
-    .page:last-child { page-break-after: avoid; }
-    @media print {
-      body { margin:0; }
-      @page { size: ${pageSize}; margin:0; }
-    }
-  </style>
-</head>
-<body>
-  ${uneFacture()}
-  ${SCRIPT_IMPRESSION}
-</body>
-</html>`;
+/** Une pièce en A4 / A5 : l'en-tête et le pied répétés sur chaque page. */
+export function genererPieceHTML(
+  donnees: DonneesPiece,
+  format: "a4" | "a5" = "a4",
+  h: Habillage = NU,
+): string {
+  const { page, contenu } = pieceEnPage(donnees, format, h);
+  return documentHTML(h, { ...page, contenu });
 }
 
 /**
@@ -566,15 +520,9 @@ export function genererTicketThermique(
 // facture DANS LE MEME DOCUMENT sans deteindre sur elle.
 
 const STYLES_BON_SORTIE = `
-  .bs-page { page-break-after:always;
-             display:flex; flex-direction:column; min-height:190mm; }
-  .bs-page:last-child { page-break-after:avoid; }
-  /* Le bandeau réel colle au bord physique de la page (hors de
-     .bs-corps, qui porte la marge normale) ; sans bandeau, .bs-corps
-     retombe sur la marge d'origine du bon. */
-  .bs-corps { flex:1 1 auto; padding:12mm;
-              display:flex; flex-direction:column; }
-  .bs-corps.sans-marge-haut { padding-top:0; }
+  /* La page (bandeaux répétés, marges) est celle de documentHTML : le
+     bon n'en porte plus aucune. */
+  .bs-page { font-size:12px; }
   .bs-entete { display:flex; justify-content:space-between;
                align-items:flex-start;
                border-bottom:2px solid #000; padding-bottom:8px; }
@@ -595,7 +543,7 @@ const STYLES_BON_SORTIE = `
   .bs-lbl { font-size:9px; color:#777; text-transform:uppercase; }
 
   .bs-page table { width:100%; border-collapse:collapse; margin-top:4px; }
-  .bs-page th { background:#eee; border-bottom:2px solid #000;
+  .bs-page th { background:rgba(0,0,0,.07); border-bottom:2px solid #000;
                 padding:6px 5px; font-size:11px; text-align:left; }
   .bs-page td { padding:6px 5px; border-bottom:1px solid #ddd; }
   .bs-c-num { width:7%; text-align:center; color:#777; }
@@ -607,7 +555,7 @@ const STYLES_BON_SORTIE = `
   .bs-c-srv { width:18%; border-left:1px solid #ddd; }
 
   .bs-recap { margin-top:6px; font-size:11px; color:#555; }
-  .bs-pied { margin-top:auto; padding-top:10px; }
+  .bs-pied { padding-top:10px; page-break-inside:avoid; }
   .bs-signatures { display:flex; margin-top:14px; }
   .bs-sig { flex:1; border:1px solid #999; padding:6px 8px 26px;
             margin-right:14px; }
@@ -638,13 +586,12 @@ function corpsBonSortie(
   h: Habillage = NU,
 ): string {
   const { piece, lignes, societe } = donnees;
-  const enteteBase64 = h.entete;
-  const avecEntete = !!enteteBase64;
+  const avecEntete = !!h.entete;
 
   const lignesHTML = lignes.map((l: any, i: number) => {
     const qte = l.quantite % 1 === 0 ? l.quantite : l.quantite.toFixed(2);
     return `
-      <tr style="background:${i % 2 === 0 ? "#fff" : "#f7f7f7"}">
+      <tr style="background:${i % 2 === 0 ? "transparent" : "rgba(0,0,0,.03)"}">
         <td class="bs-c-num">${i + 1}</td>
         <td class="bs-c-des">${l.article_nom}</td>
         <td class="bs-c-qte">${qte}</td>
@@ -659,11 +606,6 @@ function corpsBonSortie(
 
   return `
   <div class="bs-page">
-    ${avecEntete
-      ? `<img src="${enteteBase64}" alt=""
-              style="width:100%;height:auto;display:block;margin-bottom:10px"/>`
-      : ""}
-    <div class="bs-corps${avecEntete ? " sans-marge-haut" : ""}">
     <div class="bs-entete">
       <div>
         ${avecEntete ? "" : blocSociete(societe, h, 15)}
@@ -722,7 +664,6 @@ function corpsBonSortie(
         À remettre au magasinier contre la marchandise.
       </div>
     </div>
-    </div>
   </div>`;
 }
 
@@ -731,23 +672,17 @@ export function genererBonSortieHTML(
   donnees: DonneesPiece,
   h: Habillage = NU,
 ): string {
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <title>Bon de sortie ${donnees.piece.numero}</title>
-  <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:Arial,sans-serif; font-size:12px; color:#000; }
-    ${STYLES_BON_SORTIE}
-    @media print { body { margin:0; } @page { size:148mm 210mm; margin:0; } }
-  </style>
-</head>
-<body>
-  ${corpsBonSortie(donnees, h)}
-  ${SCRIPT_IMPRESSION}
-</body>
-</html>`;
+  return documentHTML(h, {
+    titre: `Bon de sortie ${donnees.piece.numero ?? ""}`,
+    papier: "a5",
+    marge: "12mm",
+    // Sa mention (« ne vaut pas facture ») est dans son corps.
+    mention: null,
+    police: 12,
+    css: STYLES_BON_SORTIE,
+    contenu: corpsBonSortie(donnees, h),
+    script: SCRIPT_IMPRESSION,
+  });
 }
 
 /**
@@ -759,8 +694,8 @@ export function genererBonSortieHTML(
  * le caissier ait clique. Un document, une boite de dialogue, deux
  * pages — et le bon sort a la suite sans qu'on ait rien a enchainer.
  *
- * Les deux pages prennent le format de la facture : un bon rendu sur A4
- * a plus de blanc, mais reste parfaitement lisible.
+ * Les deux pages prennent le format de la facture, et ses bandeaux : un
+ * bon rendu sur A4 a plus de blanc, mais reste parfaitement lisible.
  */
 export function genererFactureEtBonHTML(
   donnees: DonneesPiece,
@@ -768,17 +703,14 @@ export function genererFactureEtBonHTML(
   h: Habillage = NU,
   hBon: Habillage = h,
 ): string {
-  const facture = genererPieceHTML(donnees, format, h);
-
-  // On reprend le document facture et on lui greffe le bon : styles
-  // dans le <head>, corps avant le script d'impression.
-  return facture
-    .replace("</style>", STYLES_BON_SORTIE + "\n  </style>")
-    .replace(
-      SCRIPT_IMPRESSION,
-      corpsBonSortie(donnees, hBon)
-        + "\n  " + SCRIPT_IMPRESSION,
-    );
+  const { page, contenu } = pieceEnPage(donnees, format, h);
+  return documentHTML(h, {
+    ...page,
+    css: STYLES_BON_SORTIE,
+    contenu: contenu
+      + `<div style="break-before:page;page-break-before:always"></div>`
+      + corpsBonSortie(donnees, hBon),
+  });
 }
 
 // =====================================================================

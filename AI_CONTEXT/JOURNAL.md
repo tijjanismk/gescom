@@ -1883,6 +1883,49 @@ partout, le compteur par dossier). Même chose pour les autres pièces.
 Pas corrigé ici : il faut décider à quoi ressemble le numéro imprimé
 d'un second dossier (préfixe du code, comme les codes clients ?).
 
+## 25/09/2026 (soir) — les pièces comme dans Word, le filigrane, la sauvegarde qui ne partait pas
+
+**Les retours du propriétaire sur les pièces.** L'en-tête et le pied
+« ne se répètent pas comme dans Word » : l'en-tête n'était qu'en haut de
+la première page, le pied qu'au bas de la dernière — ils vivaient dans
+le flux du document. Tout ce qui s'imprime en A4/A5 passe maintenant par
+`impression::documentHTML` : le document est la cellule d'un tableau
+dont le `<thead>` porte l'en-tête (le moteur d'impression répète un
+thead en haut de chaque page) ; le pied est en `position:fixed` au bas
+de la page (un élément fixe se répète à l'impression) et une copie
+invisible dans le `<tfoot>` lui réserve sa hauteur, pour que le texte
+ne passe jamais dessous. Collés au bord du papier, sans marge d'aucun
+côté ; le texte garde la sienne. Pas de script : l'aperçu n'en exécute
+pas. Prouvé en vrai : une facture de 70 lignes imprimée en PDF par
+Chromium (le moteur de la fenêtre), trois pages lues pixel par pixel.
+
+« Pour acquit » et « Le fournisseur » : soulignés, la place de signer
+dessous, au lieu d'un libellé puis d'un trait 22 mm plus bas.
+
+**Le filigrane.** Une image ou un mot au milieu de chaque page, estompé
+et flouté « pour ne pas se mélanger aux tableaux ». Premier essai posé
+DERRIÈRE le texte : les lignes alternées des tableaux le hachaient une
+sur deux dès que la boîte d'impression n'imprime pas les fonds — son
+réglage par défaut. Posé par-dessus en `mix-blend-mode: multiply`, il
+teinte le papier sans toucher au noir du texte, fonds imprimés ou non.
+
+**La revue de la sauvegarde** — la fonctionnalité primordiale à côté de
+laquelle on était passés. Le fil du serveur dormait 24 heures avant sa
+première copie ; le poste d'une boutique s'éteint le soir. Aucune copie
+automatique n'est donc jamais partie chez un commerçant, et l'écran ne
+pouvait pas le voir : il lisait la « dernière sauvegarde » dans le
+journal, où cette copie n'écrit rien. Maintenant le dossier fait foi —
+la date d'une copie est dans son nom — et le serveur regarde peu après
+son démarrage puis chaque heure. Chaque copie est relue avant d'être
+crue. Le `essai-restauration/…essai.dump` trouvé dans `target/` chez le
+propriétaire est le reste de l'essai de restauration du 13/09 : rien à
+garder.
+
+**Le jaune du Journal** : le bandeau du titre était jaune ; il devient
+un filet. Deux autres textes jaunes sur fond jaune (tableau de bord,
+relances) sont passés en ambre foncé. Les emojis restants (« ⚠ » dans
+la fenêtre du serveur et dans des commentaires) sont des mots.
+
 ## 22/10/2026 — Revue de `rh` : ce qui méritait correction
 
 Une revue à fond des deux commits de la branche (H-1/H-2 et l'achat

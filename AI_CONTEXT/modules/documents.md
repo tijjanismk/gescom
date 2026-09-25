@@ -17,7 +17,7 @@ supprimées par migration idempotente, deux chemins).
 | Stockage | [documents.rs](../../src-tauri/noyau/src/documents.rs) | `config_app` : `documents_reglages`, `documents_coordonnees`, `documents_signature_<genre>_<rang>` |
 | Commandes | [serveur/src/socle.rs](../../src-tauri/serveur/src/socle.rs) | 6, **nées sur `Base`** (D22) |
 | Types, chargement | [lib/documents.ts](../../src/lib/documents.ts) | miroir TS, `genreDePiece`, `choisirImage` |
-| Habillage | [lib/impression.ts](../../src/lib/impression.ts) | en-tête, coordonnées, pied, signatures + cachet, montant en lettres |
+| Habillage | [lib/impression.ts](../../src/lib/impression.ts) | la page (`documentHTML` : en-tête et pied répétés, filigrane), coordonnées, signatures + cachet, montant en lettres |
 | Générateurs | `genererPDF.ts`, `genererRecu.ts`, `genererReleve.ts` | un par genre, lisent l'habillage |
 | Exemple | [lib/exemples-documents.ts](../../src/lib/exemples-documents.ts) | données fictives pour l'aperçu des réglages |
 | Écran | [OngletDocuments.tsx](../../src/components/OngletDocuments.tsx) | Paramètres → Documents |
@@ -45,6 +45,32 @@ seulement), `colonne_remise` / `colonne_tva` / `recap_tva`
 caractères ; ticket : aucune). Les **coordonnées** sous le nom (quand
 l'en-tête n'est pas une image) se choisissent une fois pour tous les
 documents.
+
+## La page (25/09)
+
+Tout document A4/A5 se monte par `impression::documentHTML(h, page)` :
+`page` donne le titre, le papier (a4, a5), la marge du texte, la
+mention de pied, « Imprimé le », les styles propres et le contenu.
+
+- **En-tête et pied répétés sur chaque page, au bord du papier** :
+  l'en-tête est le `<thead>` d'un tableau porteur, le pied un
+  `position:fixed` réservé par sa copie invisible dans le `<tfoot>`.
+  `@page { margin: 0 }` ; la marge est celle de la cellule.
+- Les styles d'un document ne touchent pas le cadre (sélecteurs
+  `table.cadre > … > td` plus précis qu'un `td` nu).
+- À l'écran, `body { min-height: <une page> }` : le pied tombe au bas
+  du papier comme à l'impression.
+- Le **filigrane** (`blocFiligrane`) : image ou mot, `opacity`, `blur`,
+  largeur en % de la page ; posé par-dessus en `mix-blend-mode:
+  multiply`. Réglé une fois (`documents_filigrane`,
+  `documents_filigrane_image` ≤ 1 Mo), retiré genre par genre
+  (`ReglageGenre.filigrane`, absent = oui ; ticket : non).
+- Les signatures (`blocSignatures`) : libellé **souligné**, place de
+  signer dessous, cachet dedans. Plus de trait séparé.
+
+Commandes : `enregistrer_filigrane_documents { reglage }`,
+`poser_image_filigrane { image | null }` (`parametres:modifier`) ;
+`lire_reglages_documents` rend `filigrane`.
 
 ## Règles
 
@@ -74,7 +100,7 @@ documents.
 
 ## Preuves
 
-`noyau/tests/documents_base.rs` (12 scénarios, deux moteurs), 11
+`noyau/tests/documents_base.rs` (14 scénarios, deux moteurs), 14
 unitaires dans `coeur::documents`, et le banc d'écran
 (`outils/banc/`) : réglages par l'écran, rendu genre par genre,
 aperçu au format réglé.

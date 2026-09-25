@@ -96,6 +96,111 @@ pub struct ReglageGenre {
     pub mention: Option<String>,
     #[serde(default)]
     pub signatures: Vec<Signature>,
+    /// Le filigrane de la societe sur ce genre (25/09). Absent d'un
+    /// reglage d'avant : oui — le filigrane se pose une fois pour tous,
+    /// on le retire d'un genre, on ne l'ajoute pas genre par genre.
+    #[serde(default = "vrai")]
+    pub filigrane: bool,
+}
+
+fn vrai() -> bool {
+    true
+}
+
+// ---------------------------------------------------------------------
+//  Le filigrane (25/09)
+// ---------------------------------------------------------------------
+//
+// Une image (le logo, souvent) OU un mot (« COPIE », « PAYÉ »), au
+// milieu de chaque page, DERRIERE le texte. Estompe et floute : c'est
+// ce qui l'empeche de se melanger aux lignes des tableaux — on doit
+// le deviner, pas le lire par-dessus les montants.
+
+/// Opacite, en pour cent : au-dela de 30 le filigrane se lit avant les
+/// montants ; en deca de 3 il ne se voit plus a l'impression.
+pub const FILIGRANE_OPACITE: std::ops::RangeInclusive<u8> = 3..=30;
+/// Flou, en pixels d'ecran.
+pub const FILIGRANE_FLOU: std::ops::RangeInclusive<u8> = 0..=6;
+/// Taille, en pour cent de la largeur de la page.
+pub const FILIGRANE_TAILLE: std::ops::RangeInclusive<u8> = 20..=100;
+/// Un mot ou deux, pas une phrase.
+pub const FILIGRANE_TEXTE_MAX: usize = 30;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Filigrane {
+    /// Le mot, quand il n'y a pas d'image ; l'image l'emporte.
+    #[serde(default)]
+    pub texte: Option<String>,
+    #[serde(default = "Filigrane::opacite_defaut")]
+    pub opacite: u8,
+    #[serde(default = "Filigrane::flou_defaut")]
+    pub flou: u8,
+    #[serde(default = "Filigrane::taille_defaut")]
+    pub taille: u8,
+}
+
+impl Filigrane {
+    fn opacite_defaut() -> u8 {
+        8
+    }
+    fn flou_defaut() -> u8 {
+        1
+    }
+    fn taille_defaut() -> u8 {
+        60
+    }
+}
+
+impl Default for Filigrane {
+    fn default() -> Self {
+        Filigrane {
+            texte: None,
+            opacite: Self::opacite_defaut(),
+            flou: Self::flou_defaut(),
+            taille: Self::taille_defaut(),
+        }
+    }
+}
+
+/// Refuse un filigrane qui masquerait le document ou ne se verrait pas.
+pub fn valider_filigrane(f: &Filigrane) -> Result<(), String> {
+    if !FILIGRANE_OPACITE.contains(&f.opacite) {
+        return Err(format!(
+            "Intensité du filigrane : entre {} et {} % (demandé : {} %).",
+            FILIGRANE_OPACITE.start(), FILIGRANE_OPACITE.end(), f.opacite
+        ));
+    }
+    if !FILIGRANE_FLOU.contains(&f.flou) {
+        return Err(format!("Flou du filigrane : de {} à {} (demandé : {}).", FILIGRANE_FLOU.start(), FILIGRANE_FLOU.end(), f.flou));
+    }
+    if !FILIGRANE_TAILLE.contains(&f.taille) {
+        return Err(format!(
+            "Taille du filigrane : entre {} et {} % de la page (demandé : {} %).",
+            FILIGRANE_TAILLE.start(), FILIGRANE_TAILLE.end(), f.taille
+        ));
+    }
+    if let Some(t) = &f.texte {
+        if t.trim().chars().count() > FILIGRANE_TEXTE_MAX {
+            return Err(format!("Texte du filigrane trop long ({FILIGRANE_TEXTE_MAX} caractères au plus)."));
+        }
+    }
+    Ok(())
+}
+
+/// Texte sans espaces autour ; vide = pas de texte.
+pub fn normaliser_filigrane(mut f: Filigrane) -> Filigrane {
+    f.texte = f.texte.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    f
+}
+
+/// Le filigrane enregistre s'il est lisible et valide, sinon celui
+/// d'usine (sans texte : rien ne s'imprime tant qu'on n'a rien pose).
+pub fn fusionner_filigrane(enregistre: Option<&serde_json::Value>) -> Filigrane {
+    enregistre
+        .and_then(|v| serde_json::from_value::<Filigrane>(v.clone()).ok())
+        .filter(|f| valider_filigrane(f).is_ok())
+        .map(normaliser_filigrane)
+        .unwrap_or_default()
 }
 
 fn sig(l: &[&str]) -> Vec<Signature> {
@@ -124,6 +229,7 @@ pub fn defaut(genre: &str, ancienne: &dyn Fn(&str) -> Option<String>) -> Reglage
         reference_article: false,
         mention: None,
         signatures: vec![],
+        filigrane: true,
     };
     match genre {
         "facture" => ReglageGenre {
@@ -144,7 +250,8 @@ pub fn defaut(genre: &str, ancienne: &dyn Fn(&str) -> Option<String>) -> Reglage
         // devient « Le bénéficiaire ») : c'est lui qui signe le recu.
         "recu" => ReglageGenre { montant_lettres: true, signatures: sig(&["Le caissier"]), ..base("a5") },
         "releve" => ReglageGenre { signatures: sig(&["Le client", "Pour l'entreprise"]), ..base("a4") },
-        "ticket" => ReglageGenre { signatures: sig(&[]), ..base("thermique_80") },
+        // Un rouleau n'a pas de place pour un filigrane.
+        "ticket" => ReglageGenre { signatures: sig(&[]), filigrane: false, ..base("thermique_80") },
         // Gescom Equipe (G-3, D31) : le bulletin de paie, qu'on remet.
         "bulletin" => ReglageGenre { montant_lettres: true, signatures: sig(&["L'employé", "Pour la société"]), ..base("a4") },
         _ => base("a4"),
@@ -326,5 +433,35 @@ mod tests {
         assert!(valider("bulletin", &b).is_ok());
         let rouleau = ReglageGenre { format: "thermique_80".into(), ..b };
         assert!(valider("bulletin", &rouleau).unwrap_err().contains("rouleau"));
+    }
+
+    #[test]
+    fn un_reglage_d_avant_le_filigrane_le_garde() {
+        let v = serde_json::json!({ "format": "a4" });
+        assert!(fusionner("facture", Some(&v), &rien).filigrane, "champ absent = oui");
+        assert!(!defaut("ticket", &rien).filigrane, "pas sur un rouleau");
+    }
+
+    #[test]
+    fn le_filigrane_reste_discret_et_lisible() {
+        let f = Filigrane::default();
+        assert!(valider_filigrane(&f).is_ok());
+        assert!(valider_filigrane(&Filigrane { opacite: 60, ..f.clone() }).unwrap_err().contains("Intensité"));
+        assert!(valider_filigrane(&Filigrane { opacite: 1, ..f.clone() }).is_err(), "invisible");
+        assert!(valider_filigrane(&Filigrane { flou: 9, ..f.clone() }).is_err());
+        assert!(valider_filigrane(&Filigrane { taille: 150, ..f.clone() }).is_err());
+        assert!(valider_filigrane(&Filigrane { texte: Some("x".repeat(31)), ..f.clone() }).is_err());
+        let n = normaliser_filigrane(Filigrane { texte: Some("  COPIE ".into()), ..f.clone() });
+        assert_eq!(n.texte.as_deref(), Some("COPIE"));
+        assert_eq!(normaliser_filigrane(Filigrane { texte: Some("   ".into()), ..f }).texte, None);
+    }
+
+    #[test]
+    fn un_filigrane_abime_retombe_sur_l_usine() {
+        let casse = serde_json::json!({ "opacite": 95 });
+        assert_eq!(fusionner_filigrane(Some(&casse)), Filigrane::default());
+        let lisible = serde_json::json!({ "texte": " PAYÉ ", "opacite": 12 });
+        let f = fusionner_filigrane(Some(&lisible));
+        assert_eq!((f.texte.as_deref(), f.opacite, f.flou, f.taille), (Some("PAYÉ"), 12, 1, 60));
     }
 }
