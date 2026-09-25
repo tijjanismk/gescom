@@ -18,7 +18,6 @@ pub struct Serveur {
     /// SQLite brute d'avant (D11) ne sert plus qu'au demarrage, pour
     /// preparer le fichier, puis se ferme.
     pub base: Mutex<Base>,
-    pub chemin_base: String,
     pub canal: Canal,
     pub registre: Registre,
     /// jeton en clair -> identifiant de session.

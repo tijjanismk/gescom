@@ -28,6 +28,14 @@ fn pg_dump_produit_un_fichier_que_pg_restore_sait_lire() {
     assert_eq!(cfg["derniere_sauvegarde"], chemin);
     assert_eq!(cfg["moteur"], "postgresql");
 
+    // 25/09 : l'écran lit aussi le dossier lui-même — la copie
+    // automatique du serveur n'écrit rien au journal.
+    sauvegarde::sauvegarder_config_sauvegarde_sur_base(&mut base, Some(dossier.to_string_lossy().to_string()), false).unwrap();
+    let cfg = sauvegarde::lire_config_sauvegarde_sur_base(&mut base).unwrap();
+    assert_eq!(cfg["dossier_effectif"], dossier.to_string_lossy().as_ref());
+    assert_eq!(cfg["derniere_copie"]["chemin"], chemin);
+    assert_eq!(cfg["copies"].as_array().unwrap().len(), 1);
+
     // pg_restore, à côté de pg_dump, sait le lister : c'est un dump.
     let pg_restore = std::env::var("GESCOM_PG_RESTORE").ok().unwrap_or_else(|| {
         let mut c: Vec<_> = std::fs::read_dir("C:\\Program Files\\PostgreSQL")

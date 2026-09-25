@@ -1,7 +1,9 @@
 //! Sauvegarde automatique de la base SQLite.
 //!
 //! Copie la base vers un dossier configurable (clé USB, autre disque).
-//! Nommage : gescom_backup_2026-08-17_14-30.db
+//! Nommage : gescom_backup_2026-08-17_14-30-05.db (les secondes depuis
+//! le 25/09 : deux copies de la même minute s'écrasaient — `VACUUM INTO`
+//! refuse même d'écrire sur un fichier existant).
 //! Configurable dans les paramètres société.
 
 use crate::utils::maintenant_iso;
@@ -49,10 +51,7 @@ pub fn effectuer_sauvegarde(
             .map_err(|e| format!("Impossible de créer le dossier : {}", e))?;
     }
 
-    // Nom du fichier de backup avec horodatage.
-    let horodatage = chrono::Local::now().format("%Y-%m-%d_%H-%M").to_string();
-    let nom_fichier = format!("gescom_backup_{}.db", horodatage);
-    let dest = dest_dir.join(&nom_fichier);
+    let dest = dest_dir.join(nom_de_copie("db"));
 
     // Copie via SQLite VACUUM INTO — copie propre et coherente, y
     // compris le WAL (une copie de gescom.db seul donnerait une base
@@ -64,6 +63,13 @@ pub fn effectuer_sauvegarde(
         "VACUUM INTO ?1",
         rusqlite::params![dest.to_string_lossy().to_string()],
     ).map_err(|e| format!("Erreur VACUUM INTO : {}", e))?;
+    // Une copie qu'on n'a jamais relue n'est pas une sauvegarde : on la
+    // relit tout de suite, et une copie abimee ne reste pas dans le
+    // dossier a se faire passer pour la bonne.
+    if let Err(e) = verifier_copie_sqlite(&dest) {
+        let _ = std::fs::remove_file(&dest);
+        return Err(e);
+    }
 
     // Journaliser la sauvegarde.
     let utilisateur_id = crate::argent::id_utilisateur_courant_pub(conn);
@@ -424,8 +430,7 @@ pub fn pg_dump(url: &str, dossier_destination: &std::path::Path, executable: Opt
     let exe = trouver_pg_dump(executable)?;
     std::fs::create_dir_all(dossier_destination)
         .map_err(|e| format!("Impossible de créer le dossier : {e}"))?;
-    let horodatage = chrono::Local::now().format("%Y-%m-%d_%H-%M").to_string();
-    let dest = dossier_destination.join(format!("gescom_backup_{horodatage}.dump"));
+    let dest = dossier_destination.join(nom_de_copie("dump"));
 
     let mut cmd = std::process::Command::new(&exe);
     cmd.arg("--format=custom")
@@ -445,6 +450,11 @@ pub fn pg_dump(url: &str, dossier_destination: &std::path::Path, executable: Opt
         let _ = std::fs::remove_file(&dest);
         let detail = String::from_utf8_lossy(&sortie.stderr).trim().to_string();
         return Err(format!("pg_dump a échoué : {detail}"));
+    }
+    // Un dump vide est un pg_dump qui a « reussi » sans rien ecrire.
+    if std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0) == 0 {
+        let _ = std::fs::remove_file(&dest);
+        return Err("pg_dump n'a rien écrit : la copie est vide.".to_string());
     }
     Ok(dest)
 }
@@ -504,13 +514,28 @@ pub fn lire_config_sauvegarde_sur_base(base: &mut Base) -> Result<serde_json::Va
     let dossier = config(base, "dossier_sauvegarde");
     let auto = config(base, "sauvegarde_auto");
     let derniere = derniere_sauvegarde(base, "nouveau_valeur");
+    // Ce que le dossier contient VRAIMENT (25/09) : les copies du
+    // serveur n'ecrivent rien au journal, seul le dossier les connait.
+    let effectif = dossier_effectif_sur(base);
+    let copies = copies_dans(&effectif);
     Ok(serde_json::json!({
         "dossier_sauvegarde":  dossier,
         "sauvegarde_auto":     auto.as_deref() == Some("1"),
         "derniere_sauvegarde": derniere,
         "moteur":              if base.est_postgres() { "postgresql" } else { "sqlite" },
+        "dossier_effectif":    effectif.to_string_lossy(),
+        "derniere_copie":      copies.first(),
+        "copies":              copies.iter().take(COPIES_MONTREES).collect::<Vec<_>>(),
+        "heures_entre_copies": HEURES_ENTRE_COPIES,
     }))
 }
+
+/// Le serveur copie des qu'il a passe ce delai sans copie (voir
+/// `sauvegarde_due`) ; l'ecran le dit.
+pub const HEURES_ENTRE_COPIES: i64 = 24;
+
+/// Autant que le serveur en garde.
+const COPIES_MONTREES: usize = 14;
 
 pub fn sauvegarde_auto_si_necessaire_sur_base(base: &mut Base) -> Result<serde_json::Value, String> {
     if config(base, "sauvegarde_auto").as_deref() != Some("1") {
@@ -628,25 +653,7 @@ pub fn restaurer(cible: &str, fichier: &std::path::Path, executable: Option<&str
     }
 
     // SQLite : on n'ecrase pas avec n'importe quoi.
-    {
-        let source = rusqlite::Connection::open_with_flags(
-            fichier,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .map_err(|e| format!("Ce fichier n'est pas une base SQLite lisible : {e}"))?;
-        let verdict: String = source
-            .query_row("PRAGMA integrity_check", [], |r| r.get(0))
-            .map_err(|e| format!("Contrôle d'intégrité impossible : {e}"))?;
-        if verdict != "ok" {
-            return Err(format!("La sauvegarde elle-même est abîmée ({verdict}) : ne pas la restaurer."));
-        }
-        let tables: i64 = source
-            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'vente'", [], |r| r.get(0))
-            .unwrap_or(0);
-        if tables == 0 {
-            return Err("Ce fichier n'est pas une base Gescom (pas de table vente).".to_string());
-        }
-    }
+    verifier_copie_sqlite(fichier)?;
     let cible_path = std::path::Path::new(cible);
     let mut copie_avant = None;
     if cible_path.exists() {
@@ -663,4 +670,171 @@ pub fn restaurer(cible: &str, fichier: &std::path::Path, executable: Option<&str
         let _ = std::fs::remove_file(format!("{cible}{suffixe}"));
     }
     Ok(Restauration { moteur: "SQLite", copie_avant })
+}
+
+// ---------------------------------------------------------------------
+//  Les copies du dossier (revue du 25/09)
+// ---------------------------------------------------------------------
+//
+// Ce que la revue a trouve : la sauvegarde automatique du serveur
+// attendait 24 h de marche continue avant sa premiere copie. Un poste de
+// boutique s'eteint le soir — la copie ne partait donc JAMAIS. Et
+// l'ecran lisait la « derniere sauvegarde » dans le journal, ou la copie
+// automatique n'ecrivait rien : il ne pouvait pas le voir.
+//
+// La verite est maintenant le dossier lui-meme : la date d'une copie est
+// dans son nom, la plus recente dit si une copie est due. Pas d'etat a
+// tenir, rien a perdre a l'extinction.
+
+/// Le nom d'une copie : l'horodatage a la seconde, trie comme la date.
+pub fn nom_de_copie(extension: &str) -> String {
+    format!("gescom_backup_{}.{extension}", chrono::Local::now().format("%Y-%m-%d_%H-%M-%S"))
+}
+
+/// La date d'une copie, lue dans son nom — `None` si ce n'en est pas une.
+/// Les deux nommages : a la minute (avant le 25/09) et a la seconde.
+pub fn date_de_copie(nom: &str) -> Option<chrono::NaiveDateTime> {
+    let reste = nom.strip_prefix("gescom_backup_")?;
+    let (horodatage, extension) = reste.rsplit_once('.')?;
+    if extension != "db" && extension != "dump" {
+        return None;
+    }
+    chrono::NaiveDateTime::parse_from_str(horodatage, "%Y-%m-%d_%H-%M-%S")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&format!("{horodatage}-00"), "%Y-%m-%d_%H-%M-%S"))
+        .ok()
+}
+
+/// Une copie trouvee dans le dossier.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Copie {
+    pub nom: String,
+    pub chemin: String,
+    /// `AAAA-MM-JJTHH:MM:SS`, heure locale du poste serveur.
+    pub date: String,
+    pub taille: u64,
+}
+
+/// Les copies d'un dossier, de la plus recente a la plus ancienne. Un
+/// dossier absent n'a pas de copie : ce n'est pas une erreur.
+pub fn copies_dans(dossier: &std::path::Path) -> Vec<Copie> {
+    let Ok(entrees) = std::fs::read_dir(dossier) else {
+        return Vec::new();
+    };
+    let mut copies: Vec<(chrono::NaiveDateTime, Copie)> = entrees
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let nom = e.file_name().to_string_lossy().to_string();
+            let date = date_de_copie(&nom)?;
+            let taille = e.metadata().map(|m| m.len()).unwrap_or(0);
+            Some((date, Copie {
+                chemin: e.path().to_string_lossy().to_string(),
+                date: date.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                nom,
+                taille,
+            }))
+        })
+        .collect();
+    copies.sort_by(|a, b| b.0.cmp(&a.0));
+    copies.into_iter().map(|(_, c)| c).collect()
+}
+
+/// Faut-il une copie ? Jamais faite, ou plus vieille que `heures`. Une
+/// copie datee du futur (horloge du poste reculee) ne bloque rien : on
+/// copie plutot que de se croire a jour pour des mois. Pure.
+pub fn sauvegarde_due(
+    derniere: Option<chrono::NaiveDateTime>,
+    maintenant: chrono::NaiveDateTime,
+    heures: i64,
+) -> bool {
+    match derniere {
+        None => true,
+        Some(d) if d > maintenant => true,
+        Some(d) => maintenant - d >= chrono::Duration::hours(heures),
+    }
+}
+
+/// Relit une copie SQLite : saine (`integrity_check`) et bien une base
+/// Gescom (table `vente`). Sert apres chaque copie et avant chaque
+/// restauration — le meme controle des deux cotes.
+pub fn verifier_copie_sqlite(chemin: &std::path::Path) -> Result<(), String> {
+    let source = rusqlite::Connection::open_with_flags(chemin, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("Ce fichier n'est pas une base SQLite lisible : {e}"))?;
+    let verdict: String = source
+        .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+        .map_err(|e| format!("Contrôle d'intégrité impossible : {e}"))?;
+    if verdict != "ok" {
+        return Err(format!("La sauvegarde elle-même est abîmée ({verdict}) : ne pas la restaurer."));
+    }
+    let tables: i64 = source
+        .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'vente'", [], |r| r.get(0))
+        .unwrap_or(0);
+    if tables == 0 {
+        return Err("Ce fichier n'est pas une base Gescom (pas de table vente).".to_string());
+    }
+    Ok(())
+}
+
+/// Le dossier ou tombent les copies : celui qu'on a regle ; sinon
+/// `sauvegardes/` a cote du fichier SQLite ; sur PostgreSQL (une URL n'a
+/// pas de « a cote »), a cote de l'executable du serveur.
+pub fn dossier_effectif_sur(base: &mut Base) -> std::path::PathBuf {
+    if let Some(d) = config(base, "dossier_sauvegarde").filter(|d| !d.trim().is_empty()) {
+        return std::path::PathBuf::from(d);
+    }
+    if !base.est_postgres() {
+        return std::path::Path::new(base.cible())
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("sauvegardes");
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("sauvegardes")
+}
+
+#[cfg(test)]
+mod tests_copies {
+    use super::*;
+
+    fn dt(s: &str) -> chrono::NaiveDateTime {
+        chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M").unwrap()
+    }
+
+    #[test]
+    fn la_date_se_lit_dans_le_nom_des_deux_nommages() {
+        assert_eq!(date_de_copie("gescom_backup_2026-09-25_14-30.db"), Some(dt("2026-09-25 14:30")));
+        let s = date_de_copie("gescom_backup_2026-09-25_14-30-07.dump").unwrap();
+        assert_eq!(s.format("%H:%M:%S").to_string(), "14:30:07");
+        assert_eq!(date_de_copie("gescom.db"), None);
+        assert_eq!(date_de_copie("gescom_backup_2026-09-25_14-30.db.avant-restauration"), None);
+        assert_eq!(date_de_copie("gescom_backup_hier.db"), None);
+    }
+
+    #[test]
+    fn une_boutique_eteinte_le_soir_est_sauvegardee_le_matin() {
+        let matin = dt("2026-09-25 08:05");
+        assert!(sauvegarde_due(None, matin, 24), "jamais faite");
+        assert!(sauvegarde_due(Some(dt("2026-09-24 08:04")), matin, 24), "hier matin : due");
+        assert!(!sauvegarde_due(Some(dt("2026-09-24 18:00")), matin, 24), "hier soir : pas encore");
+        assert!(sauvegarde_due(Some(dt("2027-01-01 00:00")), matin, 24), "date du futur : on copie");
+    }
+
+    #[test]
+    fn les_copies_se_rangent_de_la_plus_recente_a_la_plus_ancienne() {
+        let d = std::env::temp_dir().join(format!("gescom_copies_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        for n in ["gescom_backup_2026-09-23_10-00.db", "gescom_backup_2026-09-25_09-00-01.db",
+                  "gescom_backup_2026-09-24_10-00.dump", "autre.txt"] {
+            std::fs::write(d.join(n), b"x").unwrap();
+        }
+        let c = copies_dans(&d);
+        let noms: Vec<_> = c.iter().map(|c| c.nom.as_str()).collect();
+        assert_eq!(noms, ["gescom_backup_2026-09-25_09-00-01.db", "gescom_backup_2026-09-24_10-00.dump", "gescom_backup_2026-09-23_10-00.db"]);
+        assert_eq!(c[0].date, "2026-09-25T09:00:01");
+        assert!(copies_dans(&d.join("absent")).is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }

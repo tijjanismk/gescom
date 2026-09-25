@@ -63,10 +63,17 @@ interface Utilisateur {
 interface RolePourPermissions {
   id: string; nom: string; acces_total: boolean; protege: boolean;
 }
+interface CopieSauvegarde { nom: string; date: string; taille: number }
+
 interface ConfigSauvegarde {
   dossier_sauvegarde?: string;
   sauvegarde_auto: boolean;
   derniere_sauvegarde?: string;
+  /** Le dossier où le serveur copie vraiment (25/09). */
+  dossier_effectif?: string;
+  derniere_copie?: CopieSauvegarde | null;
+  copies?: CopieSauvegarde[];
+  heures_entre_copies?: number;
 }
 
 function fmt(n: number): string {
@@ -386,6 +393,69 @@ interface Diagnostic {
   sain: boolean;
 }
 
+/** « il y a 3 h », « il y a 2 jours » — depuis une date locale du serveur. */
+function depuis(iso: string): { texte: string; heures: number } {
+  const heures = (Date.now() - new Date(iso).getTime()) / 3_600_000;
+  if (heures < 1) return { texte: "il y a moins d'une heure", heures };
+  if (heures < 48) return { texte: `il y a ${Math.floor(heures)} h`, heures };
+  return { texte: `il y a ${Math.floor(heures / 24)} jours`, heures };
+}
+
+function fmtCopie(iso: string): string {
+  return new Date(iso).toLocaleString("fr-ML", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+/**
+ * Ce que le dossier contient vraiment (revue du 25/09) : la copie
+ * automatique du serveur n'écrit rien au journal, et l'écran croyait
+ * donc qu'aucune sauvegarde n'était faite. Rouge au-delà de deux jours :
+ * c'est que le serveur n'a pas pu copier (dossier, disque plein…).
+ */
+function EtatCopies({ config }: { config: ConfigSauvegarde }) {
+  const d = config.derniere_copie;
+  const age = d ? depuis(d.date) : null;
+  const alerte = !d || (age && age.heures > 48);
+  return (
+    <div className="border border-border rounded-lg p-4 space-y-2" data-testid="etat-copies">
+      <p className="text-sm font-medium">Copie automatique</p>
+      <p className="text-xs text-muted-foreground">
+        Le serveur copie la base chaque jour, dès qu'il est allumé — même si
+        l'ordinateur est éteint le soir — et garde les 14 dernières copies.
+        Dossier, sur l'ordinateur du serveur :{" "}
+        <span className="font-mono break-all">{config.dossier_effectif ?? "—"}</span>
+      </p>
+      {alerte ? (
+        <p className="text-sm text-destructive" role="alert">
+          {d
+            ? `Dernière copie le ${fmtCopie(d.date)}, ${age!.texte}. Le serveur n'arrive plus à copier : vérifier le dossier (clé USB débranchée, disque plein).`
+            : "Aucune copie dans ce dossier pour l'instant. Le serveur en fera une quelques minutes après son démarrage ; ou « Sauvegarder maintenant »."}
+        </p>
+      ) : (
+        <p className="text-sm text-emerald-700">
+          Dernière copie le {fmtCopie(d!.date)}, {age!.texte}.
+        </p>
+      )}
+      {(config.copies?.length ?? 0) > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground">
+            {config.copies!.length} copie{config.copies!.length > 1 ? "s" : ""} dans le dossier
+          </summary>
+          <ul className="mt-1.5 space-y-0.5">
+            {config.copies!.map(c => (
+              <li key={c.nom} className="flex justify-between gap-3 font-mono">
+                <span>{fmtCopie(c.date)}</span>
+                <span className="text-muted-foreground">{(c.taille / 1024 / 1024).toFixed(1)} Mo</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function OngletSauvegarde() {
   const [config, setConfig] = useState<ConfigSauvegarde>({ sauvegarde_auto: false });
   const [chargement, setChargement] = useState(true);
@@ -585,11 +655,7 @@ function OngletSauvegarde() {
         </div>
       </div>
 
-      {config.derniere_sauvegarde && (
-        <p className="text-xs text-muted-foreground">
-          Dernière sauvegarde : {config.derniere_sauvegarde}
-        </p>
-      )}
+      <EtatCopies config={config} />
 
       <Button
         onClick={lancerSauvegarde}

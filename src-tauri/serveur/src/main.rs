@@ -330,7 +330,6 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
     let srv = Arc::new(Serveur {
         est_postgres,
         base: Mutex::new(base),
-        chemin_base: cible.clone(),
         canal: Canal::nouveau(),
         registre: socle::registre(),
         jetons: Mutex::new(HashMap::new()),
@@ -348,6 +347,11 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
                 &gescom_noyau::parametres![d],
             );
         }
+    }
+    // La derniere copie du dossier, pour `/sante` : un redemarrage ne
+    // doit pas faire croire que rien n'a jamais ete sauvegarde.
+    if let Ok(mut d) = srv.derniere_sauvegarde.lock() {
+        *d = sauvegarde::derniere_copie(&srv);
     }
     // Sur les deux moteurs : VACUUM INTO pour SQLite, pg_dump pour
     // PostgreSQL (D4).
