@@ -1863,3 +1863,22 @@ la veille sur `avoir.piece_id`. `lire_fiche_client` rend maintenant
 Le chantier CRM (H) est fait ; Gescom Équipe (F, G, H) est fini.
 Bancs `h1-echanges-360.mjs`, `h2-rappels-prospects.mjs` ;
 `f1-fenetre-equipe.mjs` corrigé (Suivi clients n'est plus une annonce).
+
+**Correctif** — « Les entrées de stock sans fournisseur : la somme n'est
+mentionnée nulle part. » Le propriétaire a raison sur trois points à la
+fois : sans fournisseur, l'achat n'avait ni pièce ni paiement ; « à
+crédit », il n'avait rien du tout (on ne peut rien devoir à personne) ;
+et le journal AC le passait au 401 sans que rien ne le solde. Sa règle :
+sans fournisseur, comptant ; à crédit (acompte ou non), avec le
+fournisseur. Comme la vente a son « client de passage », l'achat a
+maintenant son **« Fournisseur divers »** : chaque achat sans
+fournisseur y a sa facture payée et son paiement, et se lit sur sa
+fiche. Les achats d'avant restent sans pièce, mais leur sortie de
+caisse solde enfin le 401 dans le journal RG.
+
+En l'écrivant, un test a buté sur un défaut plus ancien : dans un second
+dossier, la première facture fournisseur prend `FAF-2026-00001`, déjà
+pris par le premier dossier, et la base refuse (le numéro est unique
+partout, le compteur par dossier). Même chose pour les autres pièces.
+Pas corrigé ici : il faut décider à quoi ressemble le numéro imprimé
+d'un second dossier (préfixe du code, comme les codes clients ?).

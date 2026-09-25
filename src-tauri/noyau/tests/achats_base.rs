@@ -141,26 +141,112 @@ fn un_acompte_a_credit_ne_regle_que_l_acompte() {
     assert_eq!(caisse_solde_sorties(&mut base), 2_000, "seul l'acompte sort du tiroir");
 }
 
+fn divers(base: &mut Base) -> i64 {
+    let dossier = base.dossier().to_string();
+    compter(
+        base,
+        "SELECT COUNT(*) FROM fournisseur WHERE est_generique = 1 AND dossier_id = ?1",
+        &parametres![dossier],
+    )
+}
+
+/// 25/09 : « la somme n'est mentionnée nulle part ». Sans fournisseur,
+/// l'achat se paie comptant et va au « Fournisseur divers » — facture,
+/// paiement, sortie de caisse. À crédit, il faut nommer le fournisseur.
 #[test]
-fn un_achat_sans_fournisseur_entre_le_stock_sans_piece() {
+fn un_achat_sans_fournisseur_se_paie_comptant_chez_le_fournisseur_divers() {
     let mut base = base_avec_demo();
     let sucre = article_unite(&mut base, "Sucre");
     let depot = depot_defaut(&mut base);
     let avant = stock(&mut base, &sucre.0, &depot);
+    ouvrir_caisse(&mut base);
 
+    // À crédit, avec ou sans acompte : refusé, rien d'écrit.
+    for acompte in [None, Some(500)] {
+        let refus = achats::enregistrer_achat_sur_base(
+            &mut base, None, None, vec![ligne_achat(&sucre, 3.0, 500)],
+            Some("credit".into()), Some("especes".into()), acompte, None, None, None,
+        )
+        .unwrap_err();
+        assert!(refus.contains("comptant"), "{refus}");
+    }
+    assert_eq!(stock(&mut base, &sucre.0, &depot), avant, "rien n'est entré");
+    assert_eq!(caisse_solde_sorties(&mut base), 0);
+    assert_eq!(divers(&mut base), 0, "le refus n'a rien créé");
+
+    // Comptant : une facture payée, au Fournisseur divers.
     let r = achats::enregistrer_achat_sur_base(
         &mut base, None, None, vec![ligne_achat(&sucre, 3.0, 500)],
-        Some("credit".into()), None, None, None, None, None,
+        Some("comptant".into()), None, None, None, Some("patron".into()), None,
     )
     .unwrap();
-    assert!(r["piece_id"].is_null());
+    assert!(r["numero"].as_str().unwrap().starts_with("FAF-"), "{r}");
+    assert_eq!(r["statut"], "paye");
+    assert_eq!(r["regle"], 1_500);
     assert_eq!(stock(&mut base, &sucre.0, &depot), avant + 3.0);
+    assert_eq!(caisse_solde_sorties(&mut base), 1_500, "l'argent quitte le tiroir");
+    let piece_id = r["piece_id"].as_str().unwrap().to_string();
+    let paye = compter(
+        &mut base,
+        "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT) FROM paiement_fournisseur WHERE piece_id = ?1",
+        &parametres![piece_id.clone()],
+    );
+    assert_eq!(paye, 1_500, "la somme est dite : un paiement, sur la facture");
+    let nom: String = base
+        .lire_une(
+            "SELECT f.nom FROM piece_commerciale p JOIN fournisseur f ON f.id = p.tiers_id WHERE p.id = ?1",
+            &parametres![piece_id],
+            |l| l.get::<String>(0),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(nom, "Fournisseur divers");
+
+    // Un second achat sans fournisseur : le même Fournisseur divers.
+    achats::enregistrer_achat_sur_base(
+        &mut base, None, None, vec![ligne_achat(&sucre, 1.0, 500)],
+        Some("comptant".into()), None, None, None, None, None,
+    )
+    .unwrap();
+    assert_eq!(divers(&mut base), 1);
+
+    // Le choisir dans la liste ne permet pas plus le crédit.
+    let liste = gescom_noyau::fournisseurs::lire_fournisseurs_sur_base(&mut base).unwrap();
+    let d = liste.iter().find(|f| f["est_generique"] == true).expect("dans la liste, marqué");
+    let refus = achats::enregistrer_achat_sur_base(
+        &mut base, Some(d["id"].as_str().unwrap().to_string()), None, vec![ligne_achat(&sucre, 1.0, 500)],
+        Some("credit".into()), None, None, None, None, None,
+    )
+    .unwrap_err();
+    assert!(refus.contains("comptant"), "{refus}");
 
     let refus = achats::enregistrer_achat_sur_base(
         &mut base, None, None, vec![], None, None, None, None, None, None,
     )
     .unwrap_err();
     assert!(refus.contains("Aucune ligne"));
+}
+
+#[test]
+fn chaque_dossier_a_son_fournisseur_divers() {
+    let mut base = base_avec_demo();
+    let sucre = article_unite(&mut base, "Sucre");
+    ouvrir_caisse(&mut base);
+    achats::enregistrer_achat_sur_base(
+        &mut base, None, None, vec![ligne_achat(&sucre, 1.0, 500)],
+        Some("comptant".into()), None, None, None, None, None,
+    )
+    .unwrap();
+    let b = gescom_noyau::dossiers::creer_dossier_sur(&mut base, "B".into(), "Boutique B".into(), None, None)
+        .unwrap()["id"].as_str().unwrap().to_string();
+    base.choisir_dossier(&b).unwrap();
+    assert_eq!(divers(&mut base), 0, "celui de l'autre dossier ne se voit pas");
+    // Pas d'achat ici : les numéros de pièce d'un second dossier
+    // heurtent ceux du premier (défaut connu, ETAPES 25/09). Le
+    // Fournisseur divers, lui, naît bien dans ce dossier.
+    let id = achats::fournisseur_divers_sur(&mut base).unwrap();
+    assert_eq!(achats::fournisseur_divers_sur(&mut base).unwrap(), id, "un seul, retrouvé");
+    assert_eq!(divers(&mut base), 1);
 }
 
 #[test]

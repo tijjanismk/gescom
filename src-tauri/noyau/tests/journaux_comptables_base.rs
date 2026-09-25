@@ -191,3 +191,49 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     journaux_comptables::lire_sur(&mut j.base, d.clone(), d.clone(), None, true).unwrap();
     journaux_comptables::csv_sur(&mut j.base, d.clone(), d, None, true).unwrap();
 }
+
+/// 25/09 : un achat comptant sans fournisseur ne laisse plus de dette
+/// envers personne au 401. Le nouveau passe par le « Fournisseur divers »
+/// (facture + paiement) ; l'ancien (sans pièce, d'avant le correctif) est
+/// soldé par sa sortie de caisse.
+#[test]
+fn un_achat_sans_fournisseur_ne_laisse_rien_au_401() {
+    let mut base = base_avec_demo();
+    let sid = ouvrir_caisse(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let depot = depot_defaut(&mut base);
+    achats::enregistrer_achat_sur_base(
+        &mut base, None, None,
+        vec![achats::LigneAchat { article_id: sucre.0.clone(), unite_vente_id: sucre.1.clone(), quantite: 4.0, facteur: 1.0, prix_achat: 300 }],
+        Some("comptant".into()), None, None, None, None, None,
+    )
+    .expect("achat sans fournisseur");
+
+    // Un ancien achat, comme on les écrivait avant : mouvement de stock
+    // sans fournisseur, sortie de caisse « achat » du même lot, rien d'autre.
+    let dossier = base.dossier().to_string();
+    let lot = uuid::Uuid::new_v4().to_string();
+    let now = gescom_noyau::utils::maintenant_iso();
+    base.executer(
+        "INSERT INTO mouvement_stock (id, article_id, depot_id, type_mouvement, quantite_delta, operation_id,
+           date_mouvement, cree_le, origine, prix_achat_unitaire, dossier_id)
+         VALUES (?1, ?2, ?3, 'achat', 2, ?4, ?5, ?5, 'app', 250, ?6)",
+        &gescom_noyau::parametres![uuid::Uuid::new_v4().to_string(), sucre.0.clone(), depot, lot.clone(), now.clone(), dossier.clone()],
+    )
+    .unwrap();
+    base.executer(
+        "INSERT INTO mouvement_caisse (id, session_id, sens, moyen, montant, motif, operation_id, date_mouvement, cree_le, origine, dossier_id)
+         VALUES (?1, ?2, 'sortie', 'especes', 500, 'achat', ?3, ?4, ?4, 'app', ?5)",
+        &gescom_noyau::parametres![uuid::Uuid::new_v4().to_string(), sid, lot, now, dossier],
+    )
+    .unwrap();
+
+    let ac = du_jour(&mut base, "AC");
+    let rg = du_jour(&mut base, "RG");
+    assert!(ac.iter().any(|e| e.libelle == "Achat — Fournisseur divers"), "{:?}", ac.iter().map(|e| &e.libelle).collect::<Vec<_>>());
+    assert!(rg.iter().any(|e| e.libelle.ends_with("— Sans fournisseur")), "l'ancien est soldé par sa caisse");
+    let (_, credit_401) = somme(&ac, "401");
+    let (debit_401, _) = somme(&rg, "401");
+    assert_eq!(credit_401, 1_200 + 500);
+    assert_eq!(debit_401, credit_401, "401 soldé : on ne doit rien à personne");
+}

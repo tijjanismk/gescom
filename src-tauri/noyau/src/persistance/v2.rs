@@ -306,6 +306,8 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         // Equipe, H-2 (D34) : un prospect est un client sans vente encore.
         "ALTER TABLE client ADD COLUMN statut TEXT NOT NULL DEFAULT 'client'",
         "ALTER TABLE client ADD COLUMN origine_prospect TEXT",
+        // Le « Fournisseur divers » des achats sans fournisseur (25/09).
+        "ALTER TABLE fournisseur ADD COLUMN est_generique INTEGER NOT NULL DEFAULT 0",
     ] {
         conn.execute(sql, []).ok();
     }

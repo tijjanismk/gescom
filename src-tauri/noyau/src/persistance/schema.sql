@@ -189,7 +189,11 @@ CREATE TABLE IF NOT EXISTS fournisseur (
     actif       INTEGER NOT NULL DEFAULT 1,
     cree_le     TEXT NOT NULL,
     modifie_le  TEXT NOT NULL,
-    origine     TEXT NOT NULL DEFAULT 'app'
+    origine     TEXT NOT NULL DEFAULT 'app',
+    -- « Fournisseur divers » (coeur::tiers::FOURNISSEUR_DIVERS) : les
+    -- achats faits sans nommer de fournisseur, payes comptant. Un par
+    -- dossier, cree a la premiere occasion (achats::fournisseur_divers*).
+    est_generique INTEGER NOT NULL DEFAULT 0
 );
 
 

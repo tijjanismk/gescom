@@ -23,6 +23,43 @@ pub struct LigneAchat {
     pub prix_achat: i64,
 }
 
+/// Le « Fournisseur divers » (coeur::tiers::FOURNISSEUR_DIVERS), cree
+/// s'il n'existe pas encore. Version fenetre : pas de dossier (la
+/// colonne prend le dossier d'origine par defaut).
+fn fournisseur_divers(conn: &rusqlite::Connection) -> Result<String, String> {
+    let existant: Option<String> = conn
+        .query_row(
+            "SELECT id FROM fournisseur WHERE est_generique = 1 ORDER BY cree_le, id LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(id) = existant {
+        return Ok(id);
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = maintenant_iso();
+    conn.execute(
+        "INSERT INTO fournisseur (id, nom, est_generique, actif, cree_le, modifie_le, origine)
+         VALUES (?1, ?2, 1, 1, ?3, ?3, 'app')",
+        rusqlite::params![id, crate::coeur::tiers::FOURNISSEUR_DIVERS, now],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+/// Le fournisseur est-il le « Fournisseur divers » ? Un fournisseur
+/// inconnu n'en est pas un (le refus vient ailleurs, s'il doit venir).
+fn est_fournisseur_divers(conn: &rusqlite::Connection, id: &str) -> bool {
+    conn.query_row(
+        "SELECT est_generique FROM fournisseur WHERE id = ?1",
+        rusqlite::params![id],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|g| g != 0)
+    .unwrap_or(false)
+}
+
 /// Enregistre un achat complet : stock, mouvements, facture fournisseur.
 ///
 /// - `mode_reglement` = "comptant" → le total est réglé immédiatement,
@@ -31,8 +68,10 @@ pub struct LigneAchat {
 ///   `acompte` est donné : montant réglé tout de suite, le reste reste dû.
 ///   Même logique que `valider_facture` côté vente (D30 étendu).
 ///
-/// Sans `fournisseur_id`, le stock est mis à jour mais aucune facture
-/// n'est créée (régularisation interne).
+/// Sans `fournisseur_id` : **comptant seulement** (on ne doit rien à
+/// personne), et l'achat va au « Fournisseur divers » — sa facture, son
+/// paiement, sa trace dans les journaux. Avant le 25/09, il n'avait ni
+/// pièce ni paiement : la somme n'était dite nulle part.
 pub fn enregistrer_achat(
     conn: &mut rusqlite::Connection,
     fournisseur_id: Option<String>,
@@ -130,6 +169,16 @@ pub fn enregistrer_achat_date(
     // le comptage du soir tombait faux d'exactement ce montant, sans rien
     // pour l'expliquer. D46, deja applique a chaque encaissement cote
     // vente, vaut evidemment aussi pour un decaissement.
+    // Sans fournisseur (ou le « Fournisseur divers » choisi) : comptant
+    // seulement. Juge AVANT d'ecrire, comme la caisse fermee.
+    let divers = match fournisseur_id.as_deref() {
+        None => true,
+        Some(id) => est_fournisseur_divers(conn, id),
+    };
+    if divers {
+        crate::coeur::tiers::verifier_achat_sans_fournisseur(mode_reglement.as_deref())?;
+    }
+
     let comptant = mode_reglement.as_deref() == Some("comptant");
     if comptant || acompte.unwrap_or(0) > 0 {
         crate::utils::exiger_session_caisse(&conn)?;
@@ -137,6 +186,13 @@ pub fn enregistrer_achat_date(
 
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // L'achat sans fournisseur va au « Fournisseur divers » : il a sa
+    // facture et son paiement comme les autres.
+    let fournisseur_id = Some(match fournisseur_id {
+        Some(f) => f,
+        None => fournisseur_divers(&tx)?,
+    });
 
     // Reserve DANS la transaction : si l'enregistrement echoue plus
     // bas, le retour arriere annule aussi l'increment, et la serie
@@ -150,8 +206,8 @@ pub fn enregistrer_achat_date(
     // Généré tôt pour pouvoir servir d'`operation_id` sur les mouvements de
     // stock ci-dessous : c'est ce qui permet de retrouver le numéro de
     // facture d'un mouvement (jointure piece_commerciale) sans avoir à
-    // rejouer tout l'achat. Sans fournisseur, pas de facture : on retombe
-    // sur op_id, un simple identifiant de lot sans numéro associé.
+    // rejouer tout l'achat. Le fournisseur est toujours la depuis le 25/09
+    // (« Fournisseur divers » a defaut) ; op_id reste le repli.
     let piece_id = fournisseur_id.as_ref().map(|_| uuid::Uuid::new_v4().to_string());
     let operation_id = piece_id.clone().unwrap_or_else(|| op_id.clone());
     let mut total: i64 = 0;
@@ -255,7 +311,8 @@ pub fn enregistrer_achat_date(
         }
 
         // ---- 3. Solde de la dette (comptant OU acompte credit) ----
-        // Uniquement ici : sans fournisseur, il n'y a pas de dette a solder.
+        // Toujours un fournisseur depuis le 25/09 (le « Fournisseur divers »
+        // a defaut) : l'achat comptant sans fournisseur a aussi son paiement.
         // C'est CE paiement_fournisseur, et lui seul, que lit le calcul de
         // dette (fournisseurs.rs) — s'il manque, la FAF reste "paye" en
         // apparence mais la dette affichee ne bouge pas : reglement double
@@ -1224,6 +1281,44 @@ fn sortie_de_caisse(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Le « Fournisseur divers » du dossier, cree s'il n'existe pas encore.
+/// Sert dans la transaction de l'achat (`&mut impl Acces`).
+pub fn fournisseur_divers_sur(acces: &mut impl Acces) -> Result<String, String> {
+    let dossier = acces.dossier().to_string();
+    let existant: Option<String> = acces
+        .lire_une(
+            "SELECT id FROM fournisseur WHERE est_generique = 1 AND dossier_id = ?1
+             ORDER BY cree_le, id LIMIT 1",
+            &parametres![dossier.clone()],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?;
+    if let Some(id) = existant {
+        return Ok(id);
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    acces
+        .executer(
+            "INSERT INTO fournisseur (id, nom, est_generique, actif, cree_le, modifie_le, origine, dossier_id)
+             VALUES (?1, ?2, 1, 1, ?3, ?3, 'app', ?4)",
+            &parametres![id.clone(), crate::coeur::tiers::FOURNISSEUR_DIVERS, maintenant_iso(), dossier],
+        )
+        .map_err(|e| e.0)?;
+    Ok(id)
+}
+
+fn est_fournisseur_divers_sur(base: &mut Base, id: &str) -> Result<bool, String> {
+    let dossier = base.dossier().to_string();
+    Ok(base
+        .lire_une(
+            "SELECT est_generique FROM fournisseur WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![id, dossier],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .is_some_and(|g| g != 0))
+}
+
 pub fn enregistrer_achat_sur_base(
     base: &mut Base,
     fournisseur_id: Option<String>,
@@ -1292,6 +1387,16 @@ pub fn enregistrer_achat_date_sur_base(
         crate::coeur::pieces::peut_transferer(&statut_src, deja.as_deref())?;
     }
 
+    // Sans fournisseur (ou le « Fournisseur divers » choisi) : comptant
+    // seulement — on ne doit rien a personne.
+    let divers = match fournisseur_id.as_deref() {
+        None => true,
+        Some(id) => est_fournisseur_divers_sur(base, id)?,
+    };
+    if divers {
+        crate::coeur::tiers::verifier_achat_sans_fournisseur(mode_reglement.as_deref())?;
+    }
+
     // Caisse fermee : refus AVANT d'ecrire (D46).
     let comptant = mode_reglement.as_deref() == Some("comptant");
     let session = if comptant || acompte.unwrap_or(0) > 0 {
@@ -1302,14 +1407,21 @@ pub fn enregistrer_achat_date_sur_base(
 
     let mut tx = base.transaction().map_err(|e| e.0)?;
 
+    // L'achat sans fournisseur va au « Fournisseur divers » : facture,
+    // paiement, journaux, comme les autres.
+    let fournisseur_id = Some(match fournisseur_id {
+        Some(f) => f,
+        None => fournisseur_divers_sur(&mut tx)?,
+    });
+
     let numero = if fournisseur_id.is_some() {
         Some(reserver_numero_sur(&mut tx, "facture_fournisseur")?)
     } else {
         None
     };
     let op_id = uuid::Uuid::new_v4().to_string();
-    // La piece sert d'`operation_id` aux mouvements (D51) ; sans
-    // fournisseur, un simple identifiant de lot.
+    // La piece sert d'`operation_id` aux mouvements (D51) ; op_id reste
+    // le repli (le fournisseur est toujours la depuis le 25/09).
     let piece_id = fournisseur_id.as_ref().map(|_| uuid::Uuid::new_v4().to_string());
     let operation_id = piece_id.clone().unwrap_or_else(|| op_id.clone());
     let mut total: i64 = 0;
