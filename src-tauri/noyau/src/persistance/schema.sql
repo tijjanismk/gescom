@@ -4,7 +4,7 @@
 --  Régénéré depuis une base réelle le 29/08/2026, après les lots de
 --  correction v1. Ce fichier décrit l'état CIBLE d'une base neuve.
 --
---  ⚠️ Les migrations de persistance/mod.rs restent nécessaires : elles
+--  Attention : Les migrations de persistance/mod.rs restent nécessaires : elles
 --     mettent à niveau les bases DÉJÀ créées. Les colonnes qu'elles
 --     ajoutent sont désormais présentes ici, si bien qu'une base neuve
 --     est complète dès le premier démarrage et que les ALTER ne font
@@ -236,7 +236,7 @@ CREATE TABLE IF NOT EXISTS ligne_vente (
     origine                     TEXT NOT NULL DEFAULT 'app'
 );
 
--- ⚠️ LEGACY — plus alimentée depuis L31. Conservée pour
+-- Attention : LEGACY — plus alimentée depuis L31. Conservée pour
 --    l'historique des numéros GESCOM- déjà remis à des clients.
 --    Le référentiel est piece_commerciale.
 CREATE TABLE IF NOT EXISTS facture (

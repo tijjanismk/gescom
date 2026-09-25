@@ -150,7 +150,7 @@ pub enum StatutVente {
 
 /// Statut d'une vente à partir de son total et du **montant déjà encaissé**.
 ///
-/// ⚠️ Le second argument est le montant PAYÉ, pas le reste dû.
+/// Attention : Le second argument est le montant PAYÉ, pas le reste dû.
 /// Pour partir d'un reste, utiliser `statut_vente_depuis_reste`.
 pub fn statut_vente(total: i64, montant_paye: i64) -> StatutVente {
     if reste_exigible(total, montant_paye) == 0 {

@@ -8,7 +8,7 @@
 // Le serveur calcule les permissions à la connexion et les renvoie avec
 // l'identité. L'écran ne fait plus que les lire.
 //
-// ⚠️ Ceci ne SÉCURISE rien : c'est du confort. Cacher un bouton évite
+// Attention : Ceci ne SÉCURISE rien : c'est du confort. Cacher un bouton évite
 // qu'on clique dessus pour rien, mais le refus qui compte est celui du
 // noyau, à chaque appel. Un écran périmé ne peut pas ouvrir une porte
 // que le serveur ferme.

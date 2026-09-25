@@ -62,7 +62,7 @@ export interface CreerVenteResultat {
   statut: "payee" | "partiellement_payee" | "creance_ouverte";
 }
 
-/** `lire_taux_tva` — ⚠️ la clé est `taux_tva`, PAS `taux`. */
+/** `lire_taux_tva` — Attention : la clé est `taux_tva`, PAS `taux`. */
 export interface TauxTvaApi {
   id: string;
   nom: string;
@@ -76,7 +76,7 @@ export interface TauxTvaApi {
 
 /**
  * `lire_creances_ouvertes`
- * ⚠️ `id` ET `vente_id` désignent la même vente. `vente_id` a été ajouté
+ * Attention : `id` ET `vente_id` désignent la même vente. `vente_id` a été ajouté
  * pour les appelants qui l'attendaient ; ne pas supprimer `id`, d'autres
  * écrans l'utilisent.
  */
@@ -117,7 +117,7 @@ export interface CreanceRelanceApi {
 //  Fournisseurs
 // =====================================================================
 
-/** `creer_fournisseur` — ⚠️ renvoie un OBJET, pas une chaîne. */
+/** `creer_fournisseur` — Attention : renvoie un OBJET, pas une chaîne. */
 export interface CreerFournisseurResultat {
   id: string;
   nom: string;
@@ -181,7 +181,7 @@ export interface AvoirApi {
 
 /**
  * `lire_resume_caisse`
- * ⚠️ `total_*` = tous moyens (indicateurs d'activité).
+ * Attention : `total_*` = tous moyens (indicateurs d'activité).
  *    `*_especes` = tiroir physique, base du rapprochement (D29).
  *    `solde_theorique` est calculé sur les ESPÈCES uniquement.
  */
@@ -280,7 +280,7 @@ export interface SocieteApi {
 
 /**
  * `lire_donnees_facture` — source de l'impression POS.
- * ⚠️ `prix_pratique` et `montant` sont en TTC (D8 : le prix stocké est
+ * Attention : `prix_pratique` et `montant` sont en TTC (D8 : le prix stocké est
  *    ce que le client paie). `prix_unitaire_ht` et `montant_ht` sont les
  *    valeurs à afficher quand `a_tva` est vrai.
  */
@@ -328,7 +328,7 @@ export interface DonneesFactureApi {
 
 /**
  * `lire_resume_dashboard`
- * ⚠️ Les noms diffèrent de ceux qu'annonçait ARCHITECTURE.md :
+ * Attention : Les noms diffèrent de ceux qu'annonçait ARCHITECTURE.md :
  *    ca_mois_precedent (pas ca_hier), total_creances (pas creances_ouvertes),
  *    factures_brouillon (pas factures_a_valider), caisse_solde.
  */

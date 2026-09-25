@@ -57,7 +57,7 @@ pub struct Permission {
 /// dans aucune commande serait une case a cocher sans effet, et c'est
 /// pire que pas de case du tout.
 ///
-/// ⚠️ La plupart des LECTURES ne sont pas filtrees : `r.lecture(…)` ne
+/// Attention : La plupart des LECTURES ne sont pas filtrees : `r.lecture(…)` ne
 /// demande aucune permission. La v3 ajoute des permissions de lecture
 /// une par une (C1), et seulement la ou une commande les verifie :
 /// `journal:lire` (B-1) garde l'Historique.
