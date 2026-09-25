@@ -3511,7 +3511,10 @@ pub fn lire_fiche_client_sur_base(
 
     let client = base
         .lire_une(
-            "SELECT id, code, nom, telephone, adresse, nif, email, cree_le
+            // `statut` (PLAN-EQUIPE H-2, D34) : un prospect sans vente
+            // encore, ou un client. Ajoute a la fin : rien de casse pour
+            // qui lisait deja cette fiche sans ce champ.
+            "SELECT id, code, nom, telephone, adresse, nif, email, cree_le, statut
              FROM client WHERE id = ?1 AND dossier_id = ?2",
             &parametres![client_id.clone(), dossier.clone()],
             |r| {
@@ -3524,6 +3527,7 @@ pub fn lire_fiche_client_sur_base(
                     "nif":       r.get::<Option<String>>(5)?,
                     "email":     r.get::<Option<String>>(6)?,
                     "cree_le":   r.get::<String>(7)?,
+                    "statut":    r.get::<String>(8)?,
                 }))
             },
         )

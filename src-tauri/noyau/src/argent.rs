@@ -471,6 +471,16 @@ pub fn creer_vente_datee_sur(
         rusqlite::params![statut, now, vente_id],
     ).map_err(|e| e.to_string())?;
 
+    // PLAN-EQUIPE, H-2 (D34) : un prospect devient client tout seul a
+    // sa premiere vente. Un prospect ne peut naitre que par Équipe
+    // (D29, cote serveur), mais la meme base SQLite peut aussi s'ouvrir
+    // ici directement : la meme regle vaut des deux cotes.
+    tx.execute(
+        "UPDATE client SET statut = 'client', modifie_le = ?1
+         WHERE id = ?2 AND statut = 'prospect'",
+        rusqlite::params![now, client_id],
+    ).ok();
+
     // La table `facture` legacy n'est PLUS alimentee : piece_commerciale
     // est le referentiel unique des documents. La facture POS est creee
     // juste apres par creer_facture_depuis_vente (numero FAC-).
@@ -1743,6 +1753,15 @@ pub fn creer_vente_datee_sur_base(
         &parametres![statut, now.clone(), vente_id.clone(), dossier.clone()],
     )
     .map_err(|e| e.0)?;
+
+    // PLAN-EQUIPE, H-2 (D34) : un prospect devient client tout seul a
+    // sa premiere vente — pas de bouton « convertir » a chercher. Sans
+    // effet sur un client deja 'client'.
+    let _ = tx.executer(
+        "UPDATE client SET statut = 'client', modifie_le = ?1
+         WHERE id = ?2 AND dossier_id = ?3 AND statut = 'prospect'",
+        &parametres![now.clone(), client_id.clone(), dossier.clone()],
+    );
 
     // La table `facture` legacy n'est PLUS alimentee : piece_commerciale
     // est le referentiel unique des documents.

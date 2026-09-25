@@ -37,6 +37,7 @@ pub const ACHATS_LIRE_PRIX: &str = "achats:lire_prix";
 pub const RAPPORTS_LIRE: &str = "rapports:lire";
 pub const TIERS_LIRE_SOLDE: &str = "tiers:lire_solde";
 pub const CAISSE_LIRE_AUTRES: &str = "caisse:lire_autres";
+pub const CRM_SUIVRE: &str = "crm:suivre";
 
 /// Une regle de lecture d'une commande.
 pub enum Regle {
@@ -176,6 +177,9 @@ pub fn regles(commande: &str) -> &'static [Regle] {
             RefusSaufUne(PERSONNEL_LIRE),
             Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None },
         ],
+
+        // --- H-1/H-2 (D34) : le suivi client, une seule permission ---
+        "lire_echanges_client" | "lire_rappels" | "lire_prospects" => &[Refus(CRM_SUIVRE)],
 
         // --- caisse:lire_autres : les sessions des autres ---
         "lire_sessions_caisse" => &[AMoi(CAISSE_LIRE_AUTRES, "ouvert_par_id")],
@@ -353,7 +357,7 @@ mod tests {
 
     #[test]
     fn chaque_permission_nommee_existe_au_catalogue() {
-        for p in [ACHATS_LIRE_PRIX, RAPPORTS_LIRE, TIERS_LIRE_SOLDE, CAISSE_LIRE_AUTRES, "achats:creer"] {
+        for p in [ACHATS_LIRE_PRIX, RAPPORTS_LIRE, TIERS_LIRE_SOLDE, CAISSE_LIRE_AUTRES, CRM_SUIVRE, "achats:creer"] {
             assert!(crate::portes::existe(p), "{p}");
         }
     }

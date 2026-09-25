@@ -213,6 +213,9 @@ fn tables_v2(base: &mut Base) {
         "ALTER TABLE transfert ADD COLUMN unite_vente_id TEXT",
         "ALTER TABLE transfert ADD COLUMN motif TEXT",
         "ALTER TABLE retour ADD COLUMN ligne_vente_id TEXT",
+        // Equipe, H-2 (D34) : un prospect est un client sans vente encore.
+        "ALTER TABLE client ADD COLUMN statut TEXT NOT NULL DEFAULT 'client'",
+        "ALTER TABLE client ADD COLUMN origine_prospect TEXT",
     ] {
         let _ = base.executer(&adapter(sql), &[]);
     }

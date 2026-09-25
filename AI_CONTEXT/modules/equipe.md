@@ -70,3 +70,42 @@ Preuves : `personnel_base.rs` (6), `presences_base.rs` (5), `avances_base.rs` (5
 **Table** `cotisation` (cloisonnée, RLS) : libellé, `qui` (salarie /
 employeur), `taux`, `plafond`, `compte` (43/44). Le journal PA :
 [comptabilite.md](comptabilite.md).
+
+## Suivi client (H-1/H-2 — D34)
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Suivi (pur) | [coeur/crm.rs](../../src-tauri/noyau/src/coeur/crm.rs) | `valider_echange` (genre connu, un texte), `valider_rappel`, `valider_prospect` |
+| Suivi (base) | [crm.rs](../../src-tauri/noyau/src/crm.rs) | `creer_echange_sur`, `lister_echanges_sur` (fond les relances de créance dans le même fil), `creer_rappel_sur`, `marquer_rappel_fait_sur`, `lister_rappels_sur(pour, client, inclure_faits)`, `creer_prospect_sur`, `lister_prospects_sur` |
+| Écran | [src/equipe/SuiviClients.tsx](../../src/equipe/SuiviClients.tsx) | onglets Clients (recherche + fiche 360) / Prospects / Mes rappels ; la fiche 360 : chiffres (`lire_fiche_client`), rappels, fil d'échanges |
+
+**Table** `echange` (cloisonnée, RLS) : `client_id`, `genre` (appel,
+visite, whatsapp, note), `quoi`, `suite_prevue`, `auteur_id`,
+`date_echange`. Les relances de créance existantes (`relance_creance`,
+[historique.md](comptabilite.md) — voir `relances.rs`) restent leur
+table à elles ; D34 (« pas une liste de plus ») se tient à la
+**lecture** : `crm::lister_echanges_sur` les joint (`relance_creance` →
+`vente` → `client`) et les mêle au fil, triées par date.
+
+**Table** `rappel` (cloisonnée, RLS) : `client_id`,
+`pour_utilisateur_id` (attribué à un compte actif), `quand`, `quoi`,
+`fait` / `fait_le`. Se pose depuis la fiche 360 ou l'onglet Prospects ;
+se marque fait des deux ; « Mes rappels » les filtre sur la session.
+
+**Pas de second fichier clients** (D34) : un **prospect** est une
+ligne `client` avec `statut = 'prospect'` (colonnes `statut` et
+`origine_prospect` — distincte d'`origine`, qui dit d'où vient la
+*ligne* de données, app/demo/import). `creer_prospect_sur` réutilise le
+générateur de code de `comptoir::creer_client_rapide_sur`. Il
+**redevient `client` tout seul à sa première vente** :
+`argent::creer_vente_datee_sur` (fenêtre) et `…_sur_base` (serveur)
+basculent son statut dans la même transaction que la vente — sans
+bouton « convertir » à chercher.
+
+**Droits** : `crm:suivre` (une seule permission, écriture et lecture ;
+la lecture refuse sans elle, `coeur::lecture`), au catalogue depuis F-1.
+
+Preuves : 2 unitaires `coeur::crm`, `crm_base.rs` (9, trois moteurs :
+échange, fil fondu avec une relance, refus, rappel, prospect qui
+devient client, cloisonnement, détecteur) ; bancs
+`h1-echanges-360.mjs`, `h2-rappels-prospects.mjs`.

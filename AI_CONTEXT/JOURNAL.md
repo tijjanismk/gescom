@@ -1827,3 +1827,39 @@ chez le propriétaire, sur sa base PostgreSQL d'avant certaines colonnes.
 Dix-neuf colonnes n'étaient rejouées que par la fenêtre SQLite ; le
 serveur les rejoue maintenant à chaque démarrage, et un test garde les
 deux listes d'accord.
+
+## 25/09/2026 — Gescom Équipe : H-1 et H-2, le chantier CRM est fait
+
+**H-1** — les échanges, et la fiche 360. Le point délicat était D34 :
+« les relances de créance existantes sont des échanges comme les
+autres, pas une liste de plus ». Deux façons de le tenir : dupliquer
+les relances dans la nouvelle table `echange` (facile, mais deux
+vérités sur le même fait), ou les fondre à la lecture. Choisi la
+seconde — `crm::lister_echanges_sur` joint `relance_creance` à `vente`
+à `client` et mêle le résultat aux vrais échanges, triés par date.
+`relance_creance` reste ce qu'elle est ; rien n'est recopié. L'écran
+Équipe → Suivi clients (annoncé « bientôt » depuis F-1) devient réel :
+chercher un client (la recherche de Gescom, pas une seconde), sa fiche
+360 avec ses chiffres et son fil.
+
+**H-2** — rappels et prospects. D34 est explicite : « pas de second
+fichier clients ». Un prospect est donc une ligne `client` comme les
+autres, avec `statut = 'prospect'` et son origine (`origine_prospect` —
+distincte d'`origine`, qui dit d'où vient la *ligne*, pas d'où vient le
+*prospect* : les deux se seraient marché dessus). Il redevient
+`client` tout seul à sa première vente : la bascule vit dans
+`creer_vente_datee_sur[_base]` lui-même, sur les deux moteurs et les
+deux chemins (fenêtre et serveur) — pas de bouton « convertir » à
+chercher, pas d'étape qu'on oublie. Un rappel s'attribue à une
+personne (un compte actif) et se retrouve dans « Mes rappels » ; se
+marquer fait ne l'efface pas.
+
+Au passage : `client.statut`/`origine_prospect` sont deux colonnes
+neuves sur une table déjà en service — posées à trois endroits
+(schema.sql, la fenêtre, le serveur), comme l'a appris le correctif de
+la veille sur `avoir.piece_id`. `lire_fiche_client` rend maintenant
+`statut`, sans rien changer pour qui l'appelait déjà.
+
+Le chantier CRM (H) est fait ; Gescom Équipe (F, G, H) est fini.
+Bancs `h1-echanges-360.mjs`, `h2-rappels-prospects.mjs` ;
+`f1-fenetre-equipe.mjs` corrigé (Suivi clients n'est plus une annonce).

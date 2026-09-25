@@ -225,6 +225,55 @@ pub fn registre() -> Registre {
     r.sur_base("lire_donnees_bulletin", None, false, |c, p| {
         gescom_noyau::paie::donnees_bulletin_sur(c.base, arg(&p, "ficheId", "fiche_id")?)
     });
+    // H-1/H-2 (D34) : le suivi client — echanges, rappels, prospects.
+    // Une seule permission d'ecriture ET de lecture (`crm:suivre`) ; la
+    // lecture est refusee par `coeur::lecture`, pas ici.
+    r.sur_base("creer_echange", Some("crm:suivre"), true, |c, p| {
+        gescom_noyau::crm::creer_echange_sur(
+            c.base,
+            arg(&p, "clientId", "client_id")?,
+            arg(&p, "genre", "genre")?,
+            arg(&p, "quoi", "quoi")?,
+            arg(&p, "suitePrevue", "suite_prevue")?,
+        )
+    });
+    r.sur_base("lire_echanges_client", None, false, |c, p| {
+        serde_json::to_value(gescom_noyau::crm::lister_echanges_sur(c.base, arg(&p, "clientId", "client_id")?)?)
+            .map_err(|e| e.to_string())
+    });
+    r.sur_base("creer_rappel", Some("crm:suivre"), true, |c, p| {
+        gescom_noyau::crm::creer_rappel_sur(
+            c.base,
+            arg(&p, "clientId", "client_id")?,
+            arg(&p, "pourUtilisateurId", "pour_utilisateur_id")?,
+            arg(&p, "quand", "quand")?,
+            arg(&p, "quoi", "quoi")?,
+        )
+    });
+    r.sur_base("marquer_rappel_fait", Some("crm:suivre"), true, |c, p| {
+        gescom_noyau::crm::marquer_rappel_fait_sur(c.base, arg(&p, "rappelId", "rappel_id")?)
+    });
+    r.sur_base("lire_rappels", None, false, |c, p| {
+        let inclure_faits: Option<bool> = arg(&p, "inclureFaits", "inclure_faits")?;
+        serde_json::to_value(gescom_noyau::crm::lister_rappels_sur(
+            c.base,
+            arg(&p, "pourUtilisateurId", "pour_utilisateur_id")?,
+            arg(&p, "clientId", "client_id")?,
+            inclure_faits.unwrap_or(false),
+        )?)
+        .map_err(|e| e.to_string())
+    });
+    r.sur_base("creer_prospect", Some("crm:suivre"), true, |c, p| {
+        gescom_noyau::crm::creer_prospect_sur(
+            c.base,
+            arg(&p, "nom", "nom")?,
+            arg(&p, "telephone", "telephone")?,
+            arg(&p, "origine", "origine")?,
+        )
+    });
+    r.sur_base("lire_prospects", None, false, |c, _| {
+        serde_json::to_value(gescom_noyau::crm::lister_prospects_sur(c.base)?).map_err(|e| e.to_string())
+    });
     // v3, E-3 : les journaux, fabriques a la lecture, et leur export.
     // Ce sont les chiffres de la boutique : `rapports:lire`.
     r.sur_base("lire_journaux_comptables", Some("rapports:lire"), false, |c, p| {
