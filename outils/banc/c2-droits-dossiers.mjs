@@ -77,7 +77,9 @@ await pa.waitForTimeout(1500);
 await pa.locator("input").nth(0).fill(`awa${s}`);
 await pa.locator('input[type="password"]').first().fill("banc-secret");
 await pa.keyboard.press("Enter");
-await pa.waitForTimeout(2500);
+// bcrypt prend ~2 s sur un build de debogage : attendre la boite, pas un delai.
+await pa.getByText("Quel dossier ouvrir ?").waitFor({ timeout: 20000 }).catch(() => {});
+await pa.waitForTimeout(500);
 ok(await pa.getByText("Quel dossier ouvrir ?").count() === 1, "la comptable choisit");
 const choix = await pa.getByRole("button").filter({ hasText: /Ma boutique|Quincaillerie/ }).allInnerTexts();
 ok(choix.length === 2, `deux dossiers proposés, pas plus (${choix.length})`);

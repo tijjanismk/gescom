@@ -56,12 +56,22 @@ export async function connecter(page, id = "admin", mdp = "admin123", nouveau = 
     await page.locator("input").nth(0).fill(id);
     await page.locator('input[type="password"]').first().fill(m);
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(2500);
-    return !(await page.getByText("Identifiant ou mot de passe incorrect").count());
+    // bcrypt prend ~2 s par verification sur un build de debogage : on
+    // attend que la page de connexion s'en aille (ou refuse), jusqu'a
+    // vingt secondes, plutot qu'un delai fixe qui laissait le jeton en
+    // route et le parcours sans session.
+    for (let i = 0; i < 40; i++) {
+      await page.waitForTimeout(500);
+      if (await page.getByText("Identifiant ou mot de passe incorrect").count()) return false;
+      if (!(await page.getByText("Pseudo ou email").count())) { await page.waitForTimeout(1500); return true; }
+    }
+    return false;
   };
   // v3 (D-3) : plusieurs dossiers, aucun memorise — l'ecran demande
   // lequel ouvrir. Par defaut, le dossier d'origine.
   const choisirDossier = async () => {
+    // La boite arrive apres la reponse du serveur : lui laisser le temps.
+    await page.getByText("Quel dossier ouvrir ?").waitFor({ timeout: 4000 }).catch(() => {});
     if (await page.getByText("Quel dossier ouvrir ?").count()) {
       // Ne pas memoriser : sinon le compte rouvrirait ce dossier d'office
       // a chaque connexion des parcours suivants.
@@ -80,7 +90,12 @@ export async function connecter(page, id = "admin", mdp = "admin123", nouveau = 
     if (n === 3) { await pw.nth(0).fill(mdp); await pw.nth(1).fill(nouveau); await pw.nth(2).fill(nouveau); }
     else { await pw.nth(0).fill(nouveau); await pw.nth(1).fill(nouveau); }
     await page.getByRole("button", { name: "Changer" }).click();
-    await page.waitForTimeout(2000);
+    // Le premier changement de mot de passe prend parfois plus de deux
+    // secondes (premiere commande du serveur) : attendre que la fenetre
+    // disparaisse, jusqu'a dix secondes, plutot qu'un delai fixe —
+    // recharger pendant la commande laissait la reponse en route.
+    for (let i = 0; i < 20 && await pw.count() >= 2; i++) await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
     // Dans un navigateur, la boite « c'est fait » de Tauri n'existe pas :
     // le mot de passe est change, la fenetre reste. On recharge et on
     // se reconnecte avec le nouveau.

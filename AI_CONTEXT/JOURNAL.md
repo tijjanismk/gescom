@@ -1937,3 +1937,19 @@ dans `enregistrer_achat_date*` (gros, sans défaut), le rachat des
 anciens achats sans fournisseur à crédit (un 401 jamais soldé, à
 décider), les copies de petites aides (`texte`, `jour`, `noter`,
 formatteurs du front).
+
+**Banc d'écran, le soir même.** Les trente parcours Playwright rejoués
+sur base neuve (serveur de débogage + Vite, Chrome du poste) : 378
+vérifications, tout passe — `h1`, `h2`, `i1` compris, après les
+corrections. Deux fragilités du banc corrigées en route, pas du
+produit : sur un build de débogage, bcrypt met deux secondes par
+vérification, et `pw.mjs` (`connecter`) comme `c2` attendaient un délai
+fixe de 2,5 s avant de continuer — le jeton n'était pas encore là, le
+parcours plantait sur « Jeton absent », et le premier changement de mot
+de passe coupé en route laissait la base avec un mot de passe que le
+parcours suivant ne connaissait pas. L'aide attend maintenant que la
+page quitte la connexion (jusqu'à vingt secondes), que la fenêtre de
+changement de mot de passe se ferme, et que la boîte « Quel dossier
+ouvrir ? » paraisse. Sous Git Bash, `lancer.sh` ne sait pas arrêter
+l'instance précédente (`lsof` absent) : tuer les ports 7300 et 1420 à
+la main avant `neuf`.
