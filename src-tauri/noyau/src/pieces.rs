@@ -1255,7 +1255,9 @@ pub fn lire_fiche_client(
 ) -> Result<serde_json::Value, String> {
 
     let client = conn.query_row(
-        "SELECT id, code, nom, telephone, adresse, nif, email, cree_le
+        // `statut` (PLAN-EQUIPE H-2, D34) : meme forme que la version
+        // serveur — une commande, deux versions, la meme reponse.
+        "SELECT id, code, nom, telephone, adresse, nif, email, cree_le, statut
          FROM client WHERE id = ?1",
         rusqlite::params![client_id],
         |row| Ok(serde_json::json!({
@@ -1267,6 +1269,7 @@ pub fn lire_fiche_client(
             "nif":       row.get::<_,Option<String>>(5)?,
             "email":     row.get::<_,Option<String>>(6)?,
             "cree_le":   row.get::<_,String>(7)?,
+            "statut":    row.get::<_,String>(8)?,
         }))
     ).map_err(|e| e.to_string())?;
 
@@ -1495,6 +1498,13 @@ pub fn creer_piece_fournisseur(
     date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
     verifier_lignes_piece(&lignes)?;
+    // Le « Fournisseur divers » n'a que les FAF payees de ses achats :
+    // une piece a la main (BCF, BRF, FAF a credit) rouvrirait la dette
+    // envers personne.
+    crate::coeur::tiers::refuser_si_fournisseur_divers(
+        crate::achats::est_fournisseur_divers(conn, &fournisseur_id),
+        "une pièce saisie à la main",
+    )?;
     let auteur = crate::argent::id_utilisateur_courant_pub(&conn);
     let now = crate::utils::maintenant_iso();
     let (date_piece, _) = crate::argent::date_de_la_piece(&now, date_piece.as_deref())?;
@@ -2685,6 +2695,13 @@ pub fn creer_piece_fournisseur_sur_base(
     date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
     verifier_lignes_piece(&lignes)?;
+    // Le « Fournisseur divers » n'a que les FAF payees de ses achats :
+    // une piece a la main (BCF, BRF, FAF a credit) rouvrirait la dette
+    // envers personne.
+    crate::coeur::tiers::refuser_si_fournisseur_divers(
+        crate::achats::est_fournisseur_divers_sur(base, &fournisseur_id)?,
+        "une pièce saisie à la main",
+    )?;
     let dossier = base.dossier().to_string();
     let auteur = id_utilisateur_courant_sur(base);
     let now = maintenant_iso();

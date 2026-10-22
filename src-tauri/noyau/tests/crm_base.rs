@@ -9,7 +9,7 @@ mod commun;
 use commun::*;
 use gescom_noyau::argent::{self, ParamsLigneInput};
 use gescom_noyau::base::Base;
-use gescom_noyau::{crm, dossiers, parametres, relances};
+use gescom_noyau::{acces_dossiers, auth, crm, dossiers, parametres, pieces, relances};
 
 fn admin(base: &mut Base) -> String {
     base.lire_une("SELECT utilisateur_id FROM utilisateur_auth WHERE pseudo = 'admin'", &[], |r| r.get::<String>(0))
@@ -162,6 +162,54 @@ fn un_prospect_devient_client_a_sa_premiere_vente() {
     // ne touche plus son statut.
     vendre_au_client(&mut base, &id);
     assert_eq!(statut_client(&mut base, &id), "client");
+}
+
+/// 22/10 : la premiere vente peut aussi etre une facture validee
+/// (Pieces), pas seulement une vente au comptoir — la bascule vaut
+/// pour les deux chemins.
+#[test]
+fn un_prospect_devient_client_aussi_par_une_facture_validee() {
+    let mut base = base_avec_demo();
+    let p = crm::creer_prospect_sur(&mut base, "Boutique Sissoko".into(), None, Some("passage".into())).unwrap();
+    let id = p["id"].as_str().unwrap().to_string();
+    let sucre = article_unite(&mut base, "Sucre");
+
+    let facture = pieces::creer_piece_sur_base(
+        &mut base, id.clone(), "facture".into(), vec![ligne(&sucre, 1.0)],
+        None, None, None, None, None, None,
+    )
+    .unwrap();
+    assert_eq!(statut_client(&mut base, &id), "prospect", "un brouillon n'est pas une vente");
+
+    argent::valider_facture_sur_base(
+        &mut base, facture["id"].as_str().unwrap().to_string(), "credit".into(), None, None, None,
+    )
+    .unwrap();
+    assert_eq!(statut_client(&mut base, &id), "client", "la facture validée est sa première vente");
+    assert!(!crm::lister_prospects_sur(&mut base).unwrap().iter().any(|x| x["id"] == id));
+}
+
+/// 22/10 : un rappel attribue a qui n'entre pas dans le dossier (C-2)
+/// ne lui parviendrait jamais — refuse plutot qu'orphelin.
+#[test]
+fn un_rappel_ne_s_attribue_pas_a_qui_n_entre_pas_dans_le_dossier() {
+    let mut base = base_avec_demo();
+    let client = client_reel(&mut base);
+    let moi = admin(&mut base);
+    let awa = auth::creer_utilisateur_sur_base(
+        &mut base, "Awa".into(), "awa".into(), None, "secret-123".into(), "comptable".into(), moi,
+    )
+    .unwrap();
+    // Sans ligne de dossier, Awa entre dans le dossier d'origine.
+    crm::creer_rappel_sur(&mut base, client.clone(), awa.clone(), "2027-02-01".into(), "Relancer".into()).unwrap();
+
+    // Ses lignes ne lui ouvrent que la boutique B : plus rien ici.
+    let b = dossiers::creer_dossier_sur(&mut base, "B".into(), "Boutique B".into(), None, None)
+        .unwrap()["id"].as_str().unwrap().to_string();
+    acces_dossiers::definir_sur(&mut base, &awa, Some(vec![(b, "comptable".into())])).unwrap();
+    let refus = crm::creer_rappel_sur(&mut base, client, awa, "2027-02-01".into(), "Relancer".into()).unwrap_err();
+    assert!(refus.contains("n'entre pas"), "{refus}");
+    assert_eq!(crm::lister_rappels_sur(&mut base, None, None, true).unwrap().len(), 1, "le refus n'a rien écrit");
 }
 
 #[test]

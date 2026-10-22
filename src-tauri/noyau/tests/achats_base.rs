@@ -241,12 +241,63 @@ fn chaque_dossier_a_son_fournisseur_divers() {
         .unwrap()["id"].as_str().unwrap().to_string();
     base.choisir_dossier(&b).unwrap();
     assert_eq!(divers(&mut base), 0, "celui de l'autre dossier ne se voit pas");
-    // Pas d'achat ici : les numéros de pièce d'un second dossier
-    // heurtent ceux du premier (défaut connu, ETAPES 25/09). Le
-    // Fournisseur divers, lui, naît bien dans ce dossier.
+    // L'achat dans le second dossier : son Fournisseur divers naît ici,
+    // et sa FAF porte le code du dossier (22/10 : avant, son
+    // FAF-2026-00001 heurtait celui du premier dossier, UNIQUE sur
+    // toute la base, et l'achat échouait).
+    ouvrir_caisse(&mut base);
+    let r = achats::enregistrer_achat_sur_base(
+        &mut base, None, None, vec![ligne_achat(&sucre, 1.0, 500)],
+        Some("comptant".into()), None, None, None, None, None,
+    )
+    .expect("l'achat du second dossier passe");
+    assert!(r["numero"].as_str().unwrap().starts_with("B-FAF-"), "{r}");
     let id = achats::fournisseur_divers_sur(&mut base).unwrap();
     assert_eq!(achats::fournisseur_divers_sur(&mut base).unwrap(), id, "un seul, retrouvé");
     assert_eq!(divers(&mut base), 1);
+}
+
+/// 22/10 : la règle « comptant seulement » tenait dans Achats, mais
+/// Pièces, le règlement de dette, le retour en avoir et la fiche
+/// laissaient revenir la dette envers personne par une autre porte.
+#[test]
+fn le_fournisseur_divers_ne_recoit_ni_piece_ni_reglement_ni_avoir() {
+    let mut base = base_avec_demo();
+    let sucre = article_unite(&mut base, "Sucre");
+    ouvrir_caisse(&mut base);
+    achats::enregistrer_achat_sur_base(
+        &mut base, None, None, vec![ligne_achat(&sucre, 2.0, 500)],
+        Some("comptant".into()), None, None, None, None, None,
+    )
+    .unwrap();
+    let divers_id = achats::fournisseur_divers_sur(&mut base).unwrap();
+
+    let refus = pieces::creer_piece_fournisseur_sur_base(
+        &mut base, divers_id.clone(), "facture_fournisseur".into(), vec![ligne(&sucre, 1.0)],
+        None, None, None, None, None,
+    )
+    .unwrap_err();
+    assert!(refus.contains("Fournisseur divers") && refus.contains("pièce"), "{refus}");
+
+    let refus = gescom_noyau::argent::regler_dette_fournisseur_sur_base(
+        &mut base, divers_id.clone(), 100, "especes".into(), None, None,
+    )
+    .unwrap_err();
+    assert!(refus.contains("règlement"), "{refus}");
+
+    let refus = achats::enregistrer_retour_fournisseur_sur_base(
+        &mut base, divers_id.clone(), None, vec![ligne_retour(&sucre, 1.0, 500)],
+        None, Some("avoir".into()), None, None, None,
+    )
+    .unwrap_err();
+    assert!(refus.contains("rembourse"), "{refus}");
+
+    let refus = gescom_noyau::fournisseurs::modifier_fournisseur_sur_base(
+        &mut base, divers_id, "Marché Médine".into(), None, None, None, None, None,
+    )
+    .unwrap_err();
+    assert!(refus.contains("fiche"), "{refus}");
+    assert_eq!(caisse_solde_sorties(&mut base), 1_000, "aucun refus n'a touché le tiroir");
 }
 
 #[test]

@@ -179,6 +179,14 @@ pub fn creer_rappel_sur(
         .map_err(|e| e.0)?
         .ok_or_else(|| "Ce compte n'existe pas, ou n'est plus actif.".to_string())?;
     let dossier = base.dossier().to_string();
+    // C-2 : les droits valent par dossier. Un rappel attribue a qui
+    // n'entre pas ici ne lui parviendrait jamais (sa liste est filtree
+    // sur son dossier de session) — refuse plutot qu'orphelin.
+    if crate::acces_dossiers::role_dans_sur(base, &pour_utilisateur_id, &dossier)?.is_none() {
+        return Err(format!(
+            "{pour_nom} n'entre pas dans ce dossier : le rappel ne lui parviendrait jamais."
+        ));
+    }
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
     let now = crate::utils::maintenant_iso();
     let id = uuid::Uuid::new_v4().to_string();
@@ -289,17 +297,7 @@ pub fn creer_prospect_sur(
     // Meme generateur de code que `comptoir::creer_client_rapide_sur` :
     // deux formats de code client sur les memes pieces seraient une
     // confusion durable.
-    let prefixe = crate::dossiers::prefixe_de_code_sur(base)?;
-    let dernier: Option<i64> = base
-        .lire_une(
-            "SELECT MAX(CAST(SUBSTR(code, LENGTH(?2) + 7) AS BIGINT)) FROM client
-             WHERE dossier_id = ?1 AND code LIKE ?3",
-            &parametres![dossier.clone(), prefixe.clone(), format!("{prefixe}CLIENT_____")],
-            |r| r.get::<Option<i64>>(0),
-        )
-        .map_err(|e| e.0)?
-        .flatten();
-    let code = crate::coeur::tiers::code_client_suivant(&prefixe, dernier);
+    let code = crate::comptoir::prochain_code_client_sur(base)?;
 
     let mut tx = base.transaction().map_err(|e| e.0)?;
     tx.executer(

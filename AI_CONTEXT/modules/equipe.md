@@ -88,24 +88,30 @@ table à elles ; D34 (« pas une liste de plus ») se tient à la
 `vente` → `client`) et les mêle au fil, triées par date.
 
 **Table** `rappel` (cloisonnée, RLS) : `client_id`,
-`pour_utilisateur_id` (attribué à un compte actif), `quand`, `quoi`,
-`fait` / `fait_le`. Se pose depuis la fiche 360 ou l'onglet Prospects ;
-se marque fait des deux ; « Mes rappels » les filtre sur la session.
+`pour_utilisateur_id` (attribué à un compte actif **qui entre dans le
+dossier**, C-2 : `acces_dossiers::role_dans_sur`, sinon refus — un
+rappel attribué à qui ne peut pas ouvrir le dossier ne lui parviendrait
+jamais, 22/10), `quand`, `quoi`, `fait` / `fait_le`. Se pose depuis la
+fiche 360 ou l'onglet Prospects ; se marque fait des deux ; « Mes
+rappels » les filtre sur la session.
 
 **Pas de second fichier clients** (D34) : un **prospect** est une
 ligne `client` avec `statut = 'prospect'` (colonnes `statut` et
 `origine_prospect` — distincte d'`origine`, qui dit d'où vient la
-*ligne* de données, app/demo/import). `creer_prospect_sur` réutilise le
-générateur de code de `comptoir::creer_client_rapide_sur`. Il
-**redevient `client` tout seul à sa première vente** :
-`argent::creer_vente_datee_sur` (fenêtre) et `…_sur_base` (serveur)
-basculent son statut dans la même transaction que la vente — sans
+*ligne* de données, app/demo/import). `creer_prospect_sur` appelle le
+générateur de code du comptoir, `comptoir::prochain_code_client_sur`
+(un seul format, 22/10). Il **redevient `client` tout seul à sa
+première vente**, quel que soit son chemin : `argent::creer_vente_datee_sur`
+et `valider_facture_sur` (fenêtre), `…_sur_base` (serveur) appellent
+`prospect_devient_client[_sur]` dans la même transaction que la vente,
+erreur propagée (ALERTES : pas de `let _` dans une transaction) — sans
 bouton « convertir » à chercher.
 
 **Droits** : `crm:suivre` (une seule permission, écriture et lecture ;
 la lecture refuse sans elle, `coeur::lecture`), au catalogue depuis F-1.
 
-Preuves : 2 unitaires `coeur::crm`, `crm_base.rs` (9, trois moteurs :
-échange, fil fondu avec une relance, refus, rappel, prospect qui
-devient client, cloisonnement, détecteur) ; bancs
+Preuves : 2 unitaires `coeur::crm`, `crm_base.rs` (11, trois moteurs :
+échange, fil fondu avec une relance, refus, rappel, rappel refusé hors
+dossier, prospect qui devient client — au comptoir et par une facture
+validée —, cloisonnement, détecteur) ; bancs
 `h1-echanges-360.mjs`, `h2-rappels-prospects.mjs`.

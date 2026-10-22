@@ -18,7 +18,12 @@ RETURNING dernier
 ```
 
 La clé porte le **dossier** (`dossiers::cle_compteur`) : deux sociétés
-ont chacune leur suite. Le préfixe vient d'un seul endroit,
+ont chacune leur suite. Mais `piece_commerciale.numero` est unique sur
+**toute** la base : un dossier autre que celui d'origine préfixe donc
+ses numéros de son code (`QUINC-FAF-2026-00001`, via
+`dossiers::prefixe_de_code_sur`, comme ses codes clients) — sinon sa
+première pièce de chaque type heurtait celle du premier dossier
+(trouvé le 25/09, corrigé le 22/10). Le préfixe de type vient d'un seul endroit,
 `argent::prefixe_de` (`FAC`, `DEV`, `CMD`, `BL`, `AVC`, `BCF`, `BRF`,
 `FAF`, `AVF`…) ; la série repart à 1 chaque année, sauf le code-barre
 interne.

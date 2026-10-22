@@ -124,6 +124,12 @@ pub fn modifier_fournisseur(
     if nom.trim().is_empty() {
         return Err("Le nom est obligatoire".to_string());
     }
+    // Comme le client generique : le « Fournisseur divers » ne se
+    // modifie pas, l'ecran Achats le nomme par sa constante.
+    crate::coeur::tiers::refuser_si_fournisseur_divers(
+        crate::achats::est_fournisseur_divers(conn, &fournisseur_id),
+        "modifier sa fiche",
+    )?;
 
     let existe: i64 = conn.query_row(
         "SELECT COUNT(*) FROM fournisseur WHERE id = ?1",
@@ -1007,6 +1013,12 @@ pub fn modifier_fournisseur_sur_base(
     if nom.trim().is_empty() {
         return Err("Le nom est obligatoire".to_string());
     }
+    // Comme le client generique : le « Fournisseur divers » ne se
+    // modifie pas, l'ecran Achats le nomme par sa constante.
+    crate::coeur::tiers::refuser_si_fournisseur_divers(
+        crate::achats::est_fournisseur_divers_sur(base, &fournisseur_id)?,
+        "modifier sa fiche",
+    )?;
     let dossier = base.dossier().to_string();
     let vide = |o: Option<String>| o.filter(|s| !s.trim().is_empty());
     let modifiees = base

@@ -475,11 +475,7 @@ pub fn creer_vente_datee_sur(
     // sa premiere vente. Un prospect ne peut naitre que par Équipe
     // (D29, cote serveur), mais la meme base SQLite peut aussi s'ouvrir
     // ici directement : la meme regle vaut des deux cotes.
-    tx.execute(
-        "UPDATE client SET statut = 'client', modifie_le = ?1
-         WHERE id = ?2 AND statut = 'prospect'",
-        rusqlite::params![now, client_id],
-    ).ok();
+    prospect_devient_client(&tx, &client_id, &now)?;
 
     // La table `facture` legacy n'est PLUS alimentee : piece_commerciale
     // est le referentiel unique des documents. La facture POS est creee
@@ -527,6 +523,21 @@ pub fn lire_lignes_raw(
         ))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
     Ok(x)
+}
+
+/// Un prospect (PLAN-EQUIPE H-2, D34) devient client a sa premiere
+/// vente, quel que soit le chemin de la vente (comptoir ou facture
+/// validee). Sans effet sur un client deja 'client'. L'erreur se
+/// propage : c'est une regle, pas une ecriture facultative (ALERTES :
+/// sur PostgreSQL une erreur avalee avorte toute la transaction).
+fn prospect_devient_client(tx: &rusqlite::Connection, client_id: &str, now: &str) -> Result<(), String> {
+    tx.execute(
+        "UPDATE client SET statut = 'client', modifie_le = ?1
+         WHERE id = ?2 AND statut = 'prospect'",
+        rusqlite::params![now, client_id],
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
 }
 
 pub fn valider_facture_sur(
@@ -636,6 +647,9 @@ pub fn valider_facture_sur(
             auteur_id, now, now, now, auteur_id, auteur_id, piece_id
         ],
     ).map_err(|e| e.to_string())?;
+    // Une facture validee est une vente comme une autre : le prospect
+    // devient client ici aussi (D34), pas seulement au comptoir.
+    prospect_devient_client(&tx, &client_id, &now)?;
 
     // 2. Insérer les lignes de vente + décrémenter le stock
     for (i, (art_id, uv_id, qte, prix_u, _remise_pct, taux_tva))
@@ -988,6 +1002,12 @@ pub fn regler_dette_fournisseur_datee(
     // D27 : un montant negatif serait une sortie de caisse negative —
     // de l'argent qui apparait dans le tiroir.
     crate::coeur::saisie::verifier_montant(montant)?;
+    // Le « Fournisseur divers » n'a pas de dette : un reglement sur lui
+    // sortirait de l'argent du tiroir vers personne.
+    crate::coeur::tiers::refuser_si_fournisseur_divers(
+        crate::achats::est_fournisseur_divers(conn, &fournisseur_id),
+        "un règlement de dette",
+    )?;
     let auteur = id_utilisateur_courant_pub(&conn);
     let now = maintenant_iso();
     let (date_affaire, libelle_caisse) = date_du_reglement(&now, date_paiement.as_deref())?;
@@ -1283,6 +1303,24 @@ pub fn id_utilisateur_par_role_sur(base: &mut impl Acces, role: &str) -> String 
 /// separes par une autre connexion. Les faire en deux temps rouvrirait
 /// exactement la fenetre qu'on a fermee — et cette fenetre valait
 /// 5 doublons sur 100 numeros, mesures.
+/// Version serveur de `prospect_devient_client` : dans la transaction
+/// de la vente (`&mut impl Acces`), erreur propagee.
+pub fn prospect_devient_client_sur(
+    acces: &mut impl Acces,
+    client_id: &str,
+    dossier: &str,
+    now: &str,
+) -> Result<(), String> {
+    acces
+        .executer(
+            "UPDATE client SET statut = 'client', modifie_le = ?1
+             WHERE id = ?2 AND dossier_id = ?3 AND statut = 'prospect'",
+            &parametres![now, client_id, dossier],
+        )
+        .map(|_| ())
+        .map_err(|e| e.0)
+}
+
 pub fn suivant_sur(base: &mut impl Acces, cle: &str) -> Result<i64, String> {
     let cle = crate::dossiers::cle_compteur(base.dossier(), cle);
     let cle = cle.as_str();
@@ -1306,7 +1344,13 @@ pub fn reserver_numero_sur(base: &mut impl Acces, type_piece: &str) -> Result<St
     let prefix = prefixe_de(type_piece);
     let cle = format!("{prefix}-{annee}");
     let rang = suivant_sur(base, &cle)?;
-    Ok(format!("{prefix}-{annee}-{rang:05}"))
+    // Le compteur est par dossier mais `piece_commerciale.numero` est
+    // unique sur TOUTE la base : un second dossier prefixe ses numeros
+    // de son code (« QUINC-FAF-2026-00001 »), comme ses codes clients
+    // (`dossiers::prefixe_de_code_sur`). Sans cela, sa premiere piece
+    // de chaque type heurtait celle du dossier d'origine (ETAPES 25/09).
+    let prefixe_dossier = crate::dossiers::prefixe_de_code_sur(base)?;
+    Ok(format!("{prefixe_dossier}{prefix}-{annee}-{rang:05}"))
 }
 
 /// Le prefixe d'une serie.
@@ -1757,11 +1801,7 @@ pub fn creer_vente_datee_sur_base(
     // PLAN-EQUIPE, H-2 (D34) : un prospect devient client tout seul a
     // sa premiere vente — pas de bouton « convertir » a chercher. Sans
     // effet sur un client deja 'client'.
-    let _ = tx.executer(
-        "UPDATE client SET statut = 'client', modifie_le = ?1
-         WHERE id = ?2 AND dossier_id = ?3 AND statut = 'prospect'",
-        &parametres![now.clone(), client_id.clone(), dossier.clone()],
-    );
+    prospect_devient_client_sur(&mut tx, &client_id, &dossier, &now)?;
 
     // La table `facture` legacy n'est PLUS alimentee : piece_commerciale
     // est le referentiel unique des documents.
@@ -1929,6 +1969,9 @@ pub fn valider_facture_sur_base(
         ],
     )
     .map_err(|e| e.0)?;
+    // Une facture validee est une vente comme une autre : le prospect
+    // devient client ici aussi (D34), pas seulement au comptoir.
+    prospect_devient_client_sur(&mut tx, &client_id, &dossier, &now)?;
 
     // 2. Insérer les lignes de vente + décrémenter le stock
     for (i, (art_id, uv_id, qte, prix_u, _remise_pct, taux_tva)) in lignes_raw.iter().enumerate() {
@@ -2451,6 +2494,12 @@ pub fn regler_dette_fournisseur_datee_sur_base(
     date_paiement: Option<String>,
 ) -> Result<serde_json::Value, String> {
     crate::coeur::saisie::verifier_montant(montant)?; // D27
+    // Le « Fournisseur divers » n'a pas de dette : un reglement sur lui
+    // sortirait de l'argent du tiroir vers personne.
+    crate::coeur::tiers::refuser_si_fournisseur_divers(
+        crate::achats::est_fournisseur_divers_sur(base, &fournisseur_id)?,
+        "un règlement de dette",
+    )?;
     let dossier = base.dossier().to_string();
     let auteur = id_utilisateur_courant_sur(base);
     let now = maintenant_iso();

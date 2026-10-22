@@ -742,6 +742,12 @@ CREATE INDEX IF NOT EXISTS idx_stock_depot_article  ON stock_depot(article_id, d
 CREATE INDEX IF NOT EXISTS idx_vente_client         ON vente(client_id);
 CREATE INDEX IF NOT EXISTS idx_vente_date           ON vente(date_vente DESC);
 CREATE INDEX IF NOT EXISTS idx_vente_statut         ON vente(statut);
+-- Le suivi client (H-1/H-2) : le fil d'un client, les rappels d'une
+-- personne — sans ces index, chaque fiche relit toute la table.
+CREATE INDEX IF NOT EXISTS idx_echange_client       ON echange(client_id);
+CREATE INDEX IF NOT EXISTS idx_rappel_client        ON rappel(client_id);
+CREATE INDEX IF NOT EXISTS idx_rappel_pour          ON rappel(pour_utilisateur_id, fait);
+CREATE INDEX IF NOT EXISTS idx_relance_vente        ON relance_creance(vente_id);
 
 -- =====================================================================
 --  CHÈQUES REÇUS — une promesse, pas de l'argent (cf. cheques.rs)

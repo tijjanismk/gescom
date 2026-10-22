@@ -121,15 +121,20 @@ function Fiche360({ clientId, moi, onRetour }: { clientId: string; moi: { id: st
     }
   }
 
-  if (!fiche) return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />;
-
-  const { client, stats } = fiche;
-  const estProspect = client.statut === "prospect";
+  // Le bouton Retour et l'avis restent visibles meme quand la fiche ne
+  // charge pas : sinon un echec initial laisse un tourniquet sans issue.
+  const client = fiche?.client;
+  const stats = fiche?.stats;
+  const estProspect = client?.statut === "prospect";
 
   return (
     <div className="space-y-4 max-w-3xl" data-testid="fiche-360">
       <Button size="sm" variant="ghost" onClick={onRetour}><ArrowLeft className="h-4 w-4 mr-1" /> Retour</Button>
 
+      {avis && <p className={`text-sm ${avis.erreur ? "text-red-600" : "text-emerald-700"}`} role="status">{avis.texte}</p>}
+
+      {!client || !stats ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
+      <>
       <div className="flex items-center gap-2 flex-wrap">
         <h1 className="text-xl font-semibold">{client.nom}</h1>
         <span className="text-sm text-muted-foreground">{client.code}</span>
@@ -142,8 +147,6 @@ function Fiche360({ clientId, moi, onRetour }: { clientId: string; moi: { id: st
         <div className="border border-border rounded-lg px-3 py-2"><div className="text-muted-foreground text-xs">Ventes</div><div className="font-semibold">{stats.nb_ventes}</div></div>
         {stats.encours != null && <div className="border border-border rounded-lg px-3 py-2"><div className="text-muted-foreground text-xs">Encours</div><div className="font-semibold">{f(stats.encours)}</div></div>}
       </div>
-
-      {avis && <p className={`text-sm ${avis.erreur ? "text-red-600" : "text-emerald-700"}`} role="status">{avis.texte}</p>}
 
       {/* Rappels */}
       <div className="border border-border rounded-lg p-4 space-y-3">
@@ -213,6 +216,8 @@ function Fiche360({ clientId, moi, onRetour }: { clientId: string; moi: { id: st
           ))}
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -224,14 +229,22 @@ function Fiche360({ clientId, moi, onRetour }: { clientId: string; moi: { id: st
 function Clients({ onOuvrir }: { onOuvrir: (id: string) => void }) {
   const [recherche, setRecherche] = useState("");
   const [resultats, setResultats] = useState<ClientLigne[] | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
 
+  // La recherche part au serveur : on attend que la frappe se pose
+  // (200 ms), et on jette une reponse — ou une erreur — arrivee apres
+  // une frappe plus recente.
   useEffect(() => {
     let annule = false;
-    invoke<{ donnees: ClientLigne[] }>("lire_clients_pagines", {
-      page: 0, limite: 20, recherche: recherche || null,
-      avecCreancesSeulement: false, ventesFiltre: null, tri: null,
-    }).then(r => { if (!annule) setResultats(r.donnees); }).catch(() => setResultats([]));
-    return () => { annule = true; };
+    const t = setTimeout(() => {
+      invoke<{ donnees: ClientLigne[] }>("lire_clients_pagines", {
+        page: 0, limite: 20, recherche: recherche || null,
+        avecCreancesSeulement: false, ventesFiltre: null, tri: null,
+      })
+        .then(r => { if (annule) return; setErreur(null); setResultats(r.donnees); })
+        .catch(e => { if (annule) return; setErreur(String(e)); setResultats([]); });
+    }, 200);
+    return () => { annule = true; clearTimeout(t); };
   }, [recherche]);
 
   return (
@@ -243,7 +256,8 @@ function Clients({ onOuvrir }: { onOuvrir: (id: string) => void }) {
       </label>
       {!resultats ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
         <div className="border border-border rounded-lg divide-y divide-border">
-          {resultats.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">Aucun client.</p>}
+          {erreur ? <p className="px-4 py-3 text-sm text-red-600" role="status">{erreur}</p>
+            : resultats.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">Aucun client.</p>}
           {resultats.map(c => (
             <button key={c.id} onClick={() => onOuvrir(c.id)} data-testid="resultat-client"
               className="w-full flex items-center gap-3 px-4 py-2 text-sm text-left hover:bg-muted">
@@ -335,18 +349,32 @@ function Prospects({ onOuvrir }: { onOuvrir: (id: string) => void }) {
 function MesRappels({ moi, onOuvrir }: { moi: { id: string }; onOuvrir: (id: string) => void }) {
   const [liste, setListe] = useState<Rappel[] | null>(null);
   const [enCours, setEnCours] = useState(false);
+  const [avis, setAvis] = useState<{ texte: string; erreur?: boolean } | null>(null);
 
   const charger = useCallback(async () => setListe(await invoke<Rappel[]>("lire_rappels", { pourUtilisateurId: moi.id, clientId: null, inclureFaits: false })), [moi.id]);
-  useEffect(() => { charger().catch(() => setListe([])); }, [charger]);
+  useEffect(() => { charger().catch(e => { setAvis({ texte: String(e), erreur: true }); setListe([]); }); }, [charger]);
 
   async function marquerFait(id: string) {
     setEnCours(true);
-    try { await invoke("marquer_rappel_fait", { rappelId: id }); await charger(); } finally { setEnCours(false); }
+    setAvis(null);
+    try {
+      await invoke("marquer_rappel_fait", { rappelId: id });
+      await charger();
+    } catch (e) {
+      setAvis({ texte: String(e), erreur: true });
+      // On recharge quand meme : un rappel deja marque par un collegue
+      // doit disparaitre de la liste.
+      await charger().catch(() => {});
+    } finally {
+      setEnCours(false);
+    }
   }
 
   if (!liste) return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />;
 
   return (
+    <>
+    {avis && <p className={`text-sm ${avis.erreur ? "text-red-600" : "text-emerald-700"}`} role="status">{avis.texte}</p>}
     <div className="border border-border rounded-lg divide-y divide-border max-w-2xl" data-testid="mes-rappels">
       {liste.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">Aucun rappel en attente.</p>}
       {liste.map(r => (
@@ -361,6 +389,7 @@ function MesRappels({ moi, onOuvrir }: { moi: { id: string }; onOuvrir: (id: str
         </div>
       ))}
     </div>
+    </>
   );
 }
 

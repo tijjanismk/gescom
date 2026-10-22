@@ -1882,3 +1882,58 @@ pris par le premier dossier, et la base refuse (le numéro est unique
 partout, le compteur par dossier). Même chose pour les autres pièces.
 Pas corrigé ici : il faut décider à quoi ressemble le numéro imprimé
 d'un second dossier (préfixe du code, comme les codes clients ?).
+
+## 22/10/2026 — Revue de `rh` : ce qui méritait correction
+
+Une revue à fond des deux commits de la branche (H-1/H-2 et l'achat
+sans fournisseur) : dix angles, seize vérifications, les suites SQLite
+et PostgreSQL rejouées. Quinze constats retenus, et parmi eux quatre
+vrais défauts, tous corrigés le jour même.
+
+**Le prospect et la facture.** La bascule prospect → client vivait dans
+les deux `creer_vente_datee_sur*`, mais une vente naît aussi d'une
+facture validée (`valider_facture_sur*`) : un prospect facturé depuis
+Pièces restait prospect, avec « Ventes : 1 » sur sa fiche. Une seule
+aide, `prospect_devient_client[_sur]`, appelée aux quatre endroits, et
+son erreur se propage — le `let _ = tx.executer(...)` d'origine était
+exactement ce que la revue du 23/09 interdit dans une transaction.
+
+**Le second dossier.** Le défaut « trouvé en route, pas corrigé » du
+25/09 était devenu une régression : l'achat sans fournisseur, qui ne
+réservait pas de numéro, était le seul achat qui marchait encore dans
+un second dossier ; en lui donnant une FAF, on le faisait heurter
+`FAF-2026-00001` du premier dossier, et le retour arrière annulait
+aussi le compteur — chaque essai heurtait à nouveau. Tranché comme les
+codes clients : un dossier autre que celui d'origine préfixe ses
+numéros de son code (`B-FAF-2026-00001`), dans `reserver_numero_sur`,
+un seul endroit. Le format imprimé d'un second dossier est donc « le
+code du dossier, un tiret, le numéro » ; si le propriétaire en veut un
+autre, c'est une ligne.
+
+**Une seule porte pour le Fournisseur divers.** La règle « comptant
+seulement » tenait dans Achats, mais Pièces lui créait une FAF à crédit,
+le retour fournisseur lui faisait un avoir, le règlement de dette lui
+payait du tiroir, et sa fiche se renommait — la dette envers personne
+revenait par quatre portes. Deux règles pures dans `coeur::tiers`,
+jugées dans les deux versions ; sa fiche est figée comme celle du
+client générique.
+
+**Le rappel orphelin.** Un rappel s'attribuait à n'importe quel compte
+actif ; avec les droits par dossier (C-2), la comptable qui n'entre que
+dans la boutique B ne verrait jamais celui posé dans A. Refusé par
+`role_dans_sur`, l'aide qui garde déjà `renommer_dossier`.
+
+Et le reste : `lire_fiche_client` de la fenêtre rend `statut` (règle
+2), le générateur de code client est une seule fonction
+(`comptoir::prochain_code_client_sur`), l'attribut clippy retrouve sa
+fonction, les tables `echange`/`rappel` ont leurs index, l'écran Suivi
+clients affiche ses erreurs au lieu d'un rond qui tourne ou d'un
+« Aucun client. ». Hors branche, un test de `pieces_base` datait une
+pièce au 3 septembre en dur : passé le 4 octobre, la règle des 31 jours
+le refusait — relatif au jour maintenant.
+
+Laissé de côté, volontairement : l'aplatissement du plomb `Option`
+dans `enregistrer_achat_date*` (gros, sans défaut), le rachat des
+anciens achats sans fournisseur à crédit (un 401 jamais soldé, à
+décider), les copies de petites aides (`texte`, `jour`, `noter`,
+formatteurs du front).

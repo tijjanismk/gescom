@@ -29,9 +29,49 @@ pub fn verifier_achat_sans_fournisseur(mode_reglement: Option<&str>) -> Result<(
     }
 }
 
+/// Le « Fournisseur divers » ne sert qu'aux achats comptant sans
+/// fournisseur : pas de piece saisie a la main, pas de reglement de
+/// dette, pas de modification de sa fiche. Sinon la dette envers
+/// personne revient par une autre porte. `est_divers` vient de la base ;
+/// `geste` nomme ce qu'on refuse, pour le message. Pure.
+pub fn refuser_si_fournisseur_divers(est_divers: bool, geste: &str) -> Result<(), String> {
+    if est_divers {
+        Err(format!(
+            "Le « {FOURNISSEUR_DIVERS} » ne sert qu'aux achats comptant sans fournisseur : \
+             {geste} impossible. Pour cela, choisir ou créer le vrai fournisseur."
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// Un retour au « Fournisseur divers » se rembourse : un avoir sur lui
+/// ne se consommerait jamais, puisqu'on ne lui achete pas a credit. Pure.
+pub fn verifier_retour_fournisseur_divers(est_divers: bool, mode_resolution: Option<&str>) -> Result<(), String> {
+    if est_divers && mode_resolution != Some("remboursement") {
+        Err(format!(
+            "Un retour au « {FOURNISSEUR_DIVERS} » se rembourse : un avoir sur lui ne \
+             servirait jamais (on ne lui achète pas à crédit)."
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn le_fournisseur_divers_ne_recoit_que_des_achats_comptant() {
+        assert!(refuser_si_fournisseur_divers(false, "une pièce").is_ok());
+        let refus = refuser_si_fournisseur_divers(true, "une pièce saisie à la main").unwrap_err();
+        assert!(refus.contains("Fournisseur divers") && refus.contains("pièce saisie"), "{refus}");
+        assert!(verifier_retour_fournisseur_divers(true, Some("remboursement")).is_ok());
+        assert!(verifier_retour_fournisseur_divers(false, Some("avoir")).is_ok());
+        assert!(verifier_retour_fournisseur_divers(true, Some("avoir")).unwrap_err().contains("rembourse"));
+        assert!(verifier_retour_fournisseur_divers(true, None).is_err(), "le mode par défaut est l'avoir");
+    }
 
     #[test]
     fn sans_fournisseur_on_paie_comptant() {

@@ -463,7 +463,9 @@ fn chaque_dossier_sa_paie_et_ses_numeros() {
     let issa = creer(&mut base, json!({ "nom": "Issa", "fonction": "gardien", "salaire_mensuel": 40000 }));
     let g = paie::preparer_sur(&mut base, issa, jour(-30), jour(0), false).unwrap();
     let g = paie::valider_sur(&mut base, g["id"].as_str().unwrap().into()).unwrap();
-    assert_eq!(g["numero"], format!("PAIE-{}-00001", annee()), "chaque dossier numérote ses fiches");
+    // Chaque dossier numerote ses fiches, et un second dossier prefixe
+    // ses numeros de son code (22/10, comme toute piece).
+    assert_eq!(g["numero"], format!("B-PAIE-{}-00001", annee()), "chaque dossier numérote ses fiches");
 }
 
 #[test]

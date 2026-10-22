@@ -49,8 +49,9 @@ fn fournisseur_divers(conn: &rusqlite::Connection) -> Result<String, String> {
 }
 
 /// Le fournisseur est-il le « Fournisseur divers » ? Un fournisseur
-/// inconnu n'en est pas un (le refus vient ailleurs, s'il doit venir).
-fn est_fournisseur_divers(conn: &rusqlite::Connection, id: &str) -> bool {
+/// inconnu n'en est pas un : aucun refus aujourd'hui, un id inconnu
+/// passe comme un fournisseur ordinaire (defaut d'avant, hors ecran).
+pub(crate) fn est_fournisseur_divers(conn: &rusqlite::Connection, id: &str) -> bool {
     conn.query_row(
         "SELECT est_generique FROM fournisseur WHERE id = ?1",
         rusqlite::params![id],
@@ -520,6 +521,13 @@ pub fn enregistrer_retour_fournisseur_sur(
     // Meme refus que le transfert (D32), pour la meme raison.
     verifier_stock_disponible(conn, &depot_id, &lignes)?;
 
+    // Un retour au « Fournisseur divers » se rembourse : un avoir sur
+    // lui ne se consommerait jamais (pas d'achat a credit chez lui).
+    crate::coeur::tiers::verifier_retour_fournisseur_divers(
+        est_fournisseur_divers(conn, &fournisseur_id),
+        mode_resolution.as_deref(),
+    )?;
+
     let rembourse = mode_resolution.as_deref() == Some("remboursement");
 
     // Meme regle qu'a l'achat : si le tiroir doit s'ouvrir, il doit etre
@@ -898,6 +906,12 @@ pub fn valider_facture_fournisseur(
             brut - remise
         })
         .sum();
+
+    // Chez le « Fournisseur divers », comptant seulement — meme regle
+    // qu'a l'achat, sinon la dette envers personne revient par Pieces.
+    if est_fournisseur_divers(conn, &fournisseur_id) {
+        crate::coeur::tiers::verifier_achat_sans_fournisseur(Some(&mode_reglement))?;
+    }
 
     let comptant = mode_reglement == "comptant";
     let montant_regle = if comptant { total } else { acompte.unwrap_or(0).max(0) };
@@ -1280,7 +1294,6 @@ fn sortie_de_caisse(
         .map(|_| ())
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Le « Fournisseur divers » du dossier, cree s'il n'existe pas encore.
 /// Sert dans la transaction de l'achat (`&mut impl Acces`).
 pub fn fournisseur_divers_sur(acces: &mut impl Acces) -> Result<String, String> {
@@ -1307,9 +1320,12 @@ pub fn fournisseur_divers_sur(acces: &mut impl Acces) -> Result<String, String> 
     Ok(id)
 }
 
-fn est_fournisseur_divers_sur(base: &mut Base, id: &str) -> Result<bool, String> {
-    let dossier = base.dossier().to_string();
-    Ok(base
+/// Le fournisseur est-il le « Fournisseur divers » du dossier ? Sert
+/// dedans et hors transaction (`&mut impl Acces`) : achats, pieces,
+/// retours, reglements, fiche.
+pub(crate) fn est_fournisseur_divers_sur(acces: &mut impl Acces, id: &str) -> Result<bool, String> {
+    let dossier = acces.dossier().to_string();
+    Ok(acces
         .lire_une(
             "SELECT est_generique FROM fournisseur WHERE id = ?1 AND dossier_id = ?2",
             &parametres![id, dossier],
@@ -1319,6 +1335,7 @@ fn est_fournisseur_divers_sur(base: &mut Base, id: &str) -> Result<bool, String>
         .is_some_and(|g| g != 0))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn enregistrer_achat_sur_base(
     base: &mut Base,
     fournisseur_id: Option<String>,
@@ -1691,6 +1708,13 @@ pub fn enregistrer_retour_fournisseur_sur_base(
 
     verifier_stock_disponible_sur(base, &depot_id, &lignes)?;
 
+    // Un retour au « Fournisseur divers » se rembourse : un avoir sur
+    // lui ne se consommerait jamais (pas d'achat a credit chez lui).
+    crate::coeur::tiers::verifier_retour_fournisseur_divers(
+        est_fournisseur_divers_sur(base, &fournisseur_id)?,
+        mode_resolution.as_deref(),
+    )?;
+
     let rembourse = mode_resolution.as_deref() == Some("remboursement");
     let session = if rembourse {
         Some(crate::caisses::exiger_sur(base, None)?)
@@ -1997,6 +2021,12 @@ pub fn valider_facture_fournisseur_sur_base(
             brut - (brut as f64 * remise_pct / 100.0).round() as i64
         })
         .sum();
+
+    // Chez le « Fournisseur divers », comptant seulement — meme regle
+    // qu'a l'achat, sinon la dette envers personne revient par Pieces.
+    if est_fournisseur_divers_sur(base, &fournisseur_id)? {
+        crate::coeur::tiers::verifier_achat_sans_fournisseur(Some(&mode_reglement))?;
+    }
 
     let comptant = mode_reglement == "comptant";
     let montant_regle = if comptant { total } else { acompte.unwrap_or(0).max(0) };
