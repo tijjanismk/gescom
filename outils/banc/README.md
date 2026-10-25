@@ -12,6 +12,52 @@ node a1-documents.mjs                  # un parcours
 npm run tout                           # tous, dans l'ordre
 ```
 
+## Sous Windows : les deux installations de la v3
+
+```powershell
+cd outils\banc ; npm install ; cd ..\.. ; npm install      # Playwright, et Vite pour l'écran
+$env:CHROMIUM = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"   # Edge déjà là, rien à télécharger
+.\outils\banc\lancer.ps1 monoposte  -Neuf   # la vraie fenêtre Tauri + son serveur SQLite
+node outils\banc\suite.mjs p                # p1 … p4, dans la fenêtre
+.\outils\banc\lancer.ps1 multiposte -Neuf   # serveur sur PostgreSQL gescom_test, chaque navigateur un poste
+node outils\banc\suite.mjs                  # a1 … i3 (le banc ci-dessous, sur PostgreSQL)
+node outils\banc\suite.mjs m                # m2 … m4, deux postes à la fois
+.\outils\banc\lancer.ps1 sqlite -Neuf       # comme lancer.sh : serveur SQLite
+.\outils\banc\lancer.ps1 arreter
+```
+
+- **monoposte** — la boutique à une caisse telle qu'elle s'installe
+  (ARCHITECTURE.md) : le serveur SQLite et `gescom.exe` (build de
+  débogage) sur la même machine. Playwright pilote la vraie fenêtre
+  par le port de débogage de WebView2 (`:9222`). La fenêtre ne garde
+  plus de base à elle : en mode « monoposte » elle demande où est le
+  serveur, et `p1` la branche sur `127.0.0.1`. `GESCOM_DONNEES` (lu
+  **seulement en débogage**) et un profil WebView2 à part la tiennent
+  dans `.travail/monoposte` : la base et la session du propriétaire
+  (`%APPDATA%\ml.gescom.app`) ne sont pas ouvertes — `p1` le vérifie.
+- **multiposte** — le lanceur **refuse toute base qui n'est pas
+  `gescom_test`** ; `-Neuf` y fait `DROP SCHEMA` puis pose la démo
+  avec `examples/amorcer --demo` (sur PostgreSQL, le serveur ne la
+  pose pas lui-même). Ne pas lancer en même temps que des `cargo test`
+  sur `gescom_test`.
+- `suite.mjs` joue tout sans s'arrêter au premier échec, garde chaque
+  sortie dans `.travail/suite/` et fait le bilan ; `i2` est sauté
+  (et dit) sans `pdftoppm`.
+- Vite tourne avec `vite.banc.config.ts` : la config du projet, sans
+  surveiller `.travail` (le profil WebView2 y a des fichiers verrouillés).
+
+| parcours | mode | ce qu'il prouve |
+|---|---|---|
+| `p1-premier-demarrage.mjs` | monoposte | la fenêtre neuve demande le serveur ; « Enregistrer » fermé avant « Essayer » ; `poste.json` réécrit (poste, 127.0.0.1, nom) ; patron connecté, un seul dossier, rien à choisir ; cache vidé : pas de retour au branchement ; la base du propriétaire intacte |
+| `p2-tous-les-ecrans.mjs` | monoposte | chaque menu et chaque onglet de Paramètres s'ouvre dans WebView2 sans erreur ; Réseau montre ce que dit `poste.json` |
+| `p3-argent.mjs` | monoposte | caisse fermée : vente refusée, stock intact ; caisse ouverte **par l'écran** (10 000 F) ; vente comptant ×2 : stock −2, caisse + prix ; crédit puis règlement : créance aller-retour, argent entré ; fermeture à écart 0 |
+| `p4-sauvegarde-auto.mjs` | monoposte | la copie automatique part seule après le démarrage (20 s ici, `GESCOM_SAUVEGARDE_DELAI_S`), nommée à la seconde, une vraie base ; Paramètres → Sauvegarde la montre |
+| `m2-deux-caisses.mjs` | multiposte | deux postes, deux comptes, en même temps : 12 devis sans numéro en double ; 10 ventes du même article (5 + 5) : stock −10 lu pareil des deux côtés, caisse commune + 10 × prix |
+| `m3-un-poste-l-autre-voit.mjs` | multiposte | crédit sur A ; la comptable sur B lit la créance et encaisse 300 F ; A relit la créance et la caisse ; A ferme la caisse : B refusé, la créance ne bouge pas |
+| `m4-deux-dossiers.mjs` | multiposte | deux dossiers ouverts en même temps sur deux postes : une caisse chacun, clients séparés, articles communs mais stock à soi, deux numérotations |
+
+## Le banc d'origine (serveur SQLite, `lancer.sh`)
+
 Chaque parcours affiche `ok` / `ECHEC` par vérification et sort en
 erreur au premier échec. Base, journaux et captures : `.travail/`
 (ignoré par git). `CHROMIUM=/chemin/chrome` pour un navigateur déjà

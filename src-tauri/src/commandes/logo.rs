@@ -17,13 +17,13 @@
 //! serveur. La logique (validation, depot, enregistrement) vit dans
 //! `noyau::images`, pour que le serveur fasse exactement la meme chose.
 
-use tauri::{State, Manager};
+use tauri::State;
 use crate::commandes::ventes::EtatApp;
 
 /// Le dossier de donnees de l'application — la ou les images sont
 /// deposees, et le repli de lecture.
 fn dossier_donnees(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
-    app.path().app_data_dir().ok()
+    crate::dossier_donnees(app).ok()
 }
 
 #[tauri::command]

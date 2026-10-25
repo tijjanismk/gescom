@@ -1996,3 +1996,71 @@ changement de mot de passe se ferme, et que la boîte « Quel dossier
 ouvrir ? » paraisse. Sous Git Bash, `lancer.sh` ne sait pas arrêter
 l'instance précédente (`lsof` absent) : tuer les ports 7300 et 1420 à
 la main avant `neuf`.
+
+## 25/10/2026 — Le banc d'écran sur les deux installations de la v3
+
+Demande du propriétaire : des tests Playwright, la v3 comme référence
+pour le monoposte et le multiposte. Le banc (`outils/banc/`) ne
+connaissait qu'un serveur SQLite et un navigateur ; il monte
+maintenant, sous Windows (`lancer.ps1`), les deux installations telles
+qu'elles se posent chez un commerçant, chacune sur une base jetable.
+
+**Monoposte : la vraie fenêtre.** Playwright pilote `gescom.exe`
+(débogage) par le port de débogage de WebView2. Pour qu'elle n'ouvre
+pas la base du propriétaire (`%APPDATA%\ml.gescom.app`, sa base de
+790 Ko et son `poste.json`), une variable `GESCOM_DONNEES` remplace
+son dossier de données — **lue seulement en build de débogage**
+(`lib.rs::dossier_donnees`, servie à la base, à `poste.json` et aux
+images) : un exécutable livré l'ignore. `p1` vérifie que les fichiers
+du propriétaire n'ont pas bougé. Le profil WebView2 est à part aussi.
+
+Constat en route : **la fenêtre n'ouvre plus de base locale.** En mode
+« monoposte » (le défaut de `poste.json`), `App.tsx` affiche « Brancher
+ce poste » et `appeler` refuse sans serveur ; c'est ce que dit
+ARCHITECTURE.md (« une seule machine ne veut pas dire sans serveur »),
+pas PLAN-V3 § 6 ni le tableau de D22, qui décrivent encore la fenêtre
+sur sa base SQLite par les façades `Connection`. Le monoposte du banc
+est donc le serveur SQLite + la fenêtre sur `127.0.0.1`. La fenêtre
+crée encore un `gescom.db` local à son démarrage (`lib.rs`), que plus
+rien ne lit depuis l'écran. Non corrigé : à trancher.
+
+**Multiposte : PostgreSQL `gescom_test`, rien d'autre.** Le lanceur
+refuse toute autre base, y fait `DROP SCHEMA` avec `-Neuf`, puis pose
+la démo par `examples/amorcer --demo` — sur PostgreSQL le serveur ne
+l'écrit pas lui-même (`GESCOM_DEMO` ne joue que sur SQLite) : sans
+elle, la moitié du banc tombait faute d'articles. Le journal du
+serveur va dans `.travail` (`--journal`) : par défaut, sous Windows,
+il s'écrivait dans `%APPDATA%\ml.gescom.app\serveur.log`.
+
+**Nouveaux parcours.** `p1` premier démarrage (branchement, `poste.json`
+réécrit, un seul dossier, cache vidé sans retour au branchement), `p2`
+tous les écrans dans WebView2, `p3` l'argent (refus caisse fermée,
+caisse ouverte **par l'écran**, stock et caisse au franc près, crédit
+puis règlement, fermeture à écart 0), `p4` la copie automatique du
+25/09 qui part seule (20 s par `GESCOM_SAUVEGARDE_DELAI_S`). `m2` deux
+caisses en même temps (12 devis sans doublon, 10 ventes : stock −10 lu
+pareil des deux côtés, caisse commune juste), `m3` ce qu'un poste fait
+l'autre le voit (la comptable encaisse une créance faite sur A ; A
+ferme la caisse, elle est refusée), `m4` deux dossiers ouverts en même
+temps sur deux postes. `suite.mjs` joue tout sans s'arrêter et fait le
+bilan. `b4` et `c1` écrivaient dans `essai.db` : `ecrireEnBase` vise la
+base du mode (SQLite, ou `gescom_test` par `psql` en UTF-8 sur l'entrée
+standard — sur la ligne de commande, Windows cassait « n° »). `i3`
+accepte le `.dump` de PostgreSQL.
+
+**Résultats, bases neuves, Edge du poste.** Monoposte 4/4 parcours,
+71 vérifications. Multiposte : le banc d'origine 31/31 (385
+vérifications ; `d5` rejoué seul après un `ERR_NO_BUFFER_SPACE` de
+Windows), M 3/3 (35). SQLite, pour comparer : 31/31 (385) et M 3/3.
+`i2` sauté partout (`pdftoppm` absent). Workspace Rust 660/660.
+
+Pièges du banc, pas du produit : la fenêtre charge `localhost`, que
+Windows résout en `::1` — un Vite sur `127.0.0.1` lui refusait la
+connexion (page blanche) ; le surveillant de Vite tombait sur les
+fichiers verrouillés du profil WebView2 (`vite.banc.config.ts` ignore
+`.travail`) ; les boîtes natives de `plugin-dialog` bloqueraient un
+geste (`boitesMuettes` les intercepte dans la page) ; le serveur et
+Vite lancés par `Start-Process` héritent de la sortie de l'appelant —
+rediriger `lancer.ps1` vers un fichier. L'employé n'a ni la caisse du
+patron, ni les soldes, ni `creances:gerer` (C-1) : `m3` prend une
+comptable.

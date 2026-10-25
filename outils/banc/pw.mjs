@@ -3,6 +3,8 @@ import { chromium } from "playwright";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
+import { execFileSync } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 const ICI = path.dirname(fileURLToPath(import.meta.url));
@@ -23,6 +25,73 @@ export async function navigateur() {
   page.on("console", m => { if (m.type() === "error") erreurs.push("console: " + m.text()); });
   return { b, ctx, page, erreurs };
 }
+
+/** Une ecriture directe dans la base du banc, pour poser ce que l'ecran
+ *  ne sait pas provoquer (b4, c1). La base est celle que lancer.ps1 a
+ *  notee dans .travail/moteur.txt : un fichier SQLite, ou une URL
+ *  PostgreSQL — et alors `gescom_test`, rien d'autre. Sans ce fichier
+ *  (lancer.sh), essai.db comme avant. `?` = valeurs, citees ici. */
+export function ecrireEnBase(sql, valeurs = []) {
+  const f = path.join(TRAVAIL, "moteur.txt");
+  const cible = fs.existsSync(f) ? fs.readFileSync(f, "utf8").trim() : path.join(TRAVAIL, "essai.db");
+  if (cible.startsWith("postgresql://")) {
+    if (!/\/gescom_test(\?|$)/.test(cible)) throw new Error(`Le banc n'écrit que dans gescom_test, pas ${cible}`);
+    let i = 0;
+    const lit = v => v === null ? "NULL" : typeof v === "number" ? String(v) : `'${String(v).replace(/'/g, "''")}'`;
+    const texte = sql.replace(/\?/g, () => lit(valeurs[i++]));
+    // Par l'entree standard, en UTF-8 : sur la ligne de commande, Windows
+    // passe le texte dans la page de code du systeme et « n° » casse.
+    execFileSync(process.env.PSQL ?? "C:\\Program Files\\PostgreSQL\\18\\bin\\psql.exe",
+      ["-q", "-v", "ON_ERROR_STOP=1", "-d", cible, "-f", "-"],
+      { input: texte, env: { ...process.env, PGCLIENTENCODING: "UTF8" } });
+    return;
+  }
+  const base = new DatabaseSync(cible);
+  try { base.prepare(sql).run(...valeurs); } finally { base.close(); }
+}
+
+/** La vraie fenetre Tauri (lancer.ps1 monoposte), par le port de
+ *  debogage de WebView2. `b.close()` la detache sans la fermer. */
+export async function fenetre() {
+  const b = await chromium.connectOverCDP(`http://127.0.0.1:${process.env.PORT_CDP ?? 9222}`);
+  let page;
+  for (let i = 0; i < 40 && !page; i++) {
+    page = b.contexts().flatMap(c => c.pages()).find(p => p.url().includes(":1420"));
+    if (!page) await new Promise(r => setTimeout(r, 500));
+  }
+  if (!page) throw new Error("La fenetre Gescom n'a pas de page sur :1420 (lancer.ps1 monoposte ?)");
+  const erreurs = [];
+  page.on("pageerror", e => erreurs.push("pageerror: " + e.message));
+  page.on("console", m => { if (m.type() === "error") erreurs.push("console: " + m.text()); });
+  return { b, page, erreurs };
+}
+
+/** Les boites natives de la fenetre (`message` de plugin-dialog) sont
+ *  des fenetres Windows que Playwright ne peut pas fermer : le geste
+ *  resterait suspendu a leur `await`. On les intercepte dans la page —
+ *  le texte est garde dans `window.__boites`, relu par `boites(page)` —
+ *  et on les rearme a chaque chargement. Rien d'autre n'est touche. */
+export async function boitesMuettes(page) {
+  const poser = () => page.evaluate(() => {
+    const t = window.__TAURI_INTERNALS__;
+    if (!t || t.__banc) return;
+    const vrai = t.invoke.bind(t);
+    t.invoke = (cmd, args, options) => {
+      if (cmd === "plugin:dialog|message" || cmd === "plugin:dialog|ask" || cmd === "plugin:dialog|confirm") {
+        (window.__boites ??= []).push(args?.message ?? "");
+        return Promise.resolve(cmd === "plugin:dialog|message" ? "Ok" : true);
+      }
+      return vrai(cmd, args, options);
+    };
+    t.__banc = true;
+  }).catch(() => {});
+  page.on("load", poser);
+  await poser();
+}
+export const boites = (page) => page.evaluate(() => window.__boites ?? []);
+
+/** L'adresse de la fenetre : celle qu'elle a chargee (devUrl). */
+export const URL_FENETRE = "http://localhost:1420/";
 
 /** Les erreurs qui comptent : ni le 401 du jeton perime au demarrage,
  *  ni les scripts bloques (voulu) des apercus sandboxes, ni les appels

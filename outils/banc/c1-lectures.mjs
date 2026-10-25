@@ -2,15 +2,9 @@
 // Journal, ni Rapports, ni Historique ; son accueil n'a pas de chiffres ;
 // il ne voit ni les creances d'un client, ni les pieces fournisseur, ni
 // un prix d'achat. Le comptable, lui, lit tout sauf les caisses des autres.
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { navigateur, connecter, capture, verifieur, erreursUtiles, TRAVAIL } from "./pw.mjs";
+import { navigateur, connecter, capture, verifieur, erreursUtiles, ecrireEnBase } from "./pw.mjs";
 // La demo n'a pas de prix d'achat : on en pose un, comme un achat l'aurait fait.
-{
-  const base = new DatabaseSync(path.join(TRAVAIL, "essai.db"));
-  base.prepare("UPDATE article SET dernier_prix_achat = 800 WHERE nom = 'Sucre'").run();
-  base.close();
-}
+ecrireEnBase("UPDATE article SET dernier_prix_achat = 800 WHERE nom = 'Sucre'");
 const { b, page: patron, erreurs } = await navigateur();
 const ok = verifieur();
 await connecter(patron);

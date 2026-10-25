@@ -29,7 +29,6 @@ use std::net::TcpStream;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
 
 use gescom_noyau::protocole::PORT_DEFAUT;
 
@@ -64,10 +63,7 @@ fn nom_machine() -> String {
 }
 
 fn chemin_config(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let dossier = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Répertoire de données introuvable : {e}"))?;
+    let dossier = crate::dossier_donnees(app)?;
     std::fs::create_dir_all(&dossier).map_err(|e| e.to_string())?;
     Ok(dossier.join("poste.json"))
 }

@@ -28,7 +28,8 @@ const r = await page.evaluate(async () => {
   const chemin = await appeler("sauvegarder_base", { dossierDestination: c.dossier_effectif });
   return { chemin, apres: await appeler("lire_config_sauvegarde") };
 });
-ok(/gescom_backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.db$/.test(r.chemin), `la copie porte sa date à la seconde (${path.basename(r.chemin)})`);
+// SQLite copie un .db, PostgreSQL un .dump (pg_dump) : le nom, lui, est daté pareil.
+ok(/gescom_backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.(db|dump)$/.test(r.chemin), `la copie porte sa date à la seconde (${path.basename(r.chemin)})`);
 ok(r.apres.copies.length === 1 && r.apres.derniere_copie?.nom === path.basename(r.chemin), "relue du dossier : une copie, la bonne");
 
 await page.reload();
