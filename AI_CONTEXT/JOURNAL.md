@@ -2064,3 +2064,59 @@ Vite lancés par `Start-Process` héritent de la sortie de l'appelant —
 rediriger `lancer.ps1` vers un fichier. L'employé n'a ni la caisse du
 patron, ni les soldes, ni `creances:gerer` (C-1) : `m3` prend une
 comptable.
+
+## 25/10/2026 (suite) — la v3 en monoposte comme en multiposte
+
+Le banc a montré que D22 et D24 décrivaient une fenêtre monoposte qui
+n'existait plus depuis le 11/09 (elle ne parle qu'au serveur), et que
+73 commandes de la v3 n'existent que côté serveur. Le propriétaire :
+« je veux seulement que v3 travaille en mono et multiposte ». Retenu,
+choix écrits avant le code et acceptés : un seul chemin (le serveur),
+mais le poste qui garde la base n'a plus rien à saisir.
+
+**Ce qui change.** `poste.json` porte le rôle : `monoposte` (« ce poste
+garde la base »), `poste` (caisse d'un autre poste), `a_choisir` (neuf
+ou illisible — on demande, on ne devine plus « monoposte », ce qui
+faisait d'une caisse fraîche un poste principal à base vide). En
+`monoposte`, la fenêtre se branche sur `127.0.0.1:7300` et, s'il ne
+répond pas, lance `gescom-serveur.exe` à côté d'elle, comme le
+raccourci, sans fenêtre noire, et ne l'arrête pas en se fermant. Le
+serveur du raccourci, lui, s'efface sur la caisse d'une autre machine
+(`role_poste.rs`) ; il tourne dans le doute — et sur « caisse de
+127.0.0.1 », le réglage du poste principal du propriétaire entre le
+11/09 et aujourd'hui. Changer de rôle : Paramètres → Réseau, avec une
+confirmation qui dit que les ventes du poste principal ne suivent pas.
+
+**Trouvé par le banc en route.** React lance les effets deux fois en
+développement : deux `demarrer_serveur_local` simultanés lançaient deux
+serveurs, le second trouvait le port pris et son échec s'affichait
+alors que le premier répondait — un verrou (une demande à la fois) et
+un dernier `/sante` avant de déclarer l'échec. Les effets d'`App.tsx`
+(droits relus, canal, sauvegarde automatique) appelaient le serveur
+avant qu'il soit joint : ils attendent `serveurJoint`. La page de
+connexion disait « Poste caisse » sur le poste principal.
+`definir_config_reseau` prenait un `String` et recevait `null` quand le
+nom du poste était laissé vide — `Option` maintenant.
+
+**Tests.** `role_poste` : 6 tests purs (autre machine, 127.0.0.1,
+localhost, `::1`, adresse de ce poste, nom résolu ou introuvable,
+fichier absent ou illisible). Banc monoposte refait sur la fenêtre
+seule (`lancer.ps1 monoposte` ne démarre plus de serveur) : `p1` le
+rôle demandé puis le serveur lancé par la fenêtre ; `p5` le serveur
+tué puis relancé à la réouverture (retour à la connexion : un serveur
+qui redémarre ferme les sessions), le port 7300 pris par un autre
+programme (l'écran le dit, « Réessayer » repart) ; `p6` le rôle caisse,
+le serveur « du raccourci » qui s'arrête sur une caisse (journal, pas de
+base créée) et tourne sur 127.0.0.1, le retour au rôle « garde la base »
+par Réseau. Monoposte 6/6 (100), multiposte 31/31 + 3/3, SQLite 31/31 +
+3/3, Rust 666/666, `tsc` propre, release vérifiée (`cargo check
+--release`). Sur PostgreSQL, a1, a2 et a2b ont échoué une fois en tête
+de passage (délais, « Jeton absent ») dans une période où Windows
+rendait `ERR_NO_BUFFER_SPACE` ; rejoués seuls sur base neuve, verts.
+
+**Pas fait.** La fenêtre ouvre encore un `gescom.db` local au démarrage
+(le même fichier que la base par défaut du serveur) ; le retrait des
+façades `Connection` reste le grand nettoyage d'ALERTES.md. Le poste
+principal du propriétaire est réglé « caisse de 127.0.0.1 » : il marche
+comme avant ; Paramètres → Réseau → « Ce poste garde la base » lui
+donnerait le lancement automatique du serveur.

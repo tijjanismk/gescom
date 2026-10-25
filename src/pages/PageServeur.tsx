@@ -1,6 +1,7 @@
 // pages/PageServeur.tsx — le premier écran, avant même la connexion.
 //
-// Le client v2 ne sait parler qu'au serveur : le monoposte reste la v1.
+// La CAISSE d'un autre poste (D24, révisé le 25/10/2026 ; le poste qui
+// garde la base passe par PageRolePoste et n'a rien à saisir).
 // Tant qu'on ne sait pas OÙ joindre le serveur, il n'y a rien à
 // afficher — pas même un écran de connexion, puisqu'il n'y a personne à
 // qui demander le mot de passe.
@@ -27,9 +28,11 @@ interface Sante {
 interface Props {
   /** Appelé une fois l'adresse essayée et enregistrée. */
   onConfigure: () => void;
+  /** Finalement, ce poste garde la base (D24 : un geste volontaire). */
+  onGarderBase?: () => Promise<void>;
 }
 
-export function PageServeur({ onConfigure }: Props) {
+export function PageServeur({ onConfigure, onGarderBase }: Props) {
   const [serveur, setServeur] = useState("");
   const [posteNom, setPosteNom] = useState("");
   const [test, setTest] = useState<Sante | null>(null);
@@ -173,6 +176,20 @@ export function PageServeur({ onConfigure }: Props) {
           poste principal, que les deux machines sont sur le même réseau,
           et que le pare-feu laisse passer le port.
         </p>
+
+        {onGarderBase && (
+          <p className="text-xs text-center">
+            <button type="button" className="underline text-muted-foreground hover:text-foreground"
+              disabled={enCours}
+              onClick={async () => {
+                setEnCours(true);
+                setErreur("");
+                try { await onGarderBase(); } catch (e) { setErreur(String(e)); setEnCours(false); }
+              }}>
+              Non : ce poste garde la base de la boutique
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );

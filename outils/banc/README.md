@@ -17,8 +17,8 @@ npm run tout                           # tous, dans l'ordre
 ```powershell
 cd outils\banc ; npm install ; cd ..\.. ; npm install      # Playwright, et Vite pour l'écran
 $env:CHROMIUM = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"   # Edge déjà là, rien à télécharger
-.\outils\banc\lancer.ps1 monoposte  -Neuf   # la vraie fenêtre Tauri + son serveur SQLite
-node outils\banc\suite.mjs p                # p1 … p4, dans la fenêtre
+.\outils\banc\lancer.ps1 monoposte  -Neuf   # la vraie fenêtre Tauri, seule (elle lance son serveur)
+node outils\banc\suite.mjs p                # p1 … p6, dans la fenêtre
 .\outils\banc\lancer.ps1 multiposte -Neuf   # serveur sur PostgreSQL gescom_test, chaque navigateur un poste
 node outils\banc\suite.mjs                  # a1 … i3 (le banc ci-dessous, sur PostgreSQL)
 node outils\banc\suite.mjs m                # m2 … m4, deux postes à la fois
@@ -26,13 +26,13 @@ node outils\banc\suite.mjs m                # m2 … m4, deux postes à la fois
 .\outils\banc\lancer.ps1 arreter
 ```
 
-- **monoposte** — la boutique à une caisse telle qu'elle s'installe
-  (ARCHITECTURE.md) : le serveur SQLite et `gescom.exe` (build de
-  débogage) sur la même machine. Playwright pilote la vraie fenêtre
-  par le port de débogage de WebView2 (`:9222`). La fenêtre ne garde
-  plus de base à elle : en mode « monoposte » elle demande où est le
-  serveur, et `p1` la branche sur `127.0.0.1`. `GESCOM_DONNEES` (lu
-  **seulement en débogage**) et un profil WebView2 à part la tiennent
+- **monoposte** — la boutique à une caisse telle qu'elle s'installe :
+  `gescom.exe` seul (build de débogage), piloté par le port de débogage
+  de WebView2 (`:9222`). Au premier démarrage il demande le rôle du
+  poste ; « Ce poste garde la base » : il lance lui-même son serveur
+  SQLite (`127.0.0.1:7300`) et s'y branche (D22/D24 révisés le
+  25/10/2026). `GESCOM_DONNEES` (lu **seulement en débogage**, par la
+  fenêtre et par le serveur) et un profil WebView2 à part tiennent tout
   dans `.travail/monoposte` : la base et la session du propriétaire
   (`%APPDATA%\ml.gescom.app`) ne sont pas ouvertes — `p1` le vérifie.
 - **multiposte** — le lanceur **refuse toute base qui n'est pas
@@ -48,10 +48,12 @@ node outils\banc\suite.mjs m                # m2 … m4, deux postes à la fois
 
 | parcours | mode | ce qu'il prouve |
 |---|---|---|
-| `p1-premier-demarrage.mjs` | monoposte | la fenêtre neuve demande le serveur ; « Enregistrer » fermé avant « Essayer » ; `poste.json` réécrit (poste, 127.0.0.1, nom) ; patron connecté, un seul dossier, rien à choisir ; cache vidé : pas de retour au branchement ; la base du propriétaire intacte |
-| `p2-tous-les-ecrans.mjs` | monoposte | chaque menu et chaque onglet de Paramètres s'ouvre dans WebView2 sans erreur ; Réseau montre ce que dit `poste.json` |
+| `p1-premier-demarrage.mjs` | monoposte | la fenêtre neuve demande le rôle (`poste.json` « à choisir ») ; « garde la base » : elle lance son serveur (aucun ne tournait) et arrive à la connexion, sans adresse ; `poste.json` en `monoposte` sur 127.0.0.1 ; patron connecté, un seul dossier, rien à choisir ; cache vidé : rien n'est redemandé ; la base du propriétaire intacte |
+| `p2-tous-les-ecrans.mjs` | monoposte | chaque menu et chaque onglet de Paramètres s'ouvre dans WebView2 sans erreur ; Réseau dit « ce poste garde la base », serveur ici |
 | `p3-argent.mjs` | monoposte | caisse fermée : vente refusée, stock intact ; caisse ouverte **par l'écran** (10 000 F) ; vente comptant ×2 : stock −2, caisse + prix ; crédit puis règlement : créance aller-retour, argent entré ; fermeture à écart 0 |
 | `p4-sauvegarde-auto.mjs` | monoposte | la copie automatique part seule après le démarrage (20 s ici, `GESCOM_SAUVEGARDE_DELAI_S`), nommée à la seconde, une vraie base ; Paramètres → Sauvegarde la montre |
+| `p5-serveur-relance.mjs` | monoposte | le serveur arrêté : à sa réouverture la fenêtre le relance seule, retour à la connexion (les sessions d'avant sont fermées), même base ; le port 7300 pris par un autre programme : l'écran le dit, sans connexion qui échouerait, « Réessayer » repart une fois la place libre |
+| `p6-role-caisse.mjs` | les deux | un poste neuf dit « caisse » : branchement essayé puis enregistré, même empreinte ; le serveur lancé comme par le raccourci (sans `--base`) s'arrête sur la caisse d'une autre machine, journal à l'appui, sans créer de base — et tourne sur « caisse de 127.0.0.1 » ; Paramètres → Réseau : la caisse redevient « garde la base » (confirmation), la fenêtre rejoint son serveur |
 | `m2-deux-caisses.mjs` | multiposte | deux postes, deux comptes, en même temps : 12 devis sans numéro en double ; 10 ventes du même article (5 + 5) : stock −10 lu pareil des deux côtés, caisse commune + 10 × prix |
 | `m3-un-poste-l-autre-voit.mjs` | multiposte | crédit sur A ; la comptable sur B lit la créance et encaisse 300 F ; A relit la créance et la caisse ; A ferme la caisse : B refusé, la créance ne bouge pas |
 | `m4-deux-dossiers.mjs` | multiposte | deux dossiers ouverts en même temps sur deux postes : une caisse chacun, clients séparés, articles communs mais stock à soi, deux numérotations |

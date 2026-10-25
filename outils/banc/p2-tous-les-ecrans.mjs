@@ -43,9 +43,9 @@ for (const o of [...new Set(onglets)]) {
 // L'onglet Reseau, dans la fenetre, lit poste.json (commande locale).
 await page.locator("main").getByRole("button", { name: "Réseau", exact: true }).first().click();
 await page.waitForTimeout(1200);
-const champs = await page.locator("main input").evaluateAll(l => l.map(i => i.value));
-ok(champs.some(v => v.startsWith("127.0.0.1")) && champs.includes("Caisse banc"),
-  `Paramètres › Réseau montre l'adresse et le nom lus dans poste.json (${champs.join(", ")})`);
+const role = await page.getByTestId("role-poste").innerText().catch(() => "");
+ok(role.includes("Ce poste garde la base") && role.includes("127.0.0.1:7300"),
+  "Paramètres › Réseau dit le rôle lu dans poste.json : ce poste garde la base, serveur ici");
 await capture(page, "p2-01-reseau");
 console.log(`${ok.total()} vérifications`);
 await b.close();

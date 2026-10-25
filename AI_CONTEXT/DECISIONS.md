@@ -437,9 +437,9 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D27 | **le serveur juge la saisie** : pas de mode « avoir » sans avoir consommé, montant > 0, quantité > 0, prix ≥ 0, remise 0–100 — règles dans `coeur/saisie.rs`, les deux versions |
 | D26 | **l'auteur d'un geste est l'utilisateur de la session**, posé par le serveur sur le fil de la requête (`noyau::auteur`) — plus le premier compte du rôle |
 | D25 | **le serveur gagne une fenêtre** : une coque Tauri fine qui affiche la console existante — pas une interface reconstruite |
-| D24 | **deux rôles, un seul produit** : simple (monoposte, existe déjà) ou complet (serveur + plusieurs postes/dossiers), choisis **à l'installation**, jamais devinés en cours de route |
+| D24 | **deux rôles, un seul produit** : simple (monoposte, existe déjà) ou complet (serveur + plusieurs postes/dossiers), choisis **à l'installation**, jamais devinés en cours de route — **révisé le 25/10/2026** : le rôle se demande au premier démarrage de la fenêtre (« garde la base » / « caisse d'un autre poste ») ; le serveur du raccourci s'efface sur une caisse |
 | D23 | le **plan comptable SYSCOHADA** en base, les opérations affectées en réglage, les journaux lus et exportés — rien de stocké ; la comptabilité complète après |
-| D22 | **SQLite reste** ; plusieurs dossiers demandent **le serveur**, pas PostgreSQL — le serveur sert tout par `Base` sur les deux moteurs, la fenêtre monoposte garde un dossier (révise D11 et D13) |
+| D22 | **SQLite reste** ; plusieurs dossiers demandent **le serveur**, pas PostgreSQL — le serveur sert tout par `Base` sur les deux moteurs, la fenêtre monoposte garde un dossier (révise D11 et D13) — **révisé le 25/10/2026** : la fenêtre n'ouvre jamais de base ; le poste qui garde la base lance son serveur SQLite et s'y branche sur 127.0.0.1 |
 | D21 | les **dates de travail** d'un dossier se donnent à sa création et se prolongent ; une écriture hors dates est refusée en disant quoi faire |
 | D20 | la v3 se fait dans l'ordre A (pièces simplifiées), B (journal), C (droits), D (dossiers), E (plan comptable) — [PLAN-V3.md](PLAN-V3.md) |
 | D19 | cinq permissions de **lecture** (prix d'achat, rapports, soldes, historique, autres caisses) ; `employe` n'en porte aucune |
@@ -744,3 +744,60 @@ Au passage, `regler_creance_datee` (version `Connection`, celle du
 serveur sur fichier SQLite) écrit désormais paiement, statut, pièce,
 caisse et journal **dans une transaction** (règle 4) ; l'écriture en
 caisse n'est plus ignorée en cas d'échec.
+
+## D22 et D24 révisés (25/10/2026) — la fenêtre ne garde jamais de base ; le rôle du poste se demande
+
+**Ce qui était faux.** D22 et D24 (21/09) affirmaient, « vérifié dans le
+code », qu'en `monoposte` la fenêtre ouvre sa base SQLite locale par ses
+façades `Connection`. Depuis le 11/09 (commit `1da32c3`, « le client ne
+parle qu'au serveur ») ce n'était plus vrai : en `monoposte`, la fenêtre
+affichait « Brancher ce poste » et `appeler` refusait sans serveur. Toute
+la v3 a ensuite été construite côté serveur : **73 commandes** (réglages
+des documents, Historique, droits, dossiers, exercices, plan comptable,
+paie, suivi client) n'existent pas dans la fenêtre seule. Constaté par le
+banc d'écran le 25/10.
+
+**Décision du propriétaire** (25/10) : « je veux seulement que v3
+travaille en mono et multiposte ». Retenu, sur proposition de
+l'assistant :
+
+1. **La fenêtre ne parle jamais qu'au serveur**, dans les deux rôles —
+   un seul chemin, celui qui a fermé la panne du cache vidé.
+2. **`monoposte` = ce poste garde la base** (une seule caisse, ou le
+   poste principal) : la fenêtre se branche toute seule sur
+   `127.0.0.1:7300` ; s'il ne répond pas, elle lance le
+   `gescom-serveur.exe` livré à côté d'elle (`reseau.rs`,
+   `demarrer_serveur_local`), mêmes réglages que le raccourci, sans
+   fenêtre noire, et ne l'arrête pas en se fermant (la sauvegarde
+   automatique et Gescom Équipe en ont besoin). Rien à saisir.
+3. S'il ne démarre pas : un écran qui le dit, avec la raison,
+   « Réessayer » et « Ce poste est une caisse d'un autre poste » —
+   jamais un écran de connexion qui échouerait.
+4. **`poste` = la caisse d'un autre poste** : inchangé (adresse saisie,
+   essayée avant d'être enregistrée). Une caisse ne lance jamais de
+   serveur.
+5. **Le rôle se demande au premier démarrage** (`poste.json` neuf ou
+   illisible → `a_choisir`) : deviner « monoposte » faisait d'une caisse
+   fraîchement installée un poste principal avec une base vide. Une
+   installation existante garde son mode. C'est l'écran que D24
+   prévoyait, fait dans la fenêtre (l'installeur n'a pas les droits
+   administrateur).
+6. **Le serveur du raccourci de démarrage s'efface sur une caisse**
+   (`serveur/src/role_poste.rs`) : lancé sans `--base`, il lit
+   `poste.json` et s'arrête si ce poste est la caisse d'une **autre**
+   machine. Dans le doute il tourne : `poste` sur `127.0.0.1` (le
+   réglage du poste principal entre le 11/09 et le 25/10), une adresse
+   de cette machine, un nom qu'on ne sait pas résoudre. Le service
+   Windows (D12), les tests et le banc passent `--base`.
+7. **Changer de rôle reste un geste volontaire** : Paramètres → Réseau
+   (« Ce poste garde la base », avec confirmation : les ventes du poste
+   principal ne s'y trouvent pas ; « En faire une caisse d'un autre
+   poste »), et le lien de retour sur l'écran de branchement.
+8. En build de débogage, la fenêtre ne lance de serveur que si
+   `GESCOM_DONNEES` est posé (et alors sur ce dossier) : un essai
+   n'ouvre jamais la base du propriétaire.
+
+**Ce qui reste.** La fenêtre ouvre encore un `gescom.db` local à son
+démarrage (`lib.rs`) — le même fichier que la base par défaut du serveur,
+sans danger en WAL — et ses façades `Connection` ne servent plus à
+l'écran : leur retrait est le grand nettoyage annoncé dans ALERTES.md.

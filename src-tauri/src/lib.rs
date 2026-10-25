@@ -147,6 +147,7 @@ pub fn run() {
             reseau::lire_config_reseau,
             reseau::definir_config_reseau,
             reseau::tester_serveur,
+            reseau::demarrer_serveur_local,
             // ---- Modeles de documents (v2) ----
             // ---- Société & factures ----
             commandes::societe::lire_parametres_societe,

@@ -10,14 +10,12 @@
 # Ce que chaque mode laisse tourner :
 #   sqlite, multiposte : serveur :7300 + ecran (Vite) :1420, les parcours
 #                        ouvrent Edge sur l'ecran, chaque navigateur est un poste ;
-#   monoposte          : la boutique a une caisse telle qu'elle s'installe
-#                        (ARCHITECTURE.md) : serveur SQLite :7300 sur la
-#                        machine + gescom.exe, qui s'y branche sur 127.0.0.1,
-#                        pilote par Playwright a travers WebView2 (:9222).
-#                        La fenetre n'ouvre plus de base locale : en mode
-#                        « monoposte » elle demande ou est le serveur
-#                        (App.tsx, PageServeur) — c'est le premier ecran
-#                        que le parcours p1 traverse.
+#   monoposte          : la boutique a une caisse telle qu'elle s'installe :
+#                        gescom.exe seul, pilote par Playwright a travers
+#                        WebView2 (:9222). Au premier demarrage il demande
+#                        le role du poste ; « garde la base » : il lance
+#                        lui-meme son serveur SQLite (127.0.0.1:7300) et
+#                        s'y branche (D22/D24 revises le 25/10/2026).
 #
 # Garde-fous :
 #   - multiposte REFUSE toute base qui n'est pas `gescom_test` : -Neuf y
@@ -169,14 +167,15 @@ switch ($Mode) {
         New-Item -ItemType Directory -Force $donnees | Out-Null
         Construire "gescom-serveur"
         Construire "gescom"
+        # Le serveur, la fenetre le lance elle-meme quand le poste garde la
+        # base (reseau.rs, demarrer_serveur_local) — comme chez le
+        # commercant : rien ne le demarre ici. Avec GESCOM_DONNEES, il
+        # tourne sur 127.0.0.1:7300, base serveur.db de ce dossier.
         $base = Join-Path $donnees "serveur.db"
         # La copie automatique regarde 5 min apres le demarrage : 20 s ici,
-        # pour que p4 la voie partir sans attendre.
+        # pour que p4 la voie partir sans attendre. Herite par la fenetre,
+        # puis par le serveur qu'elle lance (comme GESCOM_DEMO).
         $env:GESCOM_SAUVEGARDE_DELAI_S = "20"
-        Lancer (Join-Path $Racine "src-tauri\target\debug\gescom-serveur.exe") `
-            @("--hote", "127.0.0.1", "--port", "$PortServeur", "--base", "`"$base`"", "--journal", "`"$(Join-Path $donnees 'serveur.log')`"", "--sauvegardes", "`"$(Join-Path $donnees 'sauvegardes')`"") `
-            (Join-Path $Travail "serveur") | Out-Null
-        Attendre "http://127.0.0.1:$PortServeur/sante" "serveur"
         Set-Content -Encoding ascii (Join-Path $Travail "moteur.txt") $base
         Ecran
         Attendre "http://$($HoteEcran):$PortEcran" "ecran"

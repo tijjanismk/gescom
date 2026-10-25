@@ -4,27 +4,30 @@
 // d'éditer `poste.json` à la main, ce qu'on ne fait pas faire à un
 // commerçant au téléphone.
 //
-// Deux modes, et un seul est un changement de nature :
+// Deux rôles (D22/D24, révisés le 25/10/2026) ; la fenêtre ne parle
+// qu'au serveur dans les deux cas :
 //
-//   monoposte — la base est ici, comme depuis toujours ;
-//   poste caisse — la base est ailleurs, ce poste n'ouvre plus la
-//                  sienne et tout passe par le réseau.
+//   garde la base — le serveur est sur cette machine (127.0.0.1) ;
+//   poste caisse  — le serveur est sur le poste principal, à l'adresse
+//                   saisie ; ce poste ne garde aucune donnée.
 //
-// Le second exige que le serveur réponde AVANT d'être enregistré. Un
-// poste basculé vers une adresse injoignable ne peut plus rien faire —
-// ni vendre, ni revenir en arrière sans repasser par ici.
+// Changer de rôle est un geste VOLONTAIRE, jamais une bascule
+// automatique. Devenir caisse exige que le serveur réponde AVANT d'être
+// enregistré : un poste basculé vers une adresse injoignable ne peut
+// plus rien faire — ni vendre, ni revenir en arrière sans repasser par
+// ici.
 
 import { useEffect, useState } from "react";
 import {
-  AlertTriangle, CheckCircle2, Loader2, Network, Server, Wifi,
+  AlertTriangle, CheckCircle2, Database, Loader2, Network, Server, Wifi,
 } from "lucide-react";
-import { message } from "@tauri-apps/plugin-dialog";
+import { ask, message } from "@tauri-apps/plugin-dialog";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { appeler as invoke, definirServeur, synchroniserConfig } from "@/lib/pont";
-import type { ModeReseau } from "@/lib/pont";
+import { appeler as invoke, definirServeur, synchroniserConfig, ADRESSE_LOCALE } from "@/lib/pont";
+import { garderLaBase } from "@/pages/PageRolePoste";
 
 interface ConfigReseau {
   mode: string;
@@ -44,8 +47,9 @@ interface Sante {
 
 export function OngletReseau() {
   const [config, setConfig] = useState<ConfigReseau | null>(null);
-  // Fixe : le client v2 est toujours un poste caisse.
-  const mode: ModeReseau = "poste";
+  // Le rôle affiché : celui du fichier, ou « poste » quand on a demandé
+  // à faire de ce poste une caisse (rien n'est écrit avant Enregistrer).
+  const [devenirCaisse, setDevenirCaisse] = useState(false);
   const [serveur, setServeur] = useState("");
   const [posteNom, setPosteNom] = useState("");
   const [test, setTest] = useState<Sante | null>(null);
@@ -57,16 +61,19 @@ export function OngletReseau() {
     invoke<ConfigReseau>("lire_config_reseau")
       .then(c => {
         setConfig(c);
-        setServeur(c.serveur);
+        setServeur(c.mode === "poste" ? c.serveur : "");
         setPosteNom(c.poste_nom);
       })
       .catch(e => console.error("Config réseau :", e));
   }, []);
 
+  const gardeLaBase = config?.mode === "monoposte" && !devenirCaisse;
+  const mode = gardeLaBase ? "monoposte" : "poste";
+
   const modifie =
     !!config
-    && (mode !== (config.mode === "poste" ? "poste" : "monoposte")
-      || serveur.trim() !== config.serveur
+    && (mode !== config.mode
+      || (mode === "poste" && serveur.trim() !== config.serveur)
       || posteNom.trim() !== config.poste_nom);
 
   async function tester() {
@@ -85,11 +92,11 @@ export function OngletReseau() {
 
   async function enregistrer() {
     // Basculer en poste caisse sans avoir joint le serveur, c'est
-    // condamner le poste : il n'ouvre plus sa base et ne joint pas
-    // l'autre. On exige donc un test réussi.
-    if (mode === "poste" && !test) {
+    // condamner le poste : il ne joint personne. On exige donc un test
+    // réussi dès que l'adresse change.
+    if (mode === "poste" && serveur.trim() !== config?.serveur && !test) {
       await message(
-        "Tester la connexion avant de basculer ce poste en caisse.\n\n"
+        "Tester la connexion avant d'enregistrer l'adresse.\n\n"
         + "Sans serveur joignable, ce poste ne pourra plus ni vendre ni "
         + "revenir en arrière autrement que par cet écran.",
         { title: "Test requis", kind: "warning" },
@@ -100,27 +107,47 @@ export function OngletReseau() {
     try {
       const c = await invoke<ConfigReseau>("definir_config_reseau", {
         mode,
-        serveur: serveur.trim(),
-        posteNom: posteNom.trim(),
+        serveur: mode === "poste" ? serveur.trim() : null,
+        posteNom: posteNom.trim() || null,
       });
       setConfig(c);
+      setDevenirCaisse(false);
       // Le navigateur n'est qu'un miroir de `poste.json` : on l'aligne
       // tout de suite, sinon le prochain appel partirait encore au
       // mauvais endroit.
-      definirServeur(mode, c.serveur);
+      definirServeur(mode, mode === "poste" ? c.serveur : ADRESSE_LOCALE);
       await synchroniserConfig();
       setEnregistre(true);
       setTimeout(() => setEnregistre(false), 3000);
 
-      await message(
-        mode === "poste"
-          ? "Ce poste est désormais une caisse.\n\nFermer et rouvrir Gescom, "
-            + "puis se connecter : l'identifiant est vérifié par le serveur, "
-            + "plus par ce poste."
-          : "Ce poste travaille de nouveau seul, sur sa base locale.\n\n"
-            + "Fermer et rouvrir Gescom pour repartir proprement.",
-        { title: "Mode enregistré" },
-      );
+      if (mode === "poste") {
+        await message(
+          "Ce poste est une caisse de " + c.serveur + ".\n\nFermer et rouvrir "
+          + "Gescom, puis se connecter : l'identifiant est vérifié par le "
+          + "serveur du poste principal.",
+          { title: "Rôle enregistré" },
+        );
+      }
+    } catch (e) {
+      await message(String(e), { title: "Enregistrement", kind: "error" });
+    }
+  }
+
+  /** Une caisse devient le poste qui garde la base : geste volontaire. */
+  async function garderIci() {
+    const oui = await ask(
+      "Ce poste va garder sa propre base, sur cette machine.\n\n"
+      + "Les ventes enregistrées sur le poste principal NE s'y trouvent "
+      + "pas : c'est une autre base. À faire seulement si ce poste devient "
+      + "le poste principal, ou travaille seul.",
+      { title: "Ce poste garde la base", kind: "warning" },
+    );
+    if (!oui) return;
+    try {
+      await garderLaBase();
+      // Repartir de zéro : la fenêtre joint (ou lance) son serveur, puis
+      // redemande la connexion — le compte est celui de CETTE base.
+      window.location.reload();
     } catch (e) {
       await message(String(e), { title: "Enregistrement", kind: "error" });
     }
@@ -138,27 +165,49 @@ export function OngletReseau() {
     <div className="max-w-2xl space-y-6">
 
       {/* ---- Ce poste ---- */}
-      {/*
-        Le choix « Poste seul » a disparu. Le client v2 ne sait parler
-        qu'au serveur : le monoposte reste la v1. Garder le bouton
-        reviendrait a offrir un geste qui renvoie le poste a l'ecran de
-        branchement — un bouton qui casse l'ecran est pire que pas de
-        bouton.
-      */}
-      <div className="rounded-lg border border-border p-4">
-        <div className="flex items-start gap-3">
-          <Network className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <div>
-            <p className="text-sm font-medium">Poste caisse</p>
-            <p className="text-xs text-muted-foreground">
-              La base de la boutique est sur le poste principal. Tout
-              passe par lui : ce poste ne garde aucune donnée.
-            </p>
+      {gardeLaBase ? (
+        <div className="rounded-lg border border-border p-4" data-testid="role-poste">
+          <div className="flex items-start gap-3">
+            <Database className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Ce poste garde la base</p>
+              <p className="text-xs text-muted-foreground">
+                Le serveur de la boutique tourne sur cette machine
+                ({ADRESSE_LOCALE}) : Gescom le lance s'il ne répond pas.
+                Les autres caisses le rejoignent à l'adresse que Gescom
+                Serveur affiche « pour les caisses ».
+              </p>
+              <Button variant="outline" size="sm" onClick={() => { setDevenirCaisse(true); setTest(null); }}>
+                En faire une caisse d'un autre poste
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="rounded-lg border border-border p-4" data-testid="role-poste">
+          <div className="flex items-start gap-3">
+            <Network className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Poste caisse</p>
+              <p className="text-xs text-muted-foreground">
+                La base de la boutique est sur le poste principal. Tout
+                passe par lui : ce poste ne garde aucune donnée.
+              </p>
+              {devenirCaisse ? (
+                <Button variant="outline" size="sm" onClick={() => { setDevenirCaisse(false); setTest(null); }}>
+                  Annuler : ce poste garde la base
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={garderIci}>
+                  Ce poste garde la base
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* ---- Serveur ---- */}
+      {/* ---- Serveur (caisse seulement) ---- */}
       {mode === "poste" && (
         <div className="space-y-3 rounded-lg border border-border p-4">
           <div className="flex flex-wrap items-end gap-3">

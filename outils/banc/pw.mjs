@@ -79,7 +79,12 @@ export async function boitesMuettes(page) {
     t.invoke = (cmd, args, options) => {
       if (cmd === "plugin:dialog|message" || cmd === "plugin:dialog|ask" || cmd === "plugin:dialog|confirm") {
         (window.__boites ??= []).push(args?.message ?? "");
-        return Promise.resolve(cmd === "plugin:dialog|message" ? "Ok" : true);
+        // `ask` et `confirm` passent par `message` avec des boutons, et
+        // comparent la reponse au libelle du « oui » : on dit oui.
+        const bt = args?.buttons;
+        const oui = bt === "YesNo" || bt === "YesNoCancel" ? "Yes"
+          : bt && typeof bt === "object" ? (bt.ok ?? bt.yes ?? "Ok") : "Ok";
+        return Promise.resolve(cmd === "plugin:dialog|message" ? oui : true);
       }
       return vrai(cmd, args, options);
     };
@@ -89,6 +94,21 @@ export async function boitesMuettes(page) {
   await poser();
 }
 export const boites = (page) => page.evaluate(() => window.__boites ?? []);
+
+/** `/sante` d'un serveur local, ou `null` s'il ne repond pas. */
+export async function sante(port = 7300) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/sante`, { signal: AbortSignal.timeout(3000) });
+    return await r.json();
+  } catch { return null; }
+}
+
+/** Arrete ce qui ecoute sur ce port de la machine (Windows). */
+export function arreterPort(port) {
+  execFileSync("powershell", ["-NoProfile", "-Command",
+    `Get-NetTCPConnection -State Listen -LocalPort ${port} -ErrorAction SilentlyContinue | `
+    + `ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }`]);
+}
 
 /** L'adresse de la fenetre : celle qu'elle a chargee (devUrl). */
 export const URL_FENETRE = "http://localhost:1420/";

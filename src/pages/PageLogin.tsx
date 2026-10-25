@@ -137,7 +137,9 @@ export function PageLogin({ onConnecte, titre = "Gescom", sousTitre = "Gestion c
       {enReseau() && (
         <div className="mb-4 rounded-md border border-border bg-muted/40 px-3 py-1.5
                         text-xs text-muted-foreground">
-          Poste caisse — connexion au serveur{" "}
+          {etatReseau().mode === "monoposte"
+            ? "Ce poste garde la base — serveur de cette machine"
+            : "Poste caisse — connexion au serveur"}{" "}
           <span className="font-mono">{etatReseau().serveur}</span>
         </div>
       )}

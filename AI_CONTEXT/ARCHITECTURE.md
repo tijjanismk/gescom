@@ -29,6 +29,13 @@ locale vide, et faisait conclure que les données avaient disparu.
 
 Il n'y a **qu'un seul chemin** : le client parle au serveur.
 
+Depuis le 25/10/2026 (D22/D24 révisés), le poste qui garde la base
+n'a plus rien à saisir : la fenêtre se branche sur `127.0.0.1` et lance
+le serveur livré à côté d'elle s'il ne répond pas. Au premier
+démarrage elle demande le rôle du poste (« garde la base » / « caisse
+d'un autre poste ») ; sur une caisse, le serveur lancé par le raccourci
+de démarrage s'efface.
+
 Voir [modules/reseau-v2.md](modules/reseau-v2.md).
 
 ## Stack

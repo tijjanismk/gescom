@@ -33,6 +33,7 @@ mod http;
 mod journal_poste;
 mod journal_technique;
 mod reseau_local;
+mod role_poste;
 mod sauvegarde;
 mod service;
 mod socle;
@@ -116,6 +117,20 @@ fn main() {
                 eprintln!("Restauration impossible : {e}");
                 std::process::exit(1);
             }
+        }
+    }
+
+    // D24 (revise le 25/10) : lance par le raccourci de demarrage — sans
+    // `--base` — sur la caisse d'un AUTRE poste, le serveur s'efface :
+    // la base de la boutique est la-bas. Les gestes ponctuels
+    // (`--promouvoir`, `--compte-limite`) ne sont pas concernes.
+    if options.base.is_none() && options.promouvoir.is_none() && options.compte_limite.is_none() {
+        if let Some(raison) = role_poste::verifier() {
+            // Le journal qu'il aurait tenu (a cote de la base par defaut),
+            // et la console : c'est la qu'on cherchera pourquoi.
+            journal_technique::ouvrir(Some(role_poste::dossier_donnees().join("gescom.log")), true);
+            journal_technique::info(format!("Serveur non démarré : {raison}"));
+            return;
         }
     }
 
@@ -645,8 +660,5 @@ fn chemin_journal_par_defaut(cible: &str, est_postgres: bool, service: bool) -> 
 }
 
 fn chemin_base_par_defaut() -> String {
-    let base = dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("ml.gescom.app");
-    base.join("gescom.db").to_string_lossy().to_string()
+    role_poste::dossier_donnees().join("gescom.db").to_string_lossy().to_string()
 }

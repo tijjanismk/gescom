@@ -57,6 +57,14 @@ service demanderait les droits administrateur que cet installeur n'a pas
 (`installMode: currentUser`) et un enveloppeur de service en plus. Le
 poste principal d'une boutique reste allumé sur une session ouverte.
 
+**Sur une caisse, ce serveur s'efface** (25/10/2026,
+[role_poste.rs](../../src-tauri/serveur/src/role_poste.rs)) : lancé sans
+`--base`, il lit `poste.json` et s'arrête si le poste est la caisse
+d'une **autre** machine — le journal dit pourquoi. Dans le doute (poste
+sur `127.0.0.1`, adresse de cette machine, nom introuvable), il tourne.
+Sur le poste qui garde la base, la fenêtre le lance aussi elle-même
+s'il ne répond pas (`reseau.rs`, `demarrer_serveur_local`).
+
 À la **désinstallation**, `taskkill` sur le serveur avant de retirer les
 fichiers : tant qu'il tourne, il tient la base ouverte et la
 désinstallation échoue avec un message incompréhensible.

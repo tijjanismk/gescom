@@ -54,13 +54,27 @@ Trois crates : `noyau` (lib, sans Tauri), `serveur` (`gescom-serveur.exe`),
 ## Ce qui reste local sur le poste
 
 `imprimer_facture`, `imprimer_piece`, `ouvrir_avec_systeme`,
-les réglages réseau et l'import/export de modèles —
+`demarrer_serveur_local`, les réglages réseau et l'import/export de modèles —
 la liste exacte est `pont.ts::LOCALES`. Une caisse qui les appelle
 reçoit `commande_inconnue` : voulu, l'impression se fait sur la machine
 qui a l'écran. Les images, elles, ne sont plus locales : **écriture et
 lecture** passent par le serveur (D8). L'entretien non plus : ni
 commande ni local, c'est la route `POST /entretien` du serveur, sous la
 même permission que la sauvegarde (D9).
+
+## Le rôle du poste (25/10/2026, D22/D24 révisés)
+
+`poste.json` porte `mode` : `monoposte` (**ce poste garde la base** :
+serveur ici, `127.0.0.1:7300`), `poste` (caisse d'un autre poste, à
+l'adresse saisie), `a_choisir` (fichier neuf ou illisible : la fenêtre
+demande, `PageRolePoste`). La fenêtre ne parle qu'au serveur dans tous
+les cas. En `monoposte`, `demarrer_serveur_local` (commande locale,
+`reseau.rs`) joint le serveur ou lance `gescom-serveur.exe` à côté de
+l'exécutable, une demande à la fois, vingt secondes au plus ; l'écran
+(`PageServeurLocal`) dit l'échec et propose de réessayer. Lancé sans
+`--base`, le serveur s'efface sur la caisse d'une autre machine
+(`serveur/src/role_poste.rs`). En débogage, `GESCOM_DONNEES` remplace le
+dossier de données des deux côtés (banc d'écran).
 
 ## Tests et essais
 
