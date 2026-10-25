@@ -1,6 +1,6 @@
 //! Commandes Tauri pour la caisse.
 //!
-//! ⚠️ Le rapprochement ne porte que sur les ESPÈCES. Orange Money, Moov
+//! Attention : Le rapprochement ne porte que sur les ESPÈCES. Orange Money, Moov
 //! Money et les chèques sont tracés en mouvement de caisse mais ne sont
 //! pas dans le tiroir physique : les inclure dans le solde théorique
 //! affiche un manque systématique à chaque clôture.
@@ -210,7 +210,7 @@ pub fn fermer_session_caisse(
         rusqlite::params![session_id], |r| r.get(0),
     ).map_err(|e| e.to_string())?;
 
-    // ⚠️ ESPÈCES UNIQUEMENT. Sans ce filtre, l'écart intègre l'Orange
+    // Attention : ESPÈCES UNIQUEMENT. Sans ce filtre, l'écart intègre l'Orange
     // Money et la caisse paraît en déficit à chaque clôture.
     let entrees: i64 = conn.query_row(
         "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
@@ -733,7 +733,7 @@ pub fn fermer_session_caisse_sur(
         .map_err(|e| e.0)?
         .ok_or_else(|| "Session introuvable".to_string())?;
 
-    // ⚠️ ESPECES UNIQUEMENT — meme garde-fou que la version SQLite :
+    // Attention : ESPECES UNIQUEMENT — meme garde-fou que la version SQLite :
     // le fond d'ouverture est deja dans `fond`, l'exclure du mouvement
     // evite de le compter deux fois.
     let entrees: i64 = base

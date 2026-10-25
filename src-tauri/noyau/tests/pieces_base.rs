@@ -410,15 +410,20 @@ fn la_date_d_une_piece_se_saisit_et_ne_bouge_pas_toute_seule() {
     let avant = pieces::lire_pieces_client_sur_base(&mut base, client.clone(), None).unwrap();
     let date_origine = avant[0]["date_piece"].as_str().unwrap().to_string();
 
-    // Antidater : la vente du 3, saisie aujourd'hui.
+    // Antidater : la vente d'il y a trois jours, saisie aujourd'hui.
+    // Relative au jour courant : une date fixe depassait la limite
+    // d'antidatage (31 jours) un mois apres l'ecriture du test.
+    let il_y_a_trois_jours = (chrono::Local::now().date_naive() - chrono::Duration::days(3))
+        .format("%Y-%m-%d")
+        .to_string();
     pieces::modifier_piece_sur_base(
         &mut base, id(&d), None, None, None, None,
-        Some("2026-09-03T10:30:00".into()),
+        Some(format!("{il_y_a_trois_jours}T10:30:00")),
     )
     .unwrap();
     let apres = pieces::lire_pieces_client_sur_base(&mut base, client.clone(), None).unwrap();
     assert!(
-        apres[0]["date_piece"].as_str().unwrap().starts_with("2026-09-03"),
+        apres[0]["date_piece"].as_str().unwrap().starts_with(&il_y_a_trois_jours),
         "la date saisie n'a pas été posée : {}", apres[0]["date_piece"],
     );
     assert_ne!(date_origine, apres[0]["date_piece"].as_str().unwrap());
@@ -430,7 +435,7 @@ fn la_date_d_une_piece_se_saisit_et_ne_bouge_pas_toute_seule() {
     .unwrap();
     let encore = pieces::lire_pieces_client_sur_base(&mut base, client, None).unwrap();
     assert!(
-        encore[0]["date_piece"].as_str().unwrap().starts_with("2026-09-03"),
+        encore[0]["date_piece"].as_str().unwrap().starts_with(&il_y_a_trois_jours),
         "une modification sans date a écrasé la date saisie",
     );
 }

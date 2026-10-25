@@ -30,6 +30,6 @@ export const MODULES: ModuleEquipe[] = [
   {
     cle: "clients", libelle: "Suivi clients", icone: MessageSquareText,
     description: "Échanges, rappels, prospects, et tout ce qu'un client a fait avec la boutique.",
-    droits: ["crm:suivre"], aVenir: "H",
+    droits: ["crm:suivre"],
   },
 ];

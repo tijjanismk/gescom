@@ -204,7 +204,7 @@ fn reglements(base: &mut Base, p: &Periode, a: &HashMap<String, String>) -> Resu
              WHERE pf.dossier_id = ?1
                AND SUBSTR(pf.date_paiement, 1, 10) >= ?2 AND SUBSTR(pf.date_paiement, 1, 10) <= ?3
              ORDER BY pf.date_paiement",
-            &parametres![dossier, p.du.clone(), p.au.clone()],
+            &parametres![dossier.clone(), p.du.clone(), p.au.clone()],
             |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<String>(3)?, r.get::<String>(4)?)),
         )
         .map_err(|e| e.0)?;
@@ -216,6 +216,38 @@ fn reglements(base: &mut Base, p: &Periode, a: &HashMap<String, String>) -> Resu
             format!("Paiement {} — {fournisseur}", regles::libelle_mode(&mode)),
             &a["achats:fournisseurs"],
             &a[cle_tresorerie(&mode)],
+            montant,
+        ) {
+            v.push(e);
+        }
+    }
+    // Avant le 25/09, un achat comptant SANS fournisseur sortait de la
+    // caisse sans `paiement_fournisseur` : AC le passait au 401 et rien
+    // ne le soldait — une dette envers personne. Sa sortie de caisse le
+    // solde ici. Depuis, ces achats vont au « Fournisseur divers » et
+    // passent par le paiement ci-dessus : la requete ne les voit plus.
+    let anciens = base
+        .lire_plusieurs(
+            "SELECT mc.id, mc.date_mouvement, mc.montant, mc.moyen
+             FROM mouvement_caisse mc
+             WHERE mc.motif = 'achat' AND mc.sens = 'sortie' AND mc.dossier_id = ?1
+               AND SUBSTR(mc.date_mouvement, 1, 10) >= ?2 AND SUBSTR(mc.date_mouvement, 1, 10) <= ?3
+               AND EXISTS (SELECT 1 FROM mouvement_stock ms
+                           WHERE ms.operation_id = mc.operation_id AND ms.type_mouvement = 'achat'
+                             AND ms.fournisseur_id IS NULL AND ms.dossier_id = ?1)
+             ORDER BY mc.date_mouvement",
+            &parametres![dossier, p.du.clone(), p.au.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<String>(3)?)),
+        )
+        .map_err(|e| e.0)?;
+    for (id, date, montant, moyen) in anciens {
+        if let Some(e) = simple(
+            "RG",
+            &date,
+            piece_courte("PF", &id),
+            format!("Paiement {} — Sans fournisseur", regles::libelle_mode(&moyen)),
+            &a["achats:fournisseurs"],
+            &a[cle_tresorerie(&moyen)],
             montant,
         ) {
             v.push(e);

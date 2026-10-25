@@ -17,8 +17,10 @@ ok(await page.getByTestId("module-personnel").count() === 1 && await page.getByT
 ok((await page.getByTestId("dossier-ouvert").innerText()).length > 0, "le dossier ouvert est dit");
 await capture(page, "f1-01-patron");
 
+// H-1/H-2 : Suivi clients est un vrai écran depuis l'étape H, plus une
+// annonce « bientôt » — voir h1-echanges-360.mjs et h2-rappels-prospects.mjs.
 await menu.getByRole("button", { name: /Suivi clients/ }).click();
-ok((await page.getByTestId("bientot-clients").innerText()).includes("étape H"), "Suivi clients : annoncé pour l'étape H, pas un écran vide");
+ok(await page.getByRole("tab", { name: "Clients" }).count() === 1, "Suivi clients : un écran, pas une annonce");
 
 // Des comptes, créés par le serveur comme dans Gescom.
 await page.evaluate(async s => {

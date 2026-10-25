@@ -767,3 +767,68 @@ fn le_frere_n_ouvre_que_sa_quincaillerie_et_la_comptable_choisit() {
     let (code, v) = rpc(port, &jeton_frere, "lire_clients", json!({}));
     assert_eq!(code, 401, "{v}");
 }
+
+/// Revue du 25/09 : la copie automatique attendait 24 h de marche
+/// continue — un poste éteint chaque soir n'était JAMAIS sauvegardé.
+/// Ici le serveur démarre sur un dossier vide : il copie peu après, sans
+/// attendre un jour ; `/sante` le dit ; relancé le même jour, il ne
+/// recopie pas, et dit encore la date de la copie du matin.
+#[test]
+fn un_serveur_rallume_chaque_matin_est_sauvegarde_sans_attendre_un_jour() {
+    let port = port_libre();
+    let base = std::env::temp_dir().join(format!("gescom_matin_{}_{port}.db", std::process::id()));
+    let dossier = std::env::temp_dir().join(format!("gescom_matin_sauv_{port}"));
+    let _ = std::fs::remove_dir_all(&dossier);
+    let demarrer = || {
+        Command::new(env!("CARGO_BIN_EXE_gescom-serveur"))
+            .args(["--hote", "127.0.0.1", "--port", &port.to_string()])
+            .args(["--base", &base.to_string_lossy()])
+            .args(["--sauvegardes", &dossier.to_string_lossy()])
+            .env("GESCOM_SAUVEGARDE_DELAI_S", "1")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("lancer gescom-serveur")
+    };
+    let attendre_sante = || {
+        let debut = Instant::now();
+        loop {
+            if let Ok((200, v)) = requete(port, "GET", "/sante", None, None) {
+                return v;
+            }
+            assert!(debut.elapsed() < Duration::from_secs(60), "le serveur ne répond pas");
+            std::thread::sleep(Duration::from_millis(300));
+        }
+    };
+    let copies = || -> Vec<String> {
+        let mut v: Vec<String> = std::fs::read_dir(&dossier)
+            .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect())
+            .unwrap_or_default();
+        v.retain(|n| n.starts_with("gescom_backup_"));
+        v
+    };
+
+    let mut srv = Serveur { enfant: demarrer(), port, base: base.clone() };
+    attendre_sante();
+    let debut = Instant::now();
+    while copies().is_empty() {
+        assert!(debut.elapsed() < Duration::from_secs(30), "aucune copie automatique après le démarrage");
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    let premiere = copies();
+    assert_eq!(premiere.len(), 1, "{premiere:?}");
+    let chemin = dossier.join(&premiere[0]);
+    gescom_noyau::sauvegarde::verifier_copie_sqlite(&chemin).expect("la copie se relit");
+
+    // Relancé le même jour : pas de seconde copie, et la date est connue.
+    let _ = srv.enfant.kill();
+    let _ = srv.enfant.wait();
+    srv.enfant = demarrer();
+    let sante = attendre_sante();
+    assert!(sante["derniere_sauvegarde"].as_str().is_some(), "après redémarrage : {sante}");
+    std::thread::sleep(Duration::from_secs(4));
+    assert_eq!(copies(), premiere, "une copie de moins d'un jour : pas de recopie");
+
+    drop(srv);
+    let _ = std::fs::remove_dir_all(&dossier);
+}

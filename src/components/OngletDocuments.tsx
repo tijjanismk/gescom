@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import {
   Loader2, Save, Upload, X, ImageIcon, RotateCcw, Plus, Trash2, Stamp,
-  CheckCircle2, AlertTriangle, PanelTop, PanelBottom,
+  CheckCircle2, AlertTriangle, PanelTop, PanelBottom, Droplet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,8 +20,8 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
   type Genre, type ReglageGenre, type ReglagesDocuments, type Choix,
-  type Coordonnee, type FormatDocument,
-  LIBELLES_GENRE, PORTEE_GENRE, LIBELLES_FORMAT, LIBELLES_COORDONNEE,
+  type Coordonnee, type FormatDocument, type FiligraneDoc,
+  LIBELLES_GENRE, PORTEE_GENRE, LIBELLES_FORMAT, LIBELLES_COORDONNEE, FILIGRANE_BORNES,
   SIGNATURES_MAX, lireReglagesDocuments, choisirImage, contenuBase64,
 } from "@/lib/documents";
 import { documentExemple } from "@/lib/exemples-documents";
@@ -88,6 +88,23 @@ function Case({
     </label>
   );
 }
+
+/** Un curseur borné, sa valeur dite à côté. */
+function Curseur({
+  etiquette, valeur, min, max, unite, onChange,
+}: { etiquette: string; valeur: number; min: number; max: number; unite: string; onChange: (n: number) => void }) {
+  return (
+    <label className="grid grid-cols-[110px_1fr_48px] items-center gap-3 text-sm">
+      <span>{etiquette}</span>
+      <input type="range" min={min} max={max} step={1} value={valeur}
+        aria-label={etiquette}
+        onChange={e => onChange(Number(e.target.value))} className="accent-primary" />
+      <span className="text-right tabular-nums text-muted-foreground">{valeur}{unite}</span>
+    </label>
+  );
+}
+
+const FILIGRANE_USINE: FiligraneDoc = { image: null, texte: null, opacite: 8, flou: 1, taille: 60 };
 
 // =====================================================================
 //  Papier à en-tête : deux images de la société
@@ -175,6 +192,10 @@ export function OngletDocuments() {
   const [occupe, setOccupe] = useState<string | null>(null);
   const [avisPapier, setAvisPapier] = useState<Avis>(null);
   const [avisGenre, setAvisGenre] = useState<Avis>(null);
+  // Le filigrane en cours de réglage : l'exemple le montre avant
+  // qu'on l'enregistre, comme le reste.
+  const [filigrane, setFiligrane] = useState<FiligraneDoc>(FILIGRANE_USINE);
+  const [avisFiligrane, setAvisFiligrane] = useState<Avis>(null);
 
   useEffect(() => {
     Promise.all([
@@ -186,6 +207,7 @@ export function OngletDocuments() {
     ])
       .then(([r, e, p, s, l]) => {
         setReglages(r); setEntete(e); setPied(p); setLogo(l);
+        setFiligrane(r.filigrane ?? FILIGRANE_USINE);
         setSociete({ nom: "Ma société", ...(s as Record<string, unknown>) });
         setPiedFacture(String((s as { pied_facture?: string }).pied_facture ?? ""));
         setBrouillon(r.genres.facture);
@@ -265,6 +287,58 @@ export function OngletDocuments() {
     }
   }
 
+  // ---- Le filigrane -----------------------------------------------------
+
+  const filigraneEnregistre = reglages?.filigrane ?? FILIGRANE_USINE;
+  const filigraneModifie = (["texte", "opacite", "flou", "taille"] as const)
+    .some(k => (filigrane[k] ?? null) !== (filigraneEnregistre[k] ?? null));
+
+  function relireFiligrane(f: FiligraneDoc) {
+    setReglages(r => (r ? { ...r, filigrane: f } : r));
+    setFiligrane(f);
+  }
+
+  async function enregistrerFiligrane() {
+    setAvisFiligrane(null);
+    setOccupe("filigrane");
+    try {
+      const f = await invoke<FiligraneDoc>("enregistrer_filigrane_documents", {
+        reglage: {
+          texte: filigrane.texte?.trim() || null,
+          opacite: filigrane.opacite, flou: filigrane.flou, taille: filigrane.taille,
+        },
+      });
+      relireFiligrane(f);
+      setAvisFiligrane({ type: "ok", texte: "Filigrane enregistré." });
+    } catch (e) {
+      setAvisFiligrane({ type: "erreur", texte: String(e) });
+    } finally {
+      setOccupe(null);
+    }
+  }
+
+  async function poserImageFiligrane(retirer = false) {
+    setAvisFiligrane(null);
+    try {
+      let image: string | null = null;
+      if (!retirer) {
+        const f = await choisirImage();
+        if (!f) return;
+        image = f.dataUrl;
+      }
+      setOccupe("filigrane-image");
+      const f = await invoke<FiligraneDoc>("poser_image_filigrane", { image });
+      // Le réglage en cours (curseurs non enregistrés) reste tel quel.
+      setReglages(r => (r ? { ...r, filigrane: f } : r));
+      setFiligrane(b => ({ ...b, image: f.image ?? null }));
+      setAvisFiligrane({ type: "ok", texte: retirer ? "Image du filigrane retirée." : "Image du filigrane posée." });
+    } catch (e) {
+      setAvisFiligrane({ type: "erreur", texte: String(e) });
+    } finally {
+      setOccupe(null);
+    }
+  }
+
   // ---- Le genre --------------------------------------------------------
 
   async function enregistrer() {
@@ -333,9 +407,9 @@ export function OngletDocuments() {
   const apercu = useMemo(() => {
     if (!reglages || !brouillon) return "";
     return documentExemple(genre, brouillon.format as FormatImpression, {
-      logo, entete, pied, reglage: brouillon, coordonnees: reglages.coordonnees,
+      logo, entete, pied, reglage: brouillon, coordonnees: reglages.coordonnees, filigrane,
     }, societe).replace(/<script>[\s\S]*?<\/script>/g, "");
-  }, [genre, brouillon, reglages, logo, entete, pied, societe]);
+  }, [genre, brouillon, reglages, logo, entete, pied, societe, filigrane]);
 
   if (erreurChargement) {
     return (
@@ -405,6 +479,56 @@ export function OngletDocuments() {
         <AvisLigne avis={avisPapier} />
       </section>
 
+      {/* ---- Filigrane (25/09) ---- */}
+      <section className="space-y-3 max-w-3xl" aria-labelledby="titre-filigrane">
+        <div>
+          <h2 id="titre-filigrane" className="text-base font-semibold">Filigrane</h2>
+          <p className="text-sm text-muted-foreground">
+            Votre logo ou un mot au milieu de chaque page, derrière le texte. Estompé et
+            flouté, il se devine sans se mêler aux lignes des tableaux. Documents A4 et A5 ;
+            chaque document peut le retirer plus bas.
+          </p>
+        </div>
+        <div className="grid sm:grid-cols-[220px_minmax(0,1fr)] gap-3">
+          <ImageSociete titre="Image" icone={Droplet} image={filigrane.image ?? null}
+            aide="Le logo, de préférence sur fond transparent (PNG). 1 Mo au plus."
+            occupe={occupe === "filigrane-image"}
+            onPoser={() => poserImageFiligrane()}
+            onRetirer={() => poserImageFiligrane(true)} />
+          <div className="rounded-lg border border-border p-3 space-y-3">
+            <div>
+              <Label htmlFor="filigrane-texte" className="mb-1.5 block">Ou un mot</Label>
+              <Input id="filigrane-texte" maxLength={30} placeholder="Ex. COPIE, PAYÉ, ORIGINAL"
+                value={filigrane.texte ?? ""}
+                onChange={e => { setFiligrane(f => ({ ...f, texte: e.target.value })); setAvisFiligrane(null); }} />
+              <p className="text-xs text-muted-foreground mt-1">
+                {filigrane.image ? "L'image posée l'emporte sur le mot." : "Écrit en travers de la page."}
+              </p>
+            </div>
+            <Curseur etiquette="Intensité" unite=" %" valeur={filigrane.opacite}
+              min={FILIGRANE_BORNES.opacite[0]} max={FILIGRANE_BORNES.opacite[1]}
+              onChange={n => setFiligrane(f => ({ ...f, opacite: n }))} />
+            <Curseur etiquette="Flou" unite="" valeur={filigrane.flou}
+              min={FILIGRANE_BORNES.flou[0]} max={FILIGRANE_BORNES.flou[1]}
+              onChange={n => setFiligrane(f => ({ ...f, flou: n }))} />
+            <Curseur etiquette="Taille" unite=" %" valeur={filigrane.taille}
+              min={FILIGRANE_BORNES.taille[0]} max={FILIGRANE_BORNES.taille[1]}
+              onChange={n => setFiligrane(f => ({ ...f, taille: n }))} />
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button size="sm" onClick={enregistrerFiligrane} disabled={!filigraneModifie || occupe !== null}>
+                {occupe === "filigrane" ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <><Save className="h-4 w-4 mr-1.5" />Enregistrer le filigrane</>}
+              </Button>
+              <Button size="sm" variant="outline" disabled={!filigraneModifie || occupe !== null}
+                onClick={() => { setFiligrane({ ...filigraneEnregistre, image: filigrane.image }); setAvisFiligrane(null); }}>
+                Annuler
+              </Button>
+            </div>
+          </div>
+        </div>
+        <AvisLigne avis={avisFiligrane} />
+      </section>
+
       {/* ---- Par genre ---- */}
       <section className="space-y-4" aria-labelledby="titre-genres">
         <div>
@@ -468,6 +592,13 @@ export function OngletDocuments() {
               etiquette="Montant en lettres" aide="« Arrêté la présente facture à la somme de… »" />
             <Case coche={brouillon.reference_article} onChange={b => changer("reference_article", b)}
               etiquette="Référence de l'article" aide="Le code de l'article devant sa désignation." />
+            {!estTicket && (
+              <Case coche={brouillon.filigrane !== false} onChange={b => changer("filigrane", b)}
+                etiquette="Filigrane"
+                aide={filigrane.image || filigrane.texte?.trim()
+                  ? "Le filigrane réglé plus haut, au milieu de chaque page."
+                  : "Aucun filigrane n'est posé pour l'instant (voir plus haut)."} />
+            )}
           </div>
 
           <div>
@@ -539,7 +670,7 @@ export function OngletDocuments() {
                 </Button>
               )}
               <p className="text-xs text-muted-foreground mt-1">
-                L'image (cachet, signature scannée) s'imprime au-dessus du trait. PNG ou JPEG, 512 ko au plus.
+                Le libellé s'imprime souligné ; l'image (cachet, signature scannée) dessous, à la place de signer. PNG ou JPEG, 512 ko au plus.
               </p>
             </div>
           )}

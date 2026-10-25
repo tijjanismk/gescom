@@ -79,7 +79,7 @@ pub fn conseils(port: u16) -> Vec<String> {
              Paramètres → Réseau"
         )),
         None => lignes.push(
-            "  ⚠ aucune adresse réseau : ce poste n'est joignable que par \
+            "  ATTENTION : aucune adresse réseau, ce poste n'est joignable que par \
              lui-même."
                 .to_string(),
         ),
@@ -88,7 +88,7 @@ pub fn conseils(port: u16) -> Vec<String> {
     if regle_parefeu_presente(port) == Some(false) {
         lignes.push(String::new());
         lignes.push(
-            "  ⚠ PARE-FEU : aucune règle « Gescom serveur » n'autorise le port"
+            "  ATTENTION, PARE-FEU : aucune règle « Gescom serveur » n'autorise le port"
                 .to_string(),
         );
         lignes.push(format!(

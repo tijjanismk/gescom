@@ -16,6 +16,10 @@
 //!   chemin (D8) : il voyage vers les caisses tel quel, et la sauvegarde
 //!   de la base l'emporte — y compris `pg_dump`.
 //!
+//! - `documents_filigrane` : le reglage du filigrane (JSON) ;
+//!   `documents_filigrane_image` : son image, en `data:` URL, comme les
+//!   cachets (25/09).
+//!
 //! Les nouvelles commandes n'ont qu'une version, sur `Base` (D22 : le
 //! serveur sert tout par `Base`, sur les deux moteurs).
 
@@ -25,6 +29,12 @@ use crate::parametres;
 
 const CLE_REGLAGES: &str = "documents_reglages";
 const CLE_COORDONNEES: &str = "documents_coordonnees";
+const CLE_FILIGRANE: &str = "documents_filigrane";
+const CLE_FILIGRANE_IMAGE: &str = "documents_filigrane_image";
+
+/// Le filigrane est souvent le logo en grand : plus lourd qu'un cachet,
+/// mais pas une photo.
+pub const IMAGE_FILIGRANE_MAX: usize = 1024 * 1024;
 
 /// Un cachet ou une signature scannee : quelques dizaines de ko. Au-dela
 /// c'est une photo de telephone qu'il faut recadrer.
@@ -117,7 +127,43 @@ pub fn lire_reglages_sur(acces: &mut impl Acces) -> Result<serde_json::Value, St
         "ordre": regles::GENRES,
         "genres": genres,
         "coordonnees": lire_coordonnees_sur(acces)?,
+        "filigrane": lire_filigrane_sur(acces)?,
     }))
+}
+
+/// Le filigrane : son reglage et son image (`null` sans image).
+/// Illisible : celui d'usine, qui n'imprime rien tant qu'on n'a posé ni
+/// image ni texte.
+pub fn lire_filigrane_sur(acces: &mut impl Acces) -> Result<serde_json::Value, String> {
+    let enregistre: Option<serde_json::Value> = lire_cle(acces, CLE_FILIGRANE)?
+        .and_then(|t| serde_json::from_str(&t).ok());
+    let f = regles::fusionner_filigrane(enregistre.as_ref());
+    let mut v = serde_json::to_value(&f).map_err(|e| e.to_string())?;
+    v["image"] = serde_json::json!(lire_cle(acces, CLE_FILIGRANE_IMAGE)?);
+    Ok(v)
+}
+
+/// Enregistre le reglage du filigrane (texte, intensite, flou, taille).
+/// L'image se pose a part : elle ne voyage pas a chaque curseur bouge.
+pub fn enregistrer_filigrane_sur(acces: &mut impl Acces, reglage: serde_json::Value) -> Result<serde_json::Value, String> {
+    let f: regles::Filigrane = serde_json::from_value(reglage)
+        .map_err(|e| format!("Réglage du filigrane illisible : {e}"))?;
+    regles::valider_filigrane(&f)?;
+    let f = regles::normaliser_filigrane(f);
+    ecrire_cle(acces, CLE_FILIGRANE, &serde_json::to_value(&f).map_err(|e| e.to_string())?.to_string())?;
+    lire_filigrane_sur(acces)
+}
+
+/// Pose (ou retire, avec `None`) l'image du filigrane.
+pub fn poser_image_filigrane_sur(acces: &mut impl Acces, data_url: Option<String>) -> Result<serde_json::Value, String> {
+    match data_url.filter(|d| !d.trim().is_empty()) {
+        Some(d) => {
+            valider_image(&d, IMAGE_FILIGRANE_MAX, "un filigrane")?;
+            ecrire_cle(acces, CLE_FILIGRANE_IMAGE, &d)?;
+        }
+        None => effacer_cle(acces, CLE_FILIGRANE_IMAGE)?,
+    }
+    lire_filigrane_sur(acces)
 }
 
 /// Les coordonnees affichees sous le nom, quand l'en-tete n'est pas une
@@ -186,21 +232,26 @@ pub fn retablir_defaut_sur(acces: &mut impl Acces, genre: &str) -> Result<serde_
 
 /// Verifie une image de signature et la rend telle quelle.
 pub fn valider_image_signature(data_url: &str) -> Result<(), String> {
+    valider_image(data_url, IMAGE_SIGNATURE_MAX, "une signature")
+}
+
+/// Une image posee dans un document : PNG, JPEG ou WebP, pas trop lourde.
+fn valider_image(data_url: &str, max: usize, pour: &str) -> Result<(), String> {
     let (entete, b64) = data_url
         .split_once(";base64,")
         .ok_or_else(|| "Image illisible : data URL en base64 attendue.".to_string())?;
     let type_mime = entete.strip_prefix("data:").unwrap_or("");
     if !TYPES_IMAGE.contains(&type_mime) {
         return Err(format!(
-            "Format refusé pour une signature : « {type_mime} ». PNG, JPEG ou WebP."
+            "Format refusé pour {pour} : « {type_mime} ». PNG, JPEG ou WebP."
         ));
     }
     let octets = crate::images::decoder_base64(b64)?;
-    if octets.len() > IMAGE_SIGNATURE_MAX {
+    if octets.len() > max {
         return Err(format!(
-            "Image trop lourde pour une signature : {} ko, {} ko au plus. La recadrer.",
+            "Image trop lourde pour {pour} : {} ko, {} ko au plus. La recadrer.",
             octets.len() / 1024,
-            IMAGE_SIGNATURE_MAX / 1024
+            max / 1024
         ));
     }
     Ok(())

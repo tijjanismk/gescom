@@ -73,7 +73,7 @@ const CANAUX = [
 function urgence(jours: number): { label: string; couleur: string } {
   if (jours > 90) return { label: "Critique",  couleur: "bg-red-100 text-red-700 border-red-200" };
   if (jours > 60) return { label: "Urgent",    couleur: "bg-orange-100 text-orange-700 border-orange-200" };
-  if (jours > 30) return { label: "En retard", couleur: "bg-yellow-100 text-yellow-700 border-yellow-200" };
+  if (jours > 30) return { label: "En retard", couleur: "bg-amber-100 text-amber-950 border-amber-300" };
   return { label: "Récent", couleur: "bg-gray-100 text-gray-600 border-gray-200" };
 }
 

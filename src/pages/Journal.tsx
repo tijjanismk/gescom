@@ -236,8 +236,7 @@ export function Journal() {
       </div>
 
       {/* ── En-tête du document ── */}
-      <div className="text-center mb-5 py-2 bg-yellow-100 border border-yellow-300
-                      rounded print:rounded-none">
+      <div className="text-center mb-5 py-2 border-y-2 border-foreground">
         <h2 className="text-lg font-bold tracking-wide">
           JOURNAL DU {new Date(date + "T12:00:00")
             .toLocaleDateString("fr-ML", {

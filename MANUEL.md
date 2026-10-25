@@ -223,7 +223,7 @@ ligne par ligne.
 Sous la quantité, l'application indique où se trouve l'article :
 
 ```
-🏬 5 ici · 30 à Djelibougou
+5 ici · 30 à Djelibougou
 ```
 
 Si vous demandez 20 et qu'il n'y en a que 5 sur place, une fenêtre

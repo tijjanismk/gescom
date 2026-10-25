@@ -120,6 +120,8 @@ pub const TABLES_CLOISONNEES: &[&str] = &[
     "ligne_paie",
     "versement_paie",
     "cotisation",
+    "echange",
+    "rappel",
 ];
 
 /// La cle d'un compteur, cloisonnee par dossier.
@@ -1113,7 +1115,7 @@ pub fn creer_dossier_sur(
 /// Le prefixe des codes de tiers du dossier courant : rien pour le
 /// dossier d'origine (ses codes existent deja sans), « CODE- » pour les
 /// autres — `client.code` est unique sur toute la base, pas par dossier.
-pub fn prefixe_de_code_sur(base: &mut Base) -> Result<String, String> {
+pub fn prefixe_de_code_sur(base: &mut impl crate::base::Acces) -> Result<String, String> {
     let dossier = base.dossier().to_string();
     if dossier == DOSSIER_DEFAUT {
         return Ok(String::new());

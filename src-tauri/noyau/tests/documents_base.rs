@@ -224,3 +224,37 @@ fn les_tables_de_l_atelier_partent_a_l_amorcage() {
     assert!(!reste(&mut base, "modele_document"), "modele_document supprimée");
     assert!(!reste(&mut base, "image_document"), "image_document supprimée");
 }
+
+/// 25/09 : le filigrane — rien tant qu'on n'a rien posé, puis un
+/// réglage et une image qui se relisent, un réglage qui masquerait le
+/// document refusé, l'image retirée sans toucher au réglage.
+#[test]
+fn le_filigrane_se_pose_se_relit_et_se_retire() {
+    let mut base = base_avec_demo();
+    let v = documents::lire_reglages_sur(&mut base).unwrap();
+    assert_eq!(v["filigrane"]["image"], serde_json::Value::Null, "rien d'usine");
+    assert_eq!(v["filigrane"]["texte"], serde_json::Value::Null);
+    assert_eq!(v["genres"]["facture"]["filigrane"], true, "chaque genre le porte d'office");
+    assert_eq!(v["genres"]["ticket"]["filigrane"], false, "sauf le rouleau");
+
+    let f = documents::enregistrer_filigrane_sur(&mut base, json!({ "texte": " COPIE ", "opacite": 12, "flou": 2, "taille": 70 })).unwrap();
+    assert_eq!((f["texte"].clone(), f["opacite"].clone(), f["flou"].clone(), f["taille"].clone()), (json!("COPIE"), json!(12), json!(2), json!(70)));
+    assert!(documents::enregistrer_filigrane_sur(&mut base, json!({ "opacite": 80 })).unwrap_err().contains("Intensité"));
+    assert_eq!(documents::lire_filigrane_sur(&mut base).unwrap()["opacite"], 12, "le refus n'a rien écrit");
+
+    let f = documents::poser_image_filigrane_sur(&mut base, Some(PNG.into())).unwrap();
+    assert_eq!(f["image"], PNG);
+    assert_eq!(f["texte"], "COPIE", "l'image ne défait pas le réglage");
+    assert!(documents::poser_image_filigrane_sur(&mut base, Some("data:text/html;base64,PGI+".into())).is_err());
+    let lourd = format!("data:image/png;base64,{}", "A".repeat(1500 * 1024));
+    assert!(documents::poser_image_filigrane_sur(&mut base, Some(lourd)).unwrap_err().contains("trop lourde"));
+    let f = documents::poser_image_filigrane_sur(&mut base, None).unwrap();
+    assert_eq!(f["image"], serde_json::Value::Null);
+    assert_eq!(f["opacite"], 12);
+
+    // Un genre le retire, les autres le gardent.
+    documents::enregistrer_reglage_sur(&mut base, "devis", json!({ "format": "a4", "filigrane": false })).unwrap();
+    let v = documents::lire_reglages_sur(&mut base).unwrap();
+    assert_eq!(v["genres"]["devis"]["filigrane"], false);
+    assert_eq!(v["genres"]["facture"]["filigrane"], true);
+}

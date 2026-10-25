@@ -10,7 +10,7 @@ pub fn lire_fournisseurs(
     conn: &rusqlite::Connection,
 ) -> Result<Vec<serde_json::Value>, String> {
     let mut stmt = conn.prepare(
-        "SELECT id, nom, telephone, adresse, est_voisin
+        "SELECT id, nom, telephone, adresse, est_voisin, est_generique
          FROM fournisseur ORDER BY nom"
     ).map_err(|e| e.to_string())?;
 
@@ -21,6 +21,8 @@ pub fn lire_fournisseurs(
             "telephone": r.get::<_,Option<String>>(2)?,
             "adresse":   r.get::<_,Option<String>>(3)?,
             "est_voisin":r.get::<_,i64>(4)? != 0,
+            // Le « Fournisseur divers » : comptant seulement (25/09).
+            "est_generique": r.get::<_,i64>(5)? != 0,
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
     Ok(x)
@@ -122,6 +124,12 @@ pub fn modifier_fournisseur(
     if nom.trim().is_empty() {
         return Err("Le nom est obligatoire".to_string());
     }
+    // Comme le client generique : le « Fournisseur divers » ne se
+    // modifie pas, l'ecran Achats le nomme par sa constante.
+    crate::coeur::tiers::refuser_si_fournisseur_divers(
+        crate::achats::est_fournisseur_divers(conn, &fournisseur_id),
+        "modifier sa fiche",
+    )?;
 
     let existe: i64 = conn.query_row(
         "SELECT COUNT(*) FROM fournisseur WHERE id = ?1",
@@ -923,7 +931,8 @@ const DETTE_PIECES: &str = "
 pub fn lire_fournisseurs_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
     let dossier = base.dossier().to_string();
     base.lire_plusieurs(
-        "SELECT id, nom, telephone, adresse, est_voisin FROM fournisseur WHERE dossier_id = ?1 ORDER BY nom",
+        "SELECT id, nom, telephone, adresse, est_voisin, est_generique
+         FROM fournisseur WHERE dossier_id = ?1 ORDER BY nom",
         &parametres![dossier],
         |r| {
             Ok(serde_json::json!({
@@ -932,6 +941,8 @@ pub fn lire_fournisseurs_sur_base(base: &mut Base) -> Result<Vec<serde_json::Val
                 "telephone":  r.get::<Option<String>>(2)?,
                 "adresse":    r.get::<Option<String>>(3)?,
                 "est_voisin": r.get::<i64>(4)? != 0,
+                // Le « Fournisseur divers » : comptant seulement (25/09).
+                "est_generique": r.get::<i64>(5)? != 0,
             }))
         },
     )
@@ -1002,6 +1013,12 @@ pub fn modifier_fournisseur_sur_base(
     if nom.trim().is_empty() {
         return Err("Le nom est obligatoire".to_string());
     }
+    // Comme le client generique : le « Fournisseur divers » ne se
+    // modifie pas, l'ecran Achats le nomme par sa constante.
+    crate::coeur::tiers::refuser_si_fournisseur_divers(
+        crate::achats::est_fournisseur_divers_sur(base, &fournisseur_id)?,
+        "modifier sa fiche",
+    )?;
     let dossier = base.dossier().to_string();
     let vide = |o: Option<String>| o.filter(|s| !s.trim().is_empty());
     let modifiees = base

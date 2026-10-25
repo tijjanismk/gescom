@@ -4,7 +4,7 @@
 --  Régénéré depuis une base réelle le 29/08/2026, après les lots de
 --  correction v1. Ce fichier décrit l'état CIBLE d'une base neuve.
 --
---  ⚠️ Les migrations de persistance/mod.rs restent nécessaires : elles
+--  Attention : Les migrations de persistance/mod.rs restent nécessaires : elles
 --     mettent à niveau les bases DÉJÀ créées. Les colonnes qu'elles
 --     ajoutent sont désormais présentes ici, si bien qu'une base neuve
 --     est complète dès le premier démarrage et que les ALTER ne font
@@ -167,7 +167,15 @@ CREATE TABLE IF NOT EXISTS client (
     modifie_le      TEXT NOT NULL,
     cree_par        TEXT NOT NULL DEFAULT 'system',
     modifie_par     TEXT NOT NULL DEFAULT 'system',
-    origine         TEXT NOT NULL DEFAULT 'app'
+    origine         TEXT NOT NULL DEFAULT 'app',
+    -- PLAN-EQUIPE H-2 (D34) : pas de second fichier clients — un
+    -- prospect EST un client, `statut` = 'prospect' | 'client'. Il
+    -- redevient 'client' tout seul a sa premiere vente
+    -- (argent::creer_vente_datee_sur). `origine_prospect` dit d'ou il
+    -- vient (salon, recommandation, passage...) — distincte d'`origine`
+    -- ci-dessus, qui dit d'ou vient la LIGNE de donnees (app/demo/import).
+    statut          TEXT NOT NULL DEFAULT 'client',
+    origine_prospect TEXT
 );
 
 CREATE TABLE IF NOT EXISTS fournisseur (
@@ -181,7 +189,11 @@ CREATE TABLE IF NOT EXISTS fournisseur (
     actif       INTEGER NOT NULL DEFAULT 1,
     cree_le     TEXT NOT NULL,
     modifie_le  TEXT NOT NULL,
-    origine     TEXT NOT NULL DEFAULT 'app'
+    origine     TEXT NOT NULL DEFAULT 'app',
+    -- « Fournisseur divers » (coeur::tiers::FOURNISSEUR_DIVERS) : les
+    -- achats faits sans nommer de fournisseur, payes comptant. Un par
+    -- dossier, cree a la premiere occasion (achats::fournisseur_divers*).
+    est_generique INTEGER NOT NULL DEFAULT 0
 );
 
 
@@ -224,7 +236,7 @@ CREATE TABLE IF NOT EXISTS ligne_vente (
     origine                     TEXT NOT NULL DEFAULT 'app'
 );
 
--- ⚠️ LEGACY — plus alimentée depuis L31. Conservée pour
+-- Attention : LEGACY — plus alimentée depuis L31. Conservée pour
 --    l'historique des numéros GESCOM- déjà remis à des clients.
 --    Le référentiel est piece_commerciale.
 CREATE TABLE IF NOT EXISTS facture (
@@ -653,6 +665,40 @@ CREATE TABLE IF NOT EXISTS cotisation (
     modifie_le  TEXT NOT NULL
 );
 
+-- Le suivi client (PLAN-EQUIPE H-1, D34) : un echange avec un client,
+-- rattache a sa fiche. `genre` : appel | visite | whatsapp | note.
+-- Les relances de creance existantes (`relance_creance`) restent leur
+-- table a elles (le motif de la relance vit sur la vente) ; elles sont
+-- fondues dans le meme fil a la LECTURE (crm::lister_echanges_sur),
+-- pas dupliquees ici.
+CREATE TABLE IF NOT EXISTS echange (
+    id            TEXT PRIMARY KEY,
+    dossier_id    TEXT NOT NULL,
+    client_id     TEXT NOT NULL REFERENCES client(id),
+    genre         TEXT NOT NULL,
+    quoi          TEXT NOT NULL,
+    suite_prevue  TEXT,
+    auteur_id     TEXT,
+    date_echange  TEXT NOT NULL,
+    cree_le       TEXT NOT NULL
+);
+
+-- Les rappels (PLAN-EQUIPE H-2, D34) : « rappeler Awa jeudi », attribue
+-- a quelqu'un (`pour_utilisateur_id`), qui les voit dans Équipe. `fait`
+-- le retire de la liste active sans l'effacer.
+CREATE TABLE IF NOT EXISTS rappel (
+    id                   TEXT PRIMARY KEY,
+    dossier_id           TEXT NOT NULL,
+    client_id            TEXT NOT NULL REFERENCES client(id),
+    pour_utilisateur_id  TEXT NOT NULL,
+    quand                TEXT NOT NULL,
+    quoi                 TEXT NOT NULL,
+    fait                 INTEGER NOT NULL DEFAULT 0,
+    fait_le              TEXT,
+    cree_par             TEXT,
+    cree_le              TEXT NOT NULL
+);
+
 -- Le role d'une personne DANS un dossier (v3, C-2 — decision C2).
 -- Aucune ligne : comme avant (son role partout s'il a l'acces total,
 -- sinon dans le dossier d'origine). Des lignes : exactement ces
@@ -696,6 +742,12 @@ CREATE INDEX IF NOT EXISTS idx_stock_depot_article  ON stock_depot(article_id, d
 CREATE INDEX IF NOT EXISTS idx_vente_client         ON vente(client_id);
 CREATE INDEX IF NOT EXISTS idx_vente_date           ON vente(date_vente DESC);
 CREATE INDEX IF NOT EXISTS idx_vente_statut         ON vente(statut);
+-- Le suivi client (H-1/H-2) : le fil d'un client, les rappels d'une
+-- personne — sans ces index, chaque fiche relit toute la table.
+CREATE INDEX IF NOT EXISTS idx_echange_client       ON echange(client_id);
+CREATE INDEX IF NOT EXISTS idx_rappel_client        ON rappel(client_id);
+CREATE INDEX IF NOT EXISTS idx_rappel_pour          ON rappel(pour_utilisateur_id, fait);
+CREATE INDEX IF NOT EXISTS idx_relance_vente        ON relance_creance(vente_id);
 
 -- =====================================================================
 --  CHÈQUES REÇUS — une promesse, pas de l'argent (cf. cheques.rs)

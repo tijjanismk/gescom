@@ -30,7 +30,30 @@ export interface ReglageGenre {
   /** null : le « pied de facture » de la société. */
   mention: string | null;
   signatures: SignatureDoc[];
+  /** Le filigrane de la société sur ce genre (25/09) ; absent = oui. */
+  filigrane?: boolean;
 }
+
+/**
+ * Le filigrane (25/09) : une image ou un mot au milieu de chaque page,
+ * derrière le texte, estompé et flouté pour ne pas se mêler aux
+ * tableaux. Réglé une fois pour tous les documents.
+ */
+export interface FiligraneDoc {
+  /** data URL ; l'emporte sur le texte. */
+  image?: string | null;
+  texte?: string | null;
+  /** Pour cent, 3 à 30. */
+  opacite: number;
+  /** Pixels, 0 à 6. */
+  flou: number;
+  /** Pour cent de la largeur de la page, 20 à 100. */
+  taille: number;
+}
+
+export const FILIGRANE_BORNES = {
+  opacite: [3, 30], flou: [0, 6], taille: [20, 100],
+} as const;
 
 export type Coordonnee =
   | "adresse" | "telephone" | "telephone2" | "email" | "site_web" | "nif" | "rccm";
@@ -39,6 +62,7 @@ export interface ReglagesDocuments {
   ordre: Genre[];
   genres: Record<Genre, ReglageGenre>;
   coordonnees: Coordonnee[];
+  filigrane?: FiligraneDoc | null;
 }
 
 export const LIBELLES_GENRE: Record<Genre, string> = {

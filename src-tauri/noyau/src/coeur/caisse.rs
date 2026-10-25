@@ -1,6 +1,6 @@
 //! Logique de caisse — calculs purs.
 //!
-//! ⚠️ Le rapprochement ne porte que sur les ESPÈCES : Orange Money et Moov
+//! Attention : Le rapprochement ne porte que sur les ESPÈCES : Orange Money et Moov
 //! Money sont tracés en mouvement de caisse mais ne sont pas dans le tiroir
 //! physique. L'appelant doit donc filtrer `moyen = 'especes'` avant de
 //! sommer `entrees` et `sorties`. (cf. audit §10)

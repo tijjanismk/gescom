@@ -31,6 +31,8 @@ interface Fournisseur {
   id: string;
   nom: string;
   telephone?: string;
+  /** Le « Fournisseur divers » des achats sans fournisseur : comptant seulement. */
+  est_generique?: boolean;
 }
 
 interface UniteVente {
@@ -165,7 +167,10 @@ function ModalConfirmationAchat({
           <div className="flex items-center gap-2 pb-2 border-b border-border">
             <Truck className="h-4 w-4 text-muted-foreground" />
             <div>
-              <p className="text-sm font-medium">{fournisseur?.nom ?? "Fournisseur secondaire"}</p>
+              <p className="text-sm font-medium">{fournisseur?.nom ?? "Fournisseur divers"}</p>
+              {!fournisseur && (
+                <p className="text-xs text-muted-foreground">Sans fournisseur : payé comptant</p>
+              )}
               {fournisseur?.telephone && (
                 <p className="text-xs text-muted-foreground">{fournisseur.telephone}</p>
               )}
@@ -275,6 +280,9 @@ export function Achats() {
 
   const inputArticleRef = useRef<HTMLInputElement>(null);
   const total = panier.reduce((sum, l) => sum + l.montant, 0);
+  // Sans fournisseur (ou le « Fournisseur divers ») : comptant seulement.
+  // On ne doit rien à personne — le serveur le refuse de toute façon.
+  const creditPossible = !!fournisseur && !fournisseur.est_generique;
 
   // ---- Chargement initial ----
   useEffect(() => {
@@ -317,6 +325,7 @@ export function Achats() {
 
   function selectionnerFournisseur(f: Fournisseur) {
     setFournisseur(f);
+    if (f.est_generique) { setModeReglement("comptant"); setAcompte(""); }
     setRechercheFournisseur("");
     setFournisseursFiltres([]);
     inputArticleRef.current?.focus();
@@ -445,9 +454,14 @@ export function Achats() {
         }
       );
 
-      // Recharger les articles pour stock à jour.
-      const articles = await invoke<ArticleAchat[]>("lire_articles_avec_unites");
+      // Recharger les articles pour stock à jour, et les fournisseurs : le
+      // premier achat sans fournisseur a pu créer « Fournisseur divers ».
+      const [articles, fournisseurs] = await Promise.all([
+        invoke<ArticleAchat[]>("lire_articles_avec_unites"),
+        invoke<Fournisseur[]>("lire_fournisseurs"),
+      ]);
       setTousArticles(articles);
+      setTousFournisseurs(fournisseurs);
 
       setModalConfirmation(false);
       viderPanier();
@@ -480,6 +494,8 @@ export function Achats() {
           </Button>
           <Button size="sm"
             variant={modeReglement === "credit" ? "default" : "outline"}
+            disabled={!creditPossible}
+            title={creditPossible ? undefined : "Choisir le fournisseur pour acheter à crédit"}
             onClick={() => setModeReglement("credit")}>
             À crédit
           </Button>
@@ -506,14 +522,15 @@ export function Achats() {
             {fournisseur ? (
               <div className="flex items-center gap-2 mb-1">
                 <Badge variant="secondary" className="text-xs">{fournisseur.nom}</Badge>
-                <button onClick={() => setFournisseur(null)}
+                <button onClick={() => { setFournisseur(null); setModeReglement("comptant"); setAcompte(""); }}
                   className="text-xs text-muted-foreground hover:text-foreground">
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
             ) : (
               <p className="text-xs text-muted-foreground mb-1">
-                Aucun fournisseur sélectionné
+                Aucun fournisseur : l'achat se paie comptant et se note chez
+                « Fournisseur divers ». Pour acheter à crédit, choisir le fournisseur.
               </p>
             )}
 
@@ -679,7 +696,7 @@ export function Achats() {
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">
-                {fournisseur?.nom ?? "Fournisseur non sélectionné"}
+                {fournisseur?.nom ?? "Fournisseur divers"}
               </p>
               {fournisseur?.telephone && (
                 <p className="text-xs text-muted-foreground">{fournisseur.telephone}</p>

@@ -9,7 +9,7 @@
 // écrite : le bulletin ne recalcule rien.
 
 import {
-  type Habillage, esc, enLettres, blocSociete, imageEntete, imagePied, mention, blocSignatures,
+  type Habillage, esc, enLettres, blocSociete, mention, blocSignatures, documentHTML,
 } from "@/lib/impression";
 
 export interface LigneBulletin { genre: string; libelle: string; montant: number }
@@ -72,18 +72,11 @@ export function genererBulletinHTML(d: DonneesBulletin, h: Habillage = {}): stri
     p.declare && p.numero_inps ? `N° INPS ${esc(p.numero_inps)}` : "",
   ].filter(Boolean).join(" · ");
 
-  return `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8">
-<title>${titre} — ${esc(d.nom)} — ${esc(d.numero ?? "")}</title>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:Arial,sans-serif; font-size:12px; color:#000; }
-  .page { min-height:${a5 ? "190mm" : "277mm"}; display:flex; flex-direction:column; }
-  .corps { flex:1 1 auto; display:flex; flex-direction:column; padding:${h.entete ? "0" : "12mm"} 12mm 12mm 12mm; }
+  const css = `
   .entete { display:flex; justify-content:space-between; border-bottom:2px solid #000; padding-bottom:7px; }
   .titre { font-size:17px; font-weight:bold; letter-spacing:.5px; }
   .det { font-size:10px; color:#555; }
-  .personne { margin:12px 0; padding:7px 9px; border:1px solid #bbb; background:#fafafa; }
+  .personne { margin:12px 0; padding:7px 9px; border:1px solid #bbb; background:rgba(0,0,0,.02); }
   .lbl { font-size:9px; color:#777; text-transform:uppercase; }
   .nom { font-size:14px; font-weight:bold; }
   table { width:100%; border-collapse:collapse; margin-top:6px; }
@@ -96,14 +89,9 @@ export function genererBulletinHTML(d: DonneesBulletin, h: Habillage = {}): stri
   .lettres { font-size:11px; font-style:italic; color:#333; margin-top:4px; }
   .note { font-size:10.5px; color:#444; margin-top:6px; }
   .remplacee { color:#c00; font-weight:bold; border:2px solid #c00; padding:6px 8px; margin-top:8px; text-align:center; }
-  .bas { margin-top:auto; }
-  .mention { font-size:9.5px; color:#666; border-top:1px solid #ddd; padding-top:6px; margin-top:10px; }
-  @media print { @page { size:${a5 ? "148mm 210mm" : "210mm 297mm"}; margin:0; } }
-</style></head>
-<body>
-<div class="page">
-  ${imageEntete(h)}
-  <div class="corps">
+`;
+
+  const contenu = `
     ${entete}
     ${remplacee ? `<div class="remplacee">Remplacé par ${esc(d.remplacee_par ?? "une fiche rectificative")} — ne vaut plus.</div>` : ""}
     ${d.rectifie_numero ? `<div class="note">Rectifie et remplace ${esc(d.rectifie_numero)}.</div>` : ""}
@@ -152,12 +140,15 @@ export function genererBulletinHTML(d: DonneesBulletin, h: Habillage = {}): stri
       </tbody>
     </table>` : ""}
 
-    <div class="bas">
-      ${blocSignatures(r ? r.signatures : [{ libelle: "L'employé" }, { libelle: "Pour la société" }])}
-      ${h.pied ? "" : `<p class="mention">${mention(h, "Bulletin remis au salarié. À conserver.")}</p>`}
-    </div>
-  </div>
-  ${imagePied(h)}
-</div>
-</body></html>`;
+    ${blocSignatures(r ? r.signatures : [{ libelle: "L'employé" }, { libelle: "Pour la société" }])}`;
+
+  return documentHTML(h, {
+    titre: `${titre} — ${d.nom} — ${d.numero ?? ""}`,
+    papier: a5 ? "a5" : "a4",
+    marge: "12mm",
+    mention: mention(h, "Bulletin remis au salarié. À conserver."),
+    police: 12,
+    css,
+    contenu,
+  });
 }

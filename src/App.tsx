@@ -138,7 +138,7 @@ function App() {
   // la valeur de référence reste DEPOT_ACTIF.
   const [depotActif, setDepotActif] = useState<string | null>(DEPOT_ACTIF);
 
-  // ⚠️ NE PAS remettre cette affectation dans un useEffect.
+  // Attention : NE PAS remettre cette affectation dans un useEffect.
   //
   // La page ouverte accompagne les erreurs envoyees au serveur (B-2).
   useEffect(() => { noterPage(pageActive); }, [pageActive]);

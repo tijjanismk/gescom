@@ -286,6 +286,28 @@ pub fn lire_clients_avec_creances(
 // vente, ou elle ne se corrige pas.
 
 use crate::base::Base;
+
+/// Le prochain code client du dossier courant : le plus grand deja pris,
+/// plus un (D28). Comme `client.code` est unique sur TOUTE la base, un
+/// dossier autre que celui d'origine prefixe ses codes de son propre
+/// code (« QUINC-CLIENT00001 ») : deux dossiers ne se marchent pas
+/// dessus. Sert au comptoir et aux prospects (`crm`) — un seul format.
+pub fn prochain_code_client_sur(base: &mut impl crate::base::Acces) -> Result<String, String> {
+    let dossier = base.dossier().to_string();
+    let prefixe = crate::dossiers::prefixe_de_code_sur(base)?;
+    let dernier: Option<i64> = base
+        .lire_une(
+            // `LENGTH(?2) + 7` et non un entier lie : PostgreSQL typerait
+            // le parametre d'apres le CAST et refuserait un i64.
+            "SELECT MAX(CAST(SUBSTR(code, LENGTH(?2) + 7) AS BIGINT)) FROM client
+             WHERE dossier_id = ?1 AND code LIKE ?3",
+            &parametres![dossier, prefixe.clone(), format!("{prefixe}CLIENT_____")],
+            |r| r.get::<Option<i64>>(0),
+        )
+        .map_err(|e| e.0)?
+        .flatten();
+    Ok(crate::coeur::tiers::code_client_suivant(&prefixe, dernier))
+}
 use crate::parametres;
 
 /// L'identifiant de l'utilisateur courant, sur l'un ou l'autre moteur.
@@ -318,27 +340,11 @@ pub fn creer_client_rapide_sur(
     let dossier = base.dossier().to_string();
 
     // Le code suit le PLUS GRAND deja pris dans le dossier, jamais le
-    // nombre de clients (D28) — voir `creer_client_rapide`. Et comme
-    // `client.code` est unique sur TOUTE la base, un dossier autre que
-    // celui d'origine prefixe ses codes de son propre code
-    // (« QUINC-CLIENT00001 ») : deux dossiers ne se marchent pas dessus.
-    let prefixe = crate::dossiers::prefixe_de_code_sur(base)?;
-    let dernier: Option<i64> = base
-        .lire_une(
-            // `LENGTH(?2) + 7` et non un entier lie : PostgreSQL typerait
-            // le parametre d'apres le CAST et refuserait un i64.
-            "SELECT MAX(CAST(SUBSTR(code, LENGTH(?2) + 7) AS BIGINT)) FROM client
-             WHERE dossier_id = ?1 AND code LIKE ?3",
-            &parametres![
-                dossier.clone(),
-                prefixe.clone(),
-                format!("{prefixe}CLIENT_____")
-            ],
-            |r| r.get::<Option<i64>>(0),
-        )
-        .map_err(|e| e.0)?
-        .flatten();
-    let code = crate::coeur::tiers::code_client_suivant(&prefixe, dernier);
+    // nombre de clients (D28) — voir `creer_client_rapide`. Un seul
+    // generateur pour tous les clients du dossier, prospects compris
+    // (`crm::creer_prospect_sur`) : deux formats de code sur la meme
+    // table seraient une confusion durable.
+    let code = prochain_code_client_sur(base)?;
 
     base.executer(
         "INSERT INTO client

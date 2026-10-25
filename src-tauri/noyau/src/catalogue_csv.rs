@@ -16,7 +16,7 @@
 //! première (facteur 1) crée l'article ; les suivantes ajoutent leurs
 //! unités. Sans en-tête, l'ordre v1.3 s'applique et `Facteur` vaut 1.
 //!
-//! ⚠️ `Prix achat` et `Stock` appartiennent à l'ARTICLE, pas à l'unité :
+//! Attention : `Prix achat` et `Stock` appartiennent à l'ARTICLE, pas à l'unité :
 //! ils sont répétés sur chaque ligne à l'export et seule la première
 //! est lue à l'import. Modifier le stock sur une ligne de pack dans
 //! Excel n'a donc aucun effet.

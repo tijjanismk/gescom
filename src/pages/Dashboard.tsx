@@ -377,7 +377,7 @@ export function Dashboard({ onAnomalies }: {
             )}
             {r.stock_ruptures > 0 && (
               <div className="px-3 py-2
-                              bg-yellow-50 border border-yellow-200 text-sm text-yellow-700">
+                              bg-amber-50 border border-amber-300 text-sm text-amber-950">
                 <span><strong>{r.stock_ruptures}</strong> article{r.stock_ruptures > 1 ? "s" : ""} en rupture</span>
               </div>
             )}

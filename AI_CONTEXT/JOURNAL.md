@@ -1821,3 +1821,178 @@ dit d'où vient l'argent. Le coût des salaires (brut + charges
 patronales des fiches validées) apparaît dans Rapports → CA mensuel, à
 côté du CA, avec ce qui reste après les salaires — pour qui voit la
 paie seulement.
+
+**Correctif** — « la colonne av.piece_id n'existe pas » dans l'Historique,
+chez le propriétaire, sur sa base PostgreSQL d'avant certaines colonnes.
+Dix-neuf colonnes n'étaient rejouées que par la fenêtre SQLite ; le
+serveur les rejoue maintenant à chaque démarrage, et un test garde les
+deux listes d'accord.
+
+## 25/09/2026 — Gescom Équipe : H-1 et H-2, le chantier CRM est fait
+
+**H-1** — les échanges, et la fiche 360. Le point délicat était D34 :
+« les relances de créance existantes sont des échanges comme les
+autres, pas une liste de plus ». Deux façons de le tenir : dupliquer
+les relances dans la nouvelle table `echange` (facile, mais deux
+vérités sur le même fait), ou les fondre à la lecture. Choisi la
+seconde — `crm::lister_echanges_sur` joint `relance_creance` à `vente`
+à `client` et mêle le résultat aux vrais échanges, triés par date.
+`relance_creance` reste ce qu'elle est ; rien n'est recopié. L'écran
+Équipe → Suivi clients (annoncé « bientôt » depuis F-1) devient réel :
+chercher un client (la recherche de Gescom, pas une seconde), sa fiche
+360 avec ses chiffres et son fil.
+
+**H-2** — rappels et prospects. D34 est explicite : « pas de second
+fichier clients ». Un prospect est donc une ligne `client` comme les
+autres, avec `statut = 'prospect'` et son origine (`origine_prospect` —
+distincte d'`origine`, qui dit d'où vient la *ligne*, pas d'où vient le
+*prospect* : les deux se seraient marché dessus). Il redevient
+`client` tout seul à sa première vente : la bascule vit dans
+`creer_vente_datee_sur[_base]` lui-même, sur les deux moteurs et les
+deux chemins (fenêtre et serveur) — pas de bouton « convertir » à
+chercher, pas d'étape qu'on oublie. Un rappel s'attribue à une
+personne (un compte actif) et se retrouve dans « Mes rappels » ; se
+marquer fait ne l'efface pas.
+
+Au passage : `client.statut`/`origine_prospect` sont deux colonnes
+neuves sur une table déjà en service — posées à trois endroits
+(schema.sql, la fenêtre, le serveur), comme l'a appris le correctif de
+la veille sur `avoir.piece_id`. `lire_fiche_client` rend maintenant
+`statut`, sans rien changer pour qui l'appelait déjà.
+
+Le chantier CRM (H) est fait ; Gescom Équipe (F, G, H) est fini.
+Bancs `h1-echanges-360.mjs`, `h2-rappels-prospects.mjs` ;
+`f1-fenetre-equipe.mjs` corrigé (Suivi clients n'est plus une annonce).
+
+**Correctif** — « Les entrées de stock sans fournisseur : la somme n'est
+mentionnée nulle part. » Le propriétaire a raison sur trois points à la
+fois : sans fournisseur, l'achat n'avait ni pièce ni paiement ; « à
+crédit », il n'avait rien du tout (on ne peut rien devoir à personne) ;
+et le journal AC le passait au 401 sans que rien ne le solde. Sa règle :
+sans fournisseur, comptant ; à crédit (acompte ou non), avec le
+fournisseur. Comme la vente a son « client de passage », l'achat a
+maintenant son **« Fournisseur divers »** : chaque achat sans
+fournisseur y a sa facture payée et son paiement, et se lit sur sa
+fiche. Les achats d'avant restent sans pièce, mais leur sortie de
+caisse solde enfin le 401 dans le journal RG.
+
+En l'écrivant, un test a buté sur un défaut plus ancien : dans un second
+dossier, la première facture fournisseur prend `FAF-2026-00001`, déjà
+pris par le premier dossier, et la base refuse (le numéro est unique
+partout, le compteur par dossier). Même chose pour les autres pièces.
+Pas corrigé ici : il faut décider à quoi ressemble le numéro imprimé
+d'un second dossier (préfixe du code, comme les codes clients ?).
+
+## 25/09/2026 (soir) — les pièces comme dans Word, le filigrane, la sauvegarde qui ne partait pas
+
+**Les retours du propriétaire sur les pièces.** L'en-tête et le pied
+« ne se répètent pas comme dans Word » : l'en-tête n'était qu'en haut de
+la première page, le pied qu'au bas de la dernière — ils vivaient dans
+le flux du document. Tout ce qui s'imprime en A4/A5 passe maintenant par
+`impression::documentHTML` : le document est la cellule d'un tableau
+dont le `<thead>` porte l'en-tête (le moteur d'impression répète un
+thead en haut de chaque page) ; le pied est en `position:fixed` au bas
+de la page (un élément fixe se répète à l'impression) et une copie
+invisible dans le `<tfoot>` lui réserve sa hauteur, pour que le texte
+ne passe jamais dessous. Collés au bord du papier, sans marge d'aucun
+côté ; le texte garde la sienne. Pas de script : l'aperçu n'en exécute
+pas. Prouvé en vrai : une facture de 70 lignes imprimée en PDF par
+Chromium (le moteur de la fenêtre), trois pages lues pixel par pixel.
+
+« Pour acquit » et « Le fournisseur » : soulignés, la place de signer
+dessous, au lieu d'un libellé puis d'un trait 22 mm plus bas.
+
+**Le filigrane.** Une image ou un mot au milieu de chaque page, estompé
+et flouté « pour ne pas se mélanger aux tableaux ». Premier essai posé
+DERRIÈRE le texte : les lignes alternées des tableaux le hachaient une
+sur deux dès que la boîte d'impression n'imprime pas les fonds — son
+réglage par défaut. Posé par-dessus en `mix-blend-mode: multiply`, il
+teinte le papier sans toucher au noir du texte, fonds imprimés ou non.
+
+**La revue de la sauvegarde** — la fonctionnalité primordiale à côté de
+laquelle on était passés. Le fil du serveur dormait 24 heures avant sa
+première copie ; le poste d'une boutique s'éteint le soir. Aucune copie
+automatique n'est donc jamais partie chez un commerçant, et l'écran ne
+pouvait pas le voir : il lisait la « dernière sauvegarde » dans le
+journal, où cette copie n'écrit rien. Maintenant le dossier fait foi —
+la date d'une copie est dans son nom — et le serveur regarde peu après
+son démarrage puis chaque heure. Chaque copie est relue avant d'être
+crue. Le `essai-restauration/…essai.dump` trouvé dans `target/` chez le
+propriétaire est le reste de l'essai de restauration du 13/09 : rien à
+garder.
+
+**Le jaune du Journal** : le bandeau du titre était jaune ; il devient
+un filet. Deux autres textes jaunes sur fond jaune (tableau de bord,
+relances) sont passés en ambre foncé. Les emojis restants (« ⚠ » dans
+la fenêtre du serveur et dans des commentaires) sont des mots.
+
+## 22/10/2026 — Revue de `rh` : ce qui méritait correction
+
+Une revue à fond des deux commits de la branche (H-1/H-2 et l'achat
+sans fournisseur) : dix angles, seize vérifications, les suites SQLite
+et PostgreSQL rejouées. Quinze constats retenus, et parmi eux quatre
+vrais défauts, tous corrigés le jour même.
+
+**Le prospect et la facture.** La bascule prospect → client vivait dans
+les deux `creer_vente_datee_sur*`, mais une vente naît aussi d'une
+facture validée (`valider_facture_sur*`) : un prospect facturé depuis
+Pièces restait prospect, avec « Ventes : 1 » sur sa fiche. Une seule
+aide, `prospect_devient_client[_sur]`, appelée aux quatre endroits, et
+son erreur se propage — le `let _ = tx.executer(...)` d'origine était
+exactement ce que la revue du 23/09 interdit dans une transaction.
+
+**Le second dossier.** Le défaut « trouvé en route, pas corrigé » du
+25/09 était devenu une régression : l'achat sans fournisseur, qui ne
+réservait pas de numéro, était le seul achat qui marchait encore dans
+un second dossier ; en lui donnant une FAF, on le faisait heurter
+`FAF-2026-00001` du premier dossier, et le retour arrière annulait
+aussi le compteur — chaque essai heurtait à nouveau. Tranché comme les
+codes clients : un dossier autre que celui d'origine préfixe ses
+numéros de son code (`B-FAF-2026-00001`), dans `reserver_numero_sur`,
+un seul endroit. Le format imprimé d'un second dossier est donc « le
+code du dossier, un tiret, le numéro » ; si le propriétaire en veut un
+autre, c'est une ligne.
+
+**Une seule porte pour le Fournisseur divers.** La règle « comptant
+seulement » tenait dans Achats, mais Pièces lui créait une FAF à crédit,
+le retour fournisseur lui faisait un avoir, le règlement de dette lui
+payait du tiroir, et sa fiche se renommait — la dette envers personne
+revenait par quatre portes. Deux règles pures dans `coeur::tiers`,
+jugées dans les deux versions ; sa fiche est figée comme celle du
+client générique.
+
+**Le rappel orphelin.** Un rappel s'attribuait à n'importe quel compte
+actif ; avec les droits par dossier (C-2), la comptable qui n'entre que
+dans la boutique B ne verrait jamais celui posé dans A. Refusé par
+`role_dans_sur`, l'aide qui garde déjà `renommer_dossier`.
+
+Et le reste : `lire_fiche_client` de la fenêtre rend `statut` (règle
+2), le générateur de code client est une seule fonction
+(`comptoir::prochain_code_client_sur`), l'attribut clippy retrouve sa
+fonction, les tables `echange`/`rappel` ont leurs index, l'écran Suivi
+clients affiche ses erreurs au lieu d'un rond qui tourne ou d'un
+« Aucun client. ». Hors branche, un test de `pieces_base` datait une
+pièce au 3 septembre en dur : passé le 4 octobre, la règle des 31 jours
+le refusait — relatif au jour maintenant.
+
+Laissé de côté, volontairement : l'aplatissement du plomb `Option`
+dans `enregistrer_achat_date*` (gros, sans défaut), le rachat des
+anciens achats sans fournisseur à crédit (un 401 jamais soldé, à
+décider), les copies de petites aides (`texte`, `jour`, `noter`,
+formatteurs du front).
+
+**Banc d'écran, le soir même.** Les trente parcours Playwright rejoués
+sur base neuve (serveur de débogage + Vite, Chrome du poste) : 378
+vérifications, tout passe — `h1`, `h2`, `i1` compris, après les
+corrections. Deux fragilités du banc corrigées en route, pas du
+produit : sur un build de débogage, bcrypt met deux secondes par
+vérification, et `pw.mjs` (`connecter`) comme `c2` attendaient un délai
+fixe de 2,5 s avant de continuer — le jeton n'était pas encore là, le
+parcours plantait sur « Jeton absent », et le premier changement de mot
+de passe coupé en route laissait la base avec un mot de passe que le
+parcours suivant ne connaissait pas. L'aide attend maintenant que la
+page quitte la connexion (jusqu'à vingt secondes), que la fenêtre de
+changement de mot de passe se ferme, et que la boîte « Quel dossier
+ouvrir ? » paraisse. Sous Git Bash, `lancer.sh` ne sait pas arrêter
+l'instance précédente (`lsof` absent) : tuer les ports 7300 et 1420 à
+la main avant `neuf`.

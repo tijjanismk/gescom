@@ -183,7 +183,10 @@ fn deux_dossiers_ont_chacun_leur_suite_de_numeros() {
     let a1 = argent::reserver_numero_sur(&mut base, "facture").unwrap();
     let a2 = argent::reserver_numero_sur(&mut base, "facture").unwrap();
 
-    base.choisir_dossier("dossier-b").unwrap();
+    // Un vrai dossier (avec son code) : c'est lui qui prefixe les numeros.
+    let b = gescom_noyau::dossiers::creer_dossier_sur(&mut base, "B".into(), "Boutique B".into(), None, None)
+        .unwrap()["id"].as_str().unwrap().to_string();
+    base.choisir_dossier(&b).unwrap();
     let b1 = argent::reserver_numero_sur(&mut base, "facture").unwrap();
 
     assert!(a1.ends_with("00001"), "{a1}");
@@ -192,6 +195,12 @@ fn deux_dossiers_ont_chacun_leur_suite_de_numeros() {
         b1.ends_with("00001"),
         "la seconde société hérite du compteur de la première : {b1}"
     );
+    // `numero` est unique sur toute la base : le second dossier prefixe
+    // ses numeros de son code (22/10), sinon sa premiere piece heurte
+    // celle du premier.
+    assert_ne!(a1, b1, "deux dossiers, deux numéros distincts");
+    assert!(a1.starts_with("FAC-"), "le dossier d'origine garde ses numéros nus : {a1}");
+    assert!(!b1.starts_with("FAC-") && b1.contains("-FAC-"), "{b1}");
 }
 
 #[test]
