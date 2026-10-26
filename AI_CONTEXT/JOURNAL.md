@@ -2219,3 +2219,113 @@ teste dans la vraie fenêtre (`p7`).
 
 **Pas fait** : la case à l'import CSV (proposée, pas codée) ; un article
 non suivi reste proposé dans les écrans d'achat comme les autres.
+
+## 26/10/2026 (fin) — essai à la main, poste.json avec BOM
+
+**Le propriétaire teste à la main.** Base d'essai isolée dans
+`outils/banc/.travail/monoposte` (jamais `%APPDATA%`), remplie PAR LE
+SERVEUR avec `outils/banc/donnees-essai.mjs` (connexion `admin` au mot
+de passe d'usine, sur base neuve) : 100 articles de `catalogue_test.csv`,
+12 clients, 5 fournisseurs, 39 ventes au comptoir sur trois semaines,
+8 crédits dont 4 à moitié réglés, 4 achats, 4 dépenses, un article non
+suivi. Pour refaire : `lancer.ps1 arreter`, base effacée, serveur lancé
+sur `.travail/monoposte/serveur.db` (mêmes options que la fenêtre),
+`node donnees-essai.mjs`, puis la fenêtre avec `GESCOM_DONNEES` et un
+`poste.json` « monoposte » (scripts de travail `.travail/essai-manuel.ps1`
+et `essai-fenetre.ps1`, hors git). Le script échoue si le mot de passe
+d'usine a déjà été changé — c'est voulu.
+
+**Trouvé en route** : un `poste.json` enregistré avec un BOM (Bloc-notes,
+ou `Set-Content -Encoding utf8` de PowerShell 5.1) paraissait illisible :
+le poste perdait son rôle et redemandait « Comment travaille ce poste ? ».
+Corrigé aux trois lectures (fenêtre `reseau.rs`, Équipe `main.rs`,
+serveur `role_poste.rs`) : le BOM est retiré avant de lire. Compilé, pas
+testé (demande du propriétaire). **Pas commité**, avec
+`donnees-essai.mjs`.
+
+## 26/10/2026 (soir) — retours de l'essai à la main : Relances, passage, taille du texte, retours dans Pièces
+
+Quatre retours du propriétaire, d'après une capture de Relances. Choix
+écrits avant le code, acceptés (« Oui, vas-y ») ; deux tranchés par lui.
+
+**Relances : les tuiles du tableau de bord.** Les quatre cartes teintées
+(orange, rouge, bleu) deviennent `KpiCard` dans `GRILLE`, comme
+l'accueil ; « Sans relance » teinte son bord s'il y en a. Au passage, le
+tri affichait « jours » (la valeur brute du `Select`) au lieu
+d'« Ancienneté ». Le « payé 223 700 F » égal au reste n'était pas un
+défaut : le jeu d'essai règle la moitié de quatre crédits.
+
+**Le code de passage ne s'imprime plus** (choix du propriétaire : le
+code seul, pas le bloc). `lire_donnees_piece` (deux versions) rend
+`client_code: null` pour une fiche `statut = 'passage'`, le reçu un code
+vide ; promu client ordinaire, il redevient son code et s'imprime.
+
+**Le texte imprimé grandit** (choix du propriétaire : ~11 pt en A4).
+Mesuré : le corps d'une pièce sortait à 11 px = 8,25 pt, les détails à
+7 pt ; l'usage est 10–12 pt pour un document imprimé, jamais moins de 10
+(Practical Typography, guides de facturation). Plutôt que reprendre la
+soixantaine de tailles écrites à la main, `documentHTML` pose le contenu
+et le texte du pied dans un `zoom` qui porte la police du document à
+11 pt en A4 et 10 pt en A5 (`echelleTexte`) : toutes les proportions
+restent, les bandeaux images et les marges ne bougent pas. Vu dans
+Chrome à la largeur du papier : facture A4 et A5, reçu, relevé, rien ne
+déborde.
+
+**Pièces dit ce que les retours ont fait.** Un retour sur une facture à
+crédit éteint la dette par un paiement « retour » : la facture passait
+« Payé » sans un franc encaissé, et rien ne le disait. Troisième badge
+sous le statut — « Retour partiel », « Retournée », « Remboursée » — et
+« −X F rendus » sous le total, le détail au survol. « Remboursée » se
+juge sur l'argent **sorti du tiroir**, pas sur le mode choisi : un
+« remboursement » sur une facture à crédit ne rend rien (vu en écrivant
+le test, la première version de la règle l'aurait dit remboursée).
+Règle `coeur::pieces::etat_retour`, colonnes 21..23 des listes client.
+
+**Pas fait** : le côté fournisseur (retours fournisseur dans Pièces) ;
+le bon d'échange et le ticket gardent leur taille ; pas de réglage
+« taille du texte » par genre (un défaut seulement, comme demandé).
+
+**Revu le même soir, à la demande du propriétaire.** « Client de
+passage » sur une facture, c'est « presque une insulte » ; le code, lui,
+retrouve la facture. Donc l'inverse du premier choix : le papier porte
+le code à la place du nom (`passage::tiers_a_imprimer`, facture, reçu,
+bon d'échange), y compris sur une facture émise avant une promotion.
+Pièces, pour une vue d'un coup d'œil (ses deux choix sur quatre
+proposés) : une facture entièrement revenue affiche « Remboursée » ou
+« Retournée » **à la place** de son statut, ligne grisée ; une pastille
+« Retours » avec leur nombre. Vu sur le banc SQLite (jeu d'essai + trois
+retours posés par le serveur). **Trouvé en le regardant** : la colonne
+« Payé » compte la dette éteinte par un retour (paiement `mode =
+'retour'`) comme un encaissement — 15 000 F « payés » sur une facture où
+rien n'est entré. Proposé, accepté, corrigé : les listes client rendent
+`encaisse` (`total_paye` moins les paiements `mode = 'retour'`, colonne
+24) ; « Payé », son total de pied et le « Déjà payé » d'Encaisser le
+lisent, la fenêtre d'encaissement ajoute « Éteint par un retour » pour
+que le compte tombe juste. `total_paye` ne change pas : c'est lui qui
+fait le reste dû. **Reste pareil ailleurs** : Relances (« payé »), la
+fiche client et l'« Acompte reçu » imprimé sur la facture comptent
+encore la part éteinte par un retour.
+
+**Le cadre client, les noms longs, une page de trop.** Le cadre du tiers
+grandit (au moins la moitié de la largeur en A4, nom plus gros, plus
+d'air). En essayant un nom très long en A5, le PDF de Chrome sortait
+**deux pages** pour un contenu qui en tenait une : le `zoom` CSS du
+texte trompe le découpage en pages. Remplacé par un vrai agrandissement
+des tailles (`agrandirTexte`) : facture A4/A5, noms long et sans espace,
+reçu, relevé — une page chacun, rien ne déborde. **La page blanche que
+le propriétaire voit après impression n'est pas expliquée par là** : sa
+facture de 12:40 (avant le zoom) tient sur une page dans Chrome ; elle
+vient du chemin d'impression de la fenêtre (WebView2, boîte de Windows).
+Essai à la main relancé sur sa base d'essai pour l'observer.
+
+**La fenêtre blanche.** Observé par le propriétaire : après « Imprimer »,
+la fenêtre d'impression reste ouverte, blanche — surtout gênant avec le
+bon de sortie. Le script du document appelait `window.close()`, que
+WebView2 refuse sur une fenêtre ouverte par l'application. Désormais le
+document change aussi son titre en `__gescom_impression_finie__` après
+la boîte d'impression (imprimé ou annulé), et la fenêtre Tauri, qui
+l'écoute (`on_document_title_changed`, `commandes/impression.rs`), se
+ferme elle-même. Vaut pour tout ce qui passe par `imprimer_facture` :
+pièces A4/A5, facture + bon de sortie, bon de sortie seul, ticket, bon
+d'échange. **Vérifié par le propriétaire** dans la vraie fenêtre : elle
+se ferme toute seule, avec la facture et avec le bon de sortie.

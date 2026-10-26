@@ -75,6 +75,31 @@ EXISTS (vente irrecouvrable derrière la pièce) THEN 1 ELSE 0 END`
 tient hors des totaux, comme une annulée. La liste fournisseur côté
 `Base` porte la même colonne (toujours 0) ; côté fenêtre, non.
 
+## Ce que les retours ont fait d'une facture (26/10/2026)
+
+Un retour sur une facture à crédit éteint la dette par un paiement
+`mode = 'retour'` : la facture passe « Payé » sans un franc encaissé.
+Les listes client (fenêtre et `Base`) rendent `retour: { etat, montant,
+rembourse }`, colonnes **21..23** (`RETOURS_SQL`, après les autres) :
+crédit des retours, argent **sorti du tiroir** pour eux (`mouvement_caisse`
+motifs `remboursement`, `remboursement_reliquat` — pas le mode choisi :
+un « remboursement » sur une facture à crédit ne rend rien), total de la
+vente. La règle est `coeur::pieces::etat_retour` : `aucun`, `partiel`,
+`rembourse` (tout revenu, de l'argent rendu), `retourne` (tout revenu,
+sans argent). Pièces : tout revenu, « Remboursée » / « Retournée »
+**remplace** le statut et la ligne se grise ; une partie, « Payé » reste
+avec le badge « Retour partiel ». « −X F rendus » sous le total. La
+pastille **Retours** (avec leur nombre) demande les factures au serveur
+et ne garde que celles qui ont eu un retour. La liste fournisseur `Base`
+porte les colonnes (0).
+
+**`encaisse`** (colonne 24 : la dette éteinte par les retours,
+paiements `mode = 'retour'`) = `total_paye` − cette part : l'argent
+vraiment entré. « Payé » à l'écran et son total le lisent ;
+`total_paye` reste tel quel, il fait le reste dû. La liste fournisseur
+de la fenêtre ne l'a pas (l'écran retombe sur `total_paye`).
+Scénario : `retours_base::la_liste_des_pieces_dit_ce_que_les_retours_ont_fait`.
+
 ## Commandes exposées
 
 **pieces.rs** (19) — `lire_toutes_pieces_client`,

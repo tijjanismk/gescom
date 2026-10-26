@@ -28,6 +28,33 @@ semblent vivantes.
   sans `achats:lire_prix` (la réponse ne dit pas le type de pièce) —
   écrit dans [permissions](modules/permissions.md).
 
+## Trouvé le 25-26/10/2026, pas encore fait
+
+- **Import CSV des articles** : la colonne « suivre le stock » (D36) est
+  décidée, pas codée.
+- **Un article non suivi** reste proposé dans les écrans d'achat comme
+  les autres (ses entrées s'écrivent sans se voir — voulu, mais rien ne
+  le signale).
+- **Doublons de passants** (D35) : une même personne passée trois fois a
+  trois fiches ; rattacher ses autres tickets à la promotion n'est pas
+  fait.
+- **Le nom figé des pièces** (`piece_commerciale.tiers_nom`) ne vaut que
+  côté client : renommer un **fournisseur** change encore le nom de ses
+  factures déjà émises.
+- **La fenêtre ouvre encore un `gescom.db` local** au démarrage
+  (`src-tauri/src/lib.rs`) que plus rien ne lit depuis l'écran — le
+  grand nettoyage des façades `Connection` ci-dessous.
+- **CSP de `tauri.conf.json`** : `connect-src` n'autorise pas l'adresse
+  du serveur ; jamais vérifié sur un build livré (le banc tourne en
+  débogage, où la CSP ne s'applique pas).
+- **`postgres_amorcage::le_compte_limite_ne_voit…`** échoue sur ce poste :
+  il attend « row-level security » et ce PostgreSQL répond en français.
+  Le test, pas le produit.
+- **Banc** : sous Windows, `window.__TAURI_INTERNALS__.invoke` est
+  verrouillé — les boîtes natives s'interceptent par les requêtes
+  `ipc.localhost` (`pw.mjs::boitesMuettes`) ; lancer `lancer.ps1` avec
+  sa sortie redirigée vers un fichier, jamais dans un tube.
+
 ## Ce que la revue du 23/09/2026 a corrigé (branche `correctif/revue-v2`)
 
 Trois règles, qui valent pour tout ce qui s'écrit ensuite :

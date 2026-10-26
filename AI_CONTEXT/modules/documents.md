@@ -67,6 +67,26 @@ mention de pied, « Imprimé le », les styles propres et le contenu.
   (`ReglageGenre.filigrane`, absent = oui ; ticket : non).
 - Les signatures (`blocSignatures`) : libellé **souligné**, place de
   signer dessous, cachet dedans. Plus de trait séparé.
+- **La taille du texte** (26/10/2026) : le texte courant sort à **11 pt
+  en A4, 10 pt en A5** (l'usage d'un document imprimé : 10–12 pt ; avant,
+  ~8 pt et des détails à 7). `documentHTML` passe tout le document par
+  `agrandirTexte(html, echelleTexte(papier, police))` : chaque
+  `font-size: Npx` est multiplié (×1,33 pour une pièce A4 à 11 px), les
+  cadres, les bandeaux images et les marges du papier non. **Pas de
+  `zoom` CSS** : essayé d'abord, le moteur d'impression découpait mal le
+  contenu zoomé — une facture A5 presque pleine sortait sur deux pages.
+  Le ticket et le bon d'échange (`genererBonEchangeHTML`, sa propre page)
+  n'y passent pas.
+- Le **cadre du tiers** (`.doc-tiers`) : au moins 48 % de la largeur en
+  A4 (52 % en A5), le nom en 14 px (12 en A5) avant agrandissement ; un
+  nom très long élargit le cadre jusqu'à la page puis passe à la ligne,
+  même sans espace (`overflow-wrap: anywhere`).
+- **Jamais « Client de passage » sur le papier** (le propriétaire :
+  « presque une insulte ») : `passage::tiers_a_imprimer` met le code
+  (`PAS-000123`, il retrouve la facture) à la place du nom, sans le
+  répéter dessous — `lire_donnees_piece` et le reçu (deux versions), et
+  le bon d'échange côté écran. Vaut aussi pour une facture émise avant
+  une promotion, dont le nom est figé.
 
 Commandes : `enregistrer_filigrane_documents { reglage }`,
 `poser_image_filigrane { image | null }` (`parametres:modifier`) ;
