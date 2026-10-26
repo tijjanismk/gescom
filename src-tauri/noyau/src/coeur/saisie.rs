@@ -69,9 +69,47 @@ pub fn verifier_remise_pct(pct: f64) -> Result<(), String> {
     Ok(())
 }
 
+/// D35 — une vente a un client de passage (le « Comptant » ou une
+/// fiche passage) se paie en entier, a la vente.
+///
+/// Personne a relancer : une dette au nom d'un passant n'apparait dans
+/// aucune relance ni aucun rapport (ils ecartent les fiches generiques),
+/// la marchandise sortait et rien n'entrait. Pas de credit, et
+/// l'encaissement couvre le total ; un client qui paie en plusieurs
+/// fois se cree (ou se « passe en client ordinaire ») d'abord.
+pub fn verifier_vente_passage(mode_reglement: &str, total: i64, encaisse: i64) -> Result<(), String> {
+    if mode_reglement != "comptant" {
+        return Err("Pas de crédit pour un client de passage. \
+                    Créer ou sélectionner le client d'abord."
+            .to_string());
+    }
+    if encaisse < total {
+        return Err(format!(
+            "Un client de passage paie en entier : {total} F à encaisser, {encaisse} F saisis. \
+             Pour un paiement en plusieurs fois, créer ou sélectionner le client d'abord."
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn le_passant_paie_tout_comptant() {
+        assert!(verifier_vente_passage("comptant", 5000, 5000).is_ok());
+        // Rendre la monnaie est l'affaire de l'ecran : payer plus passe.
+        assert!(verifier_vente_passage("comptant", 5000, 10000).is_ok());
+    }
+
+    #[test]
+    fn le_passant_n_a_ni_credit_ni_paiement_partiel() {
+        assert!(verifier_vente_passage("credit", 5000, 5000).unwrap_err().contains("Pas de crédit"));
+        let e = verifier_vente_passage("comptant", 5000, 3000).unwrap_err();
+        assert!(e.contains("5000 F") && e.contains("3000 F"), "{e}");
+        assert!(verifier_vente_passage("comptant", 5000, 0).is_err());
+    }
 
     #[test]
     fn les_modes_de_l_ecran_passent() {

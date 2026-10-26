@@ -69,31 +69,48 @@ export async function fenetre() {
 /** Les boites natives de la fenetre (`message` de plugin-dialog) sont
  *  des fenetres Windows que Playwright ne peut pas fermer : le geste
  *  resterait suspendu a leur `await`. On les intercepte dans la page —
- *  le texte est garde dans `window.__boites`, relu par `boites(page)` —
+ *  le texte est garde, relu par `boites(page)` —
  *  et on les rearme a chaque chargement. Rien d'autre n'est touche. */
+//
+// `window.__TAURI_INTERNALS__.invoke` est verrouille (non inscriptible) :
+// le remplacer dans la page ne fait rien, sans erreur — la premiere
+// version de cette aide n'interceptait donc RIEN, et la vraie boite
+// s'ouvrait (vu a l'ecran le 26/10). On intercepte un cran plus bas : sous
+// Windows, chaque commande Tauri est une requete vers
+// `http://ipc.localhost/<commande>`, que Playwright detourne.
+const BOITES = new WeakMap();
 export async function boitesMuettes(page) {
-  const poser = () => page.evaluate(() => {
-    const t = window.__TAURI_INTERNALS__;
-    if (!t || t.__banc) return;
-    const vrai = t.invoke.bind(t);
-    t.invoke = (cmd, args, options) => {
-      if (cmd === "plugin:dialog|message" || cmd === "plugin:dialog|ask" || cmd === "plugin:dialog|confirm") {
-        (window.__boites ??= []).push(args?.message ?? "");
-        // `ask` et `confirm` passent par `message` avec des boutons, et
-        // comparent la reponse au libelle du « oui » : on dit oui.
-        const bt = args?.buttons;
-        const oui = bt === "YesNo" || bt === "YesNoCancel" ? "Yes"
-          : bt && typeof bt === "object" ? (bt.ok ?? bt.yes ?? "Ok") : "Ok";
-        return Promise.resolve(cmd === "plugin:dialog|message" ? oui : true);
-      }
-      return vrai(cmd, args, options);
-    };
-    t.__banc = true;
-  }).catch(() => {});
-  page.on("load", poser);
-  await poser();
+  if (BOITES.has(page)) return;
+  BOITES.set(page, []);
+  const entetes = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Expose-Headers": "Tauri-Response",
+    "Tauri-Response": "ok",
+  };
+  await page.route(/^https?:\/\/ipc\.localhost\/plugin%3Adialog%7C(message|ask|confirm)/, async (route) => {
+    const req = route.request();
+    if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: entetes });
+    let args = {};
+    try { args = JSON.parse(req.postData() ?? "{}"); } catch { /* corps illisible */ }
+    BOITES.get(page)?.push({ message: args?.message ?? "", kind: args?.kind ?? "info" });
+    // `ask` et `confirm` passent par `message` avec des boutons, et
+    // comparent la reponse au libelle du « oui » : on dit oui.
+    const bt = args?.buttons;
+    const oui = bt === "YesNo" || bt === "YesNoCancel" ? "Yes"
+      : bt && typeof bt === "object" ? (bt.OkCancelCustom?.[0] ?? bt.YesNoCancelCustom?.[0] ?? bt.OkCustom ?? "Ok") : "Ok";
+    // `globalThis.URL` : ce fichier exporte sa propre constante `URL`.
+    const commande = decodeURIComponent(new globalThis.URL(req.url()).pathname.slice(1));
+    await route.fulfill({
+      status: 200,
+      headers: { ...entetes, "Content-Type": "application/json" },
+      body: JSON.stringify(commande === "plugin:dialog|message" ? oui : true),
+    });
+  });
 }
-export const boites = (page) => page.evaluate(() => window.__boites ?? []);
+/** Les boites interceptees sur cette page, dans l'ordre : `{ message, kind }`
+ *  (`kind` : info, warning, error, comme `message()` de plugin-dialog). */
+export const boites = async (page) => BOITES.get(page) ?? [];
 
 /** `/sante` d'un serveur local, ou `null` s'il ne repond pas. */
 export async function sante(port = 7300) {
@@ -107,7 +124,7 @@ export async function sante(port = 7300) {
 export function arreterPort(port) {
   execFileSync("powershell", ["-NoProfile", "-Command",
     `Get-NetTCPConnection -State Listen -LocalPort ${port} -ErrorAction SilentlyContinue | `
-    + `ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }`]);
+    + `ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; exit 0`]);
 }
 
 /** L'adresse de la fenetre : celle qu'elle a chargee (devUrl). */

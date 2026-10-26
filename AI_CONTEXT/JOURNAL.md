@@ -2120,3 +2120,62 @@ façades `Connection` reste le grand nettoyage d'ALERTES.md. Le poste
 principal du propriétaire est réglé « caisse de 127.0.0.1 » : il marche
 comme avant ; Paramètres → Réseau → « Ce poste garde la base » lui
 donnerait le lancement automatique du serveur.
+
+## 26/10/2026 — D35 : chaque vente sans nom a sa fiche « passage »
+
+La question du propriétaire (« comment les comptants sont traités ? »)
+a montré un trou : le serveur refusait au « Comptant » le crédit et
+l'avoir, mais acceptait une vente « comptant » payée en partie ou pas
+du tout, et une facture à crédit validée depuis Pièces. La marchandise
+sortait, rien n'entrait, et la dette, au nom de « Comptant »,
+n'apparaissait dans aucune relance ni aucun rapport. L'écran envoyait
+toujours le total — mais le serveur juge la saisie (D27).
+
+Sa proposition — un code client de passage incrémenté, crédit bloqué,
+un passage vers client ordinaire — est devenue D35, avec sept
+garde-fous écrits avant le code (DECISIONS.md). Ce qui a été fait :
+
+- `noyau/src/passage.rs` : la fiche « Client de passage » créée DANS la
+  transaction de la vente (compteur `PAS`, code `PAS-000123` préfixé du
+  dossier), `est_generique = 1` pour qu'elle sorte d'office de toutes
+  les listes et de tous les chiffres qui écartaient déjà le
+  « Comptant », `statut = 'passage'` pour la distinguer de lui ;
+  `lire_passages_sur` (code ou numéro de facture) ; `promouvoir_sur` ;
+  `figer_noms_sur`.
+- La règle `coeur::saisie::verifier_vente_passage` (payé en entier, pas
+  de crédit), jugée avant d'écrire dans les deux versions de
+  `creer_vente` et de `valider_facture`.
+- `creer_facture_depuis_vente` prend désormais le client de la VENTE :
+  l'écran passe le « Comptant », la facture du ticket va à la fiche.
+- `piece_commerciale.tiers_nom` (schema, amorçage, v2) : le nom écrit à
+  l'émission, figé au premier renommage (promotion ou
+  `modifier_client`) ; la pièce imprimée le lit en premier.
+- `lire_client_generique` ne rend que le « Comptant », `lire_clients`
+  pas les fiches de passage.
+- Écran : Clients → « Passages », « Passer en client ordinaire ».
+
+Trois anciens tests vendaient au « Comptant » sans encaisser : adaptés
+(un client nommé pour la vente à découvert ; caisse ouverte et total
+encaissé dans deux tests de routes).
+
+**Le banc, à corriger lui-même.** L'aide qui faisait taire les boîtes
+natives de Tauri (`boitesMuettes`) n'avait jamais rien intercepté :
+`window.__TAURI_INTERNALS__.invoke` est non inscriptible, le remplacer
+ne faisait rien, sans erreur. `p6` échouait une fois sur deux sur la
+confirmation « Ce poste garde la base » ; c'est le propriétaire, qui
+regardait la fenêtre, qui a vu la vraie boîte Windows s'ouvrir.
+L'interception passe maintenant par les requêtes `http://ipc.localhost/
+plugin:dialog|…`, que Playwright détourne ; `p6` vérifie que la
+confirmation est demandée. Aussi : Vite du banc sans HMR (son
+SharedWorker de reconnexion faisait planter la connexion de Playwright
+à WebView2), le port 7301 libéré avant et après l'essai du serveur
+« du raccourci », `arreterPort` tolérant quand rien n'écoute.
+
+**Résultats** — voir la ligne D35 d'ETAPES. Pendant le premier passage
+multiposte, la machine s'est mise en veille au milieu de `j1` (aucune
+ligne au journal du serveur pendant 32 minutes) : rejoué seul ensuite.
+
+**Pas fait** : rattacher à la promotion les autres tickets d'un même
+passant (doublons) ; le nom figé côté fournisseur (le même trou existe
+quand on renomme un fournisseur) ; `postgres_amorcage` dépend de la
+langue des messages de PostgreSQL.

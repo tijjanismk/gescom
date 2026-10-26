@@ -77,6 +77,16 @@ Sortant : `coeur::calcul` (montants, statuts, répartition, effet caisse),
 
 ## Règles métier
 
+- [CONFIRMÉ] **Clients de passage (D35, 25/10/2026)** — module
+  [passage.rs](../../src-tauri/noyau/src/passage.rs) : `creer_fiche_sur`
+  / `creer_fiche` (dans la transaction de la vente, compteur `PAS`),
+  `est_le_comptant_sur`, `lire_passages_sur` (code ou numéro de facture),
+  `promouvoir_sur` (`clients:modifier`, journal `passage_promu`),
+  `figer_noms_sur` / `figer_noms` (appelés par la promotion et
+  `modifier_client`). `creer_facture_depuis_vente` prend le client de la
+  **vente**, plus celui que l'écran passe. Commandes serveur
+  `lire_passages`, `promouvoir_passage` (version `Base` seule).
+
 - [CONFIRMÉ] Le découvert est **constaté en base**, jamais déclaré par
   l'écran. `creer_vente_sur` et `valider_facture_sur` relisent
   `stock_depot` dans leur propre transaction et recalculent

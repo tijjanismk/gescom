@@ -16,7 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { fenetre, boitesMuettes, connecter, parametres, capture, verifieur, erreursUtiles, sante, TRAVAIL, URL_FENETRE } from "./pw.mjs";
+import { fenetre, boitesMuettes, boites, arreterPort, connecter, parametres, capture, verifieur, erreursUtiles, sante, TRAVAIL, URL_FENETRE } from "./pw.mjs";
 const ok = verifieur();
 const DONNEES = path.join(TRAVAIL, "monoposte");
 const POSTE = path.join(DONNEES, "poste.json");
@@ -26,6 +26,16 @@ const SERVEUR = path.join(RACINE, "src-tauri", "target", "debug", "gescom-serveu
 
 const { b, page, erreurs } = await fenetre();
 await boitesMuettes(page);
+
+// ---- 0. Le serveur de cette machine joue le « poste principal » de la
+// caisse : s'il ne tourne pas (p6 joue seul, poste laisse en caisse), la
+// fenetre le relance en gardant la base.
+if (!(await sante())) {
+  fs.writeFileSync(POSTE, JSON.stringify({ ...lirePoste(), mode: "monoposte", serveur: "127.0.0.1:7300" }, null, 2));
+  await page.reload();
+  for (let i = 0; i < 80 && !(await sante()); i++) await page.waitForTimeout(500);
+}
+if (!(await sante())) throw new Error("Aucun serveur sur 127.0.0.1:7300 : lancer p1 d'abord.");
 
 // ---- 1. Un poste neuf : « caisse d'un autre poste ».
 const avant = lirePoste();
@@ -56,6 +66,8 @@ await capture(page, "p6-01-caisse");
 const ROLE = path.join(TRAVAIL, "role-poste");
 fs.rmSync(ROLE, { recursive: true, force: true });
 fs.mkdirSync(ROLE, { recursive: true });
+// Le port 7301 libre : un serveur d'un essai precedent peut le tenir encore.
+arreterPort(7301);
 const raccourci = (serveur) => new Promise(resolve => {
   fs.writeFileSync(path.join(ROLE, "poste.json"), JSON.stringify({ mode: "poste", serveur, poste_nom: "C", poste_empreinte: "e" }));
   // Sans --base : comme le raccourci. GESCOM_DONNEES (debogage) au lieu
@@ -75,16 +87,24 @@ ok(!fs.existsSync(path.join(ROLE, "gescom.db")), "sans avoir créé de base");
 const ici = await raccourci("127.0.0.1:7300");
 ok(ici.tourne && !!(await sante(7301)), "« caisse » de 127.0.0.1 (le poste principal d'avant) : le serveur tourne");
 ici.enfant?.kill();
+arreterPort(7301);
 
 // ---- 3. Paramètres → Réseau : redevenir le poste qui garde la base.
 await connecter(page, "admin", "Admin-2026!", "Admin-2026!", "Ma boutique", URL_FENETRE);
 await parametres(page, "Réseau");
 const role = page.getByTestId("role-poste");
 ok((await role.innerText()).includes("Poste caisse"), "Réseau : ce poste est une caisse");
+// La confirmation est une boite native (`ask`) : on s'assure que
+// l'intercepteur est pose sur CETTE page avant de cliquer — sinon la
+// vraie boite Windows s'ouvre et attend un clic que personne ne fait.
+await boitesMuettes(page);
 await role.getByRole("button", { name: "Ce poste garde la base" }).click();
 // La confirmation (ask) dit oui ; poste.json change, puis la fenetre se
 // recharge et rejoint son serveur.
 for (let i = 0; i < 30 && lirePoste().mode !== "monoposte"; i++) await page.waitForTimeout(500);
+if (lirePoste().mode !== "monoposte") await capture(page, "p6-echec-garde-la-base");
+ok((await boites(page)).some(b => b.message.includes("garder sa propre base")),
+  "la confirmation est demandée (les ventes du poste principal ne suivent pas)");
 for (let i = 0; i < 80; i++) {
   await page.waitForTimeout(500);
   if (await page.getByText("Démarrage du serveur de ce poste…").count() === 0

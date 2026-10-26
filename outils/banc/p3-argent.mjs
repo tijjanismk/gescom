@@ -109,8 +109,10 @@ const fin = await api(async (s) => {
 }, s2);
 ok(fin.statut !== "ouverte" && fin.ecart === 0, `fermée, écart ${fin.ecart} F (théorique ${fin.solde_theorique} F)`);
 
-const b0 = await boites(page);
-ok(b0.length === 0, "aucune boîte d'erreur ne s'est ouverte" + (b0.length ? " : " + b0.join(" | ") : ""));
+// Les boites d'information (« Caisse ouverte ») sont normales ; une boite
+// d'erreur ou d'avertissement, non.
+const b0 = (await boites(page)).filter(b => b.kind === "error" || b.kind === "warning");
+ok(b0.length === 0, "aucune boîte d'erreur ne s'est ouverte" + (b0.length ? " : " + b0.map(b => b.message).join(" | ") : ""));
 const utiles = erreursUtiles(erreurs);
 ok(utiles.length === 0, "aucune erreur dans la console" + (utiles.length ? " : " + utiles.join(" | ") : ""));
 console.log(`${ok.total()} vérifications`);

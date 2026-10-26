@@ -274,8 +274,14 @@ fn deux_comptes_du_meme_role_signent_chacun_leur_vente() {
     let depot = d["donnee"]["id"].as_str().unwrap().to_string();
     let (_, c) = rpc(port, &admin, "lire_client_generique", json!({}));
     let client = c["donnee"]["id"].as_str().unwrap().to_string();
+    // D35 : au « Comptant », le passant paie en entier — caisse ouverte,
+    // le total encaisse.
+    let (code, v) = rpc(port, &admin, "ouvrir_session_caisse", json!({ "fondOuverture": 0 }));
+    assert_eq!(code, 200, "{v}");
+    let prix = unite["prix_reference"].as_i64().unwrap();
     let vente = |quantite: f64| json!({
         "clientId": client, "depotId": depot, "modeReglement": "comptant",
+        "montantPaye": (prix as f64 * quantite).round() as i64, "modePaiement": "especes",
         "lignes": [{
             "article_id": article["id"], "unite_vente_id": unite["id"], "depot_source_id": depot,
             "source_approvisionnement": "stock", "quantite": quantite, "facteur": unite["facteur"],
@@ -329,8 +335,12 @@ fn l_historique_se_lit_avec_journal_lire_et_nomme_qui_a_vendu() {
     let depot = d["donnee"]["id"].as_str().unwrap().to_string();
     let (_, c) = rpc(port, &admin, "lire_client_generique", json!({}));
     let client = c["donnee"]["id"].as_str().unwrap().to_string();
+    // D35 : au « Comptant », le passant paie en entier.
+    let (code, v) = rpc(port, &admin, "ouvrir_session_caisse", json!({ "fondOuverture": 0 }));
+    assert_eq!(code, 200, "{v}");
     let (code, v) = rpc(port, &awa, "creer_vente", json!({
         "clientId": client, "depotId": depot, "modeReglement": "comptant",
+        "montantPaye": unite["prix_reference"], "modePaiement": "especes",
         "lignes": [{
             "article_id": article["id"], "unite_vente_id": unite["id"], "depot_source_id": depot,
             "source_approvisionnement": "stock", "quantite": 1.0, "facteur": unite["facteur"],

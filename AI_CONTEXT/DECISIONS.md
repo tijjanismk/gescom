@@ -427,6 +427,7 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D35 | **chaque vente sans nom a sa fiche « passage »** (code `PAS-000123`, réservé dans la transaction) : hors des listes et des chiffres, payée en entier à la vente (ni crédit, ni acompte, ni avoir), « Passer en client ordinaire » garde l'historique ; une facture garde le nom écrit à son émission |
 | D34 | le **suivi client** s'appuie sur la fiche client de Gescom : échanges, rappels, prospects, fiche 360 — pas de second fichier — [PLAN-EQUIPE.md](PLAN-EQUIPE.md) |
 | D33 | **cotisations facultatives, jamais devinées** : lignes de réglage du dossier, vides par défaut, seulement pour les personnes déclarées |
 | D32 | **les avances d'abord** : rattachées à la personne, retenues d'office sur la fiche suivante ; **hors caisse** (révisé le 24/09) |
@@ -801,3 +802,79 @@ l'assistant :
 démarrage (`lib.rs`) — le même fichier que la base par défaut du serveur,
 sans danger en WAL — et ses façades `Connection` ne servent plus à
 l'écran : leur retrait est le grand nettoyage annoncé dans ALERTES.md.
+
+## D35 — Chaque vente sans nom a sa fiche « passage » (25/10/2026)
+
+**Le constat.** Toutes les ventes sans nom allaient au client unique
+« Comptant » (`est_generique = 1`). Le serveur lui refusait le crédit
+(D40) et l'avoir, mais **pas une vente « comptant » payée en partie ou
+pas du tout** (`argent.rs`, `a_encaisser = min(montant_paye, …)`), ni
+une facture à crédit validée depuis Pièces (`valider_facture`) : la
+marchandise sortait, rien n'entrait, et la dette, au nom de
+« Comptant », n'apparaissait dans aucune relance ni aucun rapport (ils
+filtrent `est_generique = 0`). L'écran envoyait toujours le total — mais
+le serveur juge la saisie (D27), l'écran ne protège rien.
+
+**La proposition du propriétaire** : un code client de passage
+incrémenté, traité comme un client ordinaire, crédit bloqué, et un
+passage vers client ordinaire. Retenue avec ces garde-fous (proposés
+par l'assistant, acceptés le 25/10/2026) :
+
+1. **Une fiche par vente sans nom.** Quand une vente ou une facture
+   arrive au « Comptant », le serveur crée dans la MÊME transaction une
+   fiche « Client de passage », code `PAS-000123` (préfixe du dossier
+   comme les autres codes), numéro réservé au compteur
+   (`compteur_piece`, clé `PAS`) — pas de doublon à deux caisses.
+   La fiche est `est_generique = 1`, `statut = 'passage'`.
+2. **Hors des listes et des chiffres.** `est_generique = 1` la fait
+   sortir d'office de la liste des clients, des relances, des rapports
+   de créances et de « meilleurs clients » : ces lectures filtrent déjà
+   `est_generique = 0`, aucune à oublier. Un filtre « Passages »
+   (Clients) la retrouve par son code ou le numéro de sa facture.
+3. **Payée en entier à la vente.** Règle pure
+   `coeur::saisie::verifier_vente_passage` : pour un client de passage
+   (le « Comptant » ou une fiche passage), pas de crédit, et
+   l'encaissement couvre le total — sinon refus AVANT d'écrire, dans
+   les deux versions de `creer_vente` et de `valider_facture`. Les
+   retours restent remboursement ou échange (déjà en place : la fiche
+   est `est_generique`).
+4. **« Passer en client ordinaire »** (`passage::promouvoir_sur`,
+   permission `clients:modifier`) : nom obligatoire, téléphone
+   facultatif ; la fiche devient `est_generique = 0`,
+   `statut = 'client'`, garde son code et ses achats ; geste tracé au
+   journal (Historique). Une seule porte : `modifier_client` refuse
+   toujours une fiche générique.
+5. **Une facture garde le nom écrit à son émission.** Une pièce ne
+   portait que `tiers_id` : renommer un client changeait le nom des
+   factures déjà émises à la réimpression (OHADA). Colonne
+   `piece_commerciale.tiers_nom` : avant tout changement de nom
+   (promotion, `modifier_client`), le nom en cours est figé sur les
+   pièces de ce client qui n'en ont pas encore ; la lecture d'une pièce
+   à imprimer rend `COALESCE(tiers_nom, nom du client)`. Figer au
+   renommage revient à figer à l'émission : jusque-là, les deux noms
+   sont les mêmes.
+6. **Les ventes passées ne bougent pas.** Ce qui est au « Comptant » y
+   reste ; le « Comptant » reste la porte de l'écran (« client de
+   passage » au comptoir, rien à saisir) — c'est le serveur qui
+   remplace, vente par vente, par une fiche neuve.
+   `lire_client_generique` rend toujours le « Comptant », jamais une
+   fiche passage.
+7. **Doublons** : une même personne passée trois fois a trois fiches ;
+   rattacher ses autres tickets à la promotion viendra plus tard (noté,
+   pas fait).
+
+**Mise en œuvre.** `coeur/saisie.rs` (la règle, testée) ; nouveau
+module `noyau/src/passage.rs` (créer la fiche — `&mut impl Acces` côté
+`Base`, une version `rusqlite` pour les façades `Connection` —, lire
+les passages, promouvoir, figer les noms) ; `creer_vente` et
+`valider_facture`, deux versions chacune ; `lire_client_generique`,
+`modifier_client` et `lire_donnees_piece`, deux versions ; colonne
+`tiers_nom` dans `schema.sql`, `amorcage.rs` et `persistance/v2.rs` ;
+serveur : `lire_passages`, `promouvoir_passage` ; écran Clients :
+filtre « Passages » et « Passer en client ordinaire ». `lire_passages`
+et `promouvoir_passage` n'ont que leur version `Base` : la fenêtre ne
+passe plus par les façades `Connection` (D22 révisé), comme les
+commandes de la v3. Tests : `noyau/tests/passage_base.rs` sur SQLite
+et PostgreSQL (stock, caisse, créance après chaque geste, refus sans
+écriture, deux ventes deux codes, promotion, nom figé, le détecteur),
+et un parcours du banc.

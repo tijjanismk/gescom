@@ -398,6 +398,21 @@ pub fn registre() -> Registre {
         comptoir::creer_client_rapide_sur(c.base, texte(&p, "nom")?, option_texte(&p, "telephone"))
     });
 
+    // D35 : les fiches de passage (une par vente sans nom), et le geste
+    // qui fait du passant un client ordinaire.
+    r.sur_base("lire_passages", None, false, |c, p| {
+        let v = gescom_noyau::passage::lire_passages_sur(c.base, option_texte(&p, "recherche"))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.sur_base("promouvoir_passage", Some("clients:modifier"), true, |c, p| {
+        gescom_noyau::passage::promouvoir_sur(
+            c.base,
+            arg(&p, "clientId", "client_id")?,
+            texte(&p, "nom")?,
+            option_texte(&p, "telephone"),
+        )
+    });
+
     r.sur_base("creer_article_rapide", Some("articles:creer"), true, |c, p| {
         comptoir::creer_article_rapide_sur(
             c.base,

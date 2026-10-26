@@ -77,7 +77,7 @@ pub fn client_reel(base: &mut Base) -> String {
 pub fn client_generique(base: &mut Base) -> String {
     let dossier = base.dossier().to_string();
     base.lire_une(
-        "SELECT id FROM client WHERE est_generique = 1 AND dossier_id = ?1",
+        "SELECT id FROM client WHERE est_generique = 1 AND statut <> 'passage' AND dossier_id = ?1",
         &parametres![dossier],
         |r| r.get::<String>(0),
     )

@@ -247,8 +247,23 @@ pub fn creer_vente_datee_sur(
         return Err("Pas de crédit pour un client comptant. \
                     Créer ou sélectionner le client d'abord.".to_string());
     }
+    // D35 — un client de passage paie en entier, a la vente.
+    if client_generique {
+        crate::coeur::saisie::verifier_vente_passage(
+            &mode_reglement, total_des_lignes(&lignes), montant_paye.unwrap_or(0))?;
+    }
+    let le_comptant = client_generique && crate::passage::est_le_comptant(conn, &client_id);
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // D35 — la fiche de passage d'une vente au « Comptant », dans la
+    // transaction (voir creer_vente_datee_sur_base).
+    let (client_id, code_client) = if le_comptant {
+        let (id, code) = crate::passage::creer_fiche(&tx, &now, &auteur_id)?;
+        (id, Some(code))
+    } else {
+        (client_id, None)
+    };
 
     tx.execute(
         "INSERT INTO vente
@@ -502,6 +517,8 @@ pub fn creer_vente_datee_sur(
         "total_regle":    total_regle,
         "reste":          total - total_regle,
         "statut":         statut,
+        "client_id":      client_id,
+        "client_code":    code_client,
     }))
 }
 
@@ -629,7 +646,27 @@ pub fn valider_facture_sur(
         .map(|(i, (_, _, qte, _, _, _))| montants[i].prix_pratique as f64 * qte)
         .sum::<f64>() as i64;   // `as i64` tronque, comme le CAST de SQLite
 
+    // D35 — voir valider_facture_sur_base.
+    let client_generique = crate::utils::est_client_generique(conn, &client_id);
+    if client_generique {
+        let encaisse = if mode_reglement == "comptant" { total_net } else { acompte.unwrap_or(0) };
+        crate::coeur::saisie::verifier_vente_passage(&mode_reglement, total_net, encaisse)?;
+    }
+    let le_comptant = client_generique && crate::passage::est_le_comptant(conn, &client_id);
+
     let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let client_id = if le_comptant {
+        let (id, _code) = crate::passage::creer_fiche(&tx, &now, &auteur_id)?;
+        tx.execute(
+            "UPDATE piece_commerciale SET tiers_id = ?1 WHERE id = ?2",
+            rusqlite::params![id, piece_id],
+        )
+        .map_err(|e| e.to_string())?;
+        id
+    } else {
+        client_id
+    };
 
     // 1. Créer la vente
     let vente_id = uuid::Uuid::new_v4().to_string();
@@ -844,6 +881,11 @@ pub fn creer_facture_depuis_vente_sur(
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur_id = id_utilisateur_par_role(&conn, role);
     let now = maintenant_iso();
+    // D35 : le client de la VENTE fait foi. L'ecran passe le « Comptant » ;
+    // la vente, elle, est a la fiche de passage creee pour elle.
+    let client_id: String = conn
+        .query_row("SELECT client_id FROM vente WHERE id = ?1", rusqlite::params![vente_id], |r| r.get(0))
+        .unwrap_or(client_id);
 
     // Numérotation — meme fonction que les pieces saisies manuellement.
     // Avant : COUNT(*) local, en parallele de prochain_numero. Deux
@@ -1510,8 +1552,23 @@ pub fn creer_vente_datee_sur_base(
                 .to_string(),
         );
     }
+    // D35 — un client de passage paie en entier, a la vente.
+    if client_generique {
+        crate::coeur::saisie::verifier_vente_passage(
+            &mode_reglement, total_des_lignes(&lignes), montant_paye.unwrap_or(0))?;
+    }
+    let le_comptant = client_generique && crate::passage::est_le_comptant_sur(base, &client_id);
 
     let mut tx = base.transaction().map_err(|e| e.0)?;
+
+    // D35 — une vente au « Comptant » a sa fiche de passage, creee ici,
+    // dans la transaction : le numero PAS- se rend si la vente echoue.
+    let (client_id, code_client) = if le_comptant {
+        let (id, code) = crate::passage::creer_fiche_sur(&mut tx, &now, &auteur_id)?;
+        (id, Some(code))
+    } else {
+        (client_id, None)
+    };
 
     tx.executer(
         "INSERT INTO vente
@@ -1829,7 +1886,18 @@ pub fn creer_vente_datee_sur_base(
         "total_regle": total_regle,
         "reste":       total - total_regle,
         "statut":      statut,
+        // D35 : le client de la vente — la fiche de passage creee pour
+        // une vente au « Comptant », dont le code va sur le ticket.
+        "client_id":   client_id,
+        "client_code": code_client,
     }))
+}
+
+/// Le total d'une vente du comptoir, tel que la boucle d'ecriture le
+/// calcule ligne par ligne (`prix_pratique × quantite`, arrondi au
+/// franc) — pour juger AVANT d'ecrire (D35).
+fn total_des_lignes(lignes: &[ParamsLigneInput]) -> i64 {
+    lignes.iter().map(|l| (l.prix_pratique as f64 * l.quantite).round() as i64).sum()
 }
 
 pub fn valider_facture_sur_base(
@@ -1941,7 +2009,31 @@ pub fn valider_facture_sur_base(
         .map(|(i, (_, _, qte, _, _, _))| montants[i].prix_pratique as f64 * qte)
         .sum::<f64>() as i64; // troncature, comme le CAST de SQLite
 
+    // D35 — une facture a un client de passage se paie en entier : le
+    // comptant encaisse le total, le credit (meme avec acompte) est
+    // refuse. Juge AVANT la transaction : rien a defaire.
+    let client_generique = est_client_generique_sur(base, &dossier, &client_id);
+    if client_generique {
+        let encaisse = if mode_reglement == "comptant" { total_net } else { acompte.unwrap_or(0) };
+        crate::coeur::saisie::verifier_vente_passage(&mode_reglement, total_net, encaisse)?;
+    }
+    let le_comptant = client_generique && crate::passage::est_le_comptant_sur(base, &client_id);
+
     let mut tx = base.transaction().map_err(|e| e.0)?;
+
+    // D35 — facture au « Comptant » : sa fiche de passage, posee sur la
+    // piece AVANT l'emission (un brouillon change encore de tiers).
+    let client_id = if le_comptant {
+        let (id, _code) = crate::passage::creer_fiche_sur(&mut tx, &now, &auteur_id)?;
+        tx.executer(
+            "UPDATE piece_commerciale SET tiers_id = ?1 WHERE id = ?2 AND dossier_id = ?3",
+            &parametres![id.clone(), piece_id.clone(), dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
+        id
+    } else {
+        client_id
+    };
 
     // 1. Créer la vente
     let vente_id = uuid::Uuid::new_v4().to_string();
@@ -2211,6 +2303,16 @@ pub fn creer_facture_depuis_vente_sur_base(
     let role = utilisateur_role.as_deref().unwrap_or("employe");
     let auteur_id = id_utilisateur_par_role_sur(base, role);
     let now = maintenant_iso();
+    // D35 : le client de la VENTE fait foi. L'ecran passe le « Comptant » ;
+    // la vente, elle, est a la fiche de passage creee pour elle.
+    let client_id: String = base
+        .lire_une(
+            "SELECT client_id FROM vente WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![vente_id.clone(), dossier.clone()],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(client_id);
 
     // Numerotation — meme fonction que les pieces saisies manuellement.
     let numero = reserver_numero_sur(base, "facture")?;

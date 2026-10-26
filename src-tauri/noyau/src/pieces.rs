@@ -1064,8 +1064,10 @@ pub fn lire_donnees_piece(
         (String, Option<String>, Option<String>, Option<String>, Option<String>) =
         if tiers_type == "client" {
             conn.query_row(
-                "SELECT nom, code, telephone, adresse, nif FROM client WHERE id = ?1",
-                rusqlite::params![tiers_id],
+                // D35 : le nom ecrit a l'emission, s'il a ete fige.
+                "SELECT COALESCE((SELECT tiers_nom FROM piece_commerciale WHERE id = ?2), nom),
+                        code, telephone, adresse, nif FROM client WHERE id = ?1",
+                rusqlite::params![tiers_id, piece_id],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             ).map_err(|_| "Client introuvable".to_string())?
         } else {
@@ -3331,9 +3333,13 @@ pub fn lire_donnees_piece_sur_base(
     let (tiers_nom, tiers_code, tiers_telephone, tiers_adresse, tiers_nif): Tiers =
         if tiers_type == "client" {
             base.lire_une(
-                "SELECT nom, code, telephone, adresse, nif FROM client
+                // D35 : le nom ecrit a l'emission, s'il a ete fige
+                // (passage::figer_noms_sur) ; sinon la fiche.
+                "SELECT COALESCE((SELECT p.tiers_nom FROM piece_commerciale p
+                                  WHERE p.id = ?3 AND p.dossier_id = ?2), nom),
+                        code, telephone, adresse, nif FROM client
                  WHERE id = ?1 AND dossier_id = ?2",
-                &parametres![tiers_id.clone(), dossier.clone()],
+                &parametres![tiers_id.clone(), dossier.clone(), piece_id.clone()],
                 lire_tiers,
             )
             .map_err(|e| e.0)?

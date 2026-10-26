@@ -58,6 +58,7 @@ pub mod presences;
 pub mod avances;
 pub mod paie;
 pub mod crm;
+pub mod passage;
 pub mod caisses;
 pub mod argent;
 pub mod catalogue;

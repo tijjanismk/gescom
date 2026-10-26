@@ -198,6 +198,9 @@ pub fn modifier_client(
     // NULL, sinon les ecrans affichent une ligne vide au lieu de rien.
     let vide = |o: Option<String>| o.filter(|s| !s.trim().is_empty());
 
+    // D35 : voir modifier_client_sur_base.
+    crate::passage::figer_noms(conn, &client_id)?;
+
     conn.execute(
         "UPDATE client
          SET nom = ?1, telephone = ?2, adresse = ?3, email = ?4, nif = ?5,
@@ -508,6 +511,11 @@ pub fn modifier_client_sur(
     // `vide` plutot que la chaine vide : un champ efface doit redevenir
     // NULL, sinon les ecrans affichent une ligne vide au lieu de rien.
     let vide = |o: Option<String>| o.filter(|s| !s.trim().is_empty());
+
+    // D35 : ses factures emises gardent le nom sous lequel elles l'ont
+    // ete. Hors transaction sans risque : figer le nom EN COURS est vrai
+    // meme si la modification qui suit echoue.
+    crate::passage::figer_noms_sur(base, &client_id)?;
 
     base.executer(
         "UPDATE client

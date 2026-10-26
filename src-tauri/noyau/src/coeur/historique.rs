@@ -36,6 +36,7 @@ pub const TYPES: &[(&str, &str)] = &[
     ("cheque_statut", "Chèque"),
     ("transfert", "Transfert entre magasins"),
     ("client_modifie", "Fiche client modifiée"),
+    ("passage_promu", "Client de passage devenu client ordinaire"),
     ("depot_desactive_avec_stock", "Magasin désactivé"),
     ("depot_reactive", "Magasin réactivé"),
     ("utilisateur_cree", "Utilisateur créé"),

@@ -294,7 +294,11 @@ CREATE TABLE IF NOT EXISTS piece_commerciale (
     reference        TEXT,
     cree_le          TEXT NOT NULL,
     modifie_le       TEXT NOT NULL,
-    origine          TEXT NOT NULL DEFAULT 'app'
+    origine          TEXT NOT NULL DEFAULT 'app',
+    -- D35 : le nom du tiers tel qu'il etait ecrit a l'emission. Pose
+    -- au premier renommage du client (passage::figer_noms) ; NULL tant
+    -- que la fiche n'a pas change de nom — on lit alors la fiche.
+    tiers_nom        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ligne_piece (
