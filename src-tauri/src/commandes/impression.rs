@@ -16,12 +16,19 @@
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
+/// Le titre que le document se donne quand la boîte d'impression se
+/// ferme (`SCRIPT_IMPRESSION` dans `genererPDF.ts`) : la fenêtre se ferme.
+const TITRE_FERMER: &str = "__gescom_impression_finie__";
+
 /// Ouvre le HTML dans une fenêtre dédiée et déclenche l'impression.
 ///
 /// Le script d'impression est déjà dans le document généré par
-/// `genererPDF.ts` (`window.onload → print()`). La fenêtre reste
-/// ouverte après la boîte de dialogue : l'utilisateur peut relancer
-/// l'impression ou fermer.
+/// `genererPDF.ts` (`window.onload → print()`). Après la boîte
+/// d'impression (imprimé ou annulé), le document change son titre en
+/// `TITRE_FERMER` et c'est ICI qu'on ferme la fenêtre : son propre
+/// `window.close()` est refusé par WebView2 (fenêtre ouverte par
+/// l'application, pas par le script), et elle restait ouverte, blanche,
+/// devant la caisse (vu par le propriétaire le 26/10/2026).
 #[tauri::command]
 pub async fn imprimer_facture(
     app: tauri::AppHandle,
@@ -87,6 +94,15 @@ pub async fn imprimer_facture(
             .inner_size(900.0, 1000.0)
             .center()
             .resizable(true)
+            .on_document_title_changed(|fenetre, titre| {
+                if titre == TITRE_FERMER {
+                    // Hors du rappel : on ne ferme pas une webview depuis
+                    // l'un de ses propres événements.
+                    tauri::async_runtime::spawn(async move {
+                        let _ = fenetre.close();
+                    });
+                }
+            })
             .build()
         {
             Ok(_) => return Ok(chemin.to_string_lossy().to_string()),

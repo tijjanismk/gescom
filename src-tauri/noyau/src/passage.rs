@@ -25,6 +25,35 @@ pub const STATUT: &str = "passage";
 /// Le nom d'une fiche de passage, jusqu'a sa promotion.
 pub const NOM: &str = "Client de passage";
 
+/// Ce que le papier dit du client : jamais « Client de passage » (le
+/// propriétaire : « presque une insulte »), mais le code, qui retrouve la
+/// facture. Rend `(nom, code)` a imprimer : sur une fiche de passage, le
+/// code prend la place du nom et ne se repete pas dessous. Vaut aussi
+/// pour les factures emises avant une promotion, qui gardent ce nom fige.
+pub fn tiers_a_imprimer(nom: String, code: Option<String>) -> (String, Option<String>) {
+    if nom != NOM {
+        return (nom, code);
+    }
+    (code.filter(|c| !c.is_empty()).unwrap_or_default(), None)
+}
+
+#[cfg(test)]
+mod tests_impression {
+    use super::*;
+
+    #[test]
+    fn le_papier_dit_le_code_jamais_client_de_passage() {
+        assert_eq!(tiers_a_imprimer(NOM.into(), Some("PAS-000123".into())), ("PAS-000123".into(), None));
+        // Sans code, rien plutot que la formule.
+        assert_eq!(tiers_a_imprimer(NOM.into(), None), (String::new(), None));
+        // Un client ordinaire garde nom et code.
+        assert_eq!(
+            tiers_a_imprimer("Awa".into(), Some("CLIENT00042".into())),
+            ("Awa".into(), Some("CLIENT00042".into()))
+        );
+    }
+}
+
 // =====================================================================
 //  Sur `Base` (le serveur, les deux moteurs)
 // =====================================================================

@@ -436,7 +436,10 @@ export function ModalEchange({
             html: genererBonEchangeHTML({
               numero_vente: vente.numero_facture ?? vente.id.slice(0, 8),
               date: new Date().toISOString(),
-              client_nom: vente.client_nom,
+              // Jamais « Client de passage » sur le papier : son code
+              // (même règle que passage::tiers_a_imprimer côté serveur).
+              client_nom: vente.client_nom === "Client de passage"
+                ? vente.client_code : vente.client_nom,
               rendu: {
                 article_nom: ligne.article_nom,
                 unite_libelle: ligne.unite_libelle,

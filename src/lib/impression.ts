@@ -244,6 +244,31 @@ const PAPIER: Record<Papier, { l: number; h: number }> = {
   a5: { l: 148, h: 210 },
 };
 
+/**
+ * La taille du texte courant sur le papier, en points : 11 pt en A4,
+ * 10 pt en A5 (la fourchette d'usage d'un document imprimé est 10–12 pt ;
+ * nos pièces sortaient à ~8 pt, détails à 7). Le document garde ses
+ * tailles écrites en px, toutes multipliées par un même facteur
+ * (`agrandirTexte`) : les proportions restent, rien n'est oublié.
+ *
+ * Pas de `zoom` CSS : le moteur d'impression découpe mal un contenu
+ * zoomé — une facture A5 presque pleine sortait sur deux pages, la
+ * seconde blanche (vu le 26/10/2026).
+ */
+const TEXTE_PT: Record<Papier, number> = { a4: 11, a5: 10 };
+
+/** Le facteur qui porte la police du document (px) à la taille voulue. */
+export function echelleTexte(papier: Papier, police = 11): number {
+  return (TEXTE_PT[papier] * 96) / 72 / police;
+}
+
+/** Chaque `font-size: Npx` du HTML, multiplié par `k`. Les marges et
+ *  les cadres ne bougent pas : seul le texte grandit. */
+export function agrandirTexte(html: string, k: number): string {
+  return html.replace(/font-size:\s*([\d.]+)px/g,
+    (_, n: string) => `font-size:${(parseFloat(n) * k).toFixed(1)}px`);
+}
+
 export interface PageDoc {
   /** Le titre de la fenêtre (et du fichier PDF). */
   titre: string;
@@ -292,7 +317,6 @@ export function documentHTML(h: Habillage, p: PageDoc): string {
   const { h: hauteur } = PAPIER[p.papier];
   const image = (src: string, classe: string) =>
     `<img class="${classe}" src="${src}" alt="" style="width:100%;height:auto;display:block"/>`;
-
   const lignesPied = [
     !h.pied && p.mention ? `<div class="doc-mention">${p.mention}</div>` : "",
     p.imprimeLe ? `<div class="doc-imprime">Imprimé le ${esc(p.imprimeLe)}</div>` : "",
@@ -308,7 +332,9 @@ export function documentHTML(h: Habillage, p: PageDoc): string {
     ? `<div style="height:4mm"></div><div class="cadre-reserve" aria-hidden="true">${pied}</div>`
     : `<div style="height:${p.marge}"></div>`;
 
-  return `<!DOCTYPE html>
+  // Le texte grandit (toutes les tailles en px, celle du corps comprise) ;
+  // les bandeaux images, les cadres et les marges du papier, non.
+  return agrandirTexte(`<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
@@ -353,5 +379,5 @@ export function documentHTML(h: Habillage, p: PageDoc): string {
   </table>
   ${p.script ?? ""}
 </body>
-</html>`;
+</html>`, echelleTexte(p.papier, p.police ?? 11));
 }

@@ -472,6 +472,8 @@ pub fn lire_donnees_recu(
         rusqlite::params![vente_id], |r| Ok((r.get(0)?, r.get(1)?)),
     ).unwrap_or((0, 0));
 
+    // D35 : ni « Client de passage » sur le papier, mais le code.
+    let imprime = crate::passage::tiers_a_imprimer(c_nom, Some(c_code));
     Ok(serde_json::json!({
         "cote":      "client",
         "montant":   montant,
@@ -485,7 +487,7 @@ pub fn lire_donnees_recu(
         // justificatif de correction, pas un encaissement.
         "est_annulation": est_annulation,
         "tiers": {
-            "nom": c_nom, "code": c_code,
+            "nom": imprime.0, "code": imprime.1.unwrap_or_default(),
             "telephone": c_tel, "adresse": c_adr,
         },
         "societe":   societe(&conn),
@@ -1491,6 +1493,8 @@ pub fn lire_donnees_recu_sur_base(base: &mut Base, paiement_id: String, cote: St
         .ok_or_else(|| "Règlement introuvable".to_string())?;
 
     let (total, paye) = total_et_paye(base, &vente_id)?.unwrap_or((0, 0));
+    // D35 : ni « Client de passage » sur le papier, mais le code.
+    let imprime = crate::passage::tiers_a_imprimer(c_nom, Some(c_code));
     Ok(serde_json::json!({
         "cote":      "client",
         "montant":   montant,
@@ -1501,7 +1505,7 @@ pub fn lire_donnees_recu_sur_base(base: &mut Base, paiement_id: String, cote: St
         "reference": numero.unwrap_or_default(),
         "reste_du":  crate::coeur::calcul::reste_exigible(total, paye),
         "est_annulation": est_annulation,
-        "tiers": { "nom": c_nom, "code": c_code, "telephone": c_tel, "adresse": c_adr },
+        "tiers": { "nom": imprime.0, "code": imprime.1.unwrap_or_default(), "telephone": c_tel, "adresse": c_adr },
         "societe":   societe_sur(base),
     }))
 }

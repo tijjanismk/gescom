@@ -21,15 +21,20 @@ import type { ReglagesDocuments } from "@/lib/documents";
 // que l'utilisateur ait imprime OU annule. Dans les deux cas la fenetre
 // n'a plus d'objet : on la ferme.
 //
-// `window.close()` est refuse par certains moteurs sur une fenetre que
-// le script n'a pas ouverte. D'ou le bouton de repli, qui n'apparait
-// qu'apres 2,5 s et seulement si la fenetre est encore la. Il est
-// masque a l'impression : il ne doit jamais finir sur le papier.
+// `window.close()` est refuse par WebView2 sur une fenetre que le script
+// n'a pas ouverte : la fenetre restait ouverte, blanche. Le document
+// change donc aussi son titre en un signal que la fenetre Tauri attend
+// (`TITRE_FERMER`, commandes/impression.rs) et c'est elle qui se ferme.
+// Le bouton de repli (apres 2,5 s, si la fenetre est encore la) fait
+// pareil ; il est masque a l'impression et ne finit jamais sur le papier.
 export const SCRIPT_IMPRESSION = `
 <style>@media print { #gescom-fermer { display:none !important; } }</style>
 <script>
 (function () {
-  function fermer() { try { window.close(); } catch (e) {} }
+  function fermer() {
+    try { window.close(); } catch (e) {}
+    document.title = '__gescom_impression_finie__';
+  }
   window.onload = function () {
     window.focus();
     window.onafterprint = function () { setTimeout(fermer, 300); };
@@ -275,16 +280,23 @@ function pieceEnPage(
         </div>
       </div>
 
-      <div style="margin-bottom:12px;padding:8px;border:1px solid #ddd;
-                  border-radius:4px;display:inline-block;min-width:210px">
-        <div style="font-size:9px;color:#777;text-transform:uppercase;margin-bottom:2px">
+      <!-- Le cadre du tiers : c'est lui qu'on cherche des yeux sur une
+           facture. Plus large et plus aere en A4 (la page le permet). -->
+      <div class="doc-tiers" style="margin-bottom:14px;padding:${isA5 ? "9px 12px" : "12px 16px"};
+                  border:1px solid #ccc;border-radius:4px;display:inline-block;
+                  min-width:${isA5 ? "52%" : "48%"};max-width:100%;overflow-wrap:anywhere">
+        <!-- Un nom tres long : le cadre s'elargit jusqu'a la page, puis le
+             nom passe a la ligne — meme un mot sans espace (overflow-wrap). -->
+        <div style="font-size:${isA5 ? 9 : 10}px;color:#777;text-transform:uppercase;margin-bottom:3px">
           ${piece.tiers_type === "fournisseur" ? "Fournisseur" : "Client"}
         </div>
-        <div style="font-weight:bold">${esc(piece.client_nom)}</div>
-        ${piece.client_code ? `<div style="font-size:10px;color:#555">${esc(piece.client_code)}</div>` : ""}
-        ${piece.client_telephone ? `<div style="font-size:10px;color:#555">Tél: ${esc(piece.client_telephone)}</div>` : ""}
-        ${piece.client_adresse ? `<div style="font-size:10px;color:#555">${esc(piece.client_adresse)}</div>` : ""}
-        ${piece.client_nif ? `<div style="font-size:10px;color:#555">NIF: ${esc(piece.client_nif)}</div>` : ""}
+        <div style="font-weight:bold;font-size:${isA5 ? 12 : 14}px">${esc(piece.client_nom)}</div>
+        ${[
+          piece.client_code ? esc(piece.client_code) : "",
+          piece.client_telephone ? `Tél : ${esc(piece.client_telephone)}` : "",
+          piece.client_adresse ? esc(piece.client_adresse) : "",
+          piece.client_nif ? `NIF : ${esc(piece.client_nif)}` : "",
+        ].filter(Boolean).map(l => `<div style="font-size:${isA5 ? 10 : 11}px;color:#444;margin-top:1px">${l}</div>`).join("")}
       </div>
 
       <table class="doc-lignes" style="width:100%;border-collapse:collapse;margin:10px 0">
