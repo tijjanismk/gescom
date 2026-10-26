@@ -42,7 +42,8 @@ pub fn raison_de_s_effacer(
     ici: &[IpAddr],
     resoudre: impl Fn(&str) -> Vec<IpAddr>,
 ) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(poste_json?).ok()?;
+    // Le Bloc-notes peut y laisser un BOM : on le retire avant de lire.
+    let v: serde_json::Value = serde_json::from_str(poste_json?.trim_start_matches('\u{feff}')).ok()?;
     if v.get("mode")?.as_str()? != "poste" {
         return None;
     }

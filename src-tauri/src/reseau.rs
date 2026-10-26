@@ -92,7 +92,11 @@ pub fn lire(app: &tauri::AppHandle) -> ConfigReseau {
     };
     match std::fs::read_to_string(&chemin) {
         Ok(texte) => {
-            let mut c: ConfigReseau = serde_json::from_str(&texte).unwrap_or_default();
+            // Le Bloc-notes enregistre en UTF-8 « avec BOM » : sans le
+            // retirer, le fichier paraissait illisible, et le poste perdait
+            // son role et son empreinte.
+            let texte = texte.trim_start_matches('\u{feff}');
+            let mut c: ConfigReseau = serde_json::from_str(texte).unwrap_or_default();
             // Ce poste garde la base : son serveur est ici. Un ancien
             // fichier peut porter une autre adresse, inutilisee jusqu'ici.
             if c.mode == "monoposte" {

@@ -56,7 +56,8 @@ fn poste_gescom(nos_donnees: &PathBuf) -> PosteGescom {
         .parent()
         .map(|p| p.join("ml.gescom.app").join("poste.json"))
         .and_then(|c| std::fs::read_to_string(c).ok())
-        .and_then(|t| serde_json::from_str(&t).ok())
+        // Le Bloc-notes peut y laisser un BOM : on le retire avant de lire.
+        .and_then(|t| serde_json::from_str(t.trim_start_matches('\u{feff}')).ok())
         .unwrap_or_default()
 }
 
