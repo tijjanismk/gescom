@@ -132,13 +132,16 @@ pub fn lire_toutes_pieces_client(
                 -- 20 : la vente derriere la piece est-elle irrecouvrable ?
                 -- Un entier, pas un booleen : PostgreSQL rend un bool sur
                 -- EXISTS nu, SQLite un entier — CASE met les deux d'accord.
-                CASE WHEN EXISTS (SELECT 1 FROM vente v WHERE v.piece_id = pc.id AND v.statut = 'irrecouvrable') THEN 1 ELSE 0 END
+                CASE WHEN EXISTS (SELECT 1 FROM vente v WHERE v.piece_id = pc.id AND v.statut = 'irrecouvrable') THEN 1 ELSE 0 END,
+                -- 21..24 : les retours (coeur::pieces::etat_retour) et
+                -- la dette qu'ils ont eteinte.
+                {}
          FROM piece_commerciale pc
          JOIN client c ON c.id = pc.tiers_id
          LEFT JOIN utilisateur u ON u.id = pc.auteur_id
          WHERE {}
          ORDER BY pc.date_piece DESC, pc.cree_le DESC",
-        where_clause
+        RETOURS_SQL, where_clause
     );
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -188,6 +191,11 @@ pub fn lire_toutes_pieces_client(
                                   row.get::<_,f64>(18).unwrap_or(0.0)),
             "reference":        row.get::<_,Option<String>>(19)?,
             "irrecouvrable":    row.get::<_,i64>(20).unwrap_or(0) != 0,
+            "retour":           retours_de_liste(
+                                  row.get::<_,i64>(21).unwrap_or(0),
+                                  row.get::<_,i64>(22).unwrap_or(0),
+                                  row.get::<_,i64>(23).unwrap_or(0)),
+            "encaisse":         encaisse_de_liste(total_paye, row.get::<_,i64>(24).unwrap_or(0)),
         }))
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
@@ -1092,6 +1100,8 @@ pub fn lire_donnees_piece(
         .ok()
         .flatten();
 
+    // D35 : ni « Client de passage » sur le papier, mais le code.
+    let (tiers_nom, tiers_code) = crate::passage::tiers_a_imprimer(tiers_nom, tiers_code);
     let piece = serde_json::json!({
         "id":             pc_id,
         "type_piece":     type_piece,
@@ -2377,6 +2387,11 @@ fn ligne_de_liste(r: &crate::base::Ligne<'_>) -> crate::base::Resultat<serde_jso
                               r.get::<f64>(18).unwrap_or(0.0)),
         "reference":        r.get::<Option<String>>(19)?,
         "irrecouvrable":    r.get::<i64>(20).unwrap_or(0) != 0,
+        "retour":           retours_de_liste(
+                              r.get::<i64>(21).unwrap_or(0),
+                              r.get::<i64>(22).unwrap_or(0),
+                              r.get::<i64>(23).unwrap_or(0)),
+        "encaisse":         encaisse_de_liste(total_paye, r.get::<i64>(24).unwrap_or(0)),
     }))
 }
 
@@ -2405,6 +2420,45 @@ const COLONNES_CALCULEES: &str = "
     pc.reference,
     CASE WHEN EXISTS (SELECT 1 FROM vente v WHERE v.piece_id = pc.id AND v.statut = 'irrecouvrable') THEN 1 ELSE 0 END";
 
+/// Suit `COLONNES_CALCULEES` dans les deux listes (base) et la liste
+/// client de la fenetre : 21 credit des retours, 22 argent sorti du
+/// tiroir pour eux (le mode « remboursement » d'une facture a credit
+/// n'en sort pas), 23 total de la vente derriere la piece — ce que lit
+/// `coeur::pieces::etat_retour` —, 24 dette eteinte par les retours. Zero partout sur une piece sans vente
+/// (fournisseur, devis).
+const RETOURS_SQL: &str = "
+    CAST(COALESCE((SELECT SUM(rt.montant_credit) FROM retour rt
+                   JOIN vente ve ON ve.id = rt.vente_id
+                   WHERE ve.piece_id = pc.id), 0) AS BIGINT),
+    CAST(COALESCE((SELECT SUM(mc.montant) FROM mouvement_caisse mc
+                   JOIN retour rt ON rt.id = mc.operation_id
+                   JOIN vente ve ON ve.id = rt.vente_id
+                   WHERE ve.piece_id = pc.id
+                     AND mc.motif IN ('remboursement', 'remboursement_reliquat')), 0) AS BIGINT),
+    CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite) FROM ligne_vente lv
+                   JOIN vente ve ON ve.id = lv.vente_id
+                   WHERE ve.piece_id = pc.id), 0) AS BIGINT),
+    CAST(COALESCE((SELECT SUM(pa.montant) FROM paiement pa
+                   JOIN vente ve ON ve.id = pa.vente_id
+                   WHERE ve.piece_id = pc.id AND pa.mode = 'retour'), 0) AS BIGINT)";
+
+/// L'argent vraiment encaisse sur la piece : `total_paye` moins la part
+/// de la dette eteinte par un retour (paiement `mode = 'retour'`, 24).
+/// `total_paye` la garde — c'est elle qui fait le reste du ; « Paye »
+/// a l'ecran ne doit pas la compter comme de l'argent entre.
+fn encaisse_de_liste(total_paye: i64, eteint_par_retour: i64) -> i64 {
+    total_paye - eteint_par_retour
+}
+
+/// Les deux champs de retour d'une ligne de liste, lus en 21..23.
+fn retours_de_liste(retourne: i64, rembourse: i64, vendu: i64) -> serde_json::Value {
+    serde_json::json!({
+        "etat":      crate::coeur::pieces::etat_retour(vendu, retourne, rembourse),
+        "montant":   retourne,
+        "rembourse": rembourse,
+    })
+}
+
 /// La vente derriere la piece est irrecouvrable. Un entier et pas un
 /// booleen : PostgreSQL rend un bool sur EXISTS nu, SQLite un entier.
 const IRRECOUVRABLE_SQL: &str =
@@ -2432,7 +2486,8 @@ pub fn lire_toutes_pieces_client_sur_base(
         "SELECT pc.id, pc.type_piece, pc.numero, pc.statut,
                 pc.date_piece, pc.date_echeance, pc.remise_globale, pc.note,
                 c.id, c.nom, c.code,
-                {COLONNES_CALCULEES}
+                {COLONNES_CALCULEES},
+                {RETOURS_SQL}
          FROM piece_commerciale pc
          JOIN client c ON c.id = pc.tiers_id
          LEFT JOIN utilisateur u ON u.id = pc.auteur_id
@@ -2518,7 +2573,8 @@ pub fn lire_toutes_pieces_fournisseur_sur_base(
         "SELECT pc.id, pc.type_piece, pc.numero, pc.statut,
                 pc.date_piece, pc.date_echeance, pc.remise_globale, pc.note,
                 f.id, f.nom, COALESCE(f.telephone, ''),
-                {COLONNES_CALCULEES}
+                {COLONNES_CALCULEES},
+                {RETOURS_SQL}
          FROM piece_commerciale pc
          JOIN fournisseur f ON f.id = pc.tiers_id
          LEFT JOIN utilisateur u ON u.id = pc.auteur_id
@@ -3367,7 +3423,9 @@ pub fn lire_donnees_piece_sur_base(
         .flatten();
 
     // Cles `client_*` conservees : le generateur HTML ne distingue pas
-    // encore client et fournisseur.
+    // encore client et fournisseur. D35 : ni « Client de passage » sur le
+    // papier, mais le code.
+    let (tiers_nom, tiers_code) = crate::passage::tiers_a_imprimer(tiers_nom, tiers_code);
     let piece = serde_json::json!({
         "id":             pc_id,
         "type_piece":     type_piece,

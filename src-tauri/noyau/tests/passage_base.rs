@@ -274,7 +274,24 @@ fn passer_en_client_ordinaire_garde_les_achats_et_le_nom_des_factures() {
             .unwrap_or_default()
             .to_string()
     };
-    assert_eq!(nom_facture(&mut base), passage::NOM);
+    // Le papier ne dit jamais « Client de passage » : le code prend la
+    // place du nom (il retrouve la facture), et ne se repete pas dessous.
+    let code_facture = |base: &mut Base| -> serde_json::Value {
+        pieces::lire_donnees_piece_sur_base(base, piece.clone()).unwrap()["piece"]["client_code"].clone()
+    };
+    assert_eq!(nom_facture(&mut base), "PAS-000001");
+    assert!(code_facture(&mut base).is_null(), "le code n'est pas écrit deux fois");
+    let paiement: String = base
+        .lire_une(
+            "SELECT pa.id FROM paiement pa JOIN vente v ON v.id = pa.vente_id WHERE v.piece_id = ?1",
+            &parametres![piece.clone()],
+            |l| l.get::<String>(0),
+        )
+        .unwrap()
+        .unwrap();
+    let recu = gescom_noyau::creances::lire_donnees_recu_sur_base(&mut base, paiement, "client".into()).unwrap();
+    assert_eq!((recu["tiers"]["nom"].as_str(), recu["tiers"]["code"].as_str()), (Some("PAS-000001"), Some("")),
+        "reçu d'un passage : le code à la place du nom");
 
     // Le « Comptant » et un client ordinaire ne se promeuvent pas ; un nom vide non plus.
     assert!(passage::promouvoir_sur(&mut base, comptant.clone(), "X".into(), None).is_err());
@@ -294,8 +311,11 @@ fn passer_en_client_ordinaire_garde_les_achats_et_le_nom_des_factures() {
         .unwrap();
     assert_eq!((nom.as_str(), generique, statut.as_str()), ("Moussa Traoré", 0, "client"));
     assert_eq!(tel.as_deref(), Some("76 11 22 33"));
-    // La facture emise garde le nom sous lequel elle l'a ete.
-    assert_eq!(nom_facture(&mut base), passage::NOM, "facture émise : nom figé");
+    // La facture emise garde le nom sous lequel elle l'a ete — fige a
+    // « Client de passage », donc imprime sous son code, pas sous le
+    // nouveau nom.
+    assert_eq!(nom_facture(&mut base), "PAS-000001", "facture émise : nom figé");
+    assert!(code_facture(&mut base).is_null());
     // Il est dans la liste des clients, plus dans les passages.
     assert!(catalogue::lire_clients_sur(&mut base).unwrap().iter().any(|c| c["id"] == fiche.as_str()));
     assert!(passage::lire_passages_sur(&mut base, None).unwrap().is_empty());
@@ -317,7 +337,7 @@ fn passer_en_client_ordinaire_garde_les_achats_et_le_nom_des_factures() {
 
     // Renommer un client ordinaire fige aussi ses factures emises.
     comptoir::modifier_client_sur(&mut base, fiche.clone(), "Moussa T.".into(), None, None, None, None).unwrap();
-    assert_eq!(nom_facture(&mut base), passage::NOM);
+    assert_eq!(nom_facture(&mut base), "PAS-000001");
 }
 
 #[test]

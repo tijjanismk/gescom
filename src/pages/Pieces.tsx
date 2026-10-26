@@ -60,6 +60,35 @@ interface Piece {
   /** La vente derrière la facture est passée en irrécouvrable
    *  (Paramètres → Irrécouvrable) : on n'attend plus cet argent. */
   irrecouvrable?: boolean;
+  /** Ce que les retours ont fait de la facture (coeur::pieces::etat_retour).
+   *  `montant` = marchandise revenue, `rembourse` = argent sorti du tiroir. */
+  retour?: { etat: "aucun" | "partiel" | "retourne" | "rembourse"; montant: number; rembourse: number };
+  /** L'argent vraiment encaissé : `total_paye` sans la dette éteinte par
+   *  un retour. `total_paye` la garde — elle fait le reste dû. */
+  encaisse?: number;
+}
+
+/** « Payé » à l'écran : l'argent entré, jamais une dette éteinte par un
+ *  retour. La liste fournisseur de la fenêtre n'a pas `encaisse`. */
+const encaisse = (p: Piece) => p.encaisse ?? p.total_paye ?? 0;
+const eteintParRetour = (p: Piece) => (p.total_paye ?? 0) - encaisse(p);
+
+// Un retour sur une facture a credit eteint la dette, et la facture
+// passe « Payé » sans un franc encaisse. Toute la marchandise revenue :
+// « Remboursée » ou « Retournée » PREND LA PLACE du statut, et la ligne
+// se grise. Une partie seulement : « Payé » reste, et le petit badge
+// « Retour partiel » s'ajoute dessous.
+const BADGE_RETOUR: Record<string, { label: string; classe: string }> = {
+  partiel:   { label: "Retour partiel", classe: "bg-amber-100 text-amber-900" },
+  retourne:  { label: "Retournée",      classe: "bg-slate-200 text-slate-700" },
+  rembourse: { label: "Remboursée",     classe: "bg-orange-100 text-orange-800" },
+};
+const toutRevenu = (p: Piece) =>
+  p.retour?.etat === "retourne" || p.retour?.etat === "rembourse";
+
+function detailRetour(r: NonNullable<Piece["retour"]>): string {
+  return `${fmt(r.montant)} de marchandise revenue`
+    + (r.rembourse > 0 ? ` · ${fmt(r.rembourse)} rendus en argent` : " · aucun argent rendu");
 }
 
 // Livraison : information de suivi, sans effet sur le stock ni la
@@ -95,7 +124,14 @@ const TYPES_PILLS_CLIENT = [
   { value: "bon_livraison",   label: "BL",         icone: Truck         },
   { value: "facture",         label: "Factures",   icone: Receipt       },
   { value: "avoir_client",    label: "Avoirs",     icone: Gift          },
+  // Pas un type : les factures qui ont eu un retour (FILTRE_RETOURS).
+  { value: "retours",         label: "Retours",    icone: RotateCcw     },
 ];
+
+/** La pastille « Retours » demande les factures au serveur, puis ne
+ *  garde que celles qui ont eu un retour. */
+const FILTRE_RETOURS = "retours";
+const aEuUnRetour = (p: Piece) => !!p.retour && p.retour.etat !== "aucun";
 
 const TYPES_PILLS_FOURNISSEUR = [
   { value: "tous",                     label: "Tout",       icone: FileText  },
@@ -431,8 +467,13 @@ function ModalEncaisser({
               <span>{fmt(piece.total_ttc)}</span>
             </div>
             <div className="flex justify-between text-green-700">
-              <span>Déjà payé</span><span>{fmt(piece.total_paye ?? 0)}</span>
+              <span>Déjà payé</span><span>{fmt(encaisse(piece))}</span>
             </div>
+            {eteintParRetour(piece) > 0 && (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Éteint par un retour</span><span>{fmt(eteintParRetour(piece))}</span>
+              </div>
+            )}
             <div className="flex justify-between font-bold border-t
                             border-border pt-1">
               <span>Reste dû</span><span>{fmt(piece.reste ?? 0)}</span>
@@ -809,6 +850,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
   // Type effectif
   const filtreTypeEffectif = filtresAvances.type_piece !== "tous"
     ? filtresAvances.type_piece : filtreTypeRapide;
+  const surRetours = filtreTypeEffectif === FILTRE_RETOURS;
+  // Ce que le serveur filtre : « Retours » lui demande les factures.
+  const typeServeur = surRetours ? "facture" : filtreTypeEffectif;
+  // Le nombre sur la pastille « Retours », gardé depuis la dernière
+  // liste qui contenait les factures (Tout, Factures, Retours).
+  const [nbRetours, setNbRetours] = useState(0);
   // Le filtre « Commandes » cree une commande, « Factures » une facture :
   // le type n'est redemande que sur « Tout ». Un type qu'on ne cree pas
   // a la main (avoir fournisseur) retombe sur le choix.
@@ -830,7 +877,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
       let data: Piece[];
       if (onglet === "client") {
         data = await invoke<Piece[]>("lire_toutes_pieces_client", {
-          typeFiltre:        filtreTypeEffectif === "tous" ? null : filtreTypeEffectif,
+          typeFiltre:        typeServeur === "tous" ? null : typeServeur,
           statut:            filtresAvances.statut === "tous" ? null : filtresAvances.statut,
           recherche:         recherche || null,
           dateDebut:         filtresAvances.date_debut ? filtresAvances.date_debut + "T00:00:00" : null,
@@ -854,11 +901,14 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
         });
       }
       setPieces(data);
+      if (onglet === "client" && ["tous", "facture", FILTRE_RETOURS].includes(filtreTypeEffectif)) {
+        setNbRetours(data.filter(aEuUnRetour).length);
+      }
     } catch (e) {
       console.error("Erreur pièces :", e);
       setPieces([]);
     } finally { setChargement(false); }
-  }, [onglet, filtreTypeEffectif, filtresAvances, recherche]);
+  }, [onglet, filtreTypeEffectif, typeServeur, filtresAvances, recherche]);
 
   useEffect(() => {
     setFiltreTypeRapide("tous");
@@ -877,6 +927,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
     return diff >= 0 && diff <= n;
   };
   const piecesFiltrees = pieces.filter(p => {
+    if (surRetours && !aEuUnRetour(p)) return false;
     if (filtresAvances.echeance !== "toutes") {
       if (!p.date_echeance) return false;
       const close = ["paye", "annule", "transfere", "validee"].includes(p.statut);
@@ -1189,7 +1240,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
   // est pas un, il ne s'y ajoute pas.
   const estImpayable = (p: Piece) => p.type_piece.startsWith("facture");
   const totalPaye = comptable
-    .filter(estImpayable).reduce((s, p) => s + (p.total_paye ?? 0), 0);
+    .filter(estImpayable).reduce((s, p) => s + encaisse(p), 0);
   const totalReste = comptable
     .filter(estImpayable).reduce((s, p) => s + (p.reste ?? 0), 0);
   const nbAnnulees = piecesTri.filter(p => p.statut === "annule").length;
@@ -1260,6 +1311,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                     : "bg-background border-border text-muted-foreground hover:border-foreground"
                 }`}>
                 <Icone className="h-3 w-3" />{t.label}
+                {t.value === FILTRE_RETOURS && nbRetours > 0 && (
+                  <span className={`ml-0.5 rounded-full px-1.5 text-[10px] ${
+                    actif ? "bg-primary-foreground/20" : "bg-orange-100 text-orange-800"}`}>
+                    {nbRetours}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -1411,6 +1468,9 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                         // Toute la ligne en rouge : on n'attend plus cet
                         // argent, ça se voit sans lire le statut.
                         ? "bg-red-50 text-red-800 [&_.text-muted-foreground]:text-red-600/80"
+                        // Toute la marchandise est revenue : la vente
+                        // n'existe plus, la ligne s'efface sans disparaître.
+                        : toutRevenu(p) ? "bg-muted/40 text-muted-foreground"
                         : i % 2 === 1 ? "bg-muted/20" : "bg-background"
                     }`}>
 
@@ -1456,8 +1516,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                                         rounded-full text-xs font-medium
                                         ${p.irrecouvrable
                                           ? "bg-red-600 text-white"
-                                          : COULEURS_STATUT[p.statut] ?? "bg-gray-100 text-gray-600"}`}>
-                        {p.irrecouvrable ? "Irrécouvrable" : LABELS_STATUT[p.statut] ?? p.statut}
+                                          : toutRevenu(p) ? BADGE_RETOUR[p.retour!.etat].classe
+                                          : COULEURS_STATUT[p.statut] ?? "bg-gray-100 text-gray-600"}`}
+                        title={toutRevenu(p) ? detailRetour(p.retour!) : undefined}>
+                        {p.irrecouvrable ? "Irrécouvrable"
+                          : toutRevenu(p) ? BADGE_RETOUR[p.retour!.etat].label
+                          : LABELS_STATUT[p.statut] ?? p.statut}
                       </span>
                       {/* Second axe, sous le statut de paiement : c'est
                           leur croisement qui dit « payé non livré ». */}
@@ -1466,6 +1530,14 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                                           rounded-full text-xs font-medium
                                           ${badgeLivraison(p, onglet)!.classe}`}>
                           {badgeLivraison(p, onglet)!.label}
+                        </span>
+                      )}
+                      {p.retour?.etat === "partiel" && (
+                        <span title={detailRetour(p.retour)}
+                          className={`inline-flex items-center px-2 py-0.5 mt-1
+                                      rounded-full text-xs font-medium
+                                      ${BADGE_RETOUR.partiel.classe}`}>
+                          {BADGE_RETOUR.partiel.label}
                         </span>
                       )}
                     </td>
@@ -1481,11 +1553,17 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                           −{fmt(p.remise_montant)}
                         </p>
                       )}
+                      {p.retour && p.retour.montant > 0 && (
+                        <p className="text-xs text-muted-foreground font-normal"
+                          title={detailRetour(p.retour)}>
+                          −{fmt(p.retour.montant)} rendus
+                        </p>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap
                                    text-sm text-green-700">
-                      {estFacture(p) && p.total_paye > 0
-                        ? fmt(p.total_paye) : "—"}
+                      {estFacture(p) && encaisse(p) > 0
+                        ? fmt(encaisse(p)) : "—"}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap text-sm">
                       {/* Le reste d'un avoir est un CRÉDIT (à consommer, à

@@ -238,9 +238,60 @@ pub fn peut_annuler(
     Ok(())
 }
 
+/// Ce que les retours ont fait d'une facture — le second axe de la
+/// liste, a cote du paiement.
+///
+/// Un retour sur une facture a credit eteint la dette par un paiement
+/// « retour » : la facture passe « Payé » sans un franc encaisse. Sans
+/// cet axe, l'ecran Pieces ne disait rien de ce qui s'etait passe.
+///
+/// `vendu` = total de la vente derriere la facture, `retourne` = credit
+/// de tous ses retours (au prix pratique, comme la vente), `rembourse` =
+/// l'argent sorti du tiroir pour eux. Un retour « remboursement » sur une
+/// facture a credit eteint la dette sans rien rendre : ce n'est pas un
+/// remboursement, et l'ecran ne doit pas le dire.
+///   - « aucun » : pas de retour ;
+///   - « partiel » : une partie de la marchandise seulement ;
+///   - « rembourse » : tout est revenu, et le client a recu de l'argent ;
+///   - « retourne » : tout est revenu, sans argent rendu (avoir, echange,
+///     dette eteinte).
+pub fn etat_retour(vendu: i64, retourne: i64, rembourse: i64) -> &'static str {
+    if retourne <= 0 {
+        "aucun"
+    } else if retourne < vendu {
+        "partiel"
+    } else if rembourse > 0 {
+        "rembourse"
+    } else {
+        "retourne"
+    }
+}
+
 // =====================================================================
 //  TESTS
 // =====================================================================
+
+#[cfg(test)]
+mod tests_retours {
+    use super::etat_retour;
+
+    #[test]
+    fn sans_retour_rien_a_dire() {
+        assert_eq!(etat_retour(10_000, 0, 0), "aucun");
+        // Une vente vide n'a pas de retour non plus.
+        assert_eq!(etat_retour(0, 0, 0), "aucun");
+    }
+
+    #[test]
+    fn tout_rendu_en_argent_ou_autrement() {
+        assert_eq!(etat_retour(10_000, 10_000, 10_000), "rembourse");
+        // Payee 4 000 sur 10 000 : la dette s'eteint, 4 000 rendus.
+        assert_eq!(etat_retour(10_000, 10_000, 4_000), "rembourse");
+        // A credit, rien verse : la dette s'eteint, aucun argent rendu.
+        assert_eq!(etat_retour(10_000, 10_000, 0), "retourne");
+        assert_eq!(etat_retour(10_000, 3_000, 3_000), "partiel");
+    }
+}
 
 #[cfg(test)]
 mod tests {
