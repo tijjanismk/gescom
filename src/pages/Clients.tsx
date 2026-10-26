@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { peut } from "@/lib/droits";
 import {
@@ -362,7 +362,12 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
       droit: "clients:creer", executer: () => setModalNouveauClient(true) },
   ]);
 
+  // Deux recherches peuvent partir l'une derriere l'autre (taper, changer
+  // de filtre) : seule la DERNIERE a le droit d'ecrire la liste — une
+  // reponse perimee qui arrive apres effacait le bon resultat.
+  const derniereDemande = useRef(0);
   const chargerClients = useCallback(async (p: number) => {
+    const demande = ++derniereDemande.current;
     setChargement(true);
     try {
       const data = await invoke<PageResult>("lire_clients_pagines", {
@@ -372,10 +377,11 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
         ventesFiltre: ventesFiltre === "tous" ? null : ventesFiltre,
         tri,
       });
+      if (demande !== derniereDemande.current) return;
       setResultat(data);
     } catch (e) {
       console.error("Erreur clients :", e);
-    } finally { setChargement(false); }
+    } finally { if (demande === derniereDemande.current) setChargement(false); }
   }, [recherche, avecCreancesSeulement, ventesFiltre, tri]);
 
   const chargerCreances = useCallback(async () => {

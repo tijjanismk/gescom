@@ -2179,3 +2179,43 @@ ligne au journal du serveur pendant 32 minutes) : rejoué seul ensuite.
 passant (doublons) ; le nom figé côté fournisseur (le même trou existe
 quand on renomme un fournisseur) ; `postgres_amorcage` dépend de la
 langue des messages de PostgreSQL.
+
+## 26/10/2026 (suite) — D37 le menu réglable, D36 les articles sans stock
+
+Deux demandes du propriétaire pour le petit commerçant, décidées avant
+le code (DECISIONS.md), faites dans cet ordre.
+
+**D37 — le menu se règle.** Paramètres → Menu : une case par entrée,
+« Boutique simple » (Tableau de bord, Ventes, Achats, Stock, Clients,
+Caisse, Rapports) et « Complet ». Quatre entrées ne se cachent jamais
+(`coeur::menu`, le serveur le refuse) : sans Caisse on n'encaisse plus,
+sans Paramètres on ne réaffiche plus rien. Cacher n'est qu'un affichage
+— l'Historique enregistre toujours, payer par chèque reste possible.
+Le réglage vit par dossier dans `config_app` ; `Layout` filtre le menu
+et la palette Ctrl K (`lib/menu.ts`, événement `gescom:menu`).
+
+**D36 — un article peut ne pas suivre son stock.** La colonne
+`article.gere_en_stock` existait depuis le début, lue par les alertes et
+la valeur du stock, sans écran pour la régler. Case « Suivre le stock »
+à la création, « Ne plus suivre / Suivre le stock » sur la fiche
+article. Non suivi : jamais à découvert (le drapeau de la ligne de vente
+reste à 0, la caisse n'annonce ni rupture ni découvert), hors de l'écran
+Stock (« Non suivis » le nomme), transfert et inventaire refusés. Les
+mouvements s'écrivent quand même : le stock reste la somme des
+mouvements et aucun des trente endroits qui en écrivent n'a bougé.
+Cesser dit combien d'unités sortent du stock (« 200 kg sortent… ») ;
+reprendre demande un comptage pour chaque magasin et pose les
+ajustements dans la même transaction. L'article étant commun aux
+dossiers, la réponse nomme les autres dossiers où il a du stock.
+
+**Trouvé en route** : la liste des clients écrasait parfois le bon
+résultat par celui d'une recherche précédente arrivée en retard
+(`j1` échouait une fois sur trois) — seule la dernière demande écrit
+maintenant la liste. Dans un navigateur (le banc multiposte) la boîte
+native de confirmation n'existe pas : « Ne plus suivre le stock » se
+teste dans la vraie fenêtre (`p7`).
+
+**Résultats** — voir les lignes D37 et D36 d'ETAPES.
+
+**Pas fait** : la case à l'import CSV (proposée, pas codée) ; un article
+non suivi reste proposé dans les écrans d'achat comme les autres.

@@ -550,6 +550,8 @@ pub fn enregistrer_ajustement_inventaire(
     motif: Option<String>,
     utilisateur_role: Option<String>,
 ) -> Result<(), String> {
+    // D36 : un article qui ne suit pas son stock ne se compte pas.
+    crate::suivi_stock::exiger_suivi(conn, &article_id)?;
 
     let quantite_actuelle: f64 = conn.query_row(
         "SELECT COALESCE(quantite, 0) FROM stock_depot
@@ -1306,6 +1308,8 @@ pub fn enregistrer_ajustement_inventaire_sur_base(
     motif: Option<String>,
     utilisateur_role: Option<String>,
 ) -> Result<(), String> {
+    // D36 : un article qui ne suit pas son stock ne se compte pas.
+    crate::suivi_stock::exiger_suivi_sur(base, &article_id)?;
     let dossier = base.dossier().to_string();
     let quantite_actuelle: f64 = base
         .lire_une(

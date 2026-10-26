@@ -12,7 +12,7 @@
 import {
   Package, Tag, Building2, Users, HardDrive, ShoppingCart,
   Percent, Banknote, XCircle, Clock, Warehouse, Barcode,
-  FileSpreadsheet, Network, Shield, FileText, FolderOpen, BookOpen,
+  FileSpreadsheet, Network, Shield, FileText, FolderOpen, BookOpen, LayoutList,
 } from "lucide-react";
 
 export const ONGLETS_PARAMETRES = [
@@ -25,6 +25,8 @@ export const ONGLETS_PARAMETRES = [
   { key: "importexport",  label: "Import/Export", icone: FileSpreadsheet, droit: "parametres:modifier" },
   { key: "categories",    label: "Catégories",    icone: Tag,             droit: "articles:creer" },
   { key: "ventes",        label: "Ventes",        icone: ShoppingCart,    droit: "parametres:modifier" },
+  // D37 : ce que le menu du dossier montre (cacher n'est qu'un affichage).
+  { key: "menu",          label: "Menu",          icone: LayoutList,      droit: "parametres:modifier" },
   { key: "utilisateurs",  label: "Utilisateurs",  icone: Users,           droit: "utilisateurs:gerer" },
   { key: "roles",         label: "Rôles",         icone: Shield,          droit: "utilisateurs:gerer" },
   { key: "sauvegarde",    label: "Sauvegarde",    icone: HardDrive,       droit: "sauvegarde:lancer" },

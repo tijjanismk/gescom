@@ -311,8 +311,10 @@ pub fn creer_vente_datee_sur(
         // Le drapeau du POS reste un OU : il porte le cas de la vente
         // repartie, ou le manque est impute a un depot dont la ligne
         // n'est pas celle qu'on lit ici.
-        let a_decouvert = crate::coeur::stock::est_a_decouvert(dispo, qte_base)
-            || ligne.a_decouvert.unwrap_or(false);
+        // D36 : un article qui ne suit pas son stock n'est jamais a decouvert.
+        let a_decouvert = (crate::coeur::stock::est_a_decouvert(dispo, qte_base)
+            || ligne.a_decouvert.unwrap_or(false))
+            && crate::suivi_stock::est_suivi(&tx, &ligne.article_id);
 
         tx.execute(
             "INSERT INTO ligne_vente
@@ -712,7 +714,9 @@ pub fn valider_facture_sur(
              WHERE article_id = ?1 AND depot_id = ?2",
             rusqlite::params![art_id, depot_id], |r| r.get(0),
         ).unwrap_or(0.0);
-        let a_decouvert = crate::coeur::stock::est_a_decouvert(dispo, qte_base);
+        // D36 : un article qui ne suit pas son stock n'est jamais a decouvert.
+        let a_decouvert = crate::coeur::stock::est_a_decouvert(dispo, qte_base)
+            && crate::suivi_stock::est_suivi(&tx, art_id);
 
         tx.execute(
             "INSERT INTO ligne_vente
@@ -1622,8 +1626,10 @@ pub fn creer_vente_datee_sur_base(
             .ok()
             .flatten()
             .unwrap_or(0.0);
-        let a_decouvert = crate::coeur::stock::est_a_decouvert(dispo, qte_base)
-            || ligne.a_decouvert.unwrap_or(false);
+        // D36 : un article qui ne suit pas son stock n'est jamais a decouvert.
+        let a_decouvert = (crate::coeur::stock::est_a_decouvert(dispo, qte_base)
+            || ligne.a_decouvert.unwrap_or(false))
+            && crate::suivi_stock::est_suivi_sur(&mut tx, &ligne.article_id);
 
         tx.executer(
             "INSERT INTO ligne_vente
@@ -2094,7 +2100,9 @@ pub fn valider_facture_sur_base(
             .ok()
             .flatten()
             .unwrap_or(0.0);
-        let a_decouvert = crate::coeur::stock::est_a_decouvert(dispo, qte_base);
+        // D36 : un article qui ne suit pas son stock n'est jamais a decouvert.
+        let a_decouvert = crate::coeur::stock::est_a_decouvert(dispo, qte_base)
+            && crate::suivi_stock::est_suivi_sur(&mut tx, art_id);
 
         tx.executer(
             "INSERT INTO ligne_vente

@@ -29,6 +29,8 @@ import { SessionsOuvertes } from "@/components/SessionsOuvertes";
 import { OngletCodesBarres } from "@/components/OngletCodesBarres";
 import { OngletImportExport } from "@/components/OngletImportExport";
 import { OngletReseau } from "@/components/OngletReseau";
+import { OngletMenu } from "@/components/OngletMenu";
+import { SuiviStockArticle } from "@/components/SuiviStockArticle";
 import { OngletDossiers } from "@/components/OngletDossiers";
 import { OngletComptabilite } from "@/components/OngletComptabilite";
 import { OngletRoles } from "@/components/OngletRoles";
@@ -53,6 +55,8 @@ interface Unite {
 interface ArticleComplet {
   id: string; nom: string; unite_base: string;
   dernier_prix_achat?: number; unites: Unite[];
+  /** D36 : false = le stock de l'article n'est pas suivi. */
+  gere_en_stock?: boolean;
 }
 interface Utilisateur {
   id: string; nom: string; role: string;
@@ -696,6 +700,8 @@ function OngletArticles() {
   const [categorieId, setCategorieId] = useState("");
   const [uniteBase, setUniteBase] = useState("pièce");
   const [prixVente, setPrixVente] = useState("");
+  // D36 : coché par défaut ; décoché, l'article ne suivra pas son stock.
+  const [suivreStock, setSuivreStock] = useState(true);
   const [chargementCreer, setChargementCreer] = useState(false);
 
   async function charger() {
@@ -720,13 +726,16 @@ function OngletArticles() {
     if (!nom.trim() || !prixVente) return;
     setChargementCreer(true);
     try {
-      await invoke("creer_article_complet", {
+      const id = await invoke<string>("creer_article_complet", {
         nom: nom.trim(),
         categorieId: categorieId || null,
         uniteBase,
         prixReference: parseMontant(prixVente),
       });
-      setNom(""); setCategorieId(""); setUniteBase("pièce"); setPrixVente("");
+      // Un article neuf n'a pas de stock : cesser de le suivre ne fait
+      // rien sortir, juste le geste trace (D36).
+      if (!suivreStock) await invoke("changer_suivi_stock", { articleId: id, suivre: false });
+      setNom(""); setCategorieId(""); setUniteBase("pièce"); setPrixVente(""); setSuivreStock(true);
       setModalArticle(false);
       await charger();
     } catch (e) {
@@ -833,7 +842,9 @@ function OngletArticles() {
                 }
                 <div>
                   <p className="text-sm font-medium">{a.nom}</p>
-                  <p className="text-xs text-muted-foreground">{a.unite_base}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {a.unite_base}{a.gere_en_stock === false ? " · stock non suivi" : ""}
+                  </p>
                 </div>
               </div>
               <Badge variant="secondary" className="text-xs">
@@ -843,6 +854,7 @@ function OngletArticles() {
 
             {expandeId === a.id && (
               <div className="border-t border-border bg-muted/20 px-4 py-3 space-y-1">
+                <SuiviStockArticle article={a} onChange={charger} />
                 {a.unites.map(u => (
                   <div key={u.id}
                     className="flex items-center justify-between text-sm py-1 border-b border-border last:border-0">
@@ -1002,6 +1014,13 @@ function OngletArticles() {
                   placeholder="0" className="mt-1" />
               </div>
             </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={suivreStock} onChange={e => setSuivreStock(e.target.checked)} />
+              Suivre le stock
+              <span className="text-xs text-muted-foreground">
+                (décocher pour un sachet, un service, du vrac qu'on ne compte pas)
+              </span>
+            </label>
             <div>
               <Label>Catégorie</Label>
               <Select value={categorieId}
@@ -1197,6 +1216,7 @@ export function Parametres({ ongletInitial }: { ongletInitial?: string } = {}) {
       {onglet === "roles"         && <OngletRoles />}
       {onglet === "sauvegarde"    && <OngletSauvegarde />}
       {onglet === "reseau"        && <OngletReseau />}
+      {onglet === "menu"          && <OngletMenu />}
       {onglet === "dossiers"      && <OngletDossiers />}
       {onglet === "comptabilite"  && <OngletComptabilite />}
       {onglet === "tva"           && <OngletTVA />}

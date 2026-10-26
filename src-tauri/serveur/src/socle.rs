@@ -398,6 +398,26 @@ pub fn registre() -> Registre {
         comptoir::creer_client_rapide_sur(c.base, texte(&p, "nom")?, option_texte(&p, "telephone"))
     });
 
+    // D36 : cesser ou reprendre le suivi du stock d'un article.
+    r.sur_base("changer_suivi_stock", Some("parametres:modifier"), true, |c, p| {
+        #[derive(serde::Deserialize)]
+        struct Comptage { depot_id: String, quantite: f64 }
+        let comptages: Option<Vec<Comptage>> = arg(&p, "comptages", "comptages")?;
+        gescom_noyau::suivi_stock::changer_suivi_stock_sur(
+            c.base,
+            arg(&p, "articleId", "article_id")?,
+            arg(&p, "suivre", "suivre")?,
+            comptages.unwrap_or_default().into_iter().map(|c| (c.depot_id, c.quantite)).collect(),
+        )
+    });
+
+    // D37 : le menu du dossier — ce qu'il cache (un affichage seulement).
+    r.sur_base("lire_menu", None, false, |c, _| gescom_noyau::menu::lire_menu_sur(c.base));
+    r.sur_base("definir_menu", Some("parametres:modifier"), true, |c, p| {
+        let caches: Vec<String> = arg(&p, "caches", "caches")?;
+        gescom_noyau::menu::definir_menu_sur(c.base, caches)
+    });
+
     // D35 : les fiches de passage (une par vente sans nom), et le geste
     // qui fait du passant un client ordinaire.
     r.sur_base("lire_passages", None, false, |c, p| {

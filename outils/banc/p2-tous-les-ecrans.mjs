@@ -31,7 +31,7 @@ for (const nom of noms) {
 await menu.getByText("Paramètres", { exact: true }).first().click();
 await page.waitForTimeout(1200);
 const onglets = (await page.locator("main button").allInnerTexts()).map(t => t.trim())
-  .filter(t => ["Société","Documents","Magasins","Articles","Codes-barres","Import/Export","Catégories","Ventes","Utilisateurs","Rôles","Sauvegarde","Réseau","TVA","Dettes fourn.","Irrécouvrable","Avoirs","Dossiers","Comptabilité"].includes(t));
+  .filter(t => ["Société","Documents","Magasins","Articles","Codes-barres","Import/Export","Catégories","Ventes","Utilisateurs","Rôles","Sauvegarde","Réseau","TVA","Dettes fourn.","Irrécouvrable","Avoirs","Dossiers","Comptabilité","Menu"].includes(t));
 for (const o of [...new Set(onglets)]) {
   const n = erreurs.length;
   await page.locator("main").getByRole("button", { name: o, exact: true }).first().click();

@@ -207,6 +207,16 @@ pub fn lire_articles_avec_unites(
             }
         },
     );
+    // D36 : la caisse doit savoir quels articles ne suivent pas leur
+    // stock — ni rupture, ni decouvert a annoncer pour eux.
+    let non_suivis: Vec<String> = conn
+        .prepare("SELECT id FROM article WHERE gere_en_stock = 0")
+        .and_then(|mut s| s.query_map([], |r| r.get::<_, String>(0)).map(|it| it.filter_map(|x| x.ok()).collect()))
+        .unwrap_or_default();
+    for a in articles.iter_mut() {
+        let suivi = !non_suivis.iter().any(|id| a["id"] == id.as_str());
+        a["gere_en_stock"] = json!(suivi);
+    }
     Ok(articles)
 }
 
@@ -406,6 +416,14 @@ pub fn lire_articles_avec_unites_sur(
                 unites.push(unite);
             }
         }
+    }
+    // D36 : voir la version `Connection`.
+    let non_suivis: Vec<String> = base
+        .lire_plusieurs("SELECT id FROM article WHERE gere_en_stock = 0", &[], |r| r.get::<String>(0))
+        .unwrap_or_default();
+    for a in articles.iter_mut() {
+        let suivi = !non_suivis.iter().any(|id| a["id"] == id.as_str());
+        a["gere_en_stock"] = json!(suivi);
     }
     Ok(articles)
 }

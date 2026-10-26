@@ -427,6 +427,8 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D36 | **un article peut ne pas suivre son stock** (`article.gere_en_stock`) : il se vend normalement, jamais à découvert, hors des écrans de stock (Stock, inventaire, alertes, valeur), transfert refusé ; ses mouvements s'écrivent quand même ; cesser de suivre est tracé, reprendre exige un comptage par magasin |
+| D37 | **le menu se règle par dossier** (Paramètres → Menu, patron) : cacher n'est qu'un affichage — aucune donnée, aucune règle, aucune trace ne change ; Tableau de bord, Ventes, Caisse, Paramètres toujours visibles ; « Boutique simple » / « Complet » |
 | D35 | **chaque vente sans nom a sa fiche « passage »** (code `PAS-000123`, réservé dans la transaction) : hors des listes et des chiffres, payée en entier à la vente (ni crédit, ni acompte, ni avoir), « Passer en client ordinaire » garde l'historique ; une facture garde le nom écrit à son émission |
 | D34 | le **suivi client** s'appuie sur la fiche client de Gescom : échanges, rappels, prospects, fiche 360 — pas de second fichier — [PLAN-EQUIPE.md](PLAN-EQUIPE.md) |
 | D33 | **cotisations facultatives, jamais devinées** : lignes de réglage du dossier, vides par défaut, seulement pour les personnes déclarées |
@@ -878,3 +880,92 @@ commandes de la v3. Tests : `noyau/tests/passage_base.rs` sur SQLite
 et PostgreSQL (stock, caisse, créance après chaque geste, refus sans
 écriture, deux ventes deux codes, promotion, nom figé, le détecteur),
 et un parcours du banc.
+
+## D37 — Le menu se règle par dossier (26/10/2026)
+
+**Le besoin** (le propriétaire) : un petit commerçant n'a que faire de
+Relances, Historique, Chèques… et se perd dans quinze entrées. Un onglet
+de Paramètres pour régler ce que le menu montre.
+
+**Retenu** (proposé par l'assistant, accepté le 26/10/2026) :
+
+1. **Paramètres → Menu** : une case par entrée du menu, montrer ou
+   cacher. Deux réglages tout faits : **« Boutique simple »** (Tableau de
+   bord, Ventes, Achats, Stock, Clients, Caisse, Rapports) et
+   **« Complet »** (tout).
+2. **Toujours visibles, sans case** : Tableau de bord, Ventes, Caisse,
+   Paramètres — sans Caisse on n'encaisse plus, sans Paramètres on ne
+   réaffiche plus rien. La règle est pure (`coeur::menu`) : le serveur
+   refuse de les cacher, quel que soit l'écran.
+3. **Cacher n'est qu'un affichage.** Aucune donnée, aucune règle, aucune
+   trace ne change : l'Historique continue d'enregistrer chaque geste
+   même caché ; les créances restent suivies dans Clients si Relances
+   est caché ; payer par chèque reste possible si Chèques est caché.
+   Les liens d'un écran vers un autre (fiche client → Historique)
+   restent valables. La palette (Ctrl K) suit le même réglage.
+4. **Par dossier** : toutes les caisses d'un dossier voient le même
+   menu ; chaque dossier a le sien (`config_app`, clé
+   `menu_caches:<dossier>`).
+5. **Le patron seul** (`parametres:modifier`) ; le changement est tracé
+   (journal `menu_modifie`, l'Historique le dit).
+6. **Les droits restent au-dessus** : une entrée paraît si la personne a
+   le droit ET si elle n'est pas cachée.
+
+**Mise en œuvre.** `coeur/menu.rs` (entrées, toujours visibles,
+« Boutique simple », la validation, testés) ; `noyau/src/menu.rs`
+(`lire_menu_sur`, `definir_menu_sur`, version `Base` seule comme les
+réglages de la v3) ; serveur `lire_menu`, `definir_menu` ; écran
+`lib/menu.ts`, `Layout` (menu et palette), onglet `OngletMenu`. Tests :
+`noyau/tests/menu_base.rs` sur les deux moteurs, un parcours du banc.
+
+## D36 — Un article peut ne pas suivre son stock (26/10/2026)
+
+**Le besoin** (le propriétaire) : sachets, crédit de recharge,
+livraison, coupe, réparation, vrac qu'on ne compte jamais. Aujourd'hui
+leurs ventes font passer le stock en négatif, déclenchent des alertes et
+encombrent l'écran Stock. La colonne `article.gere_en_stock` existait,
+lue par les alertes et la valeur du stock, mais aucun écran ne la
+réglait : elle valait toujours 1.
+
+**Retenu** (proposé par l'assistant, accepté le 26/10/2026) :
+
+1. **Une case « Suivre le stock »** (Paramètres → Articles), cochée par
+   défaut ; la colonne existante, rien d'ajouté à la base.
+2. **Un article non suivi se vend normalement** — chiffre d'affaires,
+   caisse, factures inchangés — et n'est **jamais à découvert** : le
+   drapeau `vente_a_decouvert` reste à 0 (deux versions de `creer_vente`
+   et de `valider_facture`), la caisse n'annonce ni rupture ni découvert.
+3. **Hors des écrans de stock** : écran Stock (filtre « Non suivis »
+   pour le retrouver), inventaire (ajustement refusé), alertes de
+   rupture et valeur du stock (déjà), **transfert refusé** — il n'y a
+   rien à déplacer.
+4. **Les mouvements s'écrivent quand même** (le stock reste la somme des
+   mouvements) : on sait combien de sachets sont sortis ce mois-ci, et
+   les trente endroits qui écrivent un mouvement ne bougent pas.
+5. **Changer la case** (`changer_suivi_stock`, `parametres:modifier`,
+   journal `suivi_stock_change`) :
+   - **cesser de suivre** un article qui a du stock est permis ; la
+     réponse dit combien d'unités sortent ainsi du stock et de sa
+     valeur, l'écran le demande avant, l'Historique le note ;
+   - **reprendre le suivi** exige un **comptage pour chaque magasin
+     actif** du dossier (`coeur::stock::verifier_comptages`) : le stock
+     repart de la quantité réelle (mouvement `ajustement`, motif « Reprise
+     du suivi du stock »), jamais d'un chiffre faux. Tout dans une
+     transaction.
+6. **Achats et retours** inchangés : un achat se paie et se trace, un
+   retour rembourse ou échange ; leurs mouvements s'écrivent sans se
+   voir.
+
+**Le risque nommé** : marquer « non suivi » un article qu'on vend
+beaucoup pour ne plus voir ses manques. Garde-fous : la permission
+réservée et la trace dans l'Historique.
+
+**Mise en œuvre.** `coeur::stock::verifier_comptages` (testée) ;
+`noyau/src/suivi_stock.rs` (`changer_suivi_stock_sur`, `est_suivi_sur` /
+`est_suivi`) ; le découvert dans `creer_vente` et `valider_facture`, le
+refus dans `enregistrer_transfert` et `enregistrer_ajustement_inventaire`
+(deux versions chacun) ; `lire_stocks_pagines` (filtre `nonSuivis`),
+`lire_articles_avec_unites` et `lire_articles_complets` disent
+`gere_en_stock` ; écrans Articles, Stock, Ventes. Tests :
+`noyau/tests/suivi_stock_base.rs` sur les deux moteurs, un parcours du
+banc.

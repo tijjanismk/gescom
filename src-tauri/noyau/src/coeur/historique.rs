@@ -37,6 +37,8 @@ pub const TYPES: &[(&str, &str)] = &[
     ("transfert", "Transfert entre magasins"),
     ("client_modifie", "Fiche client modifiée"),
     ("passage_promu", "Client de passage devenu client ordinaire"),
+    ("menu_modifie", "Menu réglé"),
+    ("suivi_stock_change", "Suivi du stock d'un article changé"),
     ("depot_desactive_avec_stock", "Magasin désactivé"),
     ("depot_reactive", "Magasin réactivé"),
     ("utilisateur_cree", "Utilisateur créé"),

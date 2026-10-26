@@ -78,3 +78,17 @@ composants maison (effet verre, tuiles de KPI).
 - [DÉDUIT] `table.tsx` est mort parce que 13 fichiers écrivent leur
   `<table>` à la main. Adopter la primitive serait un chantier, pas une
   correction.
+
+## Ajouts du 25-26/10/2026
+
+- `PageRolePoste.tsx` (page) — rôle du poste au premier démarrage, et
+  `PageServeurLocal` qui joint ou lance le serveur de la machine (D22/D24
+  révisés).
+- `ListePassages.tsx` — Clients → « Passages » : fiches de passage par
+  code ou numéro de facture, « Passer en client ordinaire » (D35).
+- `OngletMenu.tsx` + `lib/menu.ts` — Paramètres → Menu : ce que le menu
+  du dossier cache ; `Layout` (menu et Ctrl K) suit `estCache` (D37).
+- `SuiviStockArticle.tsx` — Paramètres → Articles : suivre ou non le
+  stock d'un article, reprise par comptage de chaque magasin (D36) ;
+  Stock → « Non suivis » ; la caisse (Ventes) ne signale ni rupture ni
+  découvert pour un article non suivi.

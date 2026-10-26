@@ -112,9 +112,61 @@ pub fn credit_retour(prix_pratique: i64, quantite_retournee: f64) -> i64 {
     (prix_pratique as f64 * quantite_retournee).round() as i64
 }
 
+/// D36 — reprendre le suivi du stock d'un article exige un comptage
+/// pour CHAQUE magasin actif : sinon son stock repartirait de la somme
+/// de mouvements qu'on ne regardait plus — un chiffre faux. Rend les
+/// comptages dans l'ordre des magasins ; refuse un magasin oublie, un
+/// magasin inconnu, une quantite negative ou absurde.
+pub fn verifier_comptages(
+    depots_actifs: &[(String, String)],
+    comptages: &[(String, f64)],
+) -> Result<Vec<(String, f64)>, String> {
+    for (depot, q) in comptages {
+        if !depots_actifs.iter().any(|(id, _)| id == depot) {
+            return Err(format!("Magasin inconnu ou fermé pour le comptage : « {depot} »."));
+        }
+        if !q.is_finite() || *q < 0.0 {
+            return Err(format!("Quantité comptée invalide ({q}) : zéro ou plus."));
+        }
+    }
+    depots_actifs
+        .iter()
+        .map(|(id, nom)| {
+            comptages
+                .iter()
+                .find(|(d, _)| d == id)
+                .map(|(_, q)| (id.clone(), *q))
+                .ok_or_else(|| format!(
+                    "Reprendre le suivi du stock demande de compter chaque magasin : « {nom} » manque."
+                ))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn magasins() -> Vec<(String, String)> {
+        vec![("d1".into(), "Boutique".into()), ("d2".into(), "Dépôt".into())]
+    }
+
+    #[test]
+    fn reprendre_le_suivi_compte_chaque_magasin() {
+        let c = verifier_comptages(&magasins(), &[("d2".into(), 3.0), ("d1".into(), 0.0)]).unwrap();
+        assert_eq!(c, vec![("d1".to_string(), 0.0), ("d2".to_string(), 3.0)]);
+        let e = verifier_comptages(&magasins(), &[("d1".into(), 5.0)]).unwrap_err();
+        assert!(e.contains("Dépôt"), "{e}");
+    }
+
+    #[test]
+    fn un_comptage_absurde_ou_d_un_autre_magasin_est_refuse() {
+        assert!(verifier_comptages(&magasins(), &[("d1".into(), -1.0), ("d2".into(), 1.0)]).is_err());
+        assert!(verifier_comptages(&magasins(), &[("d1".into(), f64::NAN), ("d2".into(), 1.0)]).is_err());
+        assert!(verifier_comptages(&magasins(), &[("d1".into(), 1.0), ("d2".into(), 1.0), ("x".into(), 1.0)])
+            .unwrap_err()
+            .contains("inconnu"));
+    }
 
     #[test]
     fn sens_des_mouvements_connus() {

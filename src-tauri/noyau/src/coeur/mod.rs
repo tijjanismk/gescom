@@ -19,3 +19,4 @@ pub mod presences;
 pub mod avances;
 pub mod paie;
 pub mod crm;
+pub mod menu;

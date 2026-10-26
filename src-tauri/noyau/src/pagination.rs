@@ -345,7 +345,8 @@ pub fn lire_stocks_pagines(
     // `d.actif = 1` : le stock d'un depot desactive est gele, pas
     // disparu — il n'a plus rien a faire dans la liste tant que le
     // depot n'est pas remis en service.
-    let mut conditions = vec!["a.actif = 1".to_string(), "d.actif = 1".to_string()];
+    // D36 : un article qui ne suit pas son stock n'a rien a faire ici.
+    let mut conditions = vec!["a.actif = 1".to_string(), "d.actif = 1".to_string(), "a.gere_en_stock = 1".to_string()];
 
     let mut valeurs: Vec<String> = Vec::new();
     if let Some(r) = recherche.as_deref().filter(|r| !r.is_empty()) {
@@ -877,8 +878,9 @@ pub fn lire_stocks_pagines_sur_base(
     a_regulariser_seulement: bool,
     categorie_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    // `d.actif = 1` : le stock d'un magasin desactive est gele.
-    let mut f = FiltresBase::new("a.actif = 1 AND d.actif = 1");
+    // `d.actif = 1` : le stock d'un magasin desactive est gele. D36 :
+    // un article qui ne suit pas son stock n'a rien a faire ici.
+    let mut f = FiltresBase::new("a.actif = 1 AND d.actif = 1 AND a.gere_en_stock = 1");
     f.ajouter("sd.dossier_id = {}", base.dossier());
     f.recherche("LOWER(a.nom) LIKE {}", &recherche);
     f.ajouter_si("a.categorie_id = {}", categorie_id);
