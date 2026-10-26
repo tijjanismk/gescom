@@ -20,6 +20,7 @@ import {
   SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
+import { KpiCard, GRILLE } from "@/components/ui/KpiVerre";
 
 // =====================================================================
 //  Types
@@ -69,6 +70,12 @@ const CANAUX = [
   { value: "email",    label: "Email",     icone: Mail,          couleur: "text-orange-600"},
   { value: "visite",   label: "Visite",    icone: MapPin,        couleur: "text-red-600"   },
 ];
+
+const TRIS: Record<"jours" | "montant" | "nb_relances", string> = {
+  jours: "Ancienneté",
+  montant: "Montant",
+  nb_relances: "Moins relancés",
+};
 
 function urgence(jours: number): { label: string; couleur: string } {
   if (jours > 90) return { label: "Critique",  couleur: "bg-red-100 text-red-700 border-red-200" };
@@ -456,25 +463,14 @@ export function Relances() {
           </Button>
         </div>
 
-        {/* KPIs */}
+        {/* KPIs — la tuile du tableau de bord, pas une quatrieme variante. */}
         {stats && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { label: "Créances ouvertes", val: stats.total_creances.toString(),
-                couleur: "text-orange-600", bg: "bg-orange-50 border-orange-200" },
-              { label: "Sans relance", val: stats.sans_relance.toString(),
-                couleur: "text-red-600", bg: "bg-red-50 border-red-200" },
-              { label: "Relances cette semaine", val: stats.relances_semaine.toString(),
-                couleur: "text-blue-600", bg: "bg-blue-50 border-blue-200" },
-              { label: "Montant en jeu", val: fmt(stats.montant_en_jeu),
-                couleur: "text-foreground", bg: "bg-muted border-border" },
-            ].map(k => (
-              <div key={k.label}
-                className={`border rounded-xl px-4 py-3 ${k.bg}`}>
-                <p className={`text-xl font-bold ${k.couleur}`}>{k.val}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{k.label}</p>
-              </div>
-            ))}
+          <div style={GRILLE}>
+            <KpiCard titre="Créances ouvertes" valeur={stats.total_creances.toString()} />
+            <KpiCard titre="Sans relance" valeur={stats.sans_relance.toString()}
+              variante={stats.sans_relance > 0 ? "tinted" : "neutral"} />
+            <KpiCard titre="Relances cette semaine" valeur={stats.relances_semaine.toString()} />
+            <KpiCard titre="Montant en jeu" valeur={fmt(stats.montant_en_jeu)} />
           </div>
         )}
 
@@ -505,12 +501,13 @@ export function Relances() {
 
           <Select value={triPar} onValueChange={v => { if (v) setTriPar(v as any); }}>
             <SelectTrigger className="h-8 text-xs w-40">
-              <SelectValue />
+              {/* Sans enfant, la valeur brute (« jours ») s'affichait. */}
+              <SelectValue>{TRIS[triPar]}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="jours" className="text-xs">Ancienneté</SelectItem>
-              <SelectItem value="montant" className="text-xs">Montant</SelectItem>
-              <SelectItem value="nb_relances" className="text-xs">Moins relancés</SelectItem>
+              {Object.entries(TRIS).map(([v, l]) => (
+                <SelectItem key={v} value={v} className="text-xs">{l}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
