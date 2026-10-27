@@ -669,14 +669,29 @@ fn une_ecriture_hors_des_dates_de_travail_est_refusee_avant_d_ecrire() {
     assert_eq!(code, 409, "{v}");
     assert!(v["message"].as_str().unwrap().starts_with("Le 1er mai 2020 est avant les dates de travail"), "{v}");
 
-    // L'exercice en cours clos : aujourd'hui ne s'écrit plus.
+    // L'exercice en cours ne se clôt pas (D38) : il arrêterait toutes
+    // les ventes sur-le-champ, sans remède.
     let (_, ex) = rpc(port, &admin, "lire_exercices", json!({}));
     let id = ex["donnee"][0]["id"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &admin, "clore_exercice", json!({ "exerciceId": id }));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap().contains("qu'un exercice terminé"), "{v}");
+
+    // Le temps passe : l'exercice se range dans le passé, comme au
+    // lendemain de sa fin. Aujourd'hui ne s'écrit plus.
+    rusqlite::Connection::open(&srv.base)
+        .unwrap()
+        .execute("UPDATE exercice SET date_debut = '2020-01-01', date_fin = '2020-12-31' WHERE id = ?1", [&id])
+        .unwrap();
+    let (code, v) = rpc(port, &admin, "creer_vente", vente(None));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap().contains("hors des dates de travail (jusqu'au 31 décembre 2020)"), "{v}");
+    // Terminé, il se clôt ; plus aucun exercice ouvert.
     let (code, v) = rpc(port, &admin, "clore_exercice", json!({ "exerciceId": id }));
     assert_eq!(code, 200, "{v}");
     let (code, v) = rpc(port, &admin, "creer_vente", vente(None));
     assert_eq!(code, 409, "{v}");
-    assert!(v["message"].as_str().unwrap().contains("sont closes : on n'y écrit plus"), "{v}");
+    assert!(v["message"].as_str().unwrap().contains("aucun exercice ouvert"), "{v}");
     let (code, v) = rpc(port, &admin, "enregistrer_depense", json!({ "montant": 1000, "motif": "x", "categorie": "divers" }));
     assert_eq!(code, 409, "même sans date donnée : {v}");
 

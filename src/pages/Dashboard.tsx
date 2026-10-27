@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { GlassHalos } from "@/components/ui/GlassIcon";
 import { KpiCard, KpiPetit, CARTE, GRILLE } from "@/components/ui/KpiVerre";
 import { UTILISATEUR_ACTIF, DEPOT_ACTIF } from "@/App";
+import { AvisFinExercice } from "@/components/AvisFinExercice";
 
 // =====================================================================
 //  Types
@@ -127,10 +128,14 @@ function MiniBar({ valeur, max, couleur = "bg-primary" }: {
 //  Dashboard
 // =====================================================================
 
-export function Dashboard({ onAnomalies }: {
+export function Dashboard({ onAnomalies, onExercices }: {
   /** Ouvre l'Historique sur les anomalies à vérifier. Absent sans
    *  `journal:lire` : ni compteur, ni lecture. */
   onAnomalies?: () => void;
+  /** Ouvre les dates de travail du dossier (Paramètres → Dossiers).
+   *  Absent sans `dossiers:gerer` : l'avis de fin dit alors de
+   *  prévenir le patron. */
+  onExercices?: () => void;
 } = {}) {
   const [resume, setResume] = useState<ResumeDashboard | null>(null);
   // Ventes à découvert : marchandise sortie au-delà du stock connu.
@@ -236,6 +241,9 @@ export function Dashboard({ onAnomalies }: {
               })}
             </p>
           </div>
+          {/* Le caissier sans chiffres est celui qu'il faut atteindre :
+              seul le 2 janvier, il ne pourrait plus vendre. */}
+          <AvisFinExercice actu={derniereActu} onExercices={onExercices} />
           {nbAnomalies > 0 && onAnomalies && (
             <button onClick={onAnomalies} data-testid="compteur-anomalies"
               className="px-3 py-2 bg-red-600 border border-red-700 text-sm text-white hover:bg-red-700">
@@ -331,6 +339,10 @@ export function Dashboard({ onAnomalies }: {
             </span>
           </button>
         </div>
+
+        {/* ── Fin des dates de travail : avant tout le reste, c'est la
+            seule alerte qui arrête toutes les ventes. ── */}
+        <AvisFinExercice actu={derniereActu} onExercices={onExercices} />
 
         {/* ── Alertes ── */}
         {(r.nb_creances_en_retard > 0 || r.stock_ruptures > 0 ||

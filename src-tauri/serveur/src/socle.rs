@@ -83,6 +83,26 @@ pub fn registre() -> Registre {
         )?;
         Ok(serde_json::Value::Null)
     });
+
+    // ---- Avant la fin des dates de travail (27/10/2026) ----
+    //
+    // Le tableau de bord previent un mois avant que les ecritures datees
+    // seront refusees (D21). Ouvert a toute session : le caissier doit le
+    // voir pour prevenir le patron, et une date de fin ne montre aucun
+    // chiffre. L'horloge est celle du serveur, celle qui refusera.
+    r.sur_base("lire_avis_fin_exercice", None, false, |c, _| {
+        gescom_noyau::dossiers::avis_fin_exercice_sur(c.base, &gescom_noyau::utils::maintenant_iso())
+    });
+    // D38 : couper le dernier exercice en plein milieu, comme dans Ciel ;
+    // le suivant s'ouvre le lendemain, dans la meme transaction.
+    r.sur_base("couper_exercice", Some("dossiers:gerer"), true, |c, p| {
+        gescom_noyau::dossiers::couper_exercice_sur(
+            c.base,
+            arg(&p, "exerciceId", "exercice_id")?,
+            arg(&p, "coupeAu", "coupe_au")?,
+            arg(&p, "suivantAu", "suivant_au")?,
+        )
+    });
     // v3, E-1 (D23) : le plan SYSCOHADA, commun, et les sous-comptes du
     // dossier. Le plan se lit par tous (c'est un vocabulaire).
     r.sur_base("lire_plan_comptable", None, false, |c, _| {

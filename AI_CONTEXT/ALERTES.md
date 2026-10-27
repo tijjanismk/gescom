@@ -47,9 +47,9 @@ semblent vivantes.
 - **CSP de `tauri.conf.json`** : `connect-src` n'autorise pas l'adresse
   du serveur ; jamais vérifié sur un build livré (le banc tourne en
   débogage, où la CSP ne s'applique pas).
-- **`postgres_amorcage::le_compte_limite_ne_voit…`** échoue sur ce poste :
-  il attend « row-level security » et ce PostgreSQL répond en français.
-  Le test, pas le produit.
+- ~~**`postgres_amorcage::le_compte_limite_ne_voit…`** échoue sur ce poste~~
+  **corrigé le 27/10** : le test accepte le refus en anglais comme en
+  français (`lc_messages`) ; `postgres_amorcage` 22/22 sur `gescom_test`.
 - **Banc** : sous Windows, `window.__TAURI_INTERNALS__.invoke` est
   verrouillé — les boîtes natives s'interceptent par les requêtes
   `ipc.localhost` (`pw.mjs::boitesMuettes`) ; lancer `lancer.ps1` avec
@@ -57,12 +57,11 @@ semblent vivantes.
 
 ## Trouvé le 27/10/2026 en relisant, pas encore fait
 
-- **Le 1er janvier 2027, plus aucune vente.** Chaque dossier amorcé en
-  2026 a un exercice qui finit le 31/12/2026 (`amorcage::cloisonnement`) ;
-  après, toute écriture datée est refusée (D21). Le message dit quoi
-  faire, mais seul `dossiers:gerer` (le patron) peut prolonger, et
-  **aucun écran ne prévient avant** (rien au tableau de bord). Un
-  caissier seul le 2 janvier au matin ne peut pas vendre.
+- ~~**Le 1er janvier 2027, plus aucune vente.**~~ **Fait le 27/10** :
+  l'avis de fin d'exercice au tableau de bord (orange dans le mois, rouge
+  les 7 derniers jours ; « prolonger » pour le patron, « prévenir le
+  patron » pour les autres) et D38 (prolonger jusqu'à 5 ans, couper,
+  clore seulement un exercice terminé). Reste à voir à l'écran.
 - **Une horloge qui recule.** Pile du BIOS morte, coupure : le PC repart
   à une date passée. Rien ne compare l'heure du serveur à la dernière
   écriture : ventes datées d'hier dans l'exercice (caisse faussée), ou

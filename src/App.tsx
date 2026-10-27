@@ -318,6 +318,9 @@ function App() {
                 { type_evenement: "anomalie", a_verifier: true, libelle: "Anomalies à vérifier" },
                 "dashboard", null)
               : undefined}
+            onExercices={peut("dossiers:gerer") ? () =>
+              naviguer("parametres", { onglet: "dossiers" })
+              : undefined}
           />
         );
       case "ventes":     return <Ventes />;

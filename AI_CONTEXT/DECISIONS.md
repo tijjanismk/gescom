@@ -427,6 +427,7 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D38 | **des exercices comme dans Ciel** : dates libres (juillet → juin se donne), plusieurs années (**5 au plus**), et le dernier exercice ouvert **se coupe** en plein milieu — le suivant s'ouvre le lendemain, au moins jusqu'à l'ancienne fin ; on ne **clôt** qu'un exercice **terminé**, dans l'ordre ; D21 tient (pas de trou, refus hors dates) |
 | D36 | **un article peut ne pas suivre son stock** (`article.gere_en_stock`) : il se vend normalement, jamais à découvert, hors des écrans de stock (Stock, inventaire, alertes, valeur), transfert refusé ; ses mouvements s'écrivent quand même ; cesser de suivre est tracé, reprendre exige un comptage par magasin |
 | D37 | **le menu se règle par dossier** (Paramètres → Menu, patron) : cacher n'est qu'un affichage — aucune donnée, aucune règle, aucune trace ne change ; Tableau de bord, Ventes, Caisse, Paramètres toujours visibles ; « Boutique simple » / « Complet » |
 | D35 | **chaque vente sans nom a sa fiche « passage »** (code `PAS-000123`, réservé dans la transaction) : hors des listes et des chiffres, payée en entier à la vente (ni crédit, ni acompte, ni avoir), « Passer en client ordinaire » garde l'historique ; une facture garde le nom écrit à son émission |
@@ -969,3 +970,55 @@ refus dans `enregistrer_transfert` et `enregistrer_ajustement_inventaire`
 `gere_en_stock` ; écrans Articles, Stock, Ventes. Tests :
 `noyau/tests/suivi_stock_base.rs` sur les deux moteurs, un parcours du
 banc.
+
+## D38 — Des exercices comme dans Ciel (27/10/2026)
+
+**Le besoin** (le propriétaire) : une boutique dont l'année va de
+juillet à juin ; une autre qui veut prolonger de plus de deux ans pour ne
+pas y repenser ; et pouvoir, comme dans Ciel, arrêter l'exercice en
+cours en plein milieu de l'année pour repartir sur un autre cycle. « On
+suit la logique de Ciel si elle n'altère pas la nôtre. »
+
+**Retenu** (proposé par l'assistant, accepté le 27/10/2026) :
+
+1. **Dates libres** : un exercice commence n'importe quel jour (à la
+   création du dossier ; le suivant, le lendemain du précédent).
+2. **Plusieurs années, cinq au plus** (`coeur::fin_exercice::DUREE_MAX_ANS`) :
+   une prolongation va au plus 5 ans après la fin prévue, un exercice
+   ouvert ou créé dure au plus 5 ans. Une prolongation ne se raccourcit
+   pas : une faute d'année (2062 pour 2026) bloquerait le dossier des
+   dizaines d'années. L'écran propose +1/+2/+3 ans et dit l'écart en clair.
+3. **Couper** (`couper_exercice`, `dossiers:gerer`) : le dernier
+   exercice ouvert s'arrête au jour choisi, le suivant s'ouvre le
+   lendemain dans la même transaction, **au moins jusqu'à l'ancienne
+   fin** (par défaut un an). Journal `exercice_coupe` (avec l'ancienne
+   fin) et `exercice_ouvert`.
+
+4. **Clore, seulement un exercice terminé, et dans l'ordre**
+   (`juger_cloture`, ajouté le même jour — « on force l'utilisateur à
+   éviter les incohérences ») : sa fin, prolongation comprise, est
+   passée à l'horloge du serveur, et aucun exercice plus ancien n'est
+   encore ouvert. Clore celui qu'on vit arrêtait toutes les ventes
+   sur-le-champ, sans remède (le suivant ne commence qu'après sa fin) ;
+   pour s'arrêter plus tôt : couper, puis clore la partie terminée.
+
+**Ce qui ne change pas de la nôtre** : D21 — pas de trou, refus hors
+dates en disant quoi faire ; un exercice clos ne se rouvre, ne se
+prolonge ni ne se coupe ; on ne coupe pas un exercice qui a déjà un
+suivant (trou ou chevauchement) ; rien de ce qui s'écrivait la veille
+n'est refusé le lendemain. Aucune écriture ne porte son exercice (elles
+s'y rangent par leur date) : couper ne déplace aucune donnée, les
+rapports vont par dates.
+
+**Ce qu'on ne prend pas** : rouvrir un exercice clos ; raccourcir sans
+ouvrir la suite. **Le risque nommé** : la numérotation suit l'année
+civile (`FAC-2026-…`), pas l'exercice — un exercice juillet → juin
+change de série au 1er janvier. La suite reste continue et
+chronologique ; numéroter par exercice serait un autre chantier.
+
+**Mise en œuvre.** `dossiers::juger_coupe` (pure, testée),
+`couper_exercice_sur`, plafond dans `dates_de_travail` et
+`prolonger_exercice_sur` ; écran `ExercicesDossier.tsx` (bouton Couper
+sur le dernier exercice, phrase en clair). Tests :
+`noyau/tests/exercice_coupe_base.rs` et `fin_exercice_base.rs` sur les
+deux moteurs et sous le compte limité.

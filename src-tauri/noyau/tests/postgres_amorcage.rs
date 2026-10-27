@@ -601,7 +601,10 @@ fn tout_ce_qui_est_porte_passe_le_detecteur_sur_postgresql() {
     let id = exercice["id"].as_str().unwrap().to_string();
     dossiers::prolonger_exercice_sur(&mut base, id.clone(), "2028-01-31".into())
         .expect("prolonger");
-    dossiers::clore_exercice_sur(&mut base, id).expect("clore");
+    // D38 : on clot un exercice termine, dans l'ordre — le premier, une
+    // fois le second fini.
+    let premier = dossiers::lire_exercices_sur(&mut base).unwrap()[0]["id"].as_str().unwrap().to_string();
+    dossiers::clore_exercice_au_sur(&mut base, premier, "2028-02-01").expect("clore");
 }
 
 /// Un dossier neuf ne partage pas les exercices d'un autre — le meme
@@ -740,7 +743,13 @@ fn le_compte_limite_ne_voit_et_n_ecrit_que_le_dossier_de_sa_session() {
             &parametres![b.clone()],
         )
         .unwrap_err();
-    assert!(e.0.contains("row-level security"), "{}", e.0);
+    // Le message suit la langue du serveur PostgreSQL (`lc_messages`) :
+    // anglais, ou français chez nous.
+    assert!(
+        e.0.contains("row-level security") || e.0.contains("sécurité au niveau ligne"),
+        "{}",
+        e.0
+    );
     let touche = lim.executer("UPDATE client SET nom = 'volé' WHERE dossier_id = ?1", &parametres![b.clone()]).unwrap();
     assert_eq!(touche, 0, "les lignes de B n'existent pas pour une session dans l'origine");
 

@@ -19,7 +19,7 @@ passage à la place de « Client de passage » sur le papier, texte imprimé
 retours dans Pièces — **commités** (5 commits, `8fc7dbd`…`6e7ba23`, sur
 `rh`, **pas poussés**).
 
-Le 26-27/10, deux lots, un commit chacun :
+Le 26-27/10, trois lots, un commit chacun :
 
 - le **retour de plusieurs articles en un geste** (JOURNAL 26/10
   « nuit ») — SQLite (`retours_groupe_base` 6/6, `retours_base` 12/12,
@@ -29,6 +29,9 @@ Le 26-27/10, deux lots, un commit chacun :
 - le **duplicata** ([PLAN-DUPLICATA.md](PLAN-DUPLICATA.md)) — trois
   moteurs, essai HTTP 14/14, **essai du propriétaire conforme** dans la
   vraie fenêtre ;
+- **D38, les exercices comme dans Ciel**, et l'**avis de fin d'exercice**
+  au tableau de bord (le 1er janvier 2027) — deux moteurs et compte
+  limité ; **pas encore vus à l'écran**.
 
 **Perdu le 27/10** : la base d'essai à la main du propriétaire
 (`outils/banc/.travail/monoposte`), effacée par un `lancer.ps1
@@ -38,9 +41,8 @@ monoposte -Neuf` lancé pour l'essai du duplicata (ALERTES § 27/10).
 de leur chiffre d'affaires ; Relances, la fiche client et l'« Acompte
 reçu » imprimé comptent encore la dette éteinte par un retour comme un
 paiement ; la colonne « suivre le stock » à l'import CSV (D36) ;
-l'horloge qui recule, Smart App Control, la CSP d'un build livré,
-le 1er janvier 2027 (ALERTES « Trouvé le 27/10 ») ; voir aussi
-ALERTES « Trouvé le 25-26/10 ».
+l'horloge qui recule, Smart App Control, la CSP d'un build livré
+(ALERTES « Trouvé le 27/10 ») ; voir aussi ALERTES « Trouvé le 25-26/10 ».
 
 Avant : **25 septembre 2026 — Gescom Équipe est fini
 (F, G, H)** : personnel, jours travaillés, avances, fiche de paie,
@@ -342,6 +344,7 @@ serveur sur une base jetable + l'écran Vite), captures à l'appui.
 | — | **Retours de l'essai à la main** (26/10, choix écrits puis acceptés) : Relances prend les tuiles du tableau de bord (`KpiCard`, `GRILLE`) et son tri dit « Ancienneté » au lieu de « jours » ; **jamais « Client de passage » sur le papier**, le code `PAS-…` à sa place (`passage::tiers_a_imprimer` : facture, reçu, bon d'échange) ; le **texte imprimé passe à 11 pt en A4, 10 pt en A5** (il sortait à ~8 pt) en multipliant chaque taille dans `documentHTML` (`agrandirTexte` ; un `zoom` CSS faisait sortir une page de trop) ; le cadre client grandit, un nom très long passe à la ligne ; **la fenêtre d'impression se ferme seule** après « Imprimer » (le document change son titre, la fenêtre Tauri l'écoute — `window.close()` était refusé par WebView2 ; vérifié par le propriétaire, facture et bon de sortie) ; **Pièces dit ce que les retours ont fait** — « Remboursée » / « Retournée » à la place du statut (ligne grisée), « Retour partiel » en second badge, pastille « Retours » avec leur nombre, « −X F rendus », « Payé » = l'argent vraiment encaissé (`encaisse`, sans la dette éteinte par un retour), jugé sur l'argent sorti du tiroir (`coeur::pieces::etat_retour`, colonnes 21..23 des listes client) | `coeur::pieces` +2 ; `retours_base` +1 (12/12), `passage_base` (code non imprimé, puis imprimé une fois promu) ; `retours_base`, `passage_base`, `pieces_base` verts sur SQLite, PostgreSQL et compte limité ; workspace Rust 693/693 ; `tsc` propre ; facture A4/A5, reçu, relevé rendus dans Chrome à la largeur du papier |
 | — | **Retourner plusieurs articles en un geste** (26/10, plan accepté) : une fenêtre de retour à cases (`ModalRetour`, Pièces et Retours) — ce qui est déjà revenu dit, rembourser / avoir / échange de plusieurs articles ; serveur `enregistrer_retour_groupe` né sur `Base` (D22), tout ou rien, une pièce AVC par geste, échange réglé une fois, plafond jugé sur le geste ; Pièces dit où est partie la valeur (argent, avoir, dette annulée, échangé), l'avoir rendu ensuite en espèces passe la facture « Remboursée », le pied déduit les retours | `coeur` +3 (`verifier_retour_groupe`, `ventiler_retour`, `repartir_au_prorata`) ; `retours_groupe_base` 6/6 (stock, caisse, avoir ; refus sans trace ; plafond ; détecteur), `retours_base` 12/12 ; workspace Rust 703/703 (SQLite) ; `tsc` propre ; PostgreSQL et essai à la main **pas encore faits** |
 | — | **Le duplicata, côté serveur** (26/10, plan accepté — [PLAN-DUPLICATA.md](PLAN-DUPLICATA.md), 1er lot sur 5) : table `impression` cloisonnée ; la première impression d'une pièce ou d'un reçu est l'original, les suivantes des duplicatas, tout poste confondu ; `lire_etat_impression`, `noter_impression`, `reimprimer_original` (permission `pieces:reimprimer_original`, le patron, journal `original_reimprime`) nées sur `Base` ; brouillon et pièce fournisseur non comptés. **27/10** : case « Duplicata » par genre (non par défaut, lue par le serveur, `format` → ticket), rendu (filigrane « DUPLICATA » + cadre « original imprimé le … », ticket en deux lignes) vu dans le navigateur. `impression_base.rs` 10/10 sur SQLite, PostgreSQL et compte limité. **27/10 (suite)** : les quatre chemins d'impression (`lib/duplicata.ts` : l'aperçu lit, le clic note, la feuille suit la réponse ; sans réponse on n'imprime pas) et le bouton « Réimprimer l'original » ; essai HTTP 14/14 sur un serveur jetable, écran vérifié dans le navigateur, puis **essai du propriétaire dans la vraie fenêtre : conforme** (original, duplicata, original du patron tracé, ticket). **Fini** | `noyau/src/impression.rs`, `lib/duplicata.ts`, `impression.ts` |
+| D38 | **Les exercices comme dans Ciel, et l'avis avant leur fin** (27/10, proposé par la relecture, accepté) : `coeur/fin_exercice.rs` (pure) et `lire_avis_fin_exercice` — bandeau au tableau de bord, orange dans le mois, rouge les 7 derniers jours, « prolonger » pour qui a `dossiers:gerer`, « prévenir le patron » sinon ; prolonger jusqu'à 5 ans, **couper** le dernier exercice ouvert (`couper_exercice`), **clore** seulement un exercice terminé et dans l'ordre (`juger_cloture`). `exercice_coupe_base` 5/5 et `fin_exercice_base` 7/7 sur SQLite, PostgreSQL et compte limité ; six anciens tests qui closaient un exercice en cours réécrits. **Pas vu à l'écran** | `noyau/src/dossiers.rs`, `ExercicesDossier.tsx`, `AvisFinExercice.tsx` |
 | C-2 | **Les droits valent par dossier** (23/09, décision C2) : `utilisateur_dossier` ; `acces_dossiers::role_dans` (pure) — superadmin partout ; des lignes = exactement ces dossiers et ces rôles (le frère, patron global, n'entre que chez lui) ; aucune ligne = comme avant (accès total partout, sinon le dossier d'origine). `sessions::etat_sur` rend le rôle **du dossier** et révoque si le dossier est retiré ; la connexion ne liste que les dossiers ouverts (403 « Aucun dossier ne vous est ouvert » / « Ce dossier ne vous est pas ouvert ») ; `choisir_dossier` rend rôle et permissions, `PageLogin` les prend. **Précision** : qui a des lignes perd `utilisateurs:gerer`, `postes:gerer`, `sauvegarde:lancer`, `parametres:modifier` (communs à tous les dossiers — sinon il se créerait un compte qui voit tout) ; `renommer_dossier` exige d'entrer dans le dossier ; un dossier créé est donné à son créateur restreint. Commandes `lire/definir_dossiers_utilisateur` (`utilisateurs:gerer`), journal `droits_dossiers_modifies`. Paramètres → Utilisateurs → **Dossiers** (bouton avec plusieurs dossiers, patron compris) | 3 unitaires ; `acces_dossiers_base.rs` (4, SQLite et PostgreSQL : le frère et la comptable, session révoquée au retrait, on ne s'enferme pas dehors, le créateur entre) ; route `le_frere_n_ouvre_que_sa_quincaillerie_et_la_comptable_choisit` ; banc `c2-droits-dossiers.mjs` (13) ; banc complet d'une base neuve **224** ; noyau 524 (hors `installation`), serveur 16 |
 
 ## v3 — plan posé le 21/09/2026, le code n'a pas commencé

@@ -68,6 +68,7 @@ pub const TYPES: &[(&str, &str)] = &[
     ("dossier_d_origine", "Dossier d'origine nommé et daté"),
     ("exercice_ouvert", "Exercice ouvert"),
     ("exercice_prolonge", "Exercice prolongé"),
+    ("exercice_coupe", "Exercice coupé"),
     ("exercice_clos", "Exercice clos"),
     ("sauvegarde", "Sauvegarde"),
     ("entretien", "Entretien de la base"),

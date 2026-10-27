@@ -2469,3 +2469,38 @@ propriétaire remplissait à la main depuis le 26/10, et ses sauvegardes
 (sans corbeille, pas de cliché lisible sans droits d'administrateur).
 L'en-tête d'ETAPES disait de ne pas l'effacer ; il n'avait pas été lu
 avant de lancer le banc. Consigné dans ALERTES § 27/10.
+
+## 27/10/2026 — D38 les exercices comme dans Ciel, et l'avis avant leur fin
+
+Ouvert par la relecture du même jour : chaque dossier amorcé en 2026 a un
+exercice qui finit le 31/12/2026 ; le 1er janvier, toute écriture datée
+est refusée (D21) et rien ne prévenait. Mené dans une session à part
+(« Prévenir avant la fin de l'exercice »), sur les fichiers des dossiers
+seulement.
+
+**L'avis** : `coeur/fin_exercice.rs` (pure) dit le dernier jour
+écrivable sans interruption depuis aujourd'hui, jugé par
+`dossier_accepte` — l'avis prédit exactement le refus. Rien au-delà de 30
+jours, orange dans le mois, rouge les 7 derniers et le jour du refus.
+`lire_avis_fin_exercice` (ouverte à tous), bandeau `AvisFinExercice` dans
+les deux branches du tableau de bord : « prolonger ou ouvrir le suivant »
+et un bouton vers Paramètres → Dossiers pour qui a `dossiers:gerer`,
+« prévenir le patron » sinon.
+
+**D38, demandé en cours de route par le propriétaire** (« on suit la
+logique de Ciel si elle n'altère pas la nôtre ») : dates libres
+(juillet → juin), plusieurs années (5 au plus — une faute d'année
+bloquerait le dossier des dizaines d'années), **couper** le dernier
+exercice ouvert (le suivant s'ouvre le lendemain dans la même
+transaction), et **clore seulement un exercice terminé, dans l'ordre** :
+clore celui qu'on vit arrêtait toutes les ventes sur-le-champ, sans
+remède. L'écran dit la raison avant la confirmation. D21 ne bouge pas.
+
+**Preuves** : `exercice_coupe_base` 5/5, `fin_exercice_base` 7/7 sur
+SQLite, PostgreSQL et compte limité ; six anciens tests qui closaient un
+exercice encore en cours réécrits (même vérification, exercice terminé) ;
+le test de route du serveur (409, clôture acceptée une fois l'exercice
+terminé). Au passage, `postgres_amorcage::le_compte_limite_ne_voit…`,
+rouge sur ce poste depuis le début (il attendait le refus en anglais,
+ce PostgreSQL répond en français), accepte les deux : 22/22 sur
+`gescom_test`. **Pas vu à l'écran.**
