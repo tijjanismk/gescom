@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "La page locale de Gescom Serveur : le coeur seulement. La console du serveur, page distante, n'a aucun acces aux commandes.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

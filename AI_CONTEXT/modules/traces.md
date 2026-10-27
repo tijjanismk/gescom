@@ -10,7 +10,7 @@ chantier B le fait lire.
 
 | Couche | Fichier | Rôle |
 |---|---|---|
-| Règle | [coeur/historique.rs](../../src-tauri/noyau/src/coeur/historique.rs) | `TYPES` (type → libellé français, ordre du filtre), `libelle_type` (un type inconnu reste lisible), `borner_page` (1…200), `jour_filtre` (une date illisible est refusée, pas ignorée) |
+| Règle | [coeur/historique.rs](../../src-tauri/noyau/src/coeur/historique.rs) | `TYPES` (type → libellé français, ordre du filtre), `libelle_type` (un type inconnu reste lisible), `borner_page` (1…200), `jour_filtre` (une date illisible est refusée, pas ignorée). Depuis le 27/10 (lot C.5) : `horloge_confirmee` — le patron a confirmé l'heure de l'ordinateur qui garde la base (`entite_type = 'horloge'`, ancienne → nouvelle référence au détail ; écrit dans le dossier ouvert, la référence étant commune à la base) |
 | Lecture | [historique.rs](../../src-tauri/noyau/src/historique.rs) | `lire_historique_sur(acces, Filtre)` paginé, le plus récent d'abord ; `filtres_sur` (types + personnes qui ont réellement agi) |
 | Commandes | [serveur/src/socle.rs](../../src-tauri/serveur/src/socle.rs) | `lire_historique`, `lire_filtres_historique` — **nées sur `Base`**, permission `journal:lire` (la première permission de lecture) |
 | Écran | [pages/Historique.tsx](../../src/pages/Historique.tsx) | filtres Du / Au / Personne / Type / Recherche, puce du contexte (« Client : … »), pagination de 50 |

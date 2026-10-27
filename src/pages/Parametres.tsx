@@ -35,6 +35,7 @@ import { OngletDossiers } from "@/components/OngletDossiers";
 import { OngletComptabilite } from "@/components/OngletComptabilite";
 import { OngletRoles } from "@/components/OngletRoles";
 import { OngletDocuments } from "@/components/OngletDocuments";
+import { OngletHorloge } from "@/components/OngletHorloge";
 import {
   ModalPermissionsUtilisateur,
 } from "@/components/ModalPermissionsUtilisateur";
@@ -1215,6 +1216,7 @@ export function Parametres({ ongletInitial }: { ongletInitial?: string } = {}) {
       {onglet === "utilisateurs"  && <OngletUtilisateurs />}
       {onglet === "roles"         && <OngletRoles />}
       {onglet === "sauvegarde"    && <OngletSauvegarde />}
+      {onglet === "horloge"       && <OngletHorloge />}
       {onglet === "reseau"        && <OngletReseau />}
       {onglet === "menu"          && <OngletMenu />}
       {onglet === "dossiers"      && <OngletDossiers />}

@@ -31,11 +31,11 @@ await boitesMuettes(page);
 // caisse : s'il ne tourne pas (p6 joue seul, poste laisse en caisse), la
 // fenetre le relance en gardant la base.
 if (!(await sante())) {
-  fs.writeFileSync(POSTE, JSON.stringify({ ...lirePoste(), mode: "monoposte", serveur: "127.0.0.1:7300" }, null, 2));
+  fs.writeFileSync(POSTE, JSON.stringify({ ...lirePoste(), mode: "monoposte", serveur: "127.0.0.1:40000" }, null, 2));
   await page.reload();
   for (let i = 0; i < 80 && !(await sante()); i++) await page.waitForTimeout(500);
 }
-if (!(await sante())) throw new Error("Aucun serveur sur 127.0.0.1:7300 : lancer p1 d'abord.");
+if (!(await sante())) throw new Error("Aucun serveur sur 127.0.0.1:40000 : lancer p1 d'abord.");
 
 // ---- 1. Un poste neuf : « caisse d'un autre poste ».
 const avant = lirePoste();
@@ -50,7 +50,7 @@ await page.getByText("Brancher ce poste").waitFor({ timeout: 10000 }).catch(() =
 ok(await page.getByText("Brancher ce poste").count() === 1, "« caisse » : l'écran de branchement");
 ok(await page.getByRole("button", { name: /ce poste garde la base/ }).count() === 1, "avec le chemin de retour « ce poste garde la base »");
 ok(await page.getByRole("button", { name: "Enregistrer" }).isDisabled(), "« Enregistrer » fermé avant un essai");
-await page.getByPlaceholder("192.168.1.10:7300").fill("127.0.0.1:7300");
+await page.getByPlaceholder("192.168.1.10").fill("127.0.0.1:40000");
 await page.getByPlaceholder("Caisse 1").fill("Caisse banc");
 await page.getByRole("button", { name: "Essayer" }).click();
 await page.getByText("Serveur joignable").waitFor({ timeout: 10000 }).catch(() => {});
@@ -58,7 +58,7 @@ await page.getByRole("button", { name: "Enregistrer" }).click();
 await page.getByText("Pseudo ou email").waitFor({ timeout: 10000 }).catch(() => {});
 ok(await page.getByText("Pseudo ou email").count() > 0, "essayée puis enregistrée : la connexion");
 const p = lirePoste();
-ok(p.mode === "poste" && p.serveur === "127.0.0.1:7300" && p.poste_empreinte === avant.poste_empreinte,
+ok(p.mode === "poste" && p.serveur === "127.0.0.1:40000" && p.poste_empreinte === avant.poste_empreinte,
   `poste.json : caisse de ${p.serveur}, même empreinte`);
 await capture(page, "p6-01-caisse");
 
@@ -79,12 +79,12 @@ const raccourci = (serveur) => new Promise(resolve => {
   const minuterie = setTimeout(() => resolve({ tourne: true, enfant, sortie }), 8000);
   enfant.on("exit", code => { clearTimeout(minuterie); resolve({ tourne: false, code, sortie }); });
 });
-const autre = await raccourci("192.0.2.50:7300");
+const autre = await raccourci("192.0.2.50:40000");
 ok(!autre.tourne && autre.code === 0, `caisse de 192.0.2.50 : le serveur s'arrête de lui-même (code ${autre.code})`);
 const journal = fs.existsSync(path.join(ROLE, "gescom.log")) ? fs.readFileSync(path.join(ROLE, "gescom.log"), "utf8") : "";
 ok(journal.includes("Serveur non démarré") && journal.includes("192.0.2.50"), "et son journal dit pourquoi");
 ok(!fs.existsSync(path.join(ROLE, "gescom.db")), "sans avoir créé de base");
-const ici = await raccourci("127.0.0.1:7300");
+const ici = await raccourci("127.0.0.1:40000");
 ok(ici.tourne && !!(await sante(7301)), "« caisse » de 127.0.0.1 (le poste principal d'avant) : le serveur tourne");
 ici.enfant?.kill();
 arreterPort(7301);
@@ -111,13 +111,13 @@ for (let i = 0; i < 80; i++) {
     && (await page.getByText("Pseudo ou email").count() || await page.getByText("Tableau de bord", { exact: true }).count())) break;
 }
 await page.waitForTimeout(2000);
-ok(lirePoste().mode === "monoposte" && lirePoste().serveur === "127.0.0.1:7300", "poste.json : ce poste garde la base");
+ok(lirePoste().mode === "monoposte" && lirePoste().serveur === "127.0.0.1:40000", "poste.json : ce poste garde la base");
 if (await page.getByText("Pseudo ou email").count()) {
   await connecter(page, "admin", "Admin-2026!", "Admin-2026!", "Ma boutique", URL_FENETRE);
 }
 await parametres(page, "Réseau");
 const texte = await page.getByTestId("role-poste").innerText();
-ok(texte.includes("Ce poste garde la base") && texte.includes("127.0.0.1:7300"), "Réseau le dit, avec l'adresse du serveur de cette machine");
+ok(texte.includes("Ce poste garde la base") && texte.includes("127.0.0.1:40000"), "Réseau le dit, avec l'adresse du serveur de cette machine");
 await capture(page, "p6-02-garde-la-base");
 
 const utiles = erreursUtiles(erreurs);

@@ -42,7 +42,7 @@ const CLE_RESEAU = "gescom_reseau";
  * le serveur tourne à côté, et les outils de développement montrent
  * chaque requête.
  */
-function estDansTauri(): boolean {
+export function estDansTauri(): boolean {
   return typeof window !== "undefined" &&
     ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
 }
@@ -61,7 +61,7 @@ function serveurDeMiseAuPoint(defaut: string): string {
   } catch {
     // Pas de `location` : contexte de test.
   }
-  return defaut && defaut.trim() ? defaut : "127.0.0.1:7300";
+  return defaut && defaut.trim() ? defaut : "127.0.0.1:40000";
 }
 
 /**
@@ -76,11 +76,11 @@ function serveurDeMiseAuPoint(defaut: string): string {
 export type ModeReseau = "monoposte" | "poste" | "a_choisir";
 
 /** L'adresse du serveur quand ce poste garde la base. */
-export const ADRESSE_LOCALE = "127.0.0.1:7300";
+export const ADRESSE_LOCALE = "127.0.0.1:40000";
 
 export interface EtatReseau {
   mode: ModeReseau;
-  /** « 192.168.1.10:7300 », sans schéma. */
+  /** « 192.168.1.10:40000 », sans schéma. */
   serveur: string;
   /** Nom lisible de ce poste, tel que le serveur l'affichera. */
   posteNom: string;
@@ -177,9 +177,12 @@ export async function synchroniserConfig(): Promise<EtatReseau> {
 
     const mode: ModeReseau =
       c.mode === "poste" ? "poste" : c.mode === "monoposte" ? "monoposte" : "a_choisir";
-    // Ce poste garde la base : son serveur est ici, quoi que dise le
-    // fichier (Rust le pose déjà ; on ne s'y fie pas deux fois).
-    const serveur = mode === "monoposte" ? ADRESSE_LOCALE : c.serveur;
+    // Ce poste garde la base : son serveur est ici, au port que Rust a
+    // retenu dans la plage 40000–40100 (D39 : si 40000 est pris, le
+    // suivant libre). Sans réponse lisible, le port par défaut.
+    const serveur = mode === "monoposte"
+      ? (c.serveur?.startsWith("127.0.0.1:") ? c.serveur : ADRESSE_LOCALE)
+      : c.serveur;
     // Le serveur a changé depuis la dernière fois : le jeton qu'on
     // garde a été émis par l'autre, il ne vaut plus rien.
     const change = mode !== etat.mode || serveur !== etat.serveur;
@@ -237,7 +240,7 @@ export function definirServeur(mode: ModeReseau, serveur: string) {
 
 function racine(): string {
   const a = etat.serveur.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-  return `http://${a.includes(":") ? a : `${a}:7300`}`;
+  return `http://${a.includes(":") ? a : `${a}:40000`}`;
 }
 
 // =====================================================================
@@ -256,7 +259,9 @@ function racine(): string {
  * - **ouvrir un fichier** avec l'application du système ;
  * - **le réglage réseau lui-même** : il vit dans le `poste.json` de
  *   cette machine. Le demander au serveur serait circulaire — et
- *   `tester_serveur` doit justement pouvoir échouer sans réseau.
+ *   `tester_serveur` doit justement pouvoir échouer sans réseau ;
+ *   `rechercher_serveurs` cherche le serveur avant de le connaître
+ *   (diffusion UDP sur le réseau local, 27/10/2026).
  *
  * Cette liste est **fermée**. Une commande absente part au serveur :
  * c'est le bon défaut, parce qu'une commande métier oubliée ici
@@ -271,6 +276,7 @@ const LOCALES = new Set([
   "definir_config_reseau",
   "tester_serveur",
   "demarrer_serveur_local",
+  "rechercher_serveurs",
 ]);
 
 /**

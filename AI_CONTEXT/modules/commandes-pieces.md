@@ -109,7 +109,28 @@ vraiment entré. « Payé » à l'écran et son total le lisent ;
 de la fenêtre ne l'a pas (l'écran retombe sur `total_paye`).
 Scénario : `retours_base::la_liste_des_pieces_dit_ce_que_les_retours_ont_fait`.
 
+## Le tiers écrit à l'émission (D35, lots D.9-D.10, 27/10/2026)
+
+`piece_commerciale.tiers_nom` (D35) et `tiers_code` (lot D.10, nouvelle
+colonne : `schema.sql`, `amorcage.rs`, `persistance/v2.rs`) gardent le
+nom et le code du tiers tels qu'ils étaient à l'émission. Posés au
+renommage d'un client (`passage::figer_noms[_sur]`), d'un **fournisseur**
+(`fournisseurs::figer_noms[_sur]`, D.9) et au rattachement d'une fiche
+de passage (`passage::rattacher_sur`, D.10, les deux) ; NULL tant que
+rien n'a changé. `lire_donnees_piece` (deux versions) les lit pour les
+deux côtés ; la liste fournisseur (deux versions) montre
+`COALESCE(pc.tiers_nom, f.nom)` et cherche dans les deux noms ; la liste
+client garde le nom d'aujourd'hui mais sa recherche trouve aussi
+`tiers_code` (le `PAS-…` d'un passant rattaché).
+
 ## Commandes exposées
+
+`lire_lignes_piece` (deux versions) rend sur chaque ligne le
+`tiers_type` de sa pièce depuis le 27/10/2026 (lot C.7) : le serveur
+masque les prix d'une pièce fournisseur sans `achats:lire_prix` ni
+`achats:creer` ([permissions.md](permissions.md)). La modale
+« Modifier la pièce » de `Pieces.tsx` ne renvoie pas des lignes aux
+prix masqués.
 
 **pieces.rs** (19) — `lire_toutes_pieces_client`,
 `lire_toutes_pieces_fournisseur`, `lire_pieces_client`,

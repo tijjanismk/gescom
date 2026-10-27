@@ -44,7 +44,7 @@ for (const o of [...new Set(onglets)]) {
 await page.locator("main").getByRole("button", { name: "Réseau", exact: true }).first().click();
 await page.waitForTimeout(1200);
 const role = await page.getByTestId("role-poste").innerText().catch(() => "");
-ok(role.includes("Ce poste garde la base") && role.includes("127.0.0.1:7300"),
+ok(role.includes("Ce poste garde la base") && role.includes("127.0.0.1:40000"),
   "Paramètres › Réseau dit le rôle lu dans poste.json : ce poste garde la base, serveur ici");
 await capture(page, "p2-01-reseau");
 console.log(`${ok.total()} vérifications`);

@@ -7,12 +7,82 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Port par defaut du serveur Gescom.
+/// Port par defaut du serveur Gescom, et le premier de sa plage (D39).
 ///
-/// 7300 : au-dessus des ports systeme, hors des plages courantes
-/// (3000 dev, 5432 Postgres, 8080 proxy) pour eviter la collision sur
-/// un poste ou tourne deja autre chose.
-pub const PORT_DEFAUT: u16 = 7300;
+/// 40000 : loin des ports systeme et des plages courantes (3000 dev,
+/// 5432 Postgres, 7000-9000 des outils), pour eviter la collision sur un
+/// poste ou tourne deja autre chose. 7300 est abandonne (27/10/2026).
+pub const PORT_DEFAUT: u16 = 40000;
+
+/// Le dernier port de la plage du serveur (D39). La fenetre livree ne
+/// joint que 40000..=40100 : sa CSP (`tauri.conf.json`) les enumere un
+/// par un, et `tests/plage_de_ports.rs` verifie qu'ils y sont tous. Sur
+/// le poste qui garde la base, si 40000 est pris, le serveur local prend
+/// le suivant libre de la plage.
+pub const PORT_MAX: u16 = 40100;
+
+/// Ce port est-il joignable par la fenetre livree ?
+pub fn port_dans_la_plage(port: u16) -> bool {
+    (PORT_DEFAUT..=PORT_MAX).contains(&port)
+}
+
+/// Les ports de la plage, dans l'ordre ou on les essaie.
+pub fn ports_de_la_plage() -> impl Iterator<Item = u16> {
+    PORT_DEFAUT..=PORT_MAX
+}
+
+/// Le port d'une adresse « hote:port » (sans schema), s'il est ecrit.
+/// « [::1]:40000 » ; « 192.168.1.10:40000 » ; une IPv6 nue a plusieurs
+/// « : » et pas de port. `Some(Err)` : un port ecrit mais illisible.
+pub fn port_ecrit(adresse: &str) -> Option<Result<u16, String>> {
+    let hote = adresse.trim().trim_start_matches("http://").split('/').next().unwrap_or("");
+    let port = match hote.strip_prefix('[') {
+        Some(reste) => reste.split_once("]:").map(|(_, p)| p),
+        None if hote.matches(':').count() == 1 => hote.split_once(':').map(|(_, p)| p),
+        None => None,
+    }?;
+    Some(port.trim().parse::<u16>().map_err(|_| format!("Port illisible : « {} ».", port.trim())))
+}
+
+/// La fenetre peut-elle joindre cette adresse ? Sans port, c'est
+/// `PORT_DEFAUT`. Refuse un port hors de la plage, plutot que d'echouer
+/// plus tard sur un « Failed to fetch » que personne ne comprend.
+pub fn adresse_joignable(adresse: &str) -> Result<(), String> {
+    match port_ecrit(adresse) {
+        None => Ok(()),
+        Some(Err(e)) => Err(e),
+        Some(Ok(p)) if port_dans_la_plage(p) => Ok(()),
+        Some(Ok(_)) => Err(format!(
+            "Gescom ne joint le serveur que sur un port de {PORT_DEFAUT} à {PORT_MAX} : « {} » ne sera pas \
+             joignable. Taper l'adresse du serveur sans port ({PORT_DEFAUT}), ou avec le port qu'il affiche.",
+            adresse.trim()
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests_ports {
+    use super::*;
+
+    #[test]
+    fn la_plage_va_de_40000_a_40100() {
+        assert!(port_dans_la_plage(40000) && port_dans_la_plage(40100));
+        assert!(!port_dans_la_plage(39999) && !port_dans_la_plage(40101) && !port_dans_la_plage(7300));
+        assert_eq!(ports_de_la_plage().count(), 101);
+    }
+
+    #[test]
+    fn une_adresse_se_juge_sur_son_port() {
+        for ok in ["192.168.1.10", "192.168.1.10:40000", "http://192.168.1.10:40057/", "caisse-principale", "[::1]:40100", "fe80::1"] {
+            assert!(adresse_joignable(ok).is_ok(), "{ok}");
+        }
+        for non in ["192.168.1.10:7300", "localhost:80", "[::1]:40101", "192.168.1.10:abc"] {
+            assert!(adresse_joignable(non).is_err(), "{non}");
+        }
+        assert_eq!(port_ecrit("127.0.0.1:40003"), Some(Ok(40003)));
+        assert_eq!(port_ecrit("127.0.0.1"), None);
+    }
+}
 
 /// Duree de vie d'un jeton de connexion.
 ///
@@ -133,6 +203,8 @@ pub struct Identite {
     pub poste_id: String,
     pub expire_le: String,
     /// Vrai si la caisse est nominative (un tiroir par utilisateur).
+    /// Toujours faux depuis le lot C.6 (mode retire, un tiroir par
+    /// dossier) ; le champ reste pour ne pas changer le protocole.
     pub caisse_par_utilisateur: bool,
     /// v3 : le dossier ouvert par la session. `None` : il reste a
     /// choisir parmi `dossiers` (commande `choisir_dossier`), et aucune

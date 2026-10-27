@@ -4,7 +4,7 @@
 import { navigateur, connecter, capture, verifieur } from "./pw.mjs";
 const { b, page } = await navigateur();
 const ok = verifieur();
-const SERVEUR = `http://127.0.0.1:${process.env.PORT_SERVEUR ?? 7300}`;
+const SERVEUR = `http://127.0.0.1:${process.env.PORT_SERVEUR ?? 40000}`;
 
 // Une caisse signale une « erreur » piegee.
 await connecter(page);

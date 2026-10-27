@@ -31,6 +31,14 @@ Une règle qui n'est pas ici est une règle qu'aucun test ne protège.
   `pieces:antidater` est requise. `aujourd_hui` est passé en paramètre :
   la règle se teste sans attendre minuit. **Ce module ne touche pas au
   mouvement de caisse** — deux dates, deux faits (ALERTES.md).
+- [coeur/horloge.rs](../../src-tauri/noyau/src/coeur/horloge.rs) (27/10/2026,
+  lot C.5) — une horloge qui recule : comparer l'heure de la machine à
+  la dernière écriture réussie, tolérance 5 min. Voir plus bas.
+- [coeur/lecture.rs](../../src-tauri/noyau/src/coeur/lecture.rs) — les
+  permissions de lecture (C-1), commande par commande ; détail dans
+  [permissions.md](permissions.md). Depuis le 27/10 (lot C.7),
+  `lire_lignes_piece` masque les prix d'une pièce **fournisseur**
+  (`lignes_fournisseur` lit le `tiers_type` de chaque ligne).
 
 ## Fonctions exposées
 
@@ -44,6 +52,22 @@ Une règle qui n'est pas ici est une règle qu'aucun test ne protège.
 - `SEUIL_SOLDE: i64 = 5`
 - `reste_exigible(total, payé) -> i64` — absorbe les résidus d'arrondi,
   mais seulement si `payé > 0`.
+- `residu_a_solder(total, payé) -> i64` (27/10, lot B.4) — le résidu
+  de 1 à `SEUIL_SOLDE` F à solder au moment du règlement, 0 sinon (ni
+  soldé, ni trop-perçu, ni vente sans encaissement). Appelée par
+  `creances::solder_residu[_sur]` et `solder_residus_creances`.
+- `encaisse(total_payé, éteint_par_retour) -> i64` (lot B.3) — l'argent
+  vraiment versé : le payé sans la dette éteinte par un retour
+  (paiement `mode = 'retour'`). `total_paye` garde cette part (il fait
+  le reste dû) ; tout « payé », « acompte reçu », « encaissé » affiché
+  passe par ici.
+- `ca_net(brut, retours) -> i64` et `RETOUR_HORS_CA = "echange"` (lot
+  B.2) — le chiffre d'affaires d'une période = ventes de la période −
+  retours **datés** dans la période (usage d'un avoir : un mois clos ne
+  bouge plus) ; peut être négatif. L'échange ne se déduit pas (il ne
+  rend pas la vente, le remplacement n'est pas une `ligne_vente`) ;
+  limite : sa différence (reliquat/complément) ne bouge pas le chiffre.
+  Le SQL lie la constante en paramètre, ne la recopie pas.
 - `statut_vente(total, payé) -> StatutVente` — ⚠️ le 2ᵉ argument est le
   **payé**. `statut_vente_depuis_reste(total, reste)` pour l'autre sens.
 - `effet_caisse_annulation(remboursement, session_ouverte, touche_caisse) -> EffetCaisse`
@@ -70,6 +94,25 @@ toujours la sortie. Ne pas les remplacer par des codes.
 - `libelle(type) -> &'static str`
 - `est_a_decouvert(stock, demandé)`, `marge(pv, pa, qté)`,
   `credit_retour(prix, qté)`.
+- `verifier_comptages(magasins, comptages)` (D36) — reprendre le suivi.
+- `lire_suivi_csv(valeur) -> Result<Option<bool>, String>` (lot D.11,
+  27/10/2026) — la colonne « Suivre le stock » de l'import CSV : vide →
+  `None` (l'import décide), `oui/o/1/vrai` et `non/n/0/faux` sans casse
+  (VRAI/FAUX : ce qu'Excel français écrit pour une case), toute autre
+  valeur refusée avec un message — jamais devinée. Appelée par les deux
+  versions de `catalogue_csv::importer_articles_csv`.
+
+### tiers.rs
+- `code_client_suivant`, `FOURNISSEUR_DIVERS`,
+  `verifier_achat_sans_fournisseur`, `refuser_si_fournisseur_divers`,
+  `verifier_retour_fournisseur_divers`.
+- `FicheARattacher { id, est_generique, passage, actif }` et
+  `juger_rattachement(passage: Option<&…>, cible: Option<&…>)` (lot D.10,
+  27/10/2026) — « Rattacher à un client » : source = fiche de passage
+  active du dossier (`None` : pas dans ce dossier) ; cible = client
+  ordinaire actif du dossier, ni « Comptant », ni fiche de passage, ni
+  elle-même. Appelée par `passage::rattacher_sur`, fiches lues dans la
+  transaction.
 
 ### caisse.rs
 - `solde_theorique(fond, entrées, sorties) -> i64`
@@ -95,6 +138,26 @@ Appelé par `creer_vente*`, `regler_creance*` (donc `enregistrer_paiement*`),
 - `cle_ean13(douze: &str) -> Option<u8>`
 - `generer_ean13_interne(sequence: u64) -> Option<String>` — séquence
   jusqu'à 9 999 999 999.
+
+### horloge.rs (27/10/2026, lot C.5)
+Les heures sont **passées**, jamais lues sur l'horloge.
+- `TOLERANCE_RECUL_SECONDES = 300`, `CODE_REFUS = "HORLOGE_RECULE"`,
+  `EXEMPTEES = ["confirmer_horloge"]` (le seul geste qui lève la garde).
+- `lire(iso)` (avec ou sans millisecondes, `T` ou espace), `en_clair`
+  (« le 27/10/2026 à 14:05 »), `recul_secondes(reference, maintenant)`.
+- `juger(reference, maintenant)` — sans référence : oui ; référence
+  illisible : oui (remplacée à la prochaine écriture) ; recul > 5 min :
+  non, `message_refus` (quoi faire + « le patron le confirme dans
+  Paramètres → Horloge ») ; 5 min pile : oui ; heure de la machine
+  illisible : non.
+- `nouvelle_reference(reference, maintenant)` — la plus récente des
+  deux, `None` si rien ne change : la référence **ne recule jamais**
+  (sinon 4 min de recul par écriture feraient une heure).
+- `confirmation_permise` — le geste du patron n'est permis **que**
+  quand l'écriture est bloquée.
+
+Appelée par `noyau::horloge` (référence dans `config_app`, clé
+`horloge_derniere_ecriture`), elle-même appelée par `api::rpc`.
 
 ## Entrant
 

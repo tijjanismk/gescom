@@ -487,6 +487,12 @@ pub fn creer_vente_datee_sur(
         "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
         rusqlite::params![statut, now, vente_id],
     ).map_err(|e| e.to_string())?;
+    // D41 : un encaissement a 5 F pres solde la vente des maintenant.
+    let statut = if crate::creances::solder_residu(&tx, &vente_id, &auteur_id, &now)? > 0 {
+        "payee"
+    } else {
+        statut
+    };
 
     // PLAN-EQUIPE, H-2 (D34) : un prospect devient client tout seul a
     // sa premiere vente. Un prospect ne peut naitre que par Équipe
@@ -857,6 +863,11 @@ pub fn valider_facture_sur(
          SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
         rusqlite::params![statut_piece, now, piece_id],
     ).map_err(|e| e.to_string())?;
+    // D41 : un acompte a 5 F pres du total solde la facture, avec sa
+    // trace au journal — dans cette transaction.
+    if encaisse > 0 {
+        crate::creances::solder_residu(&tx, &vente_id, &auteur_id, &now)?;
+    }
 
     tx.commit().map_err(|e| e.to_string())?;
 
@@ -1860,6 +1871,13 @@ pub fn creer_vente_datee_sur_base(
         &parametres![statut, now.clone(), vente_id.clone(), dossier.clone()],
     )
     .map_err(|e| e.0)?;
+    // D41 : un encaissement a 5 F pres solde la vente des maintenant,
+    // dans cette transaction.
+    let statut = if crate::creances::solder_residu_sur(&mut tx, &vente_id, &auteur_id, &now)? > 0 {
+        "payee"
+    } else {
+        statut
+    };
 
     // PLAN-EQUIPE, H-2 (D34) : un prospect devient client tout seul a
     // sa premiere vente — pas de bouton « convertir » a chercher. Sans
@@ -2278,6 +2296,11 @@ pub fn valider_facture_sur_base(
         &parametres![statut_piece, now.clone(), piece_id, dossier],
     )
     .map_err(|e| e.0)?;
+    // D41 : un acompte a 5 F pres du total solde la facture, avec sa
+    // trace au journal — dans cette transaction.
+    if encaisse > 0 {
+        crate::creances::solder_residu_sur(&mut tx, &vente_id, &auteur_id, &now)?;
+    }
 
     tx.valider().map_err(|e| e.0)?;
 

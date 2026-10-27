@@ -6,9 +6,13 @@ avoirs, relances, chèques.
 ## Fichiers
 
 - [commandes/ventes.rs](../../src-tauri/src/commandes/ventes.rs) (809 l.)
-  — **porte `EtatApp`**, le `Mutex<Connection>` que toute autre commande
-  importe. D'où sa place en tête du graphe inverse (47 entrants) : ce
-  n'est pas un couplage métier.
+  — **porte `EtatApp`**, que toute autre commande importe. D'où sa place
+  en tête du graphe inverse (47 entrants) : ce n'est pas un couplage
+  métier. **Depuis le 27/10/2026 (lot E.13), plus de base** : `EtatApp.conn`
+  est `SansBase`, dont `lock()` rend toujours `Err(REFUS_SANS_BASE)` —
+  les 182 façades gardent leur appel et refusent toutes au même endroit,
+  sans panique ni écriture. L'écran n'en appelle aucune (tout passe au
+  serveur sauf `pont.ts::LOCALES`).
 - [commandes/creances.rs](../../src-tauri/src/commandes/creances.rs) (824 l.)
 - [commandes/retours.rs](../../src-tauri/src/commandes/retours.rs) (686 l.)
 - [commandes/avoirs.rs](../../src-tauri/src/commandes/avoirs.rs) (524 l.)
@@ -32,7 +36,25 @@ moteurs — D27),
 `lire_etat_creances_client`, `lire_etat_creances_global`,
 `lire_reglements_client`,
 `annuler_reglement` ([creances.rs:233](../../src-tauri/src/commandes/creances.rs#L233)),
-`lire_donnees_recu`, `solder_residus_creances` *(jamais appelée)*.
+`lire_donnees_recu`, `solder_residus_creances` *(jamais appelée — depuis
+le 27/10 un simple rattrapage des ventes anciennes, voir `solder_residu`)*.
+`lire_creances_ouvertes` rend aussi `encaisse` et `eteint_par_retour`
+(lot B.3, 27/10) ; `total_paye` et `reste` inchangés.
+
+**Le résidu D41 au règlement (lot B.4, 27/10/2026)** —
+`creances::solder_residu(tx: &Connection, vente, auteur, maintenant)` et
+`solder_residu_sur(&mut impl Acces, …)` : appelées **dans la transaction**
+du geste, juste après l'écriture du paiement. Si `coeur::calcul::residu_a_solder`
+trouve 1 à 5 F : vente `payee`, pièce `paye`, journal `residu_absorbe`
+— aucun paiement, aucune caisse. Rendent le résidu (0 sinon). Appelants,
+dans les deux versions : `regler_creance_datee` (son `residu_absorbe`
+en vient), `regler_creance_exceptionnel`, `argent::creer_vente_datee_sur`,
+`valider_facture_sur` (si acompte), `retours::enregistrer_retour_sur` /
+`enregistrer_retour_sur_base` / `enregistrer_retour_groupe_sur_base`
+(une fois le geste entier écrit, si une dette a été éteinte),
+`avoirs::appliquer_avoir_vente`. Ne pas l'appeler sans paiement écrit
+(un échange) : le journal compterait deux fois. Scénarios :
+`retours_chiffres_base.rs`.
 
 **retours.rs** — `lire_ventes_recentes`,
 `enregistrer_retour` ([retours.rs:110](../../src-tauri/src/commandes/retours.rs#L110)),
@@ -65,6 +87,20 @@ ligne d'une autre vente est refusée (« introuvable »).
 `lire_ventes_recentes` rend `client_generique` et, par ligne,
 `deja_retourne`. Scénarios : `retours_groupe_base.rs` (6).
 
+**Les ventes par pages (lot D.12, 27/10/2026)** — l'écran Retours et la
+fenêtre de retour de Pièces ne lisent plus `lire_ventes_recentes` (les
+50 dernières, rien au-delà : une vente plus ancienne ne se retournait
+nulle part) mais `pagination::lire_ventes_recentes_paginee` (50 par
+page, `Pagination`), qui rend maintenant ce que lit `ModalRetour` :
+`client_generique` et `deja_retourne` par ligne. La recherche (serveur)
+porte sur le nom, le **code** du client et le **numéro de facture**
+(`RECHERCHE_VENTE`) ; Pièces retrouve la vente d'une facture par son
+numéro. Ordre `date_vente DESC, cree_le DESC, id` (pas de vente sur deux
+pages). `lire_ventes_paginees` suit les mêmes règles ; ses deux versions
+lisent le numéro dans `piece_commerciale` (la version `Connection`
+lisait l'ancienne table `facture`). `lire_ventes_recentes` reste
+enregistrée, plus appelée. Scénario `donnees_base::les_ventes_se_lisent_par_pages_de_50`.
+
 **avoirs.rs** — `lire_avoirs_client`, `total_avoirs_client`,
 `rembourser_avoir`, `chercher_article_par_code_barre`,
 `lire_config_scanner`, `sauvegarder_config_scanner`,
@@ -72,7 +108,11 @@ ligne d'une autre vente est refusée (« introuvable »).
 `appliquer_avoir_vente` *(jamais appelée)*.
 
 **relances.rs** — `lire_creances_relances`, `enregistrer_relance`,
-`lire_historique_relances`, `lire_stats_relances`.
+`lire_historique_relances`, `lire_stats_relances`. Une créance relancée
+porte `total_paye` (dette éteinte par retour comprise, il fait `reste`),
+`encaisse` (l'argent versé, `coeur::calcul::encaisse`) et
+`eteint_par_retour` (lot B.3, 27/10) ; l'écran affiche « payé » =
+`encaisse` et le retour à part.
 
 **cheques.rs** — `enregistrer_cheque`, `lire_cheques`,
 `changer_statut_cheque`. Un passage à `rejete` ne supprime plus rien :
@@ -91,7 +131,8 @@ Scénario : `journal_rapports_base::un_cheque_suit_son_cycle_et_un_rejet_rouvre_
 | [FicheClient.tsx](../../src/pages/FicheClient.tsx) | créances, règlements, `annuler_reglement`, avoirs |
 | [Relances.tsx](../../src/pages/Relances.tsx) | les 4 commandes de relances |
 | [Cheques.tsx](../../src/pages/Cheques.tsx) | les 3 de chèques |
-| [Retours.tsx](../../src/pages/Retours.tsx), [Pieces.tsx](../../src/pages/Pieces.tsx) + [ModalsRetour.tsx](../../src/components/ModalsRetour.tsx) (`ModalRetour`) | `enregistrer_retour_groupe`, `lire_ventes_recentes` |
+| [Retours.tsx](../../src/pages/Retours.tsx), [Pieces.tsx](../../src/pages/Pieces.tsx) + [ModalsRetour.tsx](../../src/components/ModalsRetour.tsx) (`ModalRetour`) | `enregistrer_retour_groupe`, `lire_ventes_recentes_paginee` (lot D.12) |
+| [ListePassages.tsx](../../src/components/ListePassages.tsx) (Clients → Passages) | `lire_passages`, `promouvoir_passage`, `rattacher_passage` (lot D.10), `lire_clients_pagines` pour choisir la cible |
 
 Sortant : `coeur::calcul` (montants, statuts, répartition, effet caisse),
 `utils::exiger_session_caisse`, `commandes::pieces_pos`
@@ -108,6 +149,31 @@ Sortant : `coeur::calcul` (montants, statuts, répartition, effet caisse),
   `modifier_client`). `creer_facture_depuis_vente` prend le client de la
   **vente**, plus celui que l'écran passe. Commandes serveur
   `lire_passages`, `promouvoir_passage` (version `Base` seule).
+- [CONFIRMÉ] **Rattacher un passant à un client (lot D.10, 27/10/2026)** —
+  `passage::rattacher_sur(base, passage_id, client_id)` (version `Base`
+  seule, commande `rattacher_passage`, `clients:modifier`). Geste
+  manuel : le patron choisit la fiche ; jamais de fusion automatique.
+  Règle pure `coeur::tiers::juger_rattachement` (source : fiche de
+  passage active du dossier ; cible : client ordinaire actif du dossier,
+  ni « Comptant », ni passage, ni elle-même), fiches lues **dans** la
+  transaction. Une transaction : la fiche de passage d'abord désactivée
+  (`actif = 0` seulement si elle l'était encore — un second rattachement
+  simultané ne touche rien et s'arrête), puis le nom ET le code figés sur
+  ses pièces émises (`tiers_nom`, `tiers_code` — nouvelle colonne), puis
+  `vente`, `piece_commerciale` (tiers), `avoir`, `echange`, `rappel`
+  passent au client (paiements, retours, chèques, relances,
+  irrécouvrables, mouvements suivent la vente). Un prospect qui reçoit
+  des ventes devient client (D34). Journal `passage_rattache` sur le
+  client (ancien : id, code, nom du passage ; nouveau : le client et le
+  compte des lignes déplacées). **La fiche n'est pas supprimée** : vide,
+  désactivée, hors de `lire_passages_sur` (filtre `actif = 1`) ; son code
+  reste pris (il est sur les tickets) et le journal qui la nomme se lit.
+  Ni stock, ni caisse ne bougent. À l'impression d'une pièce ou d'un
+  reçu, `COALESCE(tiers_code, code)` et, pour un nom figé « Client de
+  passage », ni téléphone, ni adresse, ni NIF
+  (`passage::coordonnee_a_imprimer`) ; la recherche de Pièces trouve
+  aussi le code figé. Le geste ne se défait pas. Scénario
+  `donnees_base::rattacher_un_passant_deplace_toute_son_histoire_et_garde_ses_factures`.
 
 - [CONFIRMÉ] Le découvert est **constaté en base**, jamais déclaré par
   l'écran. `creer_vente_sur` et `valider_facture_sur` relisent
@@ -137,10 +203,14 @@ Sortant : `coeur::calcul` (montants, statuts, répartition, effet caisse),
 - [CONFIRMÉ] `prix_pratique` est stocké **TTC** : la TVA est ajoutée au
   HT côté POS avant l'appel (D8). `SUM(prix_pratique × quantite)` est
   donc le montant dû, partout, sans correction.
-- [DÉDUIT] `solder_residus_creances` implémenterait D41 en base (fermer
-  les restes ≤ 5 F). Elle est exposée mais **jamais invoquée** : le seuil
-  n'est appliqué qu'à la lecture, via `reste_exigible`. Vérifier avant de
-  supposer qu'une créance résiduelle a été soldée en base.
+- [CONFIRMÉ] D41 s'applique **en base au moment du règlement** depuis
+  le 27/10 (`solder_residu[_sur]`, ci-dessus). `solder_residus_creances`
+  (exposée, jamais invoquée) ne rattrape plus que les ventes réglées
+  avant cette date ; `reste_exigible` reste la règle de lecture.
+- [CONFIRMÉ] Un paiement `mode = 'retour'` est une **dette éteinte**,
+  pas de l'argent : il compte dans `total_paye` et le reste dû, jamais
+  dans un « payé » ou « encaissé » affiché (Pièces, Relances, Clients,
+  fiche client — onglet Règlements —, facture imprimée, rapport mensuel).
 - [DÉDUIT] `avoirs.rs` mélange deux sujets sans rapport — les avoirs et
   le scanner de codes-barres. Chercher une commande de scan dans
   `codebarre.rs` ne la trouve pas.

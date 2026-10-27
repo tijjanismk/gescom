@@ -1,7 +1,7 @@
 // Un jeu de donnees d'essai pour tester Gescom a la main, pose PAR LE
 // SERVEUR (ses commandes, ses regles) — jamais en ecrivant dans la base.
 //
-//   node donnees-essai.mjs [adresse]      (defaut 127.0.0.1:7300)
+//   node donnees-essai.mjs [adresse]      (defaut 127.0.0.1:40000)
 //
 // Sur une base NEUVE (mot de passe d'usine admin / admin123, laisse tel
 // quel : l'ecran le fera changer a la premiere connexion). Ce que ca pose :
@@ -15,7 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ICI = path.dirname(fileURLToPath(import.meta.url));
-const SERVEUR = `http://${process.argv[2] ?? "127.0.0.1:7300"}`;
+const SERVEUR = `http://${process.argv[2] ?? "127.0.0.1:40000"}`;
 
 const r = await fetch(`${SERVEUR}/connexion`, {
   method: "POST", headers: { "Content-Type": "application/json" },

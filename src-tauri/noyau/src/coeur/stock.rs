@@ -143,9 +143,44 @@ pub fn verifier_comptages(
         .collect()
 }
 
+/// D36, lot D.11 — la colonne « Suivre le stock » de l'import CSV des
+/// articles. Vide : `None`, l'import decide (oui pour un article cree,
+/// inchange pour un article existant). Oui/non sous leurs formes
+/// courantes — dont VRAI/FAUX, ce qu'Excel francophone ecrit pour une
+/// case. Une valeur illisible est refusee, jamais devinee : un article
+/// qu'on croit suivi et qui ne l'est pas cache ses manques.
+pub fn lire_suivi_csv(valeur: &str) -> Result<Option<bool>, String> {
+    let v = valeur.trim().to_lowercase();
+    match v.as_str() {
+        "" => Ok(None),
+        "oui" | "o" | "1" | "vrai" => Ok(Some(true)),
+        "non" | "n" | "0" | "faux" => Ok(Some(false)),
+        _ => Err(format!(
+            "« Suivre le stock » attend oui ou non, pas « {} »",
+            valeur.trim()
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn la_colonne_suivre_le_stock_se_lit_sans_deviner() {
+        assert_eq!(lire_suivi_csv(""), Ok(None));
+        assert_eq!(lire_suivi_csv("  "), Ok(None));
+        for oui in ["oui", "OUI", " Oui ", "o", "1", "VRAI"] {
+            assert_eq!(lire_suivi_csv(oui), Ok(Some(true)), "{oui}");
+        }
+        for non in ["non", "NON", "n", "0", "FAUX"] {
+            assert_eq!(lire_suivi_csv(non), Ok(Some(false)), "{non}");
+        }
+        for illisible in ["peut-être", "2", "yes", "ouii", "-", "x"] {
+            let e = lire_suivi_csv(illisible).unwrap_err();
+            assert!(e.contains("oui ou non") && e.contains(illisible), "{e}");
+        }
+    }
 
     fn magasins() -> Vec<(String, String)> {
         vec![("d1".into(), "Boutique".into()), ("d2".into(), "Dépôt".into())]

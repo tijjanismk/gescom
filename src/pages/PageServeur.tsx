@@ -6,6 +6,9 @@
 // afficher — pas même un écran de connexion, puisqu'il n'y a personne à
 // qui demander le mot de passe.
 //
+// L'adresse se tape, ou se trouve : « Rechercher le serveur » (27/10/2026)
+// interroge le réseau local et un clic la remplit.
+//
 // On ne se contente pas d'enregistrer l'adresse : on l'ESSAIE d'abord.
 // Une adresse acceptée sans essai donne une application qui paraît
 // installée et qui échoue au premier geste, dans la boutique, devant un
@@ -17,6 +20,7 @@ import { Loader2, Network, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RechercheServeur } from "@/components/RechercheServeur";
 
 interface Sante {
   version_serveur: string;
@@ -47,12 +51,14 @@ export function PageServeur({ onConfigure, onGarderBase }: Props) {
     if (e.posteNom) setPosteNom(e.posteNom);
   }, []);
 
-  async function essayer() {
+  // L'adresse essayée : celle du champ, ou celle qu'un clic sur un serveur
+  // trouvé vient d'y mettre (l'état n'est pas encore à jour à cet instant).
+  async function essayer(adresse: string = serveur) {
     setEnCours(true);
     setTest(null);
     setErreur("");
     try {
-      const s = await invoke<Sante>("tester_serveur", { adresse: serveur.trim() });
+      const s = await invoke<Sante>("tester_serveur", { adresse: adresse.trim() });
       setTest(s);
       if (!s.base_saine) {
         setErreur(
@@ -107,15 +113,21 @@ export function PageServeur({ onConfigure, onGarderBase }: Props) {
             <Label>Adresse du serveur</Label>
             <Input
               className="mt-1 font-mono"
-              placeholder="192.168.1.10:7300"
+              placeholder="192.168.1.10"
               value={serveur}
               onChange={(e) => { setServeur(e.target.value); setTest(null); }}
               onKeyDown={(e) => { if (e.key === "Enter" && adresseOk) essayer(); }}
             />
             <p className="text-[11px] text-muted-foreground mt-1">
-              Le serveur l'affiche au démarrage, sous « pour les caisses ».
+              La fenêtre Gescom Serveur l'affiche, sous « Sur les caisses, taper ».
             </p>
           </div>
+
+          {/* Ou la chercher sur le réseau : un clic remplit et essaie. */}
+          <RechercheServeur
+            desactive={enCours}
+            onChoisir={(a) => { setServeur(a); essayer(a); }}
+          />
 
           <div>
             <Label>Nom de ce poste</Label>
@@ -155,7 +167,7 @@ export function PageServeur({ onConfigure, onGarderBase }: Props) {
 
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1"
-              disabled={!adresseOk || enCours} onClick={essayer}>
+              disabled={!adresseOk || enCours} onClick={() => essayer()}>
               {enCours && !test
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : "Essayer"}
@@ -173,8 +185,8 @@ export function PageServeur({ onConfigure, onGarderBase }: Props) {
 
         <p className="text-xs text-muted-foreground text-center">
           Le serveur ne répond pas&nbsp;? Vérifier qu'il est démarré sur le
-          poste principal, que les deux machines sont sur le même réseau,
-          et que le pare-feu laisse passer le port.
+          poste principal (fenêtre Gescom Serveur), que les deux machines
+          sont sur le même réseau, et que le pare-feu laisse passer le port.
         </p>
 
         {onGarderBase && (

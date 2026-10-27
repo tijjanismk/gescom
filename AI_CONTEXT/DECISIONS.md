@@ -427,6 +427,8 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D40 | **la fenêtre « Gescom Serveur »** (la coque de D25) et son panneau **Réseau** — port 40000–40100 et écoute changés par le patron, depuis le poste du serveur seulement, appliqués par le serveur lui-même — et la **recherche automatique** des caisses (UDP 40000, rien de la boutique) |
+| D39 | **le serveur écoute de 40000 à 40100** (40000 par défaut, 7300 abandonné) : la CSP des deux fenêtres énumère ces ports et rien d'autre ; sur le poste qui garde la base, si 40000 est pris, le serveur local prend le suivant libre et `poste.json` le retient ; installeur et pare-feu suivent la plage |
 | D38 | **des exercices comme dans Ciel** : dates libres (juillet → juin se donne), plusieurs années (**5 au plus**), et le dernier exercice ouvert **se coupe** en plein milieu — le suivant s'ouvre le lendemain, au moins jusqu'à l'ancienne fin ; on ne **clôt** qu'un exercice **terminé**, dans l'ordre ; D21 tient (pas de trou, refus hors dates) |
 | D36 | **un article peut ne pas suivre son stock** (`article.gere_en_stock`) : il se vend normalement, jamais à découvert, hors des écrans de stock (Stock, inventaire, alertes, valeur), transfert refusé ; ses mouvements s'écrivent quand même ; cesser de suivre est tracé, reprendre exige un comptage par magasin |
 | D37 | **le menu se règle par dossier** (Paramètres → Menu, patron) : cacher n'est qu'un affichage — aucune donnée, aucune règle, aucune trace ne change ; Tableau de bord, Ventes, Caisse, Paramètres toujours visibles ; « Boutique simple » / « Complet » |
@@ -1022,3 +1024,92 @@ chronologique ; numéroter par exercice serait un autre chantier.
 sur le dernier exercice, phrase en clair). Tests :
 `noyau/tests/exercice_coupe_base.rs` et `fin_exercice_base.rs` sur les
 deux moteurs et sous le compte limité.
+
+## D39 — Le serveur écoute de 40000 à 40100 (27/10/2026)
+
+**Le besoin.** La fenêtre parle au serveur par `fetch`, mais sa CSP
+(`connect-src`) ne l'y autorisait pas : en build livré, risque de ne
+joindre personne (ALERTES, lot A). Ouvrir tout `http:` a été refusé par
+le contrôle de sécurité ; le propriétaire a d'abord choisi le seul port
+7300, puis : « prends un autre port dans une plage de 40000 à 40100 ».
+
+**Retenu** (choix du propriétaire, 27/10/2026) :
+
+1. **40000 par défaut**, plage **40000–40100** (`protocole::PORT_DEFAUT`,
+   `PORT_MAX`, `port_dans_la_plage`, `adresse_joignable`). **7300 est
+   abandonné** : rien n'était livré.
+2. **La CSP des deux fenêtres énumère les 101 ports**, et rien d'autre
+   (une CSP ne connaît pas les plages). `noyau/tests/plage_de_ports.rs`
+   vérifie que les deux `tauri.conf.json` et la copie de Gescom Équipe
+   suivent `protocole`.
+3. **Repli sur le poste qui garde la base** : si 40000 est pris par un
+   autre programme, le serveur local prend le suivant libre de la plage,
+   et `poste.json` le retient (`reseau::demarrer_serveur_local`). Un
+   serveur Gescom qui répond déjà sur la machine est repris tel quel —
+   jamais deux serveurs sur la même base. On ne sonde pas toute la plage
+   d'avance : sous Windows, une connexion refusée sur 127.0.0.1 peut
+   prendre deux secondes.
+4. **Refuser plutôt que faire semblant** : la fenêtre refuse d'enregistrer
+   une adresse de caisse hors de la plage ; une caisse encore réglée en
+   7300 redemande son rôle une fois ; l'installeur du serveur refuse un
+   port hors de la plage ; le serveur lancé hors de la plage tourne mais
+   l'écrit en avertissement au journal technique (essais, console).
+5. **Le pare-feu ouvre toute la plage** (`outils/parefeu.ps1`,
+   l'installeur) : un poste principal rabattu sur 40001 reste joignable
+   par les caisses.
+
+**Pas pris** : `http:` / `https:` sans port (refusé) ; un port libre au
+hasard (la CSP est figée au build).
+
+## D40 — La fenêtre « Gescom Serveur », son panneau Réseau, la recherche automatique (27/10/2026)
+
+**Le besoin** (le propriétaire) : « une interface graphique dédiée à mon
+serveur, comme sur Ciel », pour l'IP et le port ; puis, ayant appris que
+Ciel laisse le client désigner le serveur par son nom, la recherche
+automatique (« Rechercher le serveur »).
+
+**Retenu** (proposé, accepté le 27/10/2026) :
+
+1. **La coque de D25, enfin construite** : `src-tauri/serveur-fenetre/`
+   (`ml.gescom.serveur`), sans base ni noyau. Elle lit le port dans
+   `serveur.json` (sinon 40000), affiche la console servie par le
+   serveur — la même page que dans le navigateur, rien en double — et,
+   s'il ne répond pas, une page locale « Le serveur ne tourne pas » avec
+   « Démarrer le service » (accord administrateur) et « Réessayer ».
+   L'installeur du serveur la pose au menu Démarrer.
+2. **Le panneau Réseau dans la console** : nom du poste, cartes et IP
+   (fixe ou donnée par la box, qui avertit et conseille le nom), port,
+   écoute, ce qu'on tape sur une caisse (le nom d'abord), pare-feu TCP
+   et UDP, postes connectés. **Changer** le port (40000–40100) ou
+   l'écoute : `parametres:modifier`, **seulement depuis le poste du
+   serveur** (127.0.0.1 / ::1), jamais sur un serveur lancé avec
+   `--port`/`--hote` (le monoposte de D39 : géré par Gescom). Règle pure
+   `coeur/reseau_serveur.rs`.
+3. **Le serveur applique lui-même** : il essaie le nouveau port, réécrit
+   `serveur.json` en gardant le reste (fichier temporaire puis renommage),
+   écrit `reseau_serveur_modifie` à l'Historique (tout ou rien), répond,
+   puis redémarre — en service, en sortant en échec pour la relance de
+   D12 ; lancé à la main, en se relançant avec les mêmes arguments.
+4. **La recherche automatique** : le serveur répond en UDP sur 40000
+   (`decouverte::PORT`, même quand son TCP est ailleurs dans la plage) à
+   `{"q":"gescom","v":1}`, venu du réseau local, 20 fois par seconde au
+   plus : « Gescom Serveur », le nom du poste, ses IPv4, son port, les
+   versions — **rien de la boutique**. Côté caisse, `rechercher_serveurs`
+   (diffusion, /24 du poste, 127.0.0.1 ; 2 s) et le bouton « Rechercher
+   le serveur » (branchement, Paramètres → Réseau) : un clic remplit
+   l'adresse, de préférence le nom du poste s'il mène bien à ce serveur.
+   Le pare-feu ouvre UDP 40000 (Domaine et Privé).
+
+**Précisions prises au passage** (le plus prudent) : un serveur lancé à
+la main sans `--port`/`--hote` lit `port` et `hote` dans `serveur.json`
+(sinon il reprendrait l'ancien port après un changement) ; en service,
+`--hote` passe devant la clé du fichier ; un build de débogage n'écrit
+`serveur.json` que si `GESCOM_SERVEUR_JSON` le désigne (les tests) ; la
+fenêtre de caisse monoposte vérifie aussi le port du service de son poste
+avant de lancer un serveur (jamais deux serveurs sur deux bases).
+
+**Le risque nommé** : changer le port coupe les caisses jusqu'à ce
+qu'elles retrouvent le serveur — l'écran le dit avant, avec le nombre de
+postes connectés et « Rechercher le serveur ». **Pas vu en vrai** : la
+fenêtre, l'accord administrateur, la relance par Windows, la diffusion
+entre deux machines (TESTS-MANUELS, section K).

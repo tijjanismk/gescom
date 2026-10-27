@@ -541,7 +541,9 @@ interface LigneEdit {
   unite_vente_id: string;
   unite_libelle: string;
   quantite: number;
-  prix_unitaire: number;
+  /** `null` : prix d'achat d'une pièce fournisseur, masqué par le
+   *  serveur à qui n'a ni `achats:lire_prix` ni `achats:creer` (C.7). */
+  prix_unitaire: number | null;
   remise_pct: number;
   taux_tva: number;
 }
@@ -573,6 +575,11 @@ function ModalModifierPiece({
   // le refuse de toute facon). Une facture soldee ou validee aussi.
   const estUnBon = piece?.type_piece === "bon_livraison" || piece?.type_piece === "bon_reception";
   const editable = piece?.statut === "brouillon" || (piece?.statut === "emis" && !estUnBon);
+  // C.7 : les prix d'une pièce fournisseur arrivent masqués à qui ne
+  // peut pas les lire. Ses lignes se lisent, mais ne se renvoient pas :
+  // renvoyer un prix inconnu les réécrirait à faux.
+  const [prixMasques, setPrixMasques] = useState(false);
+  const lignesModifiables = editable && !prixMasques;
 
   useEffect(() => {
     if (ouvert && piece) {
@@ -581,10 +588,14 @@ function ModalModifierPiece({
       setDatePiece((piece.date_piece ?? "").slice(0, 10));
       setReference(piece.reference ?? "");
       setLignes([]);
+      setPrixMasques(false);
       if (piece.statut === "brouillon" || (piece.statut === "emis" && !estUnBon)) {
         setChargeLignes(true);
         invoke<LigneEdit[]>("lire_lignes_piece", { pieceId: piece.id })
-          .then(setLignes)
+          .then(ls => {
+            setLignes(ls);
+            setPrixMasques(ls.some(l => l.prix_unitaire == null));
+          })
           .catch(console.error)
           .finally(() => setChargeLignes(false));
       }
@@ -601,15 +612,16 @@ function ModalModifierPiece({
   }
 
   const totalEdit = lignes.reduce(
-    (s, l) => s + Math.round(l.prix_unitaire * l.quantite), 0);
+    (s, l) => s + Math.round((l.prix_unitaire ?? 0) * l.quantite), 0);
 
   async function handleSauvegarder() {
     if (!piece) return;
     setChargement(true);
     try {
       // lignes: null => le Rust ne touche pas aux lignes existantes.
-      // On n'envoie la liste que si on l'a chargee ET modifiee.
-      const lignesEnvoi = editable && lignes.length > 0
+      // On n'envoie la liste que si on l'a chargee ET modifiee — et
+      // jamais avec des prix masqués (C.7).
+      const lignesEnvoi = lignesModifiables && lignes.length > 0
         ? lignes
             .filter(l => l.quantite > 0)
             .map(l => ({
@@ -622,7 +634,7 @@ function ModalModifierPiece({
             }))
         : null;
 
-      if (editable && lignes.length > 0 && lignesEnvoi!.length === 0) {
+      if (lignesModifiables && lignes.length > 0 && lignesEnvoi!.length === 0) {
         await message(
           "Une pièce doit conserver au moins une ligne. " +
           "Pour tout retirer, annulez la pièce.",
@@ -744,21 +756,24 @@ function ModalModifierPiece({
                       <div className="flex-1 min-w-0">
                         <p className="text-sm truncate">{l.article_nom}</p>
                         <p className="text-xs text-muted-foreground">
-                          {fmt(l.prix_unitaire)} / {l.unite_libelle}
+                          {l.prix_unitaire == null ? "prix masqué" : fmt(l.prix_unitaire)} / {l.unite_libelle}
                         </p>
                       </div>
                       <Input type="number" min="0" step="any"
                         value={l.quantite}
+                        disabled={!lignesModifiables}
                         onChange={e => changerQuantite(i, e.target.value)}
                         className="h-8 w-24 text-sm text-right" />
                       <span className="w-28 text-right text-sm font-medium">
-                        {fmt(Math.round(l.prix_unitaire * l.quantite))}
+                        {l.prix_unitaire == null ? "—" : fmt(Math.round(l.prix_unitaire * l.quantite))}
                       </span>
-                      <button onClick={() => retirerLigne(i)}
-                        title="Retirer cette ligne"
-                        className="p-1 text-muted-foreground hover:text-destructive">
-                        <X className="h-4 w-4" />
-                      </button>
+                      {lignesModifiables && (
+                        <button onClick={() => retirerLigne(i)}
+                          title="Retirer cette ligne"
+                          className="p-1 text-muted-foreground hover:text-destructive">
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   ))}
                   {lignes.length === 0 && (
@@ -770,10 +785,11 @@ function ModalModifierPiece({
               )}
               <div className="flex justify-between mt-2 text-sm">
                 <span className="text-muted-foreground">
-                  Retirer une ligne non livrée puis valider — la pièce
-                  d'origine reste liée.
+                  {prixMasques
+                    ? "Les prix d'achat ne sont pas ouverts à votre compte : les lignes se lisent, la note et les dates se modifient."
+                    : "Retirer une ligne non livrée puis valider — la pièce d'origine reste liée."}
                 </span>
-                <strong>{fmt(totalEdit)}</strong>
+                <strong>{prixMasques ? "—" : fmt(totalEdit)}</strong>
               </div>
             </div>
           )}
@@ -1094,15 +1110,19 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
         );
         return;
       }
+      // Lot D.12 : la vente se cherche par le numéro de SA facture, par la
+      // lecture paginée — plus seulement parmi les 50 dernières ventes.
       const [ventes, arts] = await Promise.all([
-        invoke<Vente[]>("lire_ventes_recentes"),
+        invoke<{ donnees: Vente[] }>("lire_ventes_recentes_paginee", {
+          page: 0, limite: 50, recherche: p.numero,
+          periode: null, dateDebut: null, dateFin: null,
+        }),
         invoke<ArticleAchat[]>("lire_articles_avec_unites"),
       ]);
-      const v = ventes.find(x => x.id === venteId);
+      const v = ventes.donnees.find(x => x.id === venteId);
       if (!v) {
         await message(
-          "Vente introuvable dans les ventes récentes. Passer par l'écran " +
-          "Retours pour une vente ancienne.",
+          `La vente de la facture ${p.numero} est introuvable.`,
           { title: "Retour impossible", kind: "warning" },
         );
         return;

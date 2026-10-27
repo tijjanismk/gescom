@@ -76,6 +76,16 @@ export interface DonneesPiece {
 function fmt(n: number, devise = "FCFA"): string {
   return new Intl.NumberFormat("fr-ML").format(n) + " " + devise;
 }
+
+/**
+ * L'acompte imprimé : l'argent réellement versé (`totaux.encaisse`,
+ * calculé par le serveur). `total_paye` compte aussi la dette éteinte
+ * par un retour — il fait le reste dû, pas l'acompte. Un serveur plus
+ * ancien sans `encaisse` retombe sur `total_paye`, comme avant.
+ */
+function acompteRecu(totaux: any): number {
+  return totaux.encaisse ?? totaux.total_paye ?? 0;
+}
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("fr-ML", {
     day: "2-digit", month: "2-digit", year: "numeric",
@@ -208,11 +218,21 @@ function pieceEnPage(
     // payer, meme sans acompte. Le client doit lire sur son document ce
     // qu'il doit encore — c'est la premiere source de litige.
     if (totaux.reste_du > 0 && piece.type_piece === "facture") {
-      if (totaux.total_paye > 0) {
+      // « Acompte reçu » = l'argent versé, seulement. La dette éteinte
+      // par un retour a sa propre ligne : le client n'a rien payé.
+      if (acompteRecu(totaux) > 0) {
         rows.push(`<tr>
           <td style="padding:3px 8px;color:#555">Acompte reçu</td>
           <td style="padding:3px 8px;text-align:right">
-            −${fmt(totaux.total_paye, devise)}
+            −${fmt(acompteRecu(totaux), devise)}
+          </td>
+        </tr>`);
+      }
+      if ((totaux.eteint_par_retour ?? 0) > 0) {
+        rows.push(`<tr>
+          <td style="padding:3px 8px;color:#555">Éteint par retour</td>
+          <td style="padding:3px 8px;text-align:right">
+            −${fmt(totaux.eteint_par_retour, devise)}
           </td>
         </tr>`);
       }
@@ -495,9 +515,13 @@ export function genererTicketThermique(
     <span>${fmt(totaux.total_ttc, devise)}</span>
   </div>
   ${totaux.reste_du > 0 && piece.type_piece === "facture" ? `
-    ${totaux.total_paye > 0 ? `
+    ${acompteRecu(totaux) > 0 ? `
       <div style="display:flex;justify-content:space-between">
-        <span>Acompte reçu</span><span>−${fmt(totaux.total_paye, devise)}</span>
+        <span>Acompte reçu</span><span>−${fmt(acompteRecu(totaux), devise)}</span>
+      </div>` : ""}
+    ${(totaux.eteint_par_retour ?? 0) > 0 ? `
+      <div style="display:flex;justify-content:space-between">
+        <span>Éteint par retour</span><span>−${fmt(totaux.eteint_par_retour, devise)}</span>
       </div>` : ""}
     <div style="border-top:1px solid #000;margin:3px 0"></div>
     <div style="display:flex;justify-content:space-between;font-weight:bold">

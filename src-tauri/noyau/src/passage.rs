@@ -37,9 +37,29 @@ pub fn tiers_a_imprimer(nom: String, code: Option<String>) -> (String, Option<St
     (code.filter(|c| !c.is_empty()).unwrap_or_default(), None)
 }
 
+/// Une coordonnee du tiers (telephone, adresse, NIF) sur le papier d'une
+/// piece ou d'un recu. `nom` est le nom ECRIT sur la piece (fige s'il l'a
+/// ete) : emise a un passant, elle n'en portait aucune — il n'en avait
+/// pas laisse. Elle n'en prend pas parce que sa fiche a, depuis, ete
+/// promue (D35) ou rattachee a un client qui en a (lot D.10).
+pub fn coordonnee_a_imprimer(nom: &str, valeur: Option<String>) -> Option<String> {
+    if nom == NOM {
+        None
+    } else {
+        valeur
+    }
+}
+
 #[cfg(test)]
 mod tests_impression {
     use super::*;
+
+    #[test]
+    fn un_passant_n_a_laisse_aucune_coordonnee() {
+        assert_eq!(coordonnee_a_imprimer(NOM, Some("76 00 00 00".into())), None);
+        assert_eq!(coordonnee_a_imprimer("Awa", Some("76 00 00 00".into())), Some("76 00 00 00".into()));
+        assert_eq!(coordonnee_a_imprimer("Awa", None), None);
+    }
 
     #[test]
     fn le_papier_dit_le_code_jamais_client_de_passage() {
@@ -147,6 +167,9 @@ pub fn lire_passages_sur(base: &mut Base, recherche: Option<String>) -> Result<V
                   WHERE p.tiers_type = 'client' AND p.tiers_id = c.id AND p.dossier_id = ?1)
          FROM client c
          WHERE c.dossier_id = ?1 AND c.statut = ?3
+           -- Lot D.10 : une fiche rattachee a un client est desactivee,
+           -- vide ; elle ne se montre plus.
+           AND c.actif = 1
            AND (CAST(?2 AS TEXT) IS NULL
                 OR LOWER(c.code) LIKE LOWER(?2)
                 OR EXISTS (SELECT 1 FROM piece_commerciale p
@@ -225,6 +248,170 @@ pub fn promouvoir_sur(
     .map_err(|e| e.0)?;
     tx.valider().map_err(|e| e.0)?;
     Ok(serde_json::json!({ "id": client_id, "code": code, "nom": nom }))
+}
+
+/// Lit une fiche pour `coeur::tiers::juger_rattachement`, dans le
+/// dossier ouvert ; rend aussi son code et son nom.
+fn fiche_a_rattacher_sur(
+    acces: &mut impl Acces,
+    client_id: &str,
+) -> Result<Option<(crate::coeur::tiers::FicheARattacher, String, String)>, String> {
+    let dossier = acces.dossier().to_string();
+    acces
+        .lire_une(
+            "SELECT id, est_generique, statut, actif, code, nom FROM client
+             WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![client_id.to_string(), dossier],
+            |r| {
+                Ok((
+                    crate::coeur::tiers::FicheARattacher {
+                        id: r.get::<String>(0)?,
+                        est_generique: r.get::<i64>(1)? != 0,
+                        passage: r.get::<String>(2)? == STATUT,
+                        actif: r.get::<i64>(3)? != 0,
+                    },
+                    r.get::<String>(4)?,
+                    r.get::<String>(5)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)
+}
+
+/// Lot D.10 — « Rattacher a un client » : le passant revenu est un
+/// client qu'on connait deja. Le patron choisit sa fiche ; toute
+/// l'histoire de la fiche de passage y passe, dans UNE transaction :
+/// ventes (et avec elles paiements, retours, cheques, relances), pieces,
+/// avoirs, echanges et rappels du suivi client. Aucune fusion
+/// automatique : un passant n'a ni nom ni telephone pour s'y appuyer.
+///
+/// - Ses factures deja emises gardent le nom ET le code ecrits a leur
+///   emission (`tiers_nom`, `tiers_code`) : elles s'impriment toujours
+///   sous `PAS-…`, sans les coordonnees du client (`tiers_a_imprimer`,
+///   `coordonnee_a_imprimer`). Le reste (listes, fiche, Historique) les
+///   montre chez le client.
+/// - La fiche de passage n'est PAS supprimee : elle est desactivee
+///   (`actif = 0`), vide, hors de toutes les listes. Son code reste pris
+///   (il est imprime sur les tickets du passant) et le journal qui la
+///   nomme se lit encore. Le plus prudent : rien ne s'efface.
+/// - Un prospect qui recoit des ventes devient client (D34).
+/// - Le journal dit qui, quoi, et combien de lignes ont change de fiche.
+/// - L'argent ne bouge pas : la caisse ne voit rien (elle va par session
+///   et par mouvement, pas par client).
+pub fn rattacher_sur(base: &mut Base, passage_id: String, client_id: String) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let maintenant = crate::utils::maintenant_iso();
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
+
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    // Les deux fiches lues DANS la transaction : le jugement porte sur ce
+    // qui sera ecrit.
+    let source = fiche_a_rattacher_sur(&mut tx, &passage_id)?;
+    let cible = fiche_a_rattacher_sur(&mut tx, &client_id)?;
+    crate::coeur::tiers::juger_rattachement(source.as_ref().map(|s| &s.0), cible.as_ref().map(|c| &c.0))?;
+    let (_, code_passage, nom_passage) = source.ok_or("Fiche de passage introuvable dans ce dossier.")?;
+    let (_, code_client, nom_client) = cible.ok_or("Client introuvable dans ce dossier.")?;
+
+    // D'abord la fiche de passage : desactivee seulement si elle est
+    // encore active. Deux rattachements simultanes : le second ne touche
+    // aucune ligne et s'arrete la, sans rien ecrire.
+    let fermee = tx
+        .executer(
+            "UPDATE client SET actif = 0, modifie_le = ?1, modifie_par = ?2
+             WHERE id = ?3 AND dossier_id = ?4 AND statut = ?5 AND actif = 1",
+            &parametres![maintenant.clone(), auteur.clone(), passage_id.clone(), dossier.clone(), STATUT.to_string()],
+        )
+        .map_err(|e| e.0)?;
+    if fermee != 1 {
+        return Err("Cette fiche de passage est déjà rattachée à un client.".to_string());
+    }
+
+    // Ce qui suit les ventes sans porter le client : compte pour le
+    // journal, avant de deplacer.
+    let compter = |tx: &mut crate::base::Transaction<'_>, sql: &str| -> Result<i64, String> {
+        Ok(tx
+            .lire_une(sql, &parametres![passage_id.clone(), dossier.clone()], |r| r.get::<i64>(0))
+            .map_err(|e| e.0)?
+            .unwrap_or(0))
+    };
+    let paiements = compter(
+        &mut tx,
+        "SELECT COUNT(*) FROM paiement pa JOIN vente v ON v.id = pa.vente_id
+         WHERE v.client_id = ?1 AND v.dossier_id = ?2 AND pa.dossier_id = ?2",
+    )?;
+    let retours = compter(
+        &mut tx,
+        "SELECT COUNT(*) FROM retour rt JOIN vente v ON v.id = rt.vente_id
+         WHERE v.client_id = ?1 AND v.dossier_id = ?2 AND rt.dossier_id = ?2",
+    )?;
+
+    // Les pieces emises gardent le nom et le code sous lesquels elles
+    // l'ont ete — AVANT de changer de fiche. Les brouillons suivent la
+    // fiche (ils ne sont pas emis).
+    tx.executer(
+        "UPDATE piece_commerciale
+         SET tiers_nom = COALESCE(tiers_nom, ?1), tiers_code = COALESCE(tiers_code, ?2)
+         WHERE tiers_type = 'client' AND tiers_id = ?3 AND dossier_id = ?4
+           AND statut <> 'brouillon'",
+        &parametres![nom_passage.clone(), code_passage.clone(), passage_id.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+
+    // Toutes les tables qui pointent un client (schema.sql) : `vente`,
+    // `piece_commerciale` (tiers), `avoir`, `echange`, `rappel`. Les
+    // autres (paiement, retour, cheque_recu, relance_creance,
+    // creance_irrecouvrable, mouvement_caisse) pointent la vente ou
+    // l'operation, et suivent. Le journal est append-only : il garde ce
+    // qu'il a ecrit.
+    let mut deplacer = |sql: &str| -> Result<u64, String> {
+        tx.executer(sql, &parametres![client_id.clone(), passage_id.clone(), dossier.clone()])
+            .map_err(|e| e.0)
+    };
+    let ventes = deplacer("UPDATE vente SET client_id = ?1 WHERE client_id = ?2 AND dossier_id = ?3")?;
+    let pieces = deplacer(
+        "UPDATE piece_commerciale SET tiers_id = ?1
+         WHERE tiers_type = 'client' AND tiers_id = ?2 AND dossier_id = ?3",
+    )?;
+    let avoirs = deplacer("UPDATE avoir SET client_id = ?1 WHERE client_id = ?2 AND dossier_id = ?3")?;
+    let echanges = deplacer("UPDATE echange SET client_id = ?1 WHERE client_id = ?2 AND dossier_id = ?3")?;
+    let rappels = deplacer("UPDATE rappel SET client_id = ?1 WHERE client_id = ?2 AND dossier_id = ?3")?;
+
+    // D34 : un prospect devient client a sa premiere vente.
+    if ventes > 0 {
+        crate::argent::prospect_devient_client_sur(&mut tx, &client_id, &dossier, &maintenant)?;
+    }
+
+    let deplaces = serde_json::json!({
+        "ventes": ventes, "pieces": pieces, "paiements": paiements, "retours": retours,
+        "avoirs": avoirs, "echanges": echanges, "rappels": rappels,
+    });
+    tx.executer(
+        "INSERT INTO journal
+           (id, type_evenement, entite_type, entite_id, auteur_id,
+            ancien_valeur, nouveau_valeur, origine, date_evenement, dossier_id)
+         VALUES (?1,'passage_rattache','client',?2,?3,?4,?5,'app',?6,?7)",
+        &parametres![
+            uuid::Uuid::new_v4().to_string(),
+            client_id.clone(),
+            auteur,
+            serde_json::json!({ "passage_id": passage_id, "code": code_passage, "nom": nom_passage }).to_string(),
+            serde_json::json!({ "client_id": client_id, "code": code_client, "nom": nom_client, "deplaces": deplaces })
+                .to_string(),
+            maintenant,
+            dossier
+        ],
+    )
+    .map_err(|e| e.0)?;
+    tx.valider().map_err(|e| e.0)?;
+
+    Ok(serde_json::json!({
+        "passage_id": passage_id,
+        "passage_code": code_passage,
+        "client_id": client_id,
+        "client_code": code_client,
+        "client_nom": nom_client,
+        "deplaces": deplaces,
+    }))
 }
 
 // =====================================================================

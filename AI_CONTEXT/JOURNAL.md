@@ -2504,3 +2504,98 @@ terminé). Au passage, `postgres_amorcage::le_compte_limite_ne_voit…`,
 rouge sur ce poste depuis le début (il attendait le refus en anglais,
 ce PostgreSQL répond en français), accepte les deux : 22/22 sur
 `gescom_test`. **Pas vu à l'écran.**
+
+## 27/10/2026 (soir) — les lots A à E, et le serveur sur 40000–40100
+
+Les cinq sessions des lots n'ont jamais démarré : créées disque plein
+(1,2 Go libres, 5,4 Go par worktree). Place libérée (19,6 Go : caches
+de compilation régénérables, restes d'essais), puis, à la demande du
+propriétaire (« on fait ici seulement les lots »), les lots faits ici
+l'un après l'autre, chacun par un agent, relu et rejoué ensuite. Les
+quatre questions ouvertes du plan prises dans le sens proposé : retour
+déduit à sa date, horloge qui refuse, caisse par utilisateur retirée,
+`gescom.db` seulement plus ouvert.
+
+**A — la CSP, puis le port (D39).** Élargir `connect-src` à `http:
+https:` a été refusé par le contrôle de sécurité. Le propriétaire a
+choisi le port 7300 seul, puis : « prends un autre port dans une plage
+de 40000 à 40100 », repli automatique, 7300 abandonné. La CSP des deux
+fenêtres énumère les 101 ports (`tests/plage_de_ports.rs` la compare à
+`protocole`) ; le serveur local du poste qui garde la base prend le
+suivant libre et `poste.json` le retient (sans sonder toute la plage :
+sous Windows une connexion refusée sur 127.0.0.1 coûte deux secondes) ;
+une caisse réglée en 7300 redemande une fois ; installeur et pare-feu
+ouvrent la plage. **Vérifié sur le build release** : la CSP compilée
+porte la plage ; appliquée par Edge à une page locale, elle joint le
+serveur release sur 40000 et refuse un témoin hors plage (39999, CORS
+ouvert) et 7300. La vraie fenêtre release refuse de tourner hors d'une
+installation (la garde) : **pas essayée installée**.
+
+**B — des chiffres justes après un retour.** CA net = ventes − retours
+datés dans la période (tableau de bord, courbe, rapport mensuel, tops) ;
+l'échange ne se déduit pas (son remplacement n'est pas une vente). La
+dette éteinte par un retour (`paiement.mode = 'retour'`) n'est plus
+« payée » : Relances, fiche et liste clients, « Acompte reçu » imprimé
+(+ « Éteint par retour »). D41 se solde dans la transaction du règlement
+qui crée le résidu, sur tous les chemins de règlement.
+
+**C — garde-fous.** L'horloge : plus de 5 min de recul sur la dernière
+écriture → toute écriture refusée ; le piège d'une heure réglée en
+avance puis corrigée a son geste du patron (Paramètres → Horloge, au
+journal). La caisse par utilisateur est retirée (refusée net, un tiroir
+par dossier). `lire_lignes_piece` masque les prix d'achat. « Stock non
+suivi » dans les écrans d'achat.
+
+**D — les données.** Le nom du fournisseur figé sur ses pièces émises ;
+« Rattacher à un client » une fiche de passage (toute son histoire, la
+fiche désactivée, nom et code figés sur ses pièces) ; la colonne
+« suivre le stock » de l'import CSV (refuse plutôt que de faire reprendre
+un suivi sans comptage) ; Retours paginé par 50.
+
+**E — le ménage.** La fenêtre n'ouvre plus `gescom.db` ; les 182 façades
+`Connection` refusent au même endroit (le grand nettoyage reste à
+faire). L'essai à la main a son dossier (`essai-main.ps1`, 40050), le
+banc marque les siens et `-Neuf` refuse le reste ; la base d'essai a été
+**copiée** (empreintes identiques), l'ancien dossier attend une décision
+à la main.
+
+**Trouvé en route** : `src-tauri/binaires/` gardait un serveur du 20/09,
+recopié sans erreur dans `target/<profil>` à chaque construction de la
+fenêtre — `preparer_serveur.ps1` l'a remplacé ; voir ALERTES. Ce qui
+reste (TVA des retours, relevé client, facture réglée par avoir, dette
+fournisseur en brouillon, en-tête CSV partiel…) est listé dans ALERTES.
+
+**Preuves** : `retours_chiffres_base` 9, `garde_fous_base` 6,
+`donnees_base` 6 sur SQLite, PostgreSQL et compte limité ; noyau SQLite
+complet vert ; **noyau PostgreSQL complet 748/748** (62 séries) ;
+serveur 11 + routes 14 ; fenêtre `gescom` 20 ; `tsc`
+propre ; essai release de la CSP ci-dessus. **Rien vu à l'écran.**
+
+## 27/10/2026 (nuit) — D40, la fenêtre « Gescom Serveur » et la recherche automatique
+
+Le propriétaire : « pour l'IP et le port, une interface graphique dédiée
+à mon serveur, comme sur Ciel », puis : comment Ciel fait-il découvrir
+le serveur ? Vérifié dans les guides de Sage et les forums : rien
+d'automatique — le client désigne le serveur par son nom sur le réseau
+local, ce que Gescom accepte déjà. Proposé mieux, accepté : la recherche
+automatique. Choix écrits avant, acceptés (D40).
+
+La coque de D25, jamais construite, l'est : une fenêtre sans base qui
+affiche la console du serveur et, quand il ne répond pas, propose de
+démarrer le service. La console gagne son panneau Réseau ; le changement
+de port ou d'écoute ne se fait que depuis le poste du serveur, par le
+patron, et c'est le serveur qui réécrit `serveur.json` et redémarre. La
+recherche répond en UDP sur 40000 sans rien dire de la boutique ; la
+caisse a son bouton « Rechercher le serveur ». Fait par un agent (coupé
+une fois par une panne réseau, repris là où il était), relu et rejoué.
+
+**Trouvé au passage** : la lecture des règles de pare-feu ne voyait pas
+40057 dans « 40000-40100 » (corrigé, toute langue de Windows) ; et
+`check --package gescom` recopie le serveur de `binaires/` sur
+`target\debug\gescom-serveur.exe` — `binaires/` refait par
+`preparer_serveur.ps1` après ce chantier.
+
+**Preuves** : `coeur::reseau_serveur` et `decouverte` (règles pures) ;
+serveur 13 + routes 18 ; `gescom-serveur-fenetre` 2 ; `plage_de_ports` 3
+(la CSP de la nouvelle fenêtre et sa copie de la plage) ; noyau 291 ;
+`tsc` propre. **Pas vu en vrai** — section K de TESTS-MANUELS.

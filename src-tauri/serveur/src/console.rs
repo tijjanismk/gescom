@@ -9,7 +9,7 @@
 //! tourner sans écran.
 //!
 //! Le serveur parle déjà HTTP. Il sert donc sa propre page : le patron
-//! ouvre `http://localhost:7300` sur le poste principal — ou l'adresse
+//! ouvre `http://localhost:40000` sur le poste principal — ou l'adresse
 //! du serveur depuis n'importe quelle caisse — et voit l'état, les
 //! postes connectés, la dernière sauvegarde. Zéro dépendance ajoutée,
 //! et ça marche depuis le téléphone posé sur le comptoir.
@@ -64,8 +64,8 @@ pub fn page(port: u16) -> String {
   <section class="carte">
     <h2>Pour brancher une caisse</h2>
     <p class="aide">
-      Sur le poste caisse : <b>Paramètres → Réseau → Poste caisse</b>,
-      puis cette adresse.
+      Sur le poste caisse : <b>Paramètres → Réseau → « Rechercher le
+      serveur »</b>, ou saisir cette adresse.
     </p>
     <p><code id="adresse">…:{port}</code></p>
     <p class="aide" id="note-parefeu"></p>
@@ -94,6 +94,41 @@ pub fn page(port: u16) -> String {
   <section class="carte cachee" id="carte-sessions">
     <h2>Sessions ouvertes</h2>
     <div id="sessions"></div>
+  </section>
+
+  <section class="carte cachee" id="carte-reseau">
+    <h2>Réseau</h2>
+    <dl id="reseau-etat"><dt>Lecture…</dt><dd></dd></dl>
+    <div id="reseau-avertissements"></div>
+    <h3>Sur les caisses, taper</h3>
+    <div id="reseau-a-saisir" class="a-saisir"></div>
+    <p class="aide">
+      Ou, sur la caisse&nbsp;: Paramètres → Réseau → « Rechercher le
+      serveur ». Le nom du poste vaut mieux que l'adresse IP&nbsp;: il ne
+      change pas quand la box redistribue les adresses.
+    </p>
+    <h3>Changer le port ou l'écoute</h3>
+    <p id="reseau-pourquoi" class="aide"></p>
+    <form id="form-reseau" class="form-reseau">
+      <label class="champ">Port
+        <input id="reseau-port" type="number" min="40000" max="40100" step="1" inputmode="numeric">
+      </label>
+      <fieldset>
+        <legend>Écouter</legend>
+        <label class="choix"><input type="radio" name="ecoute" value="0.0.0.0">
+          sur toutes les cartes réseau — les caisses le joignent</label>
+        <label class="choix"><input type="radio" name="ecoute" value="127.0.0.1">
+          sur ce poste seulement — aucune caisse ne le joint</label>
+      </fieldset>
+      <div><button type="submit" id="btn-reseau">Appliquer…</button>
+        <button type="button" id="btn-reseau-actualiser" class="discret-neutre">Actualiser</button></div>
+    </form>
+    <div id="reseau-confirmation" class="confirmation cachee" role="alertdialog" aria-labelledby="reseau-confirmation-texte">
+      <p id="reseau-confirmation-texte"></p>
+      <div><button type="button" id="btn-reseau-confirmer">Changer et redémarrer le serveur</button>
+        <button type="button" id="btn-reseau-annuler" class="discret-neutre">Annuler</button></div>
+    </div>
+    <p id="reseau-resultat" class="aide" role="status"></p>
   </section>
 
   <section class="carte cachee" id="carte-actions">
@@ -206,6 +241,22 @@ button.discret-neutre { margin-left:auto; }
 .journal .AVERT, .journal .POSTE { color:var(--ambre); }
 .journal .INFO { color:var(--gris); }
 footer { text-align:center; color:var(--gris); font-size:12px; padding:20px; }
+.avert { color:var(--ambre); font-size:13px; margin:8px 0; padding:8px 10px;
+         border:1px solid var(--ambre); border-radius:6px; }
+.a-saisir { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.a-saisir .note { color:var(--gris); font-size:12px; }
+.form-reseau { flex-direction:column; align-items:flex-start; gap:10px; }
+.form-reseau .champ { display:flex; align-items:center; gap:8px; }
+.form-reseau .champ input { flex:none; width:110px; min-width:0; }
+fieldset { border:1px solid var(--filet); border-radius:6px; padding:6px 12px; margin:0; }
+legend { color:var(--gris); font-size:13px; padding:0 4px; }
+.choix { display:flex; align-items:center; gap:8px; padding:4px 0; }
+.choix input { flex:none; min-width:0; width:auto; }
+button:disabled { opacity:.5; cursor:not-allowed; }
+.confirmation { margin-top:12px; padding:12px; border:1px solid var(--ambre);
+                border-radius:6px; }
+.confirmation p { margin:0 0 10px; }
+.confirmation.cachee { display:none; }
 "#;
 
 const SCRIPT: &str = r#"
@@ -277,10 +328,11 @@ $("form-connexion").addEventListener("submit", async (e) => {
     jeton = c.jeton;
     moiPoste = c.poste_id;
     $("carte-identite").classList.add("cachee");
-    for (const id of ["carte-postes", "carte-sessions", "carte-actions", "carte-journal"])
+    for (const id of ["carte-postes", "carte-sessions", "carte-reseau", "carte-actions", "carte-journal"])
       $(id).classList.remove("cachee");
     rafraichirSupervision();
     rafraichirJournal();
+    rafraichirReseau();
   } catch (err) {
     $("erreur").textContent = String(err);
     $("motdepasse").value = "";
@@ -321,7 +373,7 @@ async function rafraichirSupervision() {
     jeton = null;
     $("carte-identite").classList.remove("cachee");
     $("erreur").textContent = String(err);
-    for (const id of ["carte-postes", "carte-sessions", "carte-actions", "carte-journal"])
+    for (const id of ["carte-postes", "carte-sessions", "carte-reseau", "carte-actions", "carte-journal"])
       $(id).classList.add("cachee");
   }
 }
@@ -425,6 +477,181 @@ for (const b of document.querySelectorAll("button.niveau")) {
   });
 }
 $("btn-journal").addEventListener("click", rafraichirJournal);
+
+// ---- Le reseau du serveur (27/10/2026) ----
+// Tout s'ecrit en TEXTE : un nom de carte reseau vient du systeme, il ne
+// doit rien pouvoir injecter dans la page.
+let reseau = null;
+let demandeReseau = null;
+
+function etatRegle(v) {
+  return v === true ? "ouverte" : v === false ? "FERMÉE" : "inconnue";
+}
+
+function ajouterLigne(dl, terme, valeur) {
+  const dt = document.createElement("dt");
+  dt.textContent = terme;
+  const dd = document.createElement("dd");
+  dd.textContent = valeur;
+  dl.append(dt, dd);
+}
+
+function afficherReseau(c) {
+  const dl = $("reseau-etat");
+  dl.replaceChildren();
+  ajouterLigne(dl, "Nom du poste", c.poste || "—");
+  if (!c.cartes.length) ajouterLigne(dl, "Adresse IP", "aucune : ce poste n'est joignable que par lui-même");
+  for (const k of c.cartes) {
+    ajouterLigne(dl, "Adresse IP" + (k.carte ? " (" + k.carte + ")" : ""),
+      k.ip + (k.dhcp ? " · donnée par la box" : " · fixe") + (k.principale ? " · principale" : ""));
+  }
+  ajouterLigne(dl, "Port", String(c.port));
+  ajouterLigne(dl, "Écoute", c.ecoute + " — " + c.ecoute_libelle);
+  ajouterLigne(dl, "Pare-feu, caisses (TCP " + c.plage[0] + "-" + c.plage[1] + ")", etatRegle(c.parefeu.tcp));
+  ajouterLigne(dl, "Pare-feu, recherche (UDP " + c.decouverte.port + ")", etatRegle(c.parefeu.udp));
+  ajouterLigne(dl, "Recherche automatique", c.decouverte.active
+    ? "en service (UDP " + c.decouverte.port + ")" : "arrêtée — " + (c.decouverte.raison || ""));
+  ajouterLigne(dl, "Lancé", c.en_service ? "en service Windows" : "à la main");
+  if (c.configuration) ajouterLigne(dl, "Réglage", c.configuration);
+
+  const av = $("reseau-avertissements");
+  av.replaceChildren();
+  const avertir = (t) => {
+    const p = document.createElement("p");
+    p.className = "avert";
+    p.textContent = t;
+    av.append(p);
+  };
+  if (c.avertissement_dhcp) avertir(c.avertissement_dhcp);
+  if (c.parefeu.tcp === false) {
+    avertir("Le pare-feu de Windows n'a pas de règle « Gescom serveur » pour le port " + c.port +
+      " : les caisses recevront « Serveur injoignable ». Réinstaller Gescom Serveur, ou, en administrateur : " +
+      "outils\\parefeu.ps1 -Ouvrir.");
+  }
+  if (c.parefeu.udp === false) {
+    avertir("La recherche automatique (UDP " + c.decouverte.port + ") est fermée par le pare-feu : " +
+      "« Rechercher le serveur » ne trouvera pas ce poste depuis les caisses.");
+  }
+
+  const z = $("reseau-a-saisir");
+  z.replaceChildren();
+  if (!c.a_saisir.length) {
+    const p = document.createElement("p");
+    p.className = "aide";
+    p.textContent = "Le serveur n'écoute que ce poste : aucune caisse ne peut le joindre.";
+    z.append(p);
+  }
+  c.a_saisir.forEach((a, i) => {
+    const code = document.createElement("code");
+    code.textContent = a;
+    z.append(code);
+    if (i === 0 && c.a_saisir.length > 1) {
+      const n = document.createElement("span");
+      n.className = "note";
+      n.textContent = "conseillé ;";
+      z.append(n);
+    }
+  });
+
+  $("reseau-port").value = c.port;
+  for (const r of document.querySelectorAll('input[name="ecoute"]')) r.checked = r.value === c.ecoute;
+  for (const el of $("form-reseau").elements) {
+    if (el.id !== "btn-reseau-actualiser") el.disabled = !c.modifiable;
+  }
+  $("reseau-pourquoi").textContent = c.pourquoi_pas ||
+    "Port de " + c.plage[0] + " à " + c.plage[1] + ". Le serveur redémarre sur le nouveau réglage ; " +
+    "les caisses devront le retrouver.";
+}
+
+async function rafraichirReseau() {
+  if (!jeton) return;
+  try {
+    const r = await fetch("/reseau", { headers: { "Authorization": "Bearer " + jeton } });
+    const c = await r.json();
+    if (!r.ok) throw c.message || "Lecture refusée";
+    reseau = c;
+    afficherReseau(c);
+  } catch (e) {
+    $("reseau-resultat").textContent = String(e);
+  }
+}
+
+$("btn-reseau-actualiser").addEventListener("click", () => {
+  $("reseau-resultat").textContent = "";
+  rafraichirReseau();
+});
+
+$("form-reseau").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!reseau) return;
+  $("reseau-resultat").textContent = "";
+  const port = Number($("reseau-port").value);
+  const choix = document.querySelector('input[name="ecoute"]:checked');
+  const ecoute = choix ? choix.value : reseau.ecoute;
+  if (!Number.isInteger(port) || port < reseau.plage[0] || port > reseau.plage[1]) {
+    $("reseau-resultat").textContent = "Choisir un port de " + reseau.plage[0] + " à " + reseau.plage[1] + ".";
+    return;
+  }
+  if (port === reseau.port && ecoute === reseau.ecoute) {
+    $("reseau-resultat").textContent = "Rien ne change.";
+    return;
+  }
+  const n = reseau.postes_connectes;
+  const qui = n === 0 ? "Aucun autre poste n'est connecté en ce moment."
+    : n === 1 ? "1 autre poste est connecté : il perdra le serveur."
+    : n + " autres postes sont connectés : ils perdront le serveur.";
+  $("reseau-confirmation-texte").textContent = qui +
+    " Le serveur va redémarrer sur le port " + port +
+    (ecoute === "127.0.0.1" ? ", pour ce poste seulement : aucune caisse ne le joindra plus." : ".") +
+    " Pendant le redémarrage" + (reseau.en_service ? " (quelques secondes, jusqu'à une minute)" : "") +
+    ", personne ne peut vendre. Ensuite, sur chaque caisse : Paramètres → Réseau → « Rechercher le serveur » " +
+    "(ou taper la nouvelle adresse).";
+  demandeReseau = { port, ecoute };
+  $("reseau-confirmation").classList.remove("cachee");
+  $("btn-reseau-confirmer").focus();
+});
+
+$("btn-reseau-annuler").addEventListener("click", () => {
+  demandeReseau = null;
+  $("reseau-confirmation").classList.add("cachee");
+});
+
+$("btn-reseau-confirmer").addEventListener("click", async () => {
+  if (!demandeReseau) return;
+  $("btn-reseau-confirmer").disabled = true;
+  $("reseau-resultat").textContent = "Enregistrement…";
+  try {
+    const r = await fetch("/reseau", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + jeton },
+      body: JSON.stringify(demandeReseau),
+    });
+    const c = await r.json();
+    if (!r.ok || c.etat !== "ok") throw c.message || "Changement refusé";
+    $("reseau-confirmation").classList.add("cachee");
+    $("reseau-resultat").textContent = "Enregistré. Le serveur redémarre sur le port " + c.port +
+      "… cette page se rouvrira toute seule.";
+    attendreEtRouvrir(c.console, c.attente_max_s || 60);
+  } catch (e) {
+    $("reseau-resultat").textContent = String(e);
+    $("btn-reseau-confirmer").disabled = false;
+  }
+});
+
+// La console se rouvre sur le nouveau port des que le serveur y repond.
+async function attendreEtRouvrir(adresse, max) {
+  const sante = adresse.replace(/\/console$/, "/sante");
+  const debut = Date.now();
+  while (Date.now() - debut < max * 1000) {
+    await new Promise((ok) => setTimeout(ok, 1500));
+    try {
+      const r = await fetch(sante, { cache: "no-store" });
+      if (r.ok) { location.href = adresse; return; }
+    } catch (e) { /* pas encore */ }
+  }
+  $("reseau-resultat").textContent = "Le serveur ne répond pas encore à " + adresse +
+    ". Regarder son journal, ou relancer Gescom Serveur.";
+}
 
 rafraichirEtat();
 // Dix secondes : assez pour voir une caisse se connecter, assez peu

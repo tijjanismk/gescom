@@ -127,6 +127,16 @@ mention de pied, « Imprimé le », les styles propres et le contenu.
   répéter dessous — `lire_donnees_piece` et le reçu (deux versions), et
   le bon d'échange côté écran. Vaut aussi pour une facture émise avant
   une promotion, dont le nom est figé.
+- **Le tiers écrit à l'émission** (lots D.9-D.10, 27/10/2026) : la
+  pièce imprimée et le reçu lisent `COALESCE(pc.tiers_nom, nom de la
+  fiche)` côté client **et fournisseur**, et `COALESCE(pc.tiers_code,
+  code)` côté client (un passant rattaché à un client garde son
+  `PAS-…`). Une pièce dont le nom figé est « Client de passage »
+  n'imprime ni téléphone, ni adresse, ni NIF
+  (`passage::coordonnee_a_imprimer`) — même si la fiche a été promue ou
+  rattachée à un client qui en a. Deux versions de `lire_donnees_piece`
+  et de `lire_donnees_recu`. Limite : un reçu d'une vente **sans** pièce
+  lit encore la fiche d'aujourd'hui.
 
 Commandes : `enregistrer_filigrane_documents { reglage }`,
 `poser_image_filigrane { image | null }` (`parametres:modifier`) ;

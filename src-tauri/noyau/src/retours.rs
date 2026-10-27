@@ -370,6 +370,9 @@ pub fn enregistrer_retour_sur(
             "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
             rusqlite::params![statut, maintenant, vente_id],
         ).ok();
+        // D41 : un retour qui laisse 5 F au plus sur la dette la solde,
+        // dans cette transaction, avec sa trace.
+        crate::creances::solder_residu(&tx, &vente_id, &utilisateur_id, &maintenant)?;
     }
 
     // D40 — un avoir au comptant atterrit dans le pot commun
@@ -1502,6 +1505,10 @@ pub fn enregistrer_retour_sur_base(
             )?;
         }
     }
+    // D41 : le retour qui eteint la dette a 5 F pres la solde ici.
+    if l.part_creance > 0 {
+        crate::creances::solder_residu_sur(&mut tx, &vente_id, &utilisateur_id, &maintenant)?;
+    }
 
     tx.valider().map_err(|e| e.0)?;
 
@@ -1563,6 +1570,11 @@ pub fn enregistrer_retour_groupe_sur_base(
     // article sous le plafond ne fait pas un remboursement permis.
     if part_especes > 0 {
         crate::plafonds::exiger_remboursement_sur(&mut tx, part_especes)?;
+    }
+    // D41 : une fois TOUT le geste ecrit — pas article par article, ou
+    // un residu solde au premier serait eteint par le suivant.
+    if somme(|l| l.part_creance) > 0 {
+        crate::creances::solder_residu_sur(&mut tx, &vente_id, &utilisateur_id, &maintenant)?;
     }
 
     tx.valider().map_err(|e| e.0)?;

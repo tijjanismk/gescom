@@ -16,7 +16,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle, Database, Loader2, MonitorSmartphone, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { appeler as invoke, definirServeur, etatReseau, ADRESSE_LOCALE } from "@/lib/pont";
+import { appeler as invoke, definirServeur, etatReseau, synchroniserConfig, ADRESSE_LOCALE } from "@/lib/pont";
 
 /** Ce poste garde la base : écrit dans poste.json, puis aligne le pont. */
 export async function garderLaBase() {
@@ -130,6 +130,10 @@ export function PageServeurLocal({ onPret, onCaisse }: PropsLocal) {
     let annule = false;
     setErreur("");
     invoke("demarrer_serveur_local")
+      // Le serveur a pu prendre un autre port de la plage que 40000
+      // (D39) : Rust l'a écrit dans poste.json, le pont le relit avant
+      // le premier appel.
+      .then(() => synchroniserConfig())
       .then(() => { if (!annule) onPret(); })
       .catch(e => { if (!annule) setErreur(String(e)); });
     return () => { annule = true; };

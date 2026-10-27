@@ -296,9 +296,14 @@ CREATE TABLE IF NOT EXISTS piece_commerciale (
     modifie_le       TEXT NOT NULL,
     origine          TEXT NOT NULL DEFAULT 'app',
     -- D35 : le nom du tiers tel qu'il etait ecrit a l'emission. Pose
-    -- au premier renommage du client (passage::figer_noms) ; NULL tant
-    -- que la fiche n'a pas change de nom — on lit alors la fiche.
-    tiers_nom        TEXT
+    -- au premier renommage du client (passage::figer_noms) ou du
+    -- fournisseur (fournisseurs::figer_noms, lot D.9) ; NULL tant que la
+    -- fiche n'a pas change de nom — on lit alors la fiche.
+    tiers_nom        TEXT,
+    -- Lot D.10 : le code du client tel qu'il etait ecrit a l'emission.
+    -- Pose quand une fiche de passage est rattachee a un client
+    -- (passage::rattacher_sur) : sa facture garde son PAS-…
+    tiers_code       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ligne_piece (

@@ -28,6 +28,7 @@ import { noterImpression, marque, refusImpression } from "@/lib/duplicata";
 import { genreDePiece } from "@/lib/documents";
 import {
   genererReleveHTML, genererHistoriqueReglementsHTML, type DonneesReleve,
+  MODE_ETEINT_PAR_RETOUR,
 } from "@/lib/genererReleve";
 import { ApercuPiece } from "@/components/ApercuPiece";
 import { ApercuRecu } from "@/components/ApercuRecu";
@@ -108,6 +109,7 @@ function fmt(n: number) {
 const MOYENS: Record<string, string> = {
   especes: "Espèces", orange_money: "Orange Money",
   moov_money: "Moov Money", cheque: "Chèque", avoir: "Avoir",
+  [MODE_ETEINT_PAR_RETOUR]: "Retour (dette éteinte)",
 };
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("fr-ML", {
@@ -814,8 +816,15 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
   const critereActif = !!regDu || !!regAu || regMoyen !== "tous"
     || !!regFacture.trim();
 
-  /** Ce qui est réellement entré sur la période affichée. */
-  const totalFiltre = reglementsFiltres.reduce((s, r) => s + r.montant, 0);
+  /**
+   * Ce qui est réellement entré sur la période affichée. La dette
+   * éteinte par un retour (mode « retour ») n'est pas de l'argent reçu :
+   * elle se montre à part, sous le total.
+   */
+  const eteintFiltre = reglementsFiltres
+    .filter(r => r.mode === MODE_ETEINT_PAR_RETOUR)
+    .reduce((s, r) => s + r.montant, 0);
+  const totalFiltre = reglementsFiltres.reduce((s, r) => s + r.montant, 0) - eteintFiltre;
 
   async function imprimerHistorique() {
     if (!fiche) return;
@@ -1379,6 +1388,18 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
                   </span>
                 </span>
                 <span className="font-bold">{fmt(totalFiltre)}</span>
+              </div>
+            )}
+            {eteintFiltre !== 0 && (
+              <div className="flex items-center justify-between px-4 py-2
+                              border border-border rounded-lg text-sm">
+                <span>
+                  Éteint par retour
+                  <span className="text-xs text-muted-foreground ml-1">
+                    (marchandise rendue, aucun argent reçu)
+                  </span>
+                </span>
+                <span className="font-medium">{fmt(eteintFiltre)}</span>
               </div>
             )}
 

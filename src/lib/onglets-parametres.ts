@@ -30,6 +30,9 @@ export const ONGLETS_PARAMETRES = [
   { key: "utilisateurs",  label: "Utilisateurs",  icone: Users,           droit: "utilisateurs:gerer" },
   { key: "roles",         label: "Rôles",         icone: Shield,          droit: "utilisateurs:gerer" },
   { key: "sauvegarde",    label: "Sauvegarde",    icone: HardDrive,       droit: "sauvegarde:lancer" },
+  // Lot C.5 : l'heure de l'ordinateur qui garde la base ; le patron y
+  // confirme l'heure quand une référence est restée dans le futur.
+  { key: "horloge",       label: "Horloge",       icone: Clock,           droit: "parametres:modifier" },
   { key: "reseau",        label: "Réseau",        icone: Network,         droit: "postes:gerer" },
   // v3 (D-3) : les sociétés, avec leurs dates de travail (D21).
   { key: "dossiers",      label: "Dossiers",      icone: FolderOpen,      droit: "dossiers:gerer" },

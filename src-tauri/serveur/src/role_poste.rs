@@ -75,7 +75,7 @@ pub fn raison_de_s_effacer(
     ))
 }
 
-/// « 192.168.1.10:7300 » → « 192.168.1.10 » ; « [::1]:7300 » → « ::1 ».
+/// « 192.168.1.10:40000 » → « 192.168.1.10 » ; « [::1]:40000 » → « ::1 ».
 fn hote_de(serveur: &str) -> &str {
     if let Some(reste) = serveur.strip_prefix('[') {
         return reste.split(']').next().unwrap_or("");
@@ -120,13 +120,13 @@ mod tests {
 
     #[test]
     fn la_caisse_d_un_autre_poste_s_efface() {
-        let r = raison_de_s_effacer(Some(&json("poste", "192.168.1.10:7300")), &ici(), personne);
-        assert!(r.unwrap().contains("192.168.1.10:7300"));
+        let r = raison_de_s_effacer(Some(&json("poste", "192.168.1.10:40000")), &ici(), personne);
+        assert!(r.unwrap().contains("192.168.1.10:40000"));
     }
 
     #[test]
     fn le_poste_qui_garde_la_base_tourne() {
-        assert!(raison_de_s_effacer(Some(&json("monoposte", "127.0.0.1:7300")), &ici(), personne).is_none());
+        assert!(raison_de_s_effacer(Some(&json("monoposte", "127.0.0.1:40000")), &ici(), personne).is_none());
     }
 
     #[test]
@@ -140,7 +140,7 @@ mod tests {
     fn une_caisse_branchee_sur_elle_meme_est_le_poste_principal() {
         // Le reglage du proprietaire avant la revision : « poste »
         // sur 127.0.0.1. Son serveur doit continuer de tourner.
-        for s in ["127.0.0.1:7300", "localhost:7300", "LOCALHOST", "[::1]:7300", "::1", "192.168.1.20:7300", "0.0.0.0:7300"] {
+        for s in ["127.0.0.1:40000", "localhost:40000", "LOCALHOST", "[::1]:40000", "::1", "192.168.1.20:40000", "0.0.0.0:40000"] {
             assert!(raison_de_s_effacer(Some(&json("poste", s)), &ici(), personne).is_none(), "{s}");
         }
     }
@@ -149,10 +149,10 @@ mod tests {
     fn un_nom_de_machine_se_resout_et_dans_le_doute_on_tourne() {
         let principal = |h: &str| if h == "caisse-principale" { vec!["192.168.1.10".parse().unwrap()] } else { vec![] };
         let moi = |h: &str| if h == "moi" { vec!["192.168.1.20".parse().unwrap()] } else { vec![] };
-        assert!(raison_de_s_effacer(Some(&json("poste", "caisse-principale:7300")), &ici(), principal).is_some());
-        assert!(raison_de_s_effacer(Some(&json("poste", "moi:7300")), &ici(), moi).is_none());
+        assert!(raison_de_s_effacer(Some(&json("poste", "caisse-principale:40000")), &ici(), principal).is_some());
+        assert!(raison_de_s_effacer(Some(&json("poste", "moi:40000")), &ici(), moi).is_none());
         // Nom introuvable (reseau coupe au demarrage) : on tourne.
-        assert!(raison_de_s_effacer(Some(&json("poste", "inconnu:7300")), &ici(), personne).is_none());
+        assert!(raison_de_s_effacer(Some(&json("poste", "inconnu:40000")), &ici(), personne).is_none());
     }
 
     #[test]

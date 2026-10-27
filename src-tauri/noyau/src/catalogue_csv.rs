@@ -27,8 +27,67 @@ use crate::utils::maintenant_iso;
 // sortait sur plusieurs lignes de meme nom et revenait avec toutes ses
 // unites ecrasees a facteur 1. Colonne facultative a l'import — un
 // fichier au format v1.3 reste lisible, facteur 1 par defaut.
+//
+// `Suivre le stock` ajoutee au lot D.11 (D36), EN DERNIER : un fichier
+// sans en-tete garde l'ordre v1.3. Facultative a l'import : absente ou
+// vide, un article cree suit son stock et un article existant garde son
+// reglage.
 const ENTETE: &str =
-    "Nom;Categorie;Unite;Facteur;Prix;Prix achat;TVA %;Code barre;Stock";
+    "Nom;Categorie;Unite;Facteur;Prix;Prix achat;TVA %;Code barre;Stock;Suivre le stock";
+
+/// Ce que la colonne « Suivre le stock » ecrit a l'export.
+fn suivi_ecrit(gere_en_stock: i64) -> &'static str {
+    if gere_en_stock != 0 { "oui" } else { "non" }
+}
+
+/// La colonne « Suivre le stock », par son nom seulement (elle n'existe
+/// pas dans l'ordre v1.3). « Suivre le stock », « Suivre stock » et
+/// « Gere en stock » designent la meme.
+fn champ_suivi<'a>(ch: &'a [String], cols: &std::collections::HashMap<String, usize>) -> Option<&'a str> {
+    ["suivrelestock", "suivrestock", "gereenstock"]
+        .iter()
+        .find_map(|nom| cols.get(*nom))
+        .and_then(|i| ch.get(*i))
+        .map(|s| s.trim())
+}
+
+/// La valeur de la colonne lue pour une ligne, ou le refus de la ligne
+/// (D36 : une valeur illisible n'est pas devinee).
+fn suivi_de_la_ligne(
+    ch: &[String],
+    cols: &std::collections::HashMap<String, usize>,
+    num: usize,
+    nom: &str,
+) -> Result<Option<bool>, String> {
+    match champ_suivi(ch, cols) {
+        None => Ok(None),
+        Some(v) => crate::coeur::stock::lire_suivi_csv(v).map_err(|e| format!("Ligne {} « {} » : {}", num, nom, e)),
+    }
+}
+
+/// Le refus d'une ligne qui changerait le suivi d'un article existant :
+/// cesser ou reprendre passe par Parametres → Articles (D36 : la
+/// permission reservee, le comptage de chaque magasin pour reprendre, la
+/// trace). L'import ne fait pas semblant de le faire.
+fn refus_changement_suivi(num: usize, nom: &str, suivi_actuel: bool) -> String {
+    format!(
+        "Ligne {} « {} » : l'article existe et {} son stock ; l'import ne change pas ce réglage \
+         (Paramètres → Articles, « Suivre le stock »). Ligne ignorée.",
+        num,
+        nom,
+        if suivi_actuel { "suit" } else { "ne suit pas" }
+    )
+}
+
+/// Le refus de creer un article non suivi sans le droit de regler le
+/// suivi (D36 : `parametres:modifier`).
+fn refus_creation_non_suivie(num: usize, nom: &str) -> String {
+    format!(
+        "Ligne {} « {} » : créer un article qui ne suit pas son stock demande le droit de \
+         modifier les paramètres. Ligne ignorée.",
+        num, nom
+    )
+}
 
 pub fn echapper(v: &str) -> String {
     // Un champ commencant par =, +, -, @ (ou tab/CR) est interprete
@@ -65,7 +124,8 @@ pub fn exporter_articles_csv(
                 -- l'article pour l'unite de base (D45).
                 COALESCE(uv.code_barre, a.code_barre, ''),
                 COALESCE((SELECT SUM(sd.quantite) FROM stock_depot sd
-                          WHERE sd.article_id = a.id), 0)
+                          WHERE sd.article_id = a.id), 0),
+                a.gere_en_stock
          FROM article a
          LEFT JOIN categorie c ON c.id = a.categorie_id
          LEFT JOIN unite_vente uv ON uv.article_id = a.id AND uv.actif = 1
@@ -78,7 +138,7 @@ pub fn exporter_articles_csv(
         let facteur: f64 = r.get(3)?;
         let taux: f64 = r.get(6)?;
         Ok(format!(
-            "{};{};{};{};{};{};{};{};{}",
+            "{};{};{};{};{};{};{};{};{};{}",
             echapper(&r.get::<_, String>(0)?),   // Nom
             echapper(&r.get::<_, String>(1)?),   // Categorie
             echapper(&r.get::<_, String>(2)?),   // Unite
@@ -94,6 +154,7 @@ pub fn exporter_articles_csv(
             (taux * 100.0).round() as i64,       // TVA %
             echapper(&r.get::<_, String>(7)?),   // Code barre
             r.get::<_, f64>(8)?,                 // Stock
+            suivi_ecrit(r.get::<_, i64>(9)?),    // Suivre le stock (D36)
         ))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
@@ -261,6 +322,30 @@ pub fn importer_articles_csv(
         let stock = champ(&ch, &cols, "stock", Some(7))
             .and_then(parser_decimal).unwrap_or(0.0);
 
+        // D36, lot D.11 : « Suivre le stock », jugee AVANT toute ecriture
+        // de la ligne (categorie comprise).
+        let suivi = match suivi_de_la_ligne(&ch, &cols, num, nom) {
+            Ok(s) => s,
+            Err(e) => { erreurs.push(e); continue; }
+        };
+
+        // Article existant ? On compare sur le nom, insensible a la casse.
+        let existant: Option<(String, i64)> = tx.query_row(
+            "SELECT id, gere_en_stock FROM article WHERE lower(nom) = lower(?1)",
+            rusqlite::params![nom], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).ok();
+        match (&existant, suivi) {
+            (Some((_, actuel)), Some(voulu)) if maj && (*actuel != 0) != voulu => {
+                erreurs.push(refus_changement_suivi(num, nom, *actuel != 0));
+                continue;
+            }
+            // La fenetre monoposte n'a pas de droits par commande : le
+            // patron y est seul (le serveur, lui, exige
+            // `parametres:modifier`, voir la version `Base`).
+            _ => {}
+        }
+        let existant = existant.map(|(id, _)| id);
+
         // Categorie : creee si absente.
         let cat_id: Option<String> = if categorie.is_empty() {
             None
@@ -283,12 +368,6 @@ pub fn importer_articles_csv(
                 }
             }
         };
-
-        // Article existant ? On compare sur le nom, insensible a la casse.
-        let existant: Option<String> = tx.query_row(
-            "SELECT id FROM article WHERE lower(nom) = lower(?1)",
-            rusqlite::params![nom], |r| r.get(0),
-        ).ok();
 
         match existant {
             Some(art_id) if maj => {
@@ -342,18 +421,36 @@ pub fn importer_articles_csv(
             Some(_) => { /* maj desactivee : on ignore */ }
             None => {
                 let art_id = uuid::Uuid::new_v4().to_string();
+                // D36 : suivi par defaut ; « non » le cree hors des
+                // ecrans de stock, et l'Historique le dit.
+                let suivre = suivi.unwrap_or(true);
                 tx.execute(
                     "INSERT INTO article
                      (id, nom, categorie_id, unite_base, gere_en_stock, attributs,
                       dernier_prix_achat, code_barre, actif,
                       cree_le, modifie_le, cree_par, modifie_par, origine,
                       taux_tva_defaut)
-                     VALUES (?1,?2,?3,?4,1,'{}',?5,?6,1,?7,?8,'import','import','import',?9)",
+                     VALUES (?1,?2,?3,?4,?10,'{}',?5,?6,1,?7,?8,'import','import','import',?9)",
                     rusqlite::params![
                         art_id, nom, cat_id, unite, prix_achat, code_barre,
-                        now, now, tva
+                        now, now, tva, suivre as i64
                     ],
                 ).map_err(|e| e.to_string())?;
+                if !suivre {
+                    tx.execute(
+                        "INSERT INTO journal
+                         (id, type_evenement, entite_type, entite_id, auteur_id,
+                          ancien_valeur, nouveau_valeur, origine, date_evenement)
+                         VALUES (?1,'suivi_stock_change','article',?2,?3,?4,?5,'import',?6)",
+                        rusqlite::params![
+                            uuid::Uuid::new_v4().to_string(), art_id,
+                            crate::argent::id_utilisateur_courant_pub(&tx),
+                            serde_json::json!({ "nom": nom }).to_string(),
+                            serde_json::json!({ "suivi": false, "cree_par_import": true }).to_string(),
+                            now
+                        ],
+                    ).map_err(|e| e.to_string())?;
+                }
 
                 tx.execute(
                     "INSERT INTO unite_vente
@@ -491,7 +588,8 @@ pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String>
                     COALESCE(a.taux_tva_defaut, 0.0),
                     COALESCE(uv.code_barre, a.code_barre, ''),
                     CAST(COALESCE((SELECT SUM(sd.quantite) FROM stock_depot sd
-                                   WHERE sd.article_id = a.id AND sd.dossier_id = ?1), 0) AS DOUBLE PRECISION)
+                                   WHERE sd.article_id = a.id AND sd.dossier_id = ?1), 0) AS DOUBLE PRECISION),
+                    a.gere_en_stock
              FROM article a
              LEFT JOIN categorie c ON c.id = a.categorie_id
              LEFT JOIN unite_vente uv ON uv.article_id = a.id AND uv.actif = 1
@@ -502,7 +600,7 @@ pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String>
                 let facteur: f64 = r.get::<f64>(3)?;
                 let taux: f64 = r.get::<f64>(6)?;
                 Ok(format!(
-                    "{};{};{};{};{};{};{};{};{}",
+                    "{};{};{};{};{};{};{};{};{};{}",
                     echapper(&r.get::<String>(0)?),
                     echapper(&r.get::<String>(1)?),
                     echapper(&r.get::<String>(2)?),
@@ -512,6 +610,8 @@ pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String>
                     (taux * 100.0).round() as i64,
                     echapper(&r.get::<String>(7)?),
                     r.get::<f64>(8)?,
+                    // D36 : « Suivre le stock », relue a l'import.
+                    suivi_ecrit(r.get::<i64>(9)?),
                 ))
             },
         )
@@ -519,14 +619,20 @@ pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String>
     Ok(format!("\u{FEFF}{}\n{}", ENTETE, lignes.join("\n")))
 }
 
+/// `peut_ne_pas_suivre` : l'appelant a-t-il le droit de regler le suivi
+/// du stock (`parametres:modifier`, D36) ? Sans lui, une ligne « Suivre
+/// le stock : non » qui creerait un article est refusee — le serveur le
+/// juge, l'ecran ne protege rien (D27).
 pub fn importer_articles_csv_sur_base(
     base: &mut Base,
     contenu: String,
     mettre_a_jour: Option<bool>,
+    peut_ne_pas_suivre: bool,
 ) -> Result<serde_json::Value, String> {
     let dossier = base.dossier().to_string();
     let maj = mettre_a_jour.unwrap_or(true);
     let now = maintenant_iso();
+    let auteur = crate::argent::id_utilisateur_courant_sur(base);
     let depot_defaut: String = base
         .lire_une(
             "SELECT id FROM depot WHERE est_defaut = 1 AND dossier_id = ?1 LIMIT 1",
@@ -596,6 +702,38 @@ pub fn importer_articles_csv_sur_base(
         let code_barre = champ(&ch, &cols, "codebarre", Some(6)).filter(|s| !s.is_empty()).map(|s| s.to_string());
         let stock = champ(&ch, &cols, "stock", Some(7)).and_then(parser_decimal).unwrap_or(0.0);
 
+        // D36, lot D.11 : « Suivre le stock », jugee AVANT toute ecriture
+        // de la ligne (categorie comprise).
+        let suivi = match suivi_de_la_ligne(&ch, &cols, num, nom) {
+            Ok(s) => s,
+            Err(e) => {
+                erreurs.push(e);
+                continue;
+            }
+        };
+
+        let existant: Option<(String, i64)> = tx
+            .lire_une(
+                "SELECT id, gere_en_stock FROM article WHERE LOWER(nom) = LOWER(?1)",
+                &parametres![nom],
+                |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?)),
+            )
+            .map_err(|e| e.0)?;
+        match (&existant, suivi) {
+            // Un article existant ne change pas de suivi par l'import.
+            (Some((_, actuel)), Some(voulu)) if maj && (*actuel != 0) != voulu => {
+                erreurs.push(refus_changement_suivi(num, nom, *actuel != 0));
+                continue;
+            }
+            // Le creer non suivi : le droit de regler le suivi.
+            (None, Some(false)) if !peut_ne_pas_suivre => {
+                erreurs.push(refus_creation_non_suivie(num, nom));
+                continue;
+            }
+            _ => {}
+        }
+        let existant = existant.map(|(id, _)| id);
+
         // Categorie : creee si absente.
         let cat_id: Option<String> = if categorie.is_empty() {
             None
@@ -621,10 +759,6 @@ pub fn importer_articles_csv_sur_base(
                 }
             }
         };
-
-        let existant: Option<String> = tx
-            .lire_une("SELECT id FROM article WHERE LOWER(nom) = LOWER(?1)", &parametres![nom], |r| r.get::<String>(0))
-            .map_err(|e| e.0)?;
 
         match existant {
             Some(art_id) if maj => {
@@ -668,15 +802,36 @@ pub fn importer_articles_csv_sur_base(
             Some(_) => {}
             None => {
                 let art_id = uuid::Uuid::new_v4().to_string();
+                // D36 : suivi par defaut ; « non » le cree hors des
+                // ecrans de stock, et l'Historique le dit.
+                let suivre = suivi.unwrap_or(true);
                 tx.executer(
                     "INSERT INTO article
                      (id, nom, categorie_id, unite_base, gere_en_stock, attributs,
                       dernier_prix_achat, code_barre, actif,
                       cree_le, modifie_le, cree_par, modifie_par, origine, taux_tva_defaut)
-                     VALUES (?1,?2,CAST(?3 AS TEXT),?4,1,'{}',CAST(?5 AS BIGINT),CAST(?6 AS TEXT),1,?7,?7,'import','import','import',?8)",
-                    &parametres![art_id.clone(), nom, cat_id, unite, prix_achat, code_barre, now.clone(), tva],
+                     VALUES (?1,?2,CAST(?3 AS TEXT),?4,?9,'{}',CAST(?5 AS BIGINT),CAST(?6 AS TEXT),1,?7,?7,'import','import','import',?8)",
+                    &parametres![art_id.clone(), nom, cat_id, unite, prix_achat, code_barre, now.clone(), tva, suivre as i64],
                 )
                 .map_err(|e| e.0)?;
+                if !suivre {
+                    tx.executer(
+                        "INSERT INTO journal
+                           (id, type_evenement, entite_type, entite_id, auteur_id,
+                            ancien_valeur, nouveau_valeur, origine, date_evenement, dossier_id)
+                         VALUES (?1,'suivi_stock_change','article',?2,?3,?4,?5,'import',?6,?7)",
+                        &parametres![
+                            uuid::Uuid::new_v4().to_string(),
+                            art_id.clone(),
+                            auteur.clone(),
+                            serde_json::json!({ "nom": nom }).to_string(),
+                            serde_json::json!({ "suivi": false, "cree_par_import": true }).to_string(),
+                            now.clone(),
+                            dossier.clone()
+                        ],
+                    )
+                    .map_err(|e| e.0)?;
+                }
                 tx.executer(
                     "INSERT INTO unite_vente
                      (id, article_id, libelle, facteur, prix_reference, actif,

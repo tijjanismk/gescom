@@ -1,6 +1,7 @@
 //! L'etat partage entre tous les fils du serveur.
 
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 
 use gescom_noyau::base::Base;
@@ -28,6 +29,24 @@ pub struct Serveur {
     pub jetons: Mutex<HashMap<String, String>>,
     /// Le port ecoute, pour que la console sache s'annoncer.
     pub port: u16,
+    /// L'ecoute : « 0.0.0.0 » (toutes les cartes), « 127.0.0.1 » (ce
+    /// poste seulement), ou une adresse reglee a la main.
+    pub hote: String,
+    /// Le port et l'ecoute viennent de `serveur.json` (ou du defaut), que
+    /// le panneau Reseau de la console peut reecrire. Faux quand `--port`
+    /// ou `--hote` les ont fixes : le fichier n'y changerait rien.
+    pub reseau_modifiable: bool,
+    /// Lance par le gestionnaire de services Windows (D12).
+    pub en_service: bool,
+    /// Pose par `POST /reseau` une fois la reponse partie : la boucle
+    /// s'arrete et le serveur redemarre sur le nouveau reglage.
+    pub redemarrage: AtomicBool,
+    /// La recherche automatique (UDP) : `Ok(port)` en ecoute, sinon
+    /// pourquoi non — pour le panneau Reseau.
+    pub decouverte: Mutex<Result<u16, String>>,
+    /// Un changement de reseau a la fois : deux clics ne reecrivent pas
+    /// `serveur.json` deux fois de travers.
+    pub changement_reseau: Mutex<()>,
     pub demarre_le: String,
     pub derniere_sauvegarde: Mutex<Option<String>>,
     /// Les erreurs des caisses : dix par minute et par poste (B-2).

@@ -220,6 +220,9 @@ fn tables_v2(base: &mut Base) {
         "ALTER TABLE fournisseur ADD COLUMN est_generique INTEGER NOT NULL DEFAULT 0",
         // D35 : le nom du tiers fige a l'emission (25/10).
         "ALTER TABLE piece_commerciale ADD COLUMN tiers_nom TEXT",
+        // Lot D.10 : le code du client fige a l'emission (27/10) — une
+        // facture d'un passant rattache a un client garde son PAS-…
+        "ALTER TABLE piece_commerciale ADD COLUMN tiers_code TEXT",
     ] {
         let _ = base.executer(&adapter(sql), &[]);
     }

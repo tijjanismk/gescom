@@ -15,7 +15,8 @@ Deux étages à ne pas confondre :
 |---|---|---|---|
 | [ModalsRetour.tsx](../../src/components/ModalsRetour.tsx) | 491 | Pieces, Retours | `enregistrer_retour_groupe` — `ModalRetour` : les articles de la vente à cocher (déjà revenu dit, grisé s'il ne reste rien), rembourser / avoir / échange (articles pris), bilan rendu par le serveur, bon d'échange |
 | [OngletChantiers.tsx](../../src/components/OngletChantiers.tsx) | 795 | Parametres | TVA, dettes, irrécouvrable, avoirs expirés — exporte **4** onglets |
-| [ModalNouvellePiece.tsx](../../src/components/ModalNouvellePiece.tsx) | 652 | Pieces | création de pièce |
+| [ModalNouvellePiece.tsx](../../src/components/ModalNouvellePiece.tsx) | 652 | Pieces | création de pièce ; un article non suivi (D36) dit « stock non suivi » dans la recherche et « non suivi » sur sa ligne (lot C.8) |
+| [OngletHorloge.tsx](../../src/components/OngletHorloge.tsx) | 140 | Parametres | `lire_horloge`, `confirmer_horloge` (lot C.5) : heure de l'ordinateur qui garde la base, dernière écriture ; quand l'écriture est bloquée, le bouton du patron « L'heure de Windows est juste » après confirmation |
 | [ParametresSociete.tsx](../../src/components/ParametresSociete.tsx) | 464 | Parametres | identité, logo, en-tête, pied, signatures |
 | [OngletDepots.tsx](../../src/components/OngletDepots.tsx) | 418 | Parametres | CRUD dépôt complet |
 | [RetourFournisseur.tsx](../../src/components/RetourFournisseur.tsx) | 352 | Retours | `enregistrer_retour_fournisseur` |
@@ -85,10 +86,31 @@ composants maison (effet verre, tuiles de KPI).
   `PageServeurLocal` qui joint ou lance le serveur de la machine (D22/D24
   révisés).
 - `ListePassages.tsx` — Clients → « Passages » : fiches de passage par
-  code ou numéro de facture, « Passer en client ordinaire » (D35).
+  code ou numéro de facture, « Passer en client ordinaire » (D35) et
+  « Rattacher à un client » (lot D.10) : une fenêtre cherche un client
+  ordinaire (`lire_clients_pagines`, nom ou téléphone, 8 résultats), dit
+  ce qui va passer et que le geste ne se défait pas, puis
+  `rattacher_passage` ; le message rend le compte des lignes déplacées.
+  Les deux boutons suivent `clients:modifier`.
+- `OngletImportExport.tsx` — le format décrit la colonne facultative
+  « Suivre le stock » (lot D.11).
 - `OngletMenu.tsx` + `lib/menu.ts` — Paramètres → Menu : ce que le menu
   du dossier cache ; `Layout` (menu et Ctrl K) suit `estCache` (D37).
 - `SuiviStockArticle.tsx` — Paramètres → Articles : suivre ou non le
   stock d'un article, reprise par comptage de chaque magasin (D36) ;
   Stock → « Non suivis » ; la caisse (Ventes) ne signale ni rupture ni
   découvert pour un article non suivi.
+
+## Ajouts du 27/10/2026
+
+- `RechercheServeur.tsx` — le bouton « Rechercher le serveur » : commande
+  LOCALE `rechercher_serveurs` (`pont.ts::LOCALES`, diffusion UDP 40000,
+  `src-tauri/src/reseau.rs`), liste des serveurs trouvés (nom du poste,
+  IP, version ; hors plage ou autre protocole désactivé ou signalé) ; un
+  clic rend l'adresse conseillée (le nom s'il mène à ce serveur, sinon
+  l'IP) au parent, qui la **teste** (`tester_serveur`) avant tout
+  enregistrement. Rien trouvé : les trois causes probables (pare-feu UDP,
+  autre réseau, serveur arrêté) et la saisie à la main. Absent hors de
+  Tauri (`estDansTauri`, exportée de `pont.ts`). Dans `PageServeur`
+  (branchement d'une caisse) et `OngletReseau` (poste caisse). Fiche :
+  [serveur-fenetre.md](serveur-fenetre.md).

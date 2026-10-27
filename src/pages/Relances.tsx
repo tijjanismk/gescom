@@ -30,8 +30,17 @@ interface Creance {
   vente_id: string; date_vente: string; statut: string;
   client_id: string; client_nom: string; client_code: string;
   telephone?: string; facture_num?: string;
+  // `total_paye` compte la dette éteinte par un retour (c'est lui qui
+  // fait le reste dû) ; `encaisse` est l'argent vraiment versé, et
+  // `eteint_par_retour` ce que les retours ont éteint — à montrer à part.
   total: number; total_paye: number; reste: number;
+  encaisse?: number; eteint_par_retour?: number;
   jours_retard: number; nb_relances: number; derniere_relance?: string;
+}
+
+/** L'argent vraiment versé : jamais la dette éteinte par un retour. */
+function encaisseDe(c: Creance): number {
+  return c.encaisse ?? c.total_paye - (c.eteint_par_retour ?? 0);
 }
 
 interface Relance {
@@ -576,9 +585,14 @@ export function Relances() {
                     {/* Montant */}
                     <div className="text-right shrink-0">
                       <p className="text-sm font-bold text-orange-600">{fmt(c.reste)}</p>
-                      {c.total_paye > 0 && (
+                      {encaisseDe(c) > 0 && (
                         <p className="text-xs text-muted-foreground">
-                          payé {fmt(c.total_paye)}
+                          payé {fmt(encaisseDe(c))}
+                        </p>
+                      )}
+                      {(c.eteint_par_retour ?? 0) > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          éteint par retour {fmt(c.eteint_par_retour ?? 0)}
                         </p>
                       )}
                     </div>
@@ -628,10 +642,16 @@ export function Relances() {
                         <span>Total facture</span>
                         <span className="font-medium text-foreground">{fmt(c.total)}</span>
                       </div>
-                      {c.total_paye > 0 && (
+                      {encaisseDe(c) > 0 && (
                         <div className="flex justify-between">
                           <span>Acomptes reçus</span>
-                          <span className="text-green-600">{fmt(c.total_paye)}</span>
+                          <span className="text-green-600">{fmt(encaisseDe(c))}</span>
+                        </div>
+                      )}
+                      {(c.eteint_par_retour ?? 0) > 0 && (
+                        <div className="flex justify-between">
+                          <span>Éteint par retour</span>
+                          <span>{fmt(c.eteint_par_retour ?? 0)}</span>
                         </div>
                       )}
                       <div className="flex justify-between font-medium text-foreground

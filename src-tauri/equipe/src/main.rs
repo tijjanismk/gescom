@@ -12,8 +12,29 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::Manager;
 
-/// Le port par defaut du serveur Gescom (`gescom_noyau::protocole`).
-const PORT_DEFAUT: u16 = 7300;
+/// La plage du serveur Gescom (D39), recopiee de `gescom_noyau::protocole`
+/// — Equipe ne depend pas du noyau. `noyau/tests/plage_de_ports.rs`
+/// verifie que la copie suit.
+const PORT_DEFAUT: u16 = 40000;
+const PORT_MAX: u16 = 40100;
+
+/// L'adresse de `poste.json` si son port est dans la plage (sans port :
+/// `PORT_DEFAUT`). Un ancien reglage en 7300 (abandonne le 27/10/2026)
+/// n'est plus joignable par la fenetre.
+fn joignable(adresse: &str) -> bool {
+    // Meme lecture que `protocole::port_ecrit` : « [::1]:40000 »,
+    // « 192.168.1.10:40000 » ; une IPv6 nue n'a pas de port.
+    let hote = adresse.trim().trim_start_matches("http://").split('/').next().unwrap_or("");
+    let port = match hote.strip_prefix('[') {
+        Some(reste) => reste.split_once("]:").map(|(_, p)| p),
+        None if hote.matches(':').count() == 1 => hote.split_once(':').map(|(_, p)| p),
+        None => None,
+    };
+    match port {
+        None => true,
+        Some(p) => p.trim().parse::<u16>().map(|p| (PORT_DEFAUT..=PORT_MAX).contains(&p)).unwrap_or(false),
+    }
+}
 
 /// Ce que la page attend (`src/lib/pont.ts`, `lire_config_reseau`).
 #[derive(Serialize)]
@@ -88,9 +109,13 @@ fn lire_config_reseau(app: tauri::AppHandle) -> Result<ConfigReseau, String> {
         .app_data_dir()
         .map_err(|e| format!("Répertoire de données introuvable : {e}"))?;
     let gescom = poste_gescom(&nos_donnees);
-    // Toujours « poste » : Equipe n'a pas de base locale (D28).
-    let serveur = if gescom.mode == "poste" && !gescom.serveur.trim().is_empty() {
-        gescom.serveur.trim().to_string()
+    // Toujours « poste » : Equipe n'a pas de base locale (D28). Le
+    // serveur de la caisse de ce poste — en monoposte, le serveur local
+    // au port qu'il a pris dans la plage (D39) —, sinon celui de cette
+    // machine au port par defaut.
+    let ecrit = gescom.serveur.trim();
+    let serveur = if (gescom.mode == "poste" || gescom.mode == "monoposte") && !ecrit.is_empty() && joignable(ecrit) {
+        ecrit.to_string()
     } else {
         format!("127.0.0.1:{PORT_DEFAUT}")
     };

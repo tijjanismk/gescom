@@ -57,8 +57,11 @@ pub fn lire_toutes_pieces_client(
         lier(&mut conditions, "pc.statut = ?n", s.clone());
     }
     if let Some(ref r) = recherche {
+        // Lot D.10 : aussi le code fige (le PAS-… d'un passant rattache a
+        // un client, que son ticket porte toujours).
         lier(&mut conditions,
             "(pc.numero LIKE ?n OR c.nom LIKE ?n OR c.code LIKE ?n \
+              OR COALESCE(pc.tiers_code, '') LIKE ?n \
               OR COALESCE(pc.reference, '') LIKE ?n)",
             format!("%{r}%"));
     }
@@ -237,13 +240,19 @@ pub fn lire_lignes_piece(
     conn: &rusqlite::Connection,
     piece_id: String,
 ) -> Result<Vec<serde_json::Value>, String> {
+    // `tiers_type` sur chaque ligne (lot C.7) : c'est ce qui permet au
+    // serveur de masquer les prix d'une piece FOURNISSEUR a qui n'a pas
+    // le droit de les lire (`coeur::lecture`), sans toucher a ceux d'une
+    // piece client.
     let mut stmt = conn.prepare(
         "SELECT lp.id, lp.article_id, a.nom,
                 lp.unite_vente_id, uv.libelle, uv.facteur,
                 lp.quantite, lp.prix_unitaire,
                 lp.remise_pct, lp.remise_montant,
-                lp.taux_tva, lp.montant_tva, lp.montant_ht
+                lp.taux_tva, lp.montant_tva, lp.montant_ht,
+                pc.tiers_type
          FROM ligne_piece lp
+         JOIN piece_commerciale pc ON pc.id = lp.piece_id
          JOIN article a ON a.id = lp.article_id
          JOIN unite_vente uv ON uv.id = lp.unite_vente_id
          WHERE lp.piece_id = ?1 ORDER BY lp.cree_le"
@@ -264,6 +273,7 @@ pub fn lire_lignes_piece(
             "taux_tva":       row.get::<_,f64>(10)?,
             "montant_tva":    row.get::<_,i64>(11)?,
             "montant_ht":     row.get::<_,i64>(12)?,
+            "tiers_type":     row.get::<_,String>(13)?,
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
     Ok(x)
@@ -1074,19 +1084,29 @@ pub fn lire_donnees_piece(
         (String, Option<String>, Option<String>, Option<String>, Option<String>) =
         if tiers_type == "client" {
             conn.query_row(
-                // D35 : le nom ecrit a l'emission, s'il a ete fige.
+                // D35 : le nom (et le code, lot D.10) ecrits a l'emission,
+                // s'ils ont ete figes.
                 "SELECT COALESCE((SELECT tiers_nom FROM piece_commerciale WHERE id = ?2), nom),
-                        code, telephone, adresse, nif FROM client WHERE id = ?1",
+                        COALESCE((SELECT tiers_code FROM piece_commerciale WHERE id = ?2), code),
+                        telephone, adresse, nif FROM client WHERE id = ?1",
                 rusqlite::params![tiers_id, piece_id],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             ).map_err(|_| "Client introuvable".to_string())?
         } else {
             conn.query_row(
-                "SELECT nom, NULL, telephone, adresse, nif FROM fournisseur WHERE id = ?1",
-                rusqlite::params![tiers_id],
+                // Lot D.9 : le nom du fournisseur ecrit a l'emission.
+                "SELECT COALESCE((SELECT tiers_nom FROM piece_commerciale WHERE id = ?2), nom),
+                        NULL, telephone, adresse, nif FROM fournisseur WHERE id = ?1",
+                rusqlite::params![tiers_id, piece_id],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             ).map_err(|_| "Fournisseur introuvable".to_string())?
         };
+    // Une piece emise a un passant n'imprime ni telephone, ni adresse, ni
+    // NIF : il n'en avait pas laisse (lot D.10 — la fiche a pu etre
+    // promue ou rattachee depuis).
+    let tiers_telephone = crate::passage::coordonnee_a_imprimer(&tiers_nom, tiers_telephone);
+    let tiers_adresse = crate::passage::coordonnee_a_imprimer(&tiers_nom, tiers_adresse);
+    let tiers_nif = crate::passage::coordonnee_a_imprimer(&tiers_nom, tiers_nif);
 
     // Clés conservées `client_*` pour ne pas casser le générateur HTML
     // frontend (genererPieceHTML/genererTicketThermique), qui ne
@@ -1223,6 +1243,20 @@ pub fn lire_donnees_piece(
         ).unwrap_or(0)
     };
     let reste_du = crate::coeur::calcul::reste_exigible(total_ttc, total_paye);
+    // La part de `total_paye` qu'un retour a eteinte (paiement `mode =
+    // 'retour'`) : elle fait le reste du, mais ce n'est pas un acompte —
+    // le papier l'imprime sur sa propre ligne. Zero cote fournisseur.
+    let eteint_par_retour: i64 = if tiers_type == "client" {
+        conn.query_row(
+            "SELECT CAST(COALESCE(SUM(p.montant), 0) AS INTEGER)
+             FROM paiement p
+             JOIN vente v ON v.id = p.vente_id
+             WHERE v.piece_id = ?1 AND p.mode = 'retour'",
+            rusqlite::params![piece_id], |r| r.get(0),
+        ).unwrap_or(0)
+    } else {
+        0
+    };
 
     let societe = conn.query_row(
         "SELECT nom, adresse, telephone, telephone2, email, nif, rccm,
@@ -1254,6 +1288,10 @@ pub fn lire_donnees_piece(
             "total_net":      total_net,
             "total_ttc":      total_ttc,
             "total_paye":     total_paye,
+            // « Acompte recu » = l'argent verse ; la dette eteinte par un
+            // retour a sa ligne. Le reste du ne change pas.
+            "encaisse":       crate::coeur::calcul::encaisse(total_paye, eteint_par_retour),
+            "eteint_par_retour": eteint_par_retour,
             "reste_du":       reste_du,
         }
     }))
@@ -1298,6 +1336,17 @@ pub fn lire_fiche_client(
         rusqlite::params![client_id],
         |r| Ok((r.get(0)?, r.get(1)?)),
     ).unwrap_or((0, 0));
+    // Net de ce que le client a rendu (coeur::calcul::ca_net) : sans
+    // cela, un client qui rapporte tout passait pour un gros client.
+    let retours: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(SUM(rt.montant_credit), 0) AS INTEGER)
+         FROM retour rt JOIN vente v ON v.id = rt.vente_id
+         WHERE v.client_id = ?1 AND v.statut != 'annulee'
+           AND rt.mode_resolution <> ?2",
+        rusqlite::params![client_id, crate::coeur::calcul::RETOUR_HORS_CA],
+        |r| r.get(0),
+    ).unwrap_or(0);
+    let ca_total = crate::coeur::calcul::ca_net(ca_total, retours);
 
     let encours: i64 = conn.query_row(
         "SELECT CAST(COALESCE(SUM(
@@ -1389,8 +1438,10 @@ pub fn lire_toutes_pieces_fournisseur(
         lier(&mut conditions, "pc.statut = ?n", s.clone());
     }
     if let Some(ref r) = recherche {
+        // Lot D.9 : le nom d'aujourd'hui comme celui ecrit sur la piece.
         lier(&mut conditions,
             "(pc.numero LIKE ?n OR f.nom LIKE ?n \
+              OR COALESCE(pc.tiers_nom, '') LIKE ?n \
               OR COALESCE(pc.reference, '') LIKE ?n)",
             format!("%{r}%"));
     }
@@ -1403,7 +1454,9 @@ pub fn lire_toutes_pieces_fournisseur(
     let sql = format!(
         "SELECT pc.id, pc.type_piece, pc.numero, pc.statut,
                 pc.date_piece, pc.date_echeance, pc.remise_globale, pc.note,
-                f.id as tiers_id, f.nom as tiers_nom,
+                -- Lot D.9 : une piece emise garde le nom du fournisseur
+                -- ecrit a son emission (fige au renommage).
+                f.id as tiers_id, COALESCE(pc.tiers_nom, f.nom) as tiers_nom,
                 COALESCE(f.telephone, '') as tiers_code,
                 CAST(COALESCE(
                   (SELECT SUM(lp.montant_ht) FROM ligne_piece lp WHERE lp.piece_id = pc.id), 0
@@ -2470,7 +2523,7 @@ const RETOURS_SQL: &str = "
 /// `total_paye` la garde — c'est elle qui fait le reste du ; « Paye »
 /// a l'ecran ne doit pas la compter comme de l'argent entre.
 fn encaisse_de_liste(total_paye: i64, eteint_par_retour: i64) -> i64 {
-    total_paye - eteint_par_retour
+    crate::coeur::calcul::encaisse(total_paye, eteint_par_retour)
 }
 
 /// Le champ `retour` d'une ligne de liste, lu en 21..25 : l'etat, et ou
@@ -2529,7 +2582,9 @@ pub fn lire_toutes_pieces_client_sur_base(
                 OR LOWER(pc.numero) LIKE LOWER('%' || ?3 || '%')
                 OR LOWER(COALESCE(pc.reference, '')) LIKE LOWER('%' || ?3 || '%')
                 OR LOWER(c.nom)     LIKE LOWER('%' || ?3 || '%')
-                OR LOWER(c.code)    LIKE LOWER('%' || ?3 || '%'))
+                OR LOWER(c.code)    LIKE LOWER('%' || ?3 || '%')
+                -- Lot D.10 : le code fige d'un passant rattache.
+                OR LOWER(COALESCE(pc.tiers_code, '')) LIKE LOWER('%' || ?3 || '%'))
            AND (CAST(?4 AS TEXT) IS NULL OR pc.date_piece >= ?4)
            AND (CAST(?5 AS TEXT) IS NULL OR pc.date_piece <= ?5)
            AND (CAST(?6 AS TEXT) IS NULL OR pc.tiers_id = ?6)
@@ -2600,7 +2655,8 @@ pub fn lire_toutes_pieces_fournisseur_sur_base(
     let sql = format!(
         "SELECT pc.id, pc.type_piece, pc.numero, pc.statut,
                 pc.date_piece, pc.date_echeance, pc.remise_globale, pc.note,
-                f.id, f.nom, COALESCE(f.telephone, ''),
+                -- Lot D.9 : le nom ecrit a l'emission, s'il a ete fige.
+                f.id, COALESCE(pc.tiers_nom, f.nom), COALESCE(f.telephone, ''),
                 {COLONNES_CALCULEES},
                 {RETOURS_SQL}
          FROM piece_commerciale pc
@@ -2613,7 +2669,8 @@ pub fn lire_toutes_pieces_fournisseur_sur_base(
            AND (CAST(?3 AS TEXT) IS NULL
                 OR LOWER(pc.numero) LIKE LOWER('%' || ?3 || '%')
                 OR LOWER(COALESCE(pc.reference, '')) LIKE LOWER('%' || ?3 || '%')
-                OR LOWER(f.nom)     LIKE LOWER('%' || ?3 || '%'))
+                OR LOWER(f.nom)     LIKE LOWER('%' || ?3 || '%')
+                OR LOWER(COALESCE(pc.tiers_nom, '')) LIKE LOWER('%' || ?3 || '%'))
            AND (CAST(?4 AS TEXT) IS NULL OR pc.tiers_id = ?4)
            AND (CAST(?6 AS TEXT) IS NULL OR pc.date_piece >= ?6)
            AND (CAST(?7 AS TEXT) IS NULL OR pc.date_piece <= ?7)
@@ -2641,13 +2698,16 @@ pub fn lire_lignes_piece_sur_base(
     piece_id: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let dossier = base.dossier().to_string();
+    // `tiers_type` : voir la version `Connection` (lot C.7).
     base.lire_plusieurs(
         "SELECT lp.id, lp.article_id, a.nom,
                 lp.unite_vente_id, uv.libelle, uv.facteur,
                 lp.quantite, lp.prix_unitaire,
                 lp.remise_pct, lp.remise_montant,
-                lp.taux_tva, lp.montant_tva, lp.montant_ht
+                lp.taux_tva, lp.montant_tva, lp.montant_ht,
+                pc.tiers_type
          FROM ligne_piece lp
+         JOIN piece_commerciale pc ON pc.id = lp.piece_id AND pc.dossier_id = lp.dossier_id
          JOIN article a ON a.id = lp.article_id
          JOIN unite_vente uv ON uv.id = lp.unite_vente_id
          WHERE lp.piece_id = ?1 AND lp.dossier_id = ?2 ORDER BY lp.cree_le",
@@ -2667,6 +2727,7 @@ pub fn lire_lignes_piece_sur_base(
                 "taux_tva":       r.get::<f64>(10)?,
                 "montant_tva":    r.get::<i64>(11)?,
                 "montant_ht":     r.get::<i64>(12)?,
+                "tiers_type":     r.get::<String>(13)?,
             }))
         },
     )
@@ -3418,10 +3479,14 @@ pub fn lire_donnees_piece_sur_base(
         if tiers_type == "client" {
             base.lire_une(
                 // D35 : le nom ecrit a l'emission, s'il a ete fige
-                // (passage::figer_noms_sur) ; sinon la fiche.
+                // (passage::figer_noms_sur) ; sinon la fiche. Lot D.10 : le
+                // code aussi (une facture d'un passant rattache a un client
+                // garde son PAS-…).
                 "SELECT COALESCE((SELECT p.tiers_nom FROM piece_commerciale p
                                   WHERE p.id = ?3 AND p.dossier_id = ?2), nom),
-                        code, telephone, adresse, nif FROM client
+                        COALESCE((SELECT p.tiers_code FROM piece_commerciale p
+                                  WHERE p.id = ?3 AND p.dossier_id = ?2), code),
+                        telephone, adresse, nif FROM client
                  WHERE id = ?1 AND dossier_id = ?2",
                 &parametres![tiers_id.clone(), dossier.clone(), piece_id.clone()],
                 lire_tiers,
@@ -3430,14 +3495,24 @@ pub fn lire_donnees_piece_sur_base(
             .ok_or_else(|| "Client introuvable".to_string())?
         } else {
             base.lire_une(
-                "SELECT nom, CAST(NULL AS TEXT), telephone, adresse, nif FROM fournisseur
+                // Lot D.9 : le nom du fournisseur ecrit a l'emission, s'il a
+                // ete fige (fournisseurs::figer_noms_sur) ; sinon la fiche.
+                "SELECT COALESCE((SELECT p.tiers_nom FROM piece_commerciale p
+                                  WHERE p.id = ?3 AND p.dossier_id = ?2), nom),
+                        CAST(NULL AS TEXT), telephone, adresse, nif FROM fournisseur
                  WHERE id = ?1 AND dossier_id = ?2",
-                &parametres![tiers_id.clone(), dossier.clone()],
+                &parametres![tiers_id.clone(), dossier.clone(), piece_id.clone()],
                 lire_tiers,
             )
             .map_err(|e| e.0)?
             .ok_or_else(|| "Fournisseur introuvable".to_string())?
         };
+    // Une piece emise a un passant n'imprime ni telephone, ni adresse, ni
+    // NIF : il n'en avait pas laisse (lot D.10 — la fiche a pu etre
+    // promue ou rattachee depuis).
+    let tiers_telephone = crate::passage::coordonnee_a_imprimer(&tiers_nom, tiers_telephone);
+    let tiers_adresse = crate::passage::coordonnee_a_imprimer(&tiers_nom, tiers_adresse);
+    let tiers_nif = crate::passage::coordonnee_a_imprimer(&tiers_nom, tiers_nif);
 
     // La reference du tiers, lue a part — meme raison que cote fenetre.
     let reference: Option<String> = base
@@ -3567,6 +3642,21 @@ pub fn lire_donnees_piece_sur_base(
     .map_err(|e| e.0)?
     .unwrap_or(0);
     let reste_du = crate::coeur::calcul::reste_exigible(total_ttc, total_paye);
+    // La part eteinte par un retour — voir la version fenetre.
+    let eteint_par_retour: i64 = if tiers_type == "client" {
+        base.lire_une(
+            "SELECT CAST(COALESCE(SUM(p.montant), 0) AS BIGINT)
+             FROM paiement p
+             JOIN vente v ON v.id = p.vente_id
+             WHERE v.piece_id = ?1 AND p.mode = 'retour' AND v.dossier_id = ?2",
+            &parametres![piece_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0)
+    } else {
+        0
+    };
 
     // `parametres_societe` n'est pas cloisonnee : une installation, une
     // societe qui imprime.
@@ -3607,6 +3697,8 @@ pub fn lire_donnees_piece_sur_base(
             "total_net":      total_net,
             "total_ttc":      total_ttc,
             "total_paye":     total_paye,
+            "encaisse":       crate::coeur::calcul::encaisse(total_paye, eteint_par_retour),
+            "eteint_par_retour": eteint_par_retour,
             "reste_du":       reste_du,
         }
     }))
@@ -3658,6 +3750,20 @@ pub fn lire_fiche_client_sur_base(
         )
         .map_err(|e| e.0)?
         .unwrap_or((0, 0));
+    // Net de ce que le client a rendu — voir la version fenetre.
+    let retours: i64 = base
+        .lire_une(
+            "SELECT CAST(COALESCE(SUM(rt.montant_credit), 0) AS BIGINT)
+             FROM retour rt JOIN vente v ON v.id = rt.vente_id
+             WHERE v.client_id = ?1 AND v.statut != 'annulee'
+               AND rt.mode_resolution <> ?3
+               AND rt.dossier_id = ?2",
+            &parametres![client_id.clone(), dossier.clone(), crate::coeur::calcul::RETOUR_HORS_CA],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    let ca_total = crate::coeur::calcul::ca_net(ca_total, retours);
 
     let encours: i64 = base
         .lire_une(

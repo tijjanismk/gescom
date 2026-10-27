@@ -1,15 +1,52 @@
 //! Commandes Tauri pour les ventes et paiements.
 
 use tauri::State;
-use std::sync::Mutex;
+use std::sync::MutexGuard;
 use rusqlite::Connection;
 
 // =====================================================================
 //  État partagé
 // =====================================================================
 
+/// L'etat de la fenetre : elle n'a plus de base (lot E.13, 27/10/2026).
+///
+/// La fenetre ne parle qu'au serveur (D22/D24 revises le 25/10/2026) ;
+/// depuis le 27/10 elle n'ouvre plus le `gescom.db` de son dossier de
+/// donnees. Les facades `Connection` de `commandes/` restent declarees —
+/// les retirer, avec la moitie `fn(conn)` du noyau, est le grand
+/// nettoyage, a part — mais `conn.lock()` REFUSE avec une phrase claire :
+/// aucune n'ecrit plus nulle part, aucune ne panique. L'ecran n'en
+/// appelle aucune : `pont.ts` envoie tout au serveur sauf `LOCALES`
+/// (imprimer, ouvrir un fichier, le role du poste), qui ne la lisent pas.
 pub struct EtatApp {
-    pub conn: Mutex<Connection>,
+    pub conn: SansBase,
+}
+
+impl EtatApp {
+    /// L'etat de la fenetre au demarrage : aucune base ouverte.
+    pub fn sans_base() -> Self {
+        EtatApp { conn: SansBase }
+    }
+}
+
+/// La place de l'ancienne `Mutex<Connection>`. Meme forme d'appel
+/// (`etat.conn.lock().map_err(|e| e.to_string())?`) : les 182 facades
+/// n'ont pas bouge, elles refusent toutes au meme endroit.
+pub struct SansBase;
+
+/// Ce que rend toute facade `Connection` appelee dans la fenetre.
+pub const REFUS_SANS_BASE: &str =
+    "Cette opération ne se fait plus dans la fenêtre : la fenêtre de Gescom \
+     n'a pas de base à elle, c'est Gescom Serveur qui la garde. Rien n'a été \
+     enregistré. Si ce message s'affiche, l'écran a appelé l'opération en \
+     direct au lieu de passer par le serveur : le signaler.";
+
+impl SansBase {
+    /// Refuse toujours. Le type de retour est celui de l'ancien verrou,
+    /// pour que l'appel des facades reste le meme.
+    pub fn lock(&self) -> Result<MutexGuard<'static, Connection>, String> {
+        Err(REFUS_SANS_BASE.to_string())
+    }
 }
 
 // =====================================================================

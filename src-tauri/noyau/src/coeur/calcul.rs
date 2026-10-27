@@ -141,6 +141,96 @@ pub fn reste_exigible(total: i64, montant_paye: i64) -> i64 {
     if montant_paye > 0 && reste <= SEUIL_SOLDE { 0 } else { reste }
 }
 
+/// Le residu a solder MAINTENANT, au moment du reglement qui le cree
+/// (D41) : 0 s'il n'y en a pas.
+///
+/// Un residu est un reste de 1 a `SEUIL_SOLDE` francs laisse par un
+/// encaissement — meme regle que `reste_exigible`, dont il est l'ecart :
+/// sans encaissement, une petite vente reste une creance ; un reste nul
+/// ou negatif (trop-percu) n'est pas un residu.
+pub fn residu_a_solder(total: i64, montant_paye: i64) -> i64 {
+    let reste = total - montant_paye;
+    if reste > 0 && reste_exigible(total, montant_paye) == 0 { reste } else { 0 }
+}
+
+#[cfg(test)]
+mod tests_residu {
+    use super::*;
+
+    #[test]
+    fn un_residu_de_cinq_francs_se_solde_six_non() {
+        assert_eq!(residu_a_solder(10_000, 9_995), 5);
+        assert_eq!(residu_a_solder(10_000, 9_999), 1);
+        assert_eq!(residu_a_solder(10_000, 9_994), 0, "6 F restent dus");
+    }
+
+    #[test]
+    fn ni_vente_soldee_ni_trop_percu_ni_vente_sans_encaissement() {
+        assert_eq!(residu_a_solder(10_000, 10_000), 0);
+        assert_eq!(residu_a_solder(10_000, 12_000), 0);
+        assert_eq!(residu_a_solder(3, 0), 0, "une vente de 3 F impayee reste une creance");
+    }
+}
+
+/// L'argent vraiment encaisse sur une vente ou une facture : tout ce
+/// qui est paye, moins la part de la dette eteinte par un retour
+/// (paiement `mode = 'retour'`).
+///
+/// `total_paye` garde cette part — c'est elle qui fait le reste du, et
+/// le reste du ne change pas. Mais un « paye », un « acompte recu » ou
+/// un « encaisse » qui la compterait annoncerait de l'argent qui n'est
+/// jamais entre dans le tiroir : le client a rendu la marchandise, il
+/// n'a rien verse.
+pub fn encaisse(total_paye: i64, eteint_par_retour: i64) -> i64 {
+    total_paye - eteint_par_retour
+}
+
+/// Le mode de resolution d'un retour qui ne se deduit PAS du chiffre
+/// d'affaires : l'echange.
+///
+/// Un echange ne rend pas la vente : la marchandise rendue part vers un
+/// autre article, que le client emporte, et le credit du retour finance
+/// ce remplacement — c'est deja pourquoi il n'eteint aucune dette (D33).
+/// Le remplacement ne s'ecrit pas comme une vente (aucune `ligne_vente`) :
+/// deduire l'echange ferait disparaitre du chiffre une marchandise
+/// pourtant sortie. Limite assumee : la difference d'un echange (le
+/// reliquat rendu ou le complement paye) ne bouge pas le chiffre.
+pub const RETOUR_HORS_CA: &str = "echange";
+
+/// Le chiffre d'affaires net d'une periode : les ventes de la periode
+/// moins les retours DATES dans la periode, quelle que soit la date de
+/// la vente rendue.
+///
+/// C'est l'usage d'un avoir (OHADA) : un retour se compte le jour ou il
+/// a lieu, et le chiffre d'un mois clos ne bouge plus apres coup. Un
+/// mois peut donc finir negatif — des retours d'anciennes ventes, peu
+/// de ventes nouvelles — et il faut le montrer tel quel.
+pub fn ca_net(brut: i64, retours: i64) -> i64 {
+    brut - retours
+}
+
+#[cfg(test)]
+mod tests_ca_net {
+    use super::*;
+
+    #[test]
+    fn le_chiffre_net_deduit_les_retours_de_la_periode() {
+        assert_eq!(ca_net(10_000, 0), 10_000);
+        assert_eq!(ca_net(10_000, 2_500), 7_500);
+        // Un mois de retours sans ventes nouvelles : negatif, pas 0.
+        assert_eq!(ca_net(0, 3_000), -3_000);
+    }
+
+    #[test]
+    fn l_encaisse_ne_compte_pas_la_dette_eteinte_par_un_retour() {
+        // Credit de 3 000 jamais regle, tout rendu : paye 3 000, encaisse 0.
+        assert_eq!(encaisse(3_000, 3_000), 0);
+        // Acompte de 1 000, puis un retour qui eteint 500.
+        assert_eq!(encaisse(1_500, 500), 1_000);
+        assert_eq!(encaisse(1_000, 0), 1_000);
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum StatutVente {
     Payee,

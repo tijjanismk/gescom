@@ -36,26 +36,39 @@
 
 use std::path::PathBuf;
 use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::time::Duration;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use gescom_noyau::protocole::PORT_DEFAUT;
+use gescom_noyau::decouverte::{self, ServeurTrouve};
+use gescom_noyau::protocole::{adresse_joignable, port_dans_la_plage, port_ecrit, ports_de_la_plage, PORT_DEFAUT, PORT_MAX};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigReseau {
     /// `monoposte`, `poste` ou `a_choisir` (voir l'en-tete).
     pub mode: String,
-    /// Adresse du serveur, sans schema : « 192.168.1.10:7300 ».
+    /// Adresse du serveur, sans schema : « 192.168.1.10:40000 ».
     pub serveur: String,
     pub poste_nom: String,
     pub poste_empreinte: String,
 }
 
-/// L'adresse du serveur quand ce poste garde la base.
+/// L'adresse du serveur quand ce poste garde la base, au port par
+/// defaut. Le serveur local a pu en prendre un autre de la plage (D39,
+/// `demarrer_serveur_local`) : celui-la est retenu dans `poste.json`.
 pub fn adresse_locale() -> String {
     format!("127.0.0.1:{PORT_DEFAUT}")
+}
+
+/// L'adresse locale ecrite dans `poste.json` si elle est sur cette
+/// machine et dans la plage ; sinon celle du port par defaut. Un ancien
+/// fichier peut porter 7300, abandonne le 27/10/2026 (D39).
+fn adresse_locale_retenue(ecrite: &str) -> String {
+    match port_ecrit(ecrite) {
+        Some(Ok(p)) if port_dans_la_plage(p) && ecrite.trim().starts_with("127.0.0.1:") => format!("127.0.0.1:{p}"),
+        _ => adresse_locale(),
+    }
 }
 
 impl Default for ConfigReseau {
@@ -97,10 +110,16 @@ pub fn lire(app: &tauri::AppHandle) -> ConfigReseau {
             // son role et son empreinte.
             let texte = texte.trim_start_matches('\u{feff}');
             let mut c: ConfigReseau = serde_json::from_str(texte).unwrap_or_default();
-            // Ce poste garde la base : son serveur est ici. Un ancien
-            // fichier peut porter une autre adresse, inutilisee jusqu'ici.
+            // Ce poste garde la base : son serveur est ici, au port
+            // retenu de la plage. Un ancien fichier peut porter une autre
+            // adresse, inutilisee jusqu'ici.
             if c.mode == "monoposte" {
-                c.serveur = adresse_locale();
+                c.serveur = adresse_locale_retenue(&c.serveur);
+            } else if c.mode == "poste" && adresse_joignable(&c.serveur).is_err() {
+                // Une caisse reglee sur un port que la fenetre ne joint
+                // plus (7300, abandonne le 27/10/2026, D39) : on redemande
+                // une fois, plutot que d'echouer a chaque appel.
+                c.mode = "a_choisir".to_string();
             }
             c
         }
@@ -137,18 +156,22 @@ pub fn definir_config_reseau(
     poste_nom: Option<String>,
 ) -> Result<ConfigReseau, String> {
     let serveur = serveur.unwrap_or_default();
+    let mut c = lire(&app);
     // `a_choisir` ne s'ecrit pas : c'est l'etat d'un poste neuf, pas un
     // choix qu'on fait.
     let serveur = match mode.as_str() {
-        // Ce poste garde la base : son serveur est ici, quoi qu'on passe.
-        "monoposte" => adresse_locale(),
+        // Ce poste garde la base : son serveur est ici, quoi qu'on passe,
+        // au port deja retenu s'il y en a un.
+        "monoposte" => adresse_locale_retenue(&c.serveur),
         "poste" if serveur.trim().is_empty() => {
             return Err("Une caisse a besoin de l'adresse du poste principal.".to_string())
         }
-        "poste" => serveur.trim().to_string(),
+        "poste" => {
+            adresse_joignable(serveur.trim())?;
+            serveur.trim().to_string()
+        }
         _ => return Err(format!("Mode inconnu : « {mode} ».")),
     };
-    let mut c = lire(&app);
     // L'empreinte n'est JAMAIS regeneree ici : la reecrire ferait
     // apparaitre une machine de plus dans la liste des postes a chaque
     // changement de reglage, et le patron ne saurait plus laquelle
@@ -214,19 +237,29 @@ pub fn tester_serveur(adresse: String) -> Result<serde_json::Value, String> {
 /// pas geler pendant ce temps.
 #[tauri::command]
 pub async fn demarrer_serveur_local(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let c = lire(&app);
+    let mut c = lire(&app);
     if c.mode != "monoposte" {
         return Err("Ce poste est la caisse d'un autre poste : il ne lance pas de serveur.".to_string());
     }
     let arguments = arguments_serveur_local()?;
-    tauri::async_runtime::spawn_blocking(move || demarrer_et_attendre(arguments))
+    let retenu = port_ecrit(&c.serveur).and_then(Result::ok).unwrap_or(PORT_DEFAUT);
+    let (port, sante) = tauri::async_runtime::spawn_blocking(move || demarrer_et_attendre(arguments, retenu))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??;
+    // Le port pris reste ecrit : la page (`pont.ts`) et Gescom Equipe le
+    // relisent dans `poste.json`.
+    let adresse = format!("127.0.0.1:{port}");
+    if c.serveur != adresse {
+        c.serveur = adresse;
+        ecrire(&app, &c)?;
+    }
+    Ok(sante)
 }
 
-/// Ce qu'on passe au serveur local. Livre : rien, comme le raccourci.
-/// En debogage : le dossier du banc (`GESCOM_DONNEES`) — sans lui, on
-/// refuse : un essai ouvrirait la vraie base du proprietaire.
+/// Ce qu'on passe au serveur local, hors le port (choisi a chaque
+/// lancement, voir `lancer_sur`). Livre : rien d'autre, comme le
+/// raccourci. En debogage : le dossier du banc (`GESCOM_DONNEES`) —
+/// sans lui, on refuse : un essai ouvrirait la vraie base du proprietaire.
 fn arguments_serveur_local() -> Result<Vec<String>, String> {
     #[cfg(debug_assertions)]
     {
@@ -239,7 +272,6 @@ fn arguments_serveur_local() -> Result<Vec<String>, String> {
         let chemin = |f: &str| d.join(f).to_string_lossy().to_string();
         Ok(vec![
             "--hote".into(), "127.0.0.1".into(),
-            "--port".into(), PORT_DEFAUT.to_string(),
             "--base".into(), chemin("serveur.db"),
             "--journal".into(), chemin("serveur.log"),
             "--sauvegardes".into(), chemin("sauvegardes"),
@@ -255,20 +287,36 @@ fn arguments_serveur_local() -> Result<Vec<String>, String> {
 /// repondait. La seconde attend la premiere, puis trouve le serveur.
 static UN_DEMARRAGE_A_LA_FOIS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn demarrer_et_attendre(arguments: Vec<String>) -> Result<serde_json::Value, String> {
+/// Le serveur de ce poste, sur un port de la plage (D39) : celui qui
+/// repond deja, sinon un nouveau sur le premier port libre — le port
+/// retenu d'abord, puis 40000, 40001... Rend le port et `/sante`.
+///
+/// Un serveur Gescom qui repond deja sur cette machine est repris tel
+/// quel, meme a un autre port que le retenu (le raccourci de demarrage
+/// l'a lance sur 40000, par exemple) : en lancer un second sur la meme
+/// base ferait deux serveurs qui s'ignorent.
+fn demarrer_et_attendre(arguments: Vec<String>, retenu: u16) -> Result<(u16, serde_json::Value), String> {
     let _tour = UN_DEMARRAGE_A_LA_FOIS.lock().unwrap_or_else(|e| e.into_inner());
-    let adresse = adresse_locale();
-    match tester_serveur(adresse.clone()) {
-        Ok(sante) => return Ok(sante),
-        // Le port repond, mais pas Gescom : un second serveur echouerait
-        // sur le meme port. Le dire, plutot que d'attendre vingt secondes.
-        Err(e) if e.contains("pas un serveur Gescom") => {
-            return Err(format!(
-                "Le port {PORT_DEFAUT} de cette machine est pris par un autre programme : \
-                 Gescom Serveur ne peut pas s'y installer. {e}"
-            ))
+    let candidats: Vec<u16> = std::iter::once(retenu)
+        .filter(|p| port_dans_la_plage(*p))
+        .chain(ports_de_la_plage().filter(|p| *p != retenu))
+        .collect();
+    // Deja la ? Le port retenu, 40000 — celui du raccourci de demarrage —
+    // et celui du service Windows de ce poste (serveur.json) : son port a
+    // pu etre change depuis sa console, et le manquer ferait lancer ici un
+    // SECOND serveur, sur une autre base. Pas toute la plage : sous
+    // Windows, une connexion refusee sur 127.0.0.1 peut prendre deux
+    // secondes ; cent ports, trois minutes.
+    let mut deja_la = vec![retenu];
+    for p in [Some(PORT_DEFAUT), port_du_service()].into_iter().flatten() {
+        if !deja_la.contains(&p) {
+            deja_la.push(p);
         }
-        Err(_) => {}
+    }
+    for port in deja_la {
+        if let Ok(sante) = tester_serveur(format!("127.0.0.1:{port}")) {
+            return Ok((port, sante));
+        }
     }
 
     let exe = std::env::current_exe()
@@ -282,9 +330,36 @@ fn demarrer_et_attendre(arguments: Vec<String>) -> Result<serde_json::Value, Str
             exe.display()
         ));
     }
-    let mut commande = std::process::Command::new(&exe);
+    for port in candidats {
+        match tester_serveur(format!("127.0.0.1:{port}")) {
+            // Un serveur Gescom ici : le reprendre (voir plus haut).
+            Ok(sante) => return Ok((port, sante)),
+            // Quelque chose ecoute, mais pas Gescom : port pris.
+            Err(e) if !e.starts_with("Serveur injoignable") => continue,
+            Err(_) => {}
+        }
+        match lancer_sur(&exe, &arguments, port)? {
+            Some(sante) => return Ok((port, sante)),
+            // Un autre programme a pris ce port entre-temps : le suivant.
+            None => continue,
+        }
+    }
+    Err(format!(
+        "Aucun port libre de {PORT_DEFAUT} à {PORT_MAX} sur cette machine : d'autres programmes les \
+         tiennent tous. Gescom Serveur ne peut pas s'installer."
+    ))
+}
+
+/// Lance le serveur sur ce port et attend qu'il reponde. `Ok(None)` : il
+/// s'est arrete parce qu'un autre programme tient le port — essayer le
+/// suivant. `Err` : il s'est arrete pour une autre raison, ou ne repond
+/// pas ; le dire plutot qu'essayer cent ports pour rien.
+fn lancer_sur(exe: &std::path::Path, arguments: &[String], port: u16) -> Result<Option<serde_json::Value>, String> {
+    let adresse = format!("127.0.0.1:{port}");
+    let mut commande = std::process::Command::new(exe);
     commande
-        .args(&arguments)
+        .args(arguments)
+        .args(["--port", &port.to_string()])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
@@ -305,19 +380,141 @@ fn demarrer_et_attendre(arguments: Vec<String>) -> Result<serde_json::Value, Str
         if let Ok(Some(statut)) = enfant.try_wait() {
             // Arrete : peut-etre parce qu'un autre (le raccourci de
             // demarrage, lance au meme moment) a pris le port. S'il
-            // repond, c'est gagne.
+            // repond, c'est gagne ; si quelqu'un d'autre le tient, on
+            // passe au suivant.
             if let Ok(sante) = tester_serveur(adresse.clone()) {
-                return Ok(sante);
+                return Ok(Some(sante));
+            }
+            if let Some(cible) = adresse.to_socket_addrs_premiere() {
+                if TcpStream::connect_timeout(&cible, Duration::from_secs(1)).is_ok() {
+                    return Ok(None);
+                }
             }
             return Err(format!(
                 "Gescom Serveur s'est arrêté au démarrage ({statut}). Son journal, à côté de la base, dit pourquoi."
             ));
         }
         if let Ok(sante) = tester_serveur(adresse.clone()) {
-            return Ok(sante);
+            return Ok(Some(sante));
         }
     }
     Err("Gescom Serveur est lancé mais ne répond toujours pas après vingt secondes.".to_string())
+}
+
+/// Le port du service Gescom Serveur de ce poste, s'il a un `serveur.json`
+/// (`%ProgramData%\Gescom`, D12) avec un port de la plage. En debogage,
+/// `GESCOM_SERVEUR_JSON` le remplace, comme cote serveur.
+fn port_du_service() -> Option<u16> {
+    #[cfg(debug_assertions)]
+    let remplace = std::env::var_os("GESCOM_SERVEUR_JSON").filter(|c| !c.is_empty()).map(PathBuf::from);
+    #[cfg(not(debug_assertions))]
+    let remplace: Option<PathBuf> = None;
+    let chemin = remplace.unwrap_or_else(|| {
+        std::env::var_os("ProgramData")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
+            .join("Gescom")
+            .join("serveur.json")
+    });
+    let texte = std::fs::read_to_string(chemin).ok()?;
+    let v: serde_json::Value = serde_json::from_str(texte.trim_start_matches('\u{feff}')).ok()?;
+    v.get("port")
+        .and_then(|p| p.as_u64())
+        .and_then(|p| u16::try_from(p).ok())
+        .filter(|p| port_dans_la_plage(*p))
+}
+
+// =====================================================================
+//  « Rechercher le serveur » (27/10/2026)
+// =====================================================================
+
+/// Les serveurs Gescom du reseau local : la question part en diffusion
+/// UDP sur le port 40000 (et a ce poste meme), on ecoute deux secondes,
+/// une ligne par serveur (`noyau::decouverte`, la regle partagee). Rien
+/// n'est enregistre : l'ecran remplit l'adresse, qui est ensuite TESTEE
+/// et enregistree comme une adresse tapee. Une liste vide n'est pas une
+/// erreur : l'ecran dit les causes probables et laisse saisir a la main.
+#[tauri::command]
+pub async fn rechercher_serveurs() -> Result<Vec<ServeurTrouve>, String> {
+    tauri::async_runtime::spawn_blocking(rechercher).await.map_err(|e| e.to_string())?
+}
+
+fn rechercher() -> Result<Vec<ServeurTrouve>, String> {
+    let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("Recherche impossible sur ce poste : {e}"))?;
+    socket
+        .set_broadcast(true)
+        .map_err(|e| format!("Recherche impossible sur ce poste : {e}"))?;
+    let question = decouverte::question();
+    // 255.255.255.255, la diffusion du reseau de ce poste (un /24, celui
+    // des box : Windows n'envoie pas toujours la premiere sur toutes les
+    // cartes), et ce poste lui-meme (un serveur ici, ecoutant ce seul poste).
+    let mut cibles: Vec<SocketAddr> = vec![
+        SocketAddr::from((Ipv4Addr::BROADCAST, decouverte::PORT)),
+        SocketAddr::from((Ipv4Addr::LOCALHOST, decouverte::PORT)),
+    ];
+    if let Some(ip) = adresse_locale_ipv4() {
+        let o = ip.octets();
+        cibles.push(SocketAddr::from((Ipv4Addr::new(o[0], o[1], o[2], 255), decouverte::PORT)));
+    }
+    let envoyer = |cibles: &[SocketAddr]| cibles.iter().filter(|c| socket.send_to(&question, c).is_ok()).count();
+    if envoyer(&cibles) == 0 {
+        return Err("La question n'a pas pu partir sur le réseau : ce poste a-t-il une carte réseau branchée ?".to_string());
+    }
+
+    // Deux secondes d'ecoute ; la question repart une fois a mi-chemin :
+    // un paquet UDP peut se perdre, surtout en Wi-Fi.
+    let debut = Instant::now();
+    let duree = Duration::from_secs(2);
+    let mut relancee = false;
+    let mut recues: Vec<(decouverte::Annonce, IpAddr)> = Vec::new();
+    let mut tampon = vec![0u8; decouverte::TAILLE_REPONSE_MAX];
+    while debut.elapsed() < duree {
+        if !relancee && debut.elapsed() >= duree / 2 {
+            envoyer(&cibles);
+            relancee = true;
+        }
+        let reste = duree.saturating_sub(debut.elapsed()).clamp(Duration::from_millis(10), Duration::from_millis(250));
+        socket.set_read_timeout(Some(reste)).ok();
+        // Une erreur ici : le delai, ou, sous Windows, la question envoyee
+        // a ce poste sans serveur qui revient en « connexion
+        // reinitialisee ». On continue d'ecouter.
+        if let Ok((n, de)) = socket.recv_from(&mut tampon) {
+            if let Some(a) = decouverte::lire_reponse(&tampon[..n]) {
+                if recues.len() < 64 {
+                    recues.push((a, de.ip()));
+                }
+            }
+        }
+    }
+    Ok(decouverte::regrouper(&recues, gescom_noyau::VERSION_PROTOCOLE, resoudre_vite))
+}
+
+/// L'adresse IPv4 de ce poste sur le reseau local (la carte que Windows
+/// choisirait pour sortir) ; aucun paquet ne part.
+fn adresse_locale_ipv4() -> Option<Ipv4Addr> {
+    let s = UdpSocket::bind("0.0.0.0:0").ok()?;
+    s.connect("192.0.2.1:9").ok()?;
+    match s.local_addr().ok()?.ip() {
+        IpAddr::V4(ip) if !ip.is_unspecified() && !ip.is_loopback() => Some(ip),
+        _ => None,
+    }
+}
+
+/// Un nom de poste → ses adresses vues d'ici, une seconde et demie au
+/// plus : un nom inconnu peut faire attendre la resolution Windows
+/// (NetBIOS) bien plus longtemps. Pas de reponse a temps : on conseillera
+/// l'adresse IP.
+fn resoudre_vite(nom: &str) -> Vec<IpAddr> {
+    let nom = nom.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let adresses: Vec<IpAddr> = (nom.as_str(), 0u16)
+            .to_socket_addrs()
+            .map(|it| it.map(|a| a.ip()).collect())
+            .unwrap_or_default();
+        let _ = tx.send(adresses);
+    });
+    rx.recv_timeout(Duration::from_millis(1500)).unwrap_or_default()
 }
 
 /// Petit utilitaire : « hote:port » -> adresse resolue.
@@ -329,7 +526,7 @@ impl ResoudrePremiere for String {
     fn to_socket_addrs_premiere(&self) -> Option<std::net::SocketAddr> {
         use std::net::ToSocketAddrs;
         // Sans port explicite on prend celui par defaut : le commercant
-        // tape « 192.168.1.10 », pas « 192.168.1.10:7300 ».
+        // tape « 192.168.1.10 », pas « 192.168.1.10:40000 ».
         let avec_port = if self.contains(':') {
             self.clone()
         } else {

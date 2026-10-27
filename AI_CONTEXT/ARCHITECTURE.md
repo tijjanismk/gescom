@@ -68,8 +68,10 @@ des commandes. Le reste est typé en ligne dans les pages.
 
 ## Points d'entrée
 
-- Rust : [main.rs](../src-tauri/src/main.rs) → `lib.rs::run()` — ouvre la
-  base, applique les migrations, seede si vide, enregistre les commandes.
+- Rust : [main.rs](../src-tauri/src/main.rs) → `lib.rs::run()` — vérifie
+  l'installation, enregistre les commandes ; **n'ouvre aucune base**
+  depuis le 27/10/2026 (lot E.13) : c'est le serveur qui ouvre, migre et
+  amorce la sienne, la fenêtre ne parle qu'à lui.
 - Front : [main.tsx](../src/main.tsx) → [App.tsx](../src/App.tsx) —
   session localStorage 8 h, routeur maison (un `switch` sur `page_active`,
   pas de react-router).

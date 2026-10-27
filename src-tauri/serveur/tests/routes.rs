@@ -9,7 +9,7 @@
 //! HTTP, pour ne rien devoir à une dépendance.
 
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -36,20 +36,41 @@ fn port_libre() -> u16 {
     TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
+/// La recherche UDP du serveur (27/10/2026) : coupee par defaut dans
+/// les essais (« 0 »), pour qu'aucun serveur de test ne prenne l'UDP 40000
+/// a celui de la boutique ; les tests de la recherche lui donnent un port.
+const DECOUVERTE: &str = "GESCOM_DECOUVERTE_PORT";
+
 fn lancer() -> Serveur {
+    lancer_avec(|_| {})
+}
+
+/// `lancer`, avec une retouche de la commande (variables, arguments).
+fn lancer_avec(retouche: impl FnOnce(&mut Command)) -> Serveur {
     let port = port_libre();
+    lancer_sur(port, true, retouche)
+}
+
+/// `avec_port` : `--hote 127.0.0.1 --port N` sur la ligne de commande
+/// (comme la fenetre de Gescom, D39). Sans, le serveur lit son port dans
+/// le `serveur.json` que la retouche lui designe (`GESCOM_SERVEUR_JSON`).
+fn lancer_sur(port: u16, avec_port: bool, retouche: impl FnOnce(&mut Command)) -> Serveur {
     let base = std::env::temp_dir().join(format!("gescom_routes_{}_{port}.db", std::process::id()));
     let sauvegardes = std::env::temp_dir().join(format!("gescom_routes_sauv_{port}"));
-    let enfant = Command::new(env!("CARGO_BIN_EXE_gescom-serveur"))
-        .args(["--hote", "127.0.0.1", "--port", &port.to_string()])
+    let mut commande = Command::new(env!("CARGO_BIN_EXE_gescom-serveur"));
+    if avec_port {
+        commande.args(["--hote", "127.0.0.1", "--port", &port.to_string()]);
+    }
+    commande
         .args(["--base", &base.to_string_lossy()])
         .args(["--sauvegardes", &sauvegardes.to_string_lossy()])
         // Des articles pour vendre : la demo.
         .env("GESCOM_DEMO", "1")
+        .env(DECOUVERTE, "0")
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("lancer gescom-serveur");
+        .stderr(Stdio::null());
+    retouche(&mut commande);
+    let enfant = commande.spawn().expect("lancer gescom-serveur");
     let srv = Serveur { enfant, port, base };
     // L'amorçage d'une base neuve prend quelques secondes (bcrypt).
     let debut = Instant::now();
@@ -613,6 +634,7 @@ fn une_sauvegarde_se_restaure_hors_ligne_et_le_serveur_repart_dessus() {
     srv.enfant = Command::new(env!("CARGO_BIN_EXE_gescom-serveur"))
         .args(["--hote", "127.0.0.1", "--port", &port.to_string()])
         .args(["--base", &srv.base.to_string_lossy()])
+        .env(DECOUVERTE, "0")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -706,6 +728,147 @@ fn une_ecriture_hors_des_dates_de_travail_est_refusee_avant_d_ecrire() {
         .query_row("SELECT COUNT(*) FROM journal WHERE type_evenement = 'exercice_clos'", [], |r| r.get(0))
         .unwrap();
     assert_eq!(n, 1, "la clôture est au journal");
+}
+
+/// Lot C.5 : l'ordinateur qui garde la base repart en arrière (pile,
+/// coupure) — ou avait été avancé par erreur puis remis à l'heure. Les
+/// écritures sont refusées (409), les lectures passent, et seul le
+/// patron lève la garde. Retirer la garde d'`api.rs` fait échouer ce test.
+#[test]
+fn une_horloge_qui_recule_refuse_les_ecritures_et_le_patron_la_leve() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+    let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+        "nom": "Fanta", "pseudo": "fanta", "email": null, "motDePasse": "fanta-secret", "roleNom": "caissier"
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "fanta", "mot_de_passe": "fanta-secret", "poste_nom": "c", "poste_empreinte": "routes-h1", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let caissier = v["jeton"].as_str().unwrap().to_string();
+
+    // Une écriture réussie pose la référence, en base.
+    let (code, v) = rpc(port, &admin, "creer_client_rapide", json!({ "nom": "Avant la panne" }));
+    assert_eq!(code, 200, "{v}");
+    let lire_reference = || -> String {
+        rusqlite::Connection::open(&srv.base)
+            .unwrap()
+            .query_row("SELECT valeur FROM config_app WHERE cle = 'horloge_derniere_ecriture'", [], |r| r.get(0))
+            .unwrap()
+    };
+    let aujourd_hui = chrono::Local::now().format("%Y-%m-%d").to_string();
+    assert!(lire_reference().starts_with(&aujourd_hui), "{}", lire_reference());
+
+    // La dernière écriture est restée dans le futur (horloge avancée
+    // puis corrigée) : pour la machine, l'heure a reculé.
+    rusqlite::Connection::open(&srv.base)
+        .unwrap()
+        .execute("UPDATE config_app SET valeur = '2099-01-01T08:00:00.000' WHERE cle = 'horloge_derniere_ecriture'", [])
+        .unwrap();
+    let clients = || -> i64 {
+        rusqlite::Connection::open(&srv.base).unwrap().query_row("SELECT COUNT(*) FROM client", [], |r| r.get(0)).unwrap()
+    };
+    let avant = clients();
+    let (code, v) = rpc(port, &admin, "creer_client_rapide", json!({ "nom": "Pendant la panne" }));
+    assert_eq!(code, 409, "{v}");
+    let m = v["message"].as_str().unwrap();
+    assert!(m.starts_with("HORLOGE_RECULE — "), "{m}");
+    assert!(m.contains("dernière écriture le 01/01/2099 à 08:00"), "{m}");
+    assert!(m.contains("Paramètres → Horloge"), "{m}");
+    assert_eq!(clients(), avant, "rien n'a été écrit");
+    // Toute écriture, pas seulement les datées ; et pour tout le monde.
+    let (code, _) = rpc(port, &caissier, "creer_client_rapide", json!({ "nom": "Pendant la panne" }));
+    assert_eq!(code, 409);
+
+    // Les lectures continuent.
+    let (code, v) = rpc(port, &caissier, "lire_clients", json!({}));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = rpc(port, &admin, "lire_horloge", json!({}));
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["donnee"]["bloque"], true, "{v}");
+
+    // Le geste est au patron : la caissière est refusée sur la permission.
+    let (code, v) = rpc(port, &caissier, "confirmer_horloge", json!({}));
+    assert_eq!(code, 403, "{v}");
+    assert!(v.to_string().contains("parametres:modifier"), "{v}");
+    let (code, v) = rpc(port, &admin, "confirmer_horloge", json!({}));
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["donnee"]["ancienne"], "2099-01-01T08:00:00.000");
+    assert!(lire_reference().starts_with(&aujourd_hui), "la référence revient à maintenant");
+
+    // Les écritures reprennent.
+    let (code, v) = rpc(port, &caissier, "creer_client_rapide", json!({ "nom": "Après la confirmation" }));
+    assert_eq!(code, 200, "{v}");
+    let n: i64 = rusqlite::Connection::open(&srv.base)
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM journal WHERE type_evenement = 'horloge_confirmee' AND ancien_valeur = '2099-01-01T08:00:00.000'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(n, 1, "le geste est au journal, avec l'ancienne valeur");
+}
+
+/// Lot C.7 : les lignes d'une pièce fournisseur, lues pour la modifier,
+/// rendaient le prix d'achat à tous. Le caissier reçoit null ; le
+/// patron et les pièces client gardent leurs prix.
+#[test]
+fn les_lignes_d_une_piece_fournisseur_cachent_le_prix_d_achat_au_caissier() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+    let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+        "nom": "Fanta", "pseudo": "fanta", "email": null, "motDePasse": "fanta-secret", "roleNom": "caissier"
+    }));
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "fanta", "mot_de_passe": "fanta-secret", "poste_nom": "c", "poste_empreinte": "routes-p1", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let caissier = v["jeton"].as_str().unwrap().to_string();
+
+    let (_, a) = rpc(port, &admin, "lire_articles_avec_unites", json!({}));
+    let article = &a["donnee"][0];
+    let unite = &article["unites"][0];
+    let ligne = json!([{
+        "article_id": article["id"], "unite_vente_id": unite["id"], "quantite": 4.0,
+        "prix_unitaire": 750, "remise_pct": 0.0, "taux_tva": 0.0
+    }]);
+    let (code, f) = rpc(port, &admin, "creer_fournisseur", json!({ "nom": "Grossiste du marché" }));
+    assert_eq!(code, 200, "{f}");
+    let (code, bcf) = rpc(port, &admin, "creer_piece_fournisseur", json!({
+        "fournisseurId": f["donnee"]["id"], "typePiece": "bon_commande_fournisseur", "lignes": ligne
+    }));
+    assert_eq!(code, 200, "{bcf}");
+    let bcf_id = bcf["donnee"]["id"].as_str().unwrap().to_string();
+    let (_, c) = rpc(port, &admin, "lire_clients", json!({}));
+    let client = c["donnee"].as_array().unwrap().iter().find(|x| x["code"] != "CLIENT00000")
+        .map(|x| x["id"].as_str().unwrap().to_string()).unwrap();
+    let (code, devis) = rpc(port, &admin, "creer_piece", json!({ "clientId": client, "typePiece": "devis", "lignes": ligne }));
+    assert_eq!(code, 200, "{devis}");
+    let devis_id = devis["donnee"]["id"].as_str().unwrap().to_string();
+
+    // Le patron lit le prix d'achat.
+    let (code, v) = rpc(port, &admin, "lire_lignes_piece", json!({ "pieceId": bcf_id }));
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["donnee"][0]["prix_unitaire"], 750, "{v}");
+    // Le caissier : la quantité, pas le prix.
+    let (code, v) = rpc(port, &caissier, "lire_lignes_piece", json!({ "pieceId": bcf_id }));
+    assert_eq!(code, 200, "{v}");
+    let l = &v["donnee"][0];
+    assert!(l["prix_unitaire"].is_null() && l["montant_ht"].is_null(), "{v}");
+    assert_eq!(l["quantite"], 4.0, "{v}");
+    // Un devis client garde ses prix : c'est lui qui vend.
+    let (code, v) = rpc(port, &caissier, "lire_lignes_piece", json!({ "pieceId": devis_id }));
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["donnee"][0]["prix_unitaire"], 750, "{v}");
 }
 
 const ORIGINE: &str = "00000000-0000-0000-0000-000000000001";
@@ -810,6 +973,7 @@ fn un_serveur_rallume_chaque_matin_est_sauvegarde_sans_attendre_un_jour() {
             .args(["--base", &base.to_string_lossy()])
             .args(["--sauvegardes", &dossier.to_string_lossy()])
             .env("GESCOM_SAUVEGARDE_DELAI_S", "1")
+            .env(DECOUVERTE, "0")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -854,6 +1018,278 @@ fn un_serveur_rallume_chaque_matin_est_sauvegarde_sans_attendre_un_jour() {
     std::thread::sleep(Duration::from_secs(4));
     assert_eq!(copies(), premiere, "une copie de moins d'un jour : pas de recopie");
 
+    drop(srv);
+    let _ = std::fs::remove_dir_all(&dossier);
+}
+
+// =====================================================================
+//  Le reseau du serveur et la recherche automatique (27/10/2026)
+// =====================================================================
+
+fn port_udp_libre() -> u16 {
+    UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
+fn se_connecter(port: u16, identifiant: &str, mot_de_passe: &str, poste: &str) -> String {
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": identifiant, "mot_de_passe": mot_de_passe, "poste_nom": poste, "poste_empreinte": poste, "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    v["jeton"].as_str().unwrap().to_string()
+}
+
+/// Un port libre de la plage D39, cherche du haut vers le bas : ni 40000
+/// (le serveur de la boutique ou celui d'un essai en cours) ni 40050
+/// (l'essai a la main, `outils/banc/essai-main.ps1`).
+fn port_libre_de_la_plage() -> u16 {
+    (40001..=40100)
+        .rev()
+        .filter(|p| *p != 40050)
+        .find(|p| TcpListener::bind(("127.0.0.1", *p)).is_ok())
+        .expect("aucun port libre de 40001 à 40100")
+}
+
+/// Le serveur relance par lui-meme n'est pas un enfant du test : on le
+/// retrouve par le pid que son journal ecrit, et on l'arrete — meme si le
+/// test echoue en route. A declarer APRES le `Serveur` : il tombe avant
+/// lui, et la base n'est plus ouverte quand on l'efface.
+struct Relance {
+    journal: std::path::PathBuf,
+}
+
+fn pids_relances(journal: &str) -> Vec<u32> {
+    let marque = "nouveau processus (pid ";
+    journal
+        .match_indices(marque)
+        .filter_map(|(i, _)| journal[i + marque.len()..].split(')').next()?.trim().parse().ok())
+        .collect()
+}
+
+impl Drop for Relance {
+    fn drop(&mut self) {
+        let texte = std::fs::read_to_string(&self.journal).unwrap_or_default();
+        for pid in pids_relances(&texte) {
+            #[cfg(windows)]
+            let _ = Command::new("taskkill")
+                .args(["/F", "/PID", &pid.to_string()])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            #[cfg(not(windows))]
+            let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+#[test]
+fn la_recherche_udp_repond_par_le_nom_du_poste_et_rien_de_la_boutique() {
+    let udp = port_udp_libre();
+    let srv = lancer_avec(|c| {
+        c.env(DECOUVERTE, udp.to_string());
+    });
+    let caisse = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let mut tampon = [0u8; 4096];
+
+    // Un paquet étranger ne reçoit rien.
+    caisse.set_read_timeout(Some(Duration::from_millis(800))).unwrap();
+    caisse.send_to(b"bonjour", ("127.0.0.1", udp)).unwrap();
+    caisse.send_to(br#"{"q":"autre","v":1}"#, ("127.0.0.1", udp)).unwrap();
+    assert!(caisse.recv_from(&mut tampon).is_err(), "un paquet étranger ne reçoit rien");
+
+    // La question de la caisse : une réponse, du port de la recherche.
+    caisse.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    caisse.send_to(&gescom_noyau::decouverte::question(), ("127.0.0.1", udp)).unwrap();
+    let (n, de) = caisse.recv_from(&mut tampon).expect("le serveur répond à la question");
+    assert_eq!(de.port(), udp);
+    let a = gescom_noyau::decouverte::lire_reponse(&tampon[..n]).expect("une réponse Gescom lisible");
+    assert_eq!(a.produit, "Gescom Serveur");
+    assert_eq!(a.port, srv.port, "le port TCP où il sert les caisses");
+    assert_eq!(a.version_protocole, gescom_noyau::VERSION_PROTOCOLE);
+    assert!(!a.version_serveur.is_empty());
+    assert!(!a.poste.is_empty(), "le nom du poste");
+    // Lancé sur 127.0.0.1 : il n'annonce que cette adresse.
+    assert_eq!(a.adresses, vec!["127.0.0.1".to_string()]);
+    // Exactement ces champs : rien de la base, rien des ventes.
+    let brut: Value = serde_json::from_slice(&tampon[..n]).unwrap();
+    let mut cles: Vec<&str> = brut.as_object().unwrap().keys().map(String::as_str).collect();
+    cles.sort();
+    assert_eq!(cles, ["adresses", "port", "poste", "produit", "r", "v", "version_protocole", "version_serveur"]);
+
+    // Ce que la caisse en retient (la règle partagée).
+    let trouves = gescom_noyau::decouverte::regrouper(&[(a, de.ip())], gescom_noyau::VERSION_PROTOCOLE, |_| vec![]);
+    assert_eq!(trouves.len(), 1);
+    assert_eq!(trouves[0].adresse_ip, format!("127.0.0.1:{}", srv.port));
+}
+
+#[test]
+fn un_port_udp_deja_pris_n_empeche_pas_le_serveur_de_servir() {
+    // Un autre « serveur » tient déjà le port de la recherche.
+    let occupe = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let udp = occupe.local_addr().unwrap().port();
+    let srv = lancer_avec(|c| {
+        c.env(DECOUVERTE, udp.to_string());
+    });
+    let (admin, _) = connexion(srv.port);
+    let journal = std::fs::read_to_string(srv.base.with_extension("log")).expect("journal technique");
+    assert!(
+        journal.contains("Recherche automatique du serveur indisponible") && journal.contains(&format!("UDP {udp} déjà pris")),
+        "{journal}"
+    );
+    let (code, v) = requete(srv.port, "GET", "/reseau", None, Some(&admin)).unwrap();
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["decouverte"]["active"], false, "{v}");
+    assert!(v["decouverte"]["raison"].as_str().unwrap_or("").contains("déjà pris"), "{v}");
+    drop(occupe);
+}
+
+#[test]
+fn le_panneau_reseau_se_lit_mais_ne_change_rien_quand_la_ligne_de_commande_decide() {
+    // `lancer` passe --hote et --port : comme la fenêtre de Gescom (D39).
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+
+    let (code, v) = requete(port, "GET", "/reseau", None, None).unwrap();
+    assert_eq!(code, 401, "{v}");
+
+    let (code, v) = requete(port, "GET", "/reseau", None, Some(&admin)).unwrap();
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["port"], port);
+    assert_eq!(v["ecoute"], "127.0.0.1");
+    assert!(v["ecoute_libelle"].as_str().unwrap().contains("ce poste seulement"), "{v}");
+    assert!(v["poste"].is_string() && v["cartes"].is_array(), "{v}");
+    // N'écoute que ce poste : rien à taper sur une caisse.
+    assert_eq!(v["a_saisir"], json!([]), "{v}");
+    assert_eq!(v["depuis_ce_poste"], true);
+    assert_eq!(v["en_service"], false);
+    assert_eq!(v["plage"], json!([40000, 40100]));
+    assert_eq!(v["modifiable"], false, "{v}");
+    assert!(v["pourquoi_pas"].as_str().unwrap().contains("géré par Gescom"), "{v}");
+
+    // L'employé lit, sans pouvoir changer — et le serveur le refuse.
+    let employe = se_connecter(port, "employe", "employe123", "routes-reseau-e");
+    let (code, v) = requete(port, "GET", "/reseau", None, Some(&employe)).unwrap();
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["modifiable"], false);
+    assert!(v["pourquoi_pas"].as_str().unwrap().contains("Modifier les paramètres"), "{v}");
+    let (code, v) = requete(port, "POST", "/reseau", Some(&json!({ "port": 40001 })), Some(&employe)).unwrap();
+    assert_eq!(code, 403, "{v}");
+    assert_eq!(v["code"], "permission");
+
+    // Le patron non plus : la ligne de commande décide ici.
+    let (code, v) = requete(port, "POST", "/reseau", Some(&json!({ "port": 40001 })), Some(&admin)).unwrap();
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap().contains("géré par Gescom"), "{v}");
+
+    // La console porte le panneau, écrit en texte.
+    let mut flux = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    flux.write_all(b"GET /console HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap();
+    let mut page = String::new();
+    flux.read_to_string(&mut page).unwrap();
+    assert!(page.contains("id=\"carte-reseau\"") && page.contains("Rechercher le serveur"), "la console a son panneau Réseau");
+    assert!(page.contains("dd.textContent = valeur"), "les valeurs du système s'écrivent en texte");
+}
+
+#[test]
+fn un_port_change_reecrit_serveur_json_passe_a_l_historique_et_le_serveur_y_redemarre() {
+    // Un serveur lancé « à la main » sans --port ni --hote : son port et
+    // son écoute viennent de serveur.json — ici un fichier d'essai, jamais
+    // le vrai ProgramData. Deux ports de la plage : celui de départ et
+    // le nouveau.
+    let depart = port_libre_de_la_plage();
+    let dossier = std::env::temp_dir().join(format!("gescom_reseau_{}_{depart}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dossier);
+    std::fs::create_dir_all(&dossier).unwrap();
+    let conf = dossier.join("serveur.json");
+    let original = format!(
+        "{{\n  \"base\": \"C:\\\\ne\\\\pas\\\\toucher.db\",\n  \"port\": {depart},\n  \"hote\": \"127.0.0.1\",\n  \
+         \"sauvegardes\": \"D:\\\\Sauvegardes\",\n  \"journal\": \"D:\\\\gescom.log\",\n  \"cle_inconnue\": [1, 2]\n}}\n"
+    );
+    std::fs::write(&conf, &original).unwrap();
+    let srv = lancer_sur(depart, false, |c| {
+        c.env("GESCOM_SERVEUR_JSON", &conf);
+    });
+    let _relance = Relance { journal: srv.base.with_extension("log") };
+    let (admin, identite) = connexion(depart);
+
+    let (code, v) = requete(depart, "GET", "/reseau", None, Some(&admin)).unwrap();
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["port"], depart, "le port vient de serveur.json : {v}");
+    assert_eq!(v["ecoute"], "127.0.0.1");
+    assert_eq!(v["modifiable"], true, "{v}");
+    assert_eq!(v["configuration"], conf.display().to_string());
+
+    // Les refus : sans la permission, hors de la plage, une écoute
+    // inconnue, rien qui change. Le fichier n'a pas bougé.
+    let employe = se_connecter(depart, "employe", "employe123", "routes-reseau-e2");
+    let (code, v) = requete(depart, "POST", "/reseau", Some(&json!({ "port": 40001 })), Some(&employe)).unwrap();
+    assert_eq!(code, 403, "{v}");
+    for (demande, attendu) in [
+        (json!({ "port": 7300 }), "40000-40100"),
+        (json!({ "port": 70000 }), "70000"),
+        (json!({ "port": 40001, "ecoute": "192.168.1.20" }), "Écoute"),
+        (json!({ "port": depart, "ecoute": "127.0.0.1" }), "Rien ne change"),
+    ] {
+        let (code, v) = requete(depart, "POST", "/reseau", Some(&demande), Some(&admin)).unwrap();
+        assert_eq!(code, 409, "{demande} : {v}");
+        assert!(v["message"].as_str().unwrap().contains(attendu), "{demande} : {v}");
+    }
+    let (code, v) = requete(depart, "POST", "/reseau", Some(&json!({ "ecoute": "0.0.0.0" })), Some(&admin)).unwrap();
+    assert_eq!(code, 400, "sans port : {v}");
+    assert_eq!(std::fs::read_to_string(&conf).unwrap(), original, "un refus n'écrit rien");
+
+    // Le changement accepté.
+    let nouveau = port_libre_de_la_plage();
+    let (code, v) = requete(depart, "POST", "/reseau", Some(&json!({ "port": nouveau, "ecoute": "127.0.0.1" })), Some(&admin)).unwrap();
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["port"], nouveau);
+    assert_eq!(v["redemarrage"], "relance", "lancé à la main : il se relance lui-même");
+    assert_eq!(v["console"], format!("http://127.0.0.1:{nouveau}/console"));
+
+    // serveur.json : le port change, tout le reste est gardé.
+    let c: Value = serde_json::from_str(&std::fs::read_to_string(&conf).unwrap()).unwrap();
+    assert_eq!(c["port"], nouveau, "{c}");
+    assert_eq!(c["hote"], "127.0.0.1");
+    assert_eq!(c["base"], "C:\\ne\\pas\\toucher.db");
+    assert_eq!(c["sauvegardes"], "D:\\Sauvegardes");
+    assert_eq!(c["journal"], "D:\\gescom.log");
+    assert_eq!(c["cle_inconnue"], json!([1, 2]));
+    let restes: Vec<String> = std::fs::read_dir(&dossier).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+    assert_eq!(restes, vec!["serveur.json".to_string()], "aucun fichier temporaire laissé");
+
+    // Le serveur revient sur le nouveau port, avec la même base.
+    let debut = Instant::now();
+    loop {
+        if let Ok((200, _)) = requete(nouveau, "GET", "/sante", None, None) {
+            break;
+        }
+        assert!(debut.elapsed() < Duration::from_secs(60), "le serveur ne revient pas sur le port {nouveau}");
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    assert!(requete(depart, "GET", "/sante", None, None).is_err(), "l'ancien port ne répond plus");
+
+    // L'Historique dit qui, quand, et de quoi à quoi.
+    let (admin2, _) = connexion(nouveau);
+    let (code, v) = rpc(nouveau, &admin2, "lire_historique", json!({ "filtre": {
+        "type_evenement": "reseau_serveur_modifie", "page": 0, "par_page": 50
+    }}));
+    assert_eq!(code, 200, "{v}");
+    let lignes = v["donnee"]["lignes"].as_array().unwrap();
+    assert_eq!(lignes.len(), 1, "{v}");
+    assert_eq!(lignes[0]["libelle_type"], "Port ou écoute du serveur changé");
+    assert_eq!(lignes[0]["ancien"], format!("127.0.0.1:{depart}"));
+    assert_eq!(lignes[0]["nouveau"], format!("127.0.0.1:{nouveau}"));
+    assert_eq!(lignes[0]["auteur_id"], identite["utilisateur_id"], "signé par la session (D26)");
+
+    // Et le journal technique : le changement, puis la relance.
+    let journal = std::fs::read_to_string(srv.base.with_extension("log")).unwrap();
+    assert!(journal.contains(&format!("Réseau du serveur changé : 127.0.0.1:{depart} → 127.0.0.1:{nouveau}")), "{journal}");
+    assert_eq!(pids_relances(&journal).len(), 1, "{journal}");
+
+    drop(_relance);
     drop(srv);
     let _ = std::fs::remove_dir_all(&dossier);
 }

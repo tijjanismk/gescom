@@ -13,7 +13,7 @@ RACINE="$(cd "$(dirname "$0")/../.." && pwd)"
 TRAVAIL="$RACINE/outils/banc/.travail"
 mkdir -p "$TRAVAIL/captures"
 BASE="$TRAVAIL/essai.db"
-PORT_SERVEUR="${PORT_SERVEUR:-7300}"
+PORT_SERVEUR="${PORT_SERVEUR:-40000}"
 PORT_ECRAN="${PORT_ECRAN:-1420}"
 # Arreter l'instance precedente (par son port, pas par son nom).
 for p in $PORT_SERVEUR $PORT_ECRAN; do

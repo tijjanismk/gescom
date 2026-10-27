@@ -1,9 +1,10 @@
 # Module : réseau (v2 — multiposte)
 
 Rôle : plusieurs postes autour d'un serveur qui détient la base.
-Sessions, canal d'événements, sauvegardes, caisse par utilisateur.
+Sessions, canal d'événements, sauvegardes, la garde de l'horloge
+(la caisse par utilisateur est retirée depuis le lot C.6).
 **Un seul chemin** : le client parle au serveur, jamais à une base
-locale — même sur la machine qui porte le serveur (`127.0.0.1:7300`).
+locale — même sur la machine qui porte le serveur (`127.0.0.1:40000`, ou le port de la plage 40000-40100 retenu (D39)).
 Deux pannes réelles ont appris que le repli silencieux est pire que
 l'arrêt (récit : [JOURNAL.md](../JOURNAL.md), [DECISIONS.md](../DECISIONS.md) D11).
 
@@ -19,7 +20,8 @@ l'arrêt (récit : [JOURNAL.md](../JOURNAL.md), [DECISIONS.md](../DECISIONS.md) 
 | [serveur/src/http.rs](../../src-tauri/serveur/src/http.rs), [api.rs](../../src-tauri/serveur/src/api.rs), [canal.rs](../../src-tauri/serveur/src/canal.rs) | HTTP/1.1 minimal sans dépendance (ni TLS ni keep-alive) ; les routes ; la longue attente |
 | [serveur/src/sauvegarde.rs](../../src-tauri/serveur/src/sauvegarde.rs) | une copie par jour, 14 gardées : `VACUUM INTO` relu (SQLite) ou `pg_dump` (PostgreSQL). **Depuis le 25/09** : contrôle 5 min après le démarrage puis chaque heure, copie si la dernière du dossier a 24 h (`noyau::sauvegarde::sauvegarde_due`) — avant, 24 h de marche continue exigées, jamais atteintes sur un poste éteint le soir. `GESCOM_SAUVEGARDE_DELAI_S` raccourcit le premier contrôle (tests) |
 | [serveur/src/journal_technique.rs](../../src-tauri/serveur/src/journal_technique.rs) | le journal technique (20/09/2026) : une ligne horodatée par refus, erreur, commande lente, démarrage, arrêt, sauvegarde ; contexte `ip METHODE /route · commande · utilisateur@poste` posé par `api::traiter` ; rotation 5 Mo × 3 ; `--journal` / clé `journal` ; jamais de mot de passe |
-| [serveur/src/console.rs](../../src-tauri/serveur/src/console.rs), [reseau_local.rs](../../src-tauri/serveur/src/reseau_local.rs) | la console (une page HTML dans une constante) ; adresse à saisir et état du pare-feu au démarrage |
+| [serveur/src/console.rs](../../src-tauri/serveur/src/console.rs), [reseau_local.rs](../../src-tauri/serveur/src/reseau_local.rs) | la console (une page HTML dans une constante, avec son panneau **Réseau** depuis le 27/10) ; adresse à saisir, cartes réseau (`GetAdaptersAddresses`, DHCP), état du pare-feu TCP et UDP |
+| [serveur/src/configuration.rs](../../src-tauri/serveur/src/configuration.rs), [decouverte.rs](../../src-tauri/serveur/src/decouverte.rs) | `serveur.json` (chemin, écriture sûre ; `GESCOM_SERVEUR_JSON` en débogage) ; la réponse UDP 40000 à « Rechercher le serveur » — voir [serveur-fenetre.md](serveur-fenetre.md) |
 | [src/lib/pont.ts](../../src/lib/pont.ts) | **le** pont côté écran : `invoke` → `POST /rpc` ; la liste `LOCALES` des commandes qui restent sur le poste (imprimer, ouvrir un fichier, régler le réseau) |
 
 Trois crates : `noyau` (lib, sans Tauri), `serveur` (`gescom-serveur.exe`),
@@ -38,6 +40,9 @@ Trois crates : `noyau` (lib, sans Tauri), `serveur` (`gescom-serveur.exe`),
 | GET | `/canal?depuis=N` | oui | longue attente 30 s |
 | POST | `/sauvegarde` | oui | une sauvegarde tout de suite |
 | POST | `/entretien` | oui | l'entretien (D9) : réaffecte les règlements globaux, réindexe, compacte — une copie avant ; les caisses patientent |
+| GET | `/reseau` | oui | le panneau Réseau : poste, IP, port, écoute, à taper sur les caisses, pare-feu, recherche, `modifiable` / `pourquoi_pas` (27/10/2026) |
+| POST | `/reseau` | oui | `{port, ecoute}` : `parametres:modifier`, **depuis 127.0.0.1 seulement**, pas si `--port`/`--hote` ; réécrit `serveur.json` + Historique (tout ou rien), répond, redémarre — [serveur-fenetre.md](serveur-fenetre.md) |
+| UDP | `40000` | — | « Rechercher le serveur » : `{"q":"gescom","v":1}` → nom du poste, IPv4, port TCP, versions ; rien de la boutique (`noyau::decouverte`) |
 
 ## Règles
 
@@ -45,19 +50,28 @@ Trois crates : `noyau` (lib, sans Tauri), `serveur` (`gescom-serveur.exe`),
 - [CONFIRMÉ] Jeton jamais en clair : bcrypt en base, jeton → session en mémoire ; un redémarrage reconnecte tous les postes — [sessions.rs:53](../../src-tauri/noyau/src/sessions.rs#L53).
 - [CONFIRMÉ] La validité est relue **en base à chaque appel** : « déconnecter ce poste » agit tout de suite — `api.rs::authentifier`.
 - [CONFIRMÉ] Désactiver un poste ou un utilisateur coupe ses sessions ; un poste `serveur` ou `console` **ne se désactive pas** (plus de chemin pour le rallumer) — [postes.rs](../../src-tauri/noyau/src/postes.rs).
-- [CONFIRMÉ] `caisse_par_utilisateur` vaut 0 par défaut (un tiroir, D46) ; en nominatif, un index partiel interdit deux caisses au même nom, et une opération sans utilisateur est refusée (`CAISSE_SANS_UTILISATEUR`) ; on ne change pas de mode caisse ouverte — [caisses.rs](../../src-tauri/noyau/src/caisses.rs).
+- [CONFIRMÉ] **La caisse par utilisateur est retirée (27/10/2026, lot C.6)** : elle n'avait jamais marché (les 17 appelants de `exiger_sur` passent `None`, l'ouverture n'écrit pas `utilisateur_id`) et aucun écran ne la proposait. `definir_par_utilisateur(_sur)` / `definir_mode_caisse` refusent `true` (`MODE_CAISSE_INDISPONIBLE`) et acceptent `false` (remet `'0'`, caisse ouverte ou non) ; `par_utilisateur(_sur)` rend toujours `false`, même sur une base qui porte `'1'` : **un tiroir par dossier** (D46), quel que soit qui encaisse ; `exiger(_sur)` ne lit plus le mode, son argument utilisateur ne choisit rien (`CAISSE_SANS_UTILISATEUR` n'existe plus). `Identite.caisse_par_utilisateur` reste dans le protocole, toujours `false`. L'index partiel `idx_caisse_ouverte_par_utilisateur` reste en base. Pour la reprendre : voir l'en-tête de [caisses.rs](../../src-tauri/noyau/src/caisses.rs).
+- [CONFIRMÉ] **Une horloge qui recule (27/10/2026, lot C.5)** : `api::rpc`, à côté de D21, refuse toute commande `ecrit = true` (sauf `confirmer_horloge`) quand l'heure de la machine est en arrière de plus de 5 min sur la dernière écriture réussie — 409 `Metier`, message `HORLOGE_RECULE — …` qui dit de corriger l'heure de Windows et nomme Paramètres → Horloge. Les lectures passent. Après chaque écriture réussie, `horloge::noter_ecriture_sur` avance la référence (`config_app.horloge_derniere_ecriture`, globale à la base, jamais en arrière) ; un échec de cette note va au journal technique sans défaire l'écriture. Règle : [coeur/horloge.rs](../../src-tauri/noyau/src/coeur/horloge.rs) ; base : [horloge.rs](../../src-tauri/noyau/src/horloge.rs). Le piège de l'horloge **avancée** (2030) puis corrigée : `confirmer_horloge` (`parametres:modifier`, donc patron et qui voit tous les dossiers), permis seulement quand l'écriture est bloquée, ramène la référence à maintenant et l'écrit au journal du dossier ouvert (`horloge_confirmee`, ancienne → nouvelle). Écran : [OngletHorloge.tsx](../../src/components/OngletHorloge.tsx). Une base sans référence (neuve ou d'avant) n'est pas jugée avant sa première écriture. Preuves : `garde_fous_base.rs`, route `une_horloge_qui_recule_refuse_les_ecritures_et_le_patron_la_leve`.
 - [CONFIRMÉ] Le canal ne renvoie jamais un événement au poste qui l'a provoqué, et seulement si la commande a **réussi** — [canal.rs](../../src-tauri/serveur/src/canal.rs), `api.rs::rpc`.
 - [CONFIRMÉ] **Depuis la v3 (D-2, D22), le serveur sert TOUT par `Base`**, sur SQLite comme sur PostgreSQL : le registre n'a plus qu'une poignée par commande (`Registre::sur_base`), le chemin `Connection` (D11) est parti avec ses ~190 poignées, `Serveur.conn` aussi (la connexion brute prépare le fichier au démarrage puis se ferme ; intégrité et `VACUUM INTO` passent par `Base::sqlite()`). Plusieurs dossiers se servent donc sur une base fichier.
 - [CONFIRMÉ] Le mot de passe de l'URL ne s'affiche jamais : masqué au démarrage (`main.rs::sans_mot_de_passe`), passé à `pg_dump` par `PGPASSWORD` — D10.
 - [CONFIRMÉ] `portes::verifier_permission` est une liste **blanche** : une commande nouvelle est refusée aux rôles restreints par défaut.
+- [CONFIRMÉ] **Le port et l'écoute se changent depuis la console du poste du serveur** (27/10/2026) : règle pure `coeur::reseau_serveur::juger`, geste au journal (`reseau_serveur_modifie`), redémarrage par la relance du service (D12) ou par le serveur qui se relance lui-même. Lancé à la main **sans** `--port`/`--hote`, le serveur lit désormais `port` et `hote` (eux seuls) dans `serveur.json` ; avec, rien. En service, `--hote` passe maintenant devant la clé `hote` du fichier (avant, le fichier gagnait). Preuves : 4 tests de `routes.rs`. Détail : [serveur-fenetre.md](serveur-fenetre.md).
 
 ## Ce qui reste local sur le poste
 
 `imprimer_facture`, `imprimer_piece`, `ouvrir_avec_systeme`,
-`demarrer_serveur_local`, les réglages réseau et l'import/export de modèles —
+`demarrer_serveur_local`, `rechercher_serveurs` (27/10), les réglages réseau et l'import/export de modèles —
 la liste exacte est `pont.ts::LOCALES`. Une caisse qui les appelle
 reçoit `commande_inconnue` : voulu, l'impression se fait sur la machine
-qui a l'écran. Les images, elles, ne sont plus locales : **écriture et
+qui a l'écran. Aucune ne lit de base : **la fenêtre n'en ouvre plus**
+(lot E.13, 27/10/2026 — jusque-là `lib.rs` ouvrait, amorçait et gardait
+le `gescom.db` de son dossier sans que l'écran le lise). Les façades
+`Connection` encore déclarées dans `generate_handler!` refusent avec une
+phrase claire (`commandes::ventes::EtatApp::sans_base`, `REFUS_SANS_BASE`),
+sans panique ni écriture ; les retirer est le grand nettoyage, à part.
+Un `gescom.db` déjà présent n'est pas effacé : c'est aussi la base par
+défaut du serveur de ce poste (`role_poste::dossier_donnees`). Les images, elles, ne sont plus locales : **écriture et
 lecture** passent par le serveur (D8). L'entretien non plus : ni
 commande ni local, c'est la route `POST /entretien` du serveur, sous la
 même permission que la sauvegarde (D9).
@@ -65,7 +79,7 @@ même permission que la sauvegarde (D9).
 ## Le rôle du poste (25/10/2026, D22/D24 révisés)
 
 `poste.json` porte `mode` : `monoposte` (**ce poste garde la base** :
-serveur ici, `127.0.0.1:7300`), `poste` (caisse d'un autre poste, à
+serveur ici, `127.0.0.1:40000`, ou le port de la plage 40000-40100 retenu (D39)), `poste` (caisse d'un autre poste, à
 l'adresse saisie), `a_choisir` (fichier neuf ou illisible : la fenêtre
 demande, `PageRolePoste`). La fenêtre ne parle qu'au serveur dans tous
 les cas. En `monoposte`, `demarrer_serveur_local` (commande locale,
@@ -74,7 +88,8 @@ l'exécutable, une demande à la fois, vingt secondes au plus ; l'écran
 (`PageServeurLocal`) dit l'échec et propose de réessayer. Lancé sans
 `--base`, le serveur s'efface sur la caisse d'une autre machine
 (`serveur/src/role_poste.rs`). En débogage, `GESCOM_DONNEES` remplace le
-dossier de données des deux côtés (banc d'écran).
+dossier de données des deux côtés (banc d'écran, essai à la main : deux
+dossiers marqués, [environnement-windows.md](environnement-windows.md) § 7).
 
 ## Tests et essais
 

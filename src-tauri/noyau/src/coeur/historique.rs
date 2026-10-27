@@ -38,6 +38,8 @@ pub const TYPES: &[(&str, &str)] = &[
     ("transfert", "Transfert entre magasins"),
     ("client_modifie", "Fiche client modifiée"),
     ("passage_promu", "Client de passage devenu client ordinaire"),
+    // Lot D.10 : la fiche de passage et son histoire passent a un client.
+    ("passage_rattache", "Client de passage rattaché à un client"),
     ("menu_modifie", "Menu réglé"),
     ("suivi_stock_change", "Suivi du stock d'un article changé"),
     ("depot_desactive_avec_stock", "Magasin désactivé"),
@@ -72,6 +74,12 @@ pub const TYPES: &[(&str, &str)] = &[
     ("exercice_clos", "Exercice clos"),
     ("sauvegarde", "Sauvegarde"),
     ("entretien", "Entretien de la base"),
+    // Lot C.5 : le patron confirme l'heure de l'ordinateur qui garde la
+    // base (ancienne et nouvelle reference au detail).
+    ("horloge_confirmee", "Heure de l'ordinateur confirmée"),
+    // 27/10/2026 : le port ou l'ecoute du serveur, changes depuis sa
+    // console (ancien et nouveau « ecoute:port » au detail).
+    ("reseau_serveur_modifie", "Port ou écoute du serveur changé"),
     ("anomalie", "Anomalie"),
 ];
 
@@ -107,6 +115,7 @@ mod tests {
     fn un_type_connu_est_dit_en_francais() {
         assert_eq!(libelle_type("reglement_annule"), "Règlement annulé");
         assert_eq!(libelle_type("vente_creee"), "Vente");
+        assert_eq!(libelle_type(crate::reseau_serveur::TYPE_JOURNAL), "Port ou écoute du serveur changé");
     }
 
     #[test]

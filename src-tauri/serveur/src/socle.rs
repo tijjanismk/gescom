@@ -485,6 +485,19 @@ pub fn registre() -> Registre {
             option_texte(&p, "telephone"),
         )
     });
+    // ---- Lot D.10 : rattacher une fiche de passage a un client ----
+    //
+    // Le passant revenu est un client connu : le patron choisit sa fiche,
+    // toute l'histoire du passage y passe (une transaction, au journal).
+    // Meme porte que la promotion : la gestion des fiches clients.
+    r.sur_base("rattacher_passage", Some("clients:modifier"), true, |c, p| {
+        gescom_noyau::passage::rattacher_sur(
+            c.base,
+            arg(&p, "passageId", "passage_id")?,
+            arg(&p, "clientId", "client_id")?,
+        )
+    });
+    // ---- fin du lot D.10 ----
 
     r.sur_base("creer_article_rapide", Some("articles:creer"), true, |c, p| {
         comptoir::creer_article_rapide_sur(
@@ -685,6 +698,8 @@ pub fn registre() -> Registre {
         Ok(json!({ "revoquees": n }))
     });
 
+    // Lot C.6 : la caisse par utilisateur est retiree. La lecture dit
+    // toujours `false` (un tiroir par dossier) ; le reglage refuse `true`.
     r.sur_base("lire_mode_caisse", None, false, |c, _| {
         Ok(json!({ "par_utilisateur": caisses::par_utilisateur_sur(c.base) }))
     });
@@ -695,6 +710,17 @@ pub fn registre() -> Registre {
         )?;
         caisses::definir_par_utilisateur_sur(c.base, actif)?;
         Ok(json!({ "par_utilisateur": actif }))
+    });
+
+    // Lot C.5 : l'horloge de l'ordinateur qui garde la base. La garde
+    // elle-meme est dans `api::rpc` ; ici ce que l'ecran Parametres →
+    // Horloge lit, et le geste du patron quand une reference est restee
+    // dans le futur (horloge avancee par erreur puis corrigee).
+    r.sur_base("lire_horloge", None, false, |c, _| {
+        gescom_noyau::horloge::lire_horloge_sur(c.base, &gescom_noyau::utils::maintenant_iso())
+    });
+    r.sur_base("confirmer_horloge", Some("parametres:modifier"), true, |c, _| {
+        gescom_noyau::horloge::confirmer_heure_sur(c.base, &gescom_noyau::utils::maintenant_iso())
     });
 
 // <<< POIGNEES GENEREES >>>
@@ -1139,7 +1165,15 @@ pub fn registre() -> Registre {
     r.sur_base("importer_articles_csv", Some("articles:creer"), true, |c, p| {
         let contenu: String = arg(&p, "contenu", "contenu")?;
         let mettre_a_jour: Option<bool> = arg(&p, "mettreAJour", "mettre_a_jour")?;
-        let v = catalogue_csv::importer_articles_csv_sur_base(c.base, contenu, mettre_a_jour)?;
+        // Lot D.11 (D36) : creer un article qui ne suit pas son stock
+        // demande, comme changer la case, `parametres:modifier`.
+        let ctx = gescom_noyau::portes::ContexteUtilisateur {
+            id: c.appelant.utilisateur_id.clone(),
+            role: c.appelant.role.clone(),
+        };
+        let peut_ne_pas_suivre =
+            gescom_noyau::portes::verifier_permission_sur(c.base, &ctx, "parametres:modifier").is_ok();
+        let v = catalogue_csv::importer_articles_csv_sur_base(c.base, contenu, mettre_a_jour, peut_ne_pas_suivre)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 

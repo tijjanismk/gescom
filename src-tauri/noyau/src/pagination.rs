@@ -34,6 +34,18 @@ use chrono::Datelike;
 //  VENTES PAGINÉES
 // =====================================================================
 
+/// Lot D.12 : une vente se cherche par le nom ou le code de son client,
+/// ou par le numero de sa facture — le ticket que le client rapporte.
+/// Chaque `{}` recoit la MEME valeur liee (en minuscules, entre `%`) ;
+/// `p` est la piece de la vente (`LEFT JOIN piece_commerciale p`).
+const RECHERCHE_VENTE: &str =
+    "(LOWER(c.nom) LIKE {} OR LOWER(c.code) LIKE {} OR LOWER(COALESCE(p.numero, '')) LIKE {})";
+
+/// L'ordre des listes de ventes : la plus recente d'abord, departagee par
+/// `cree_le, id` — l'horloge Windows tique par 15 ms, et sans depart une
+/// vente pouvait paraitre sur deux pages, ou sur aucune.
+const ORDRE_VENTES: &str = "v.date_vente DESC, v.cree_le DESC, v.id";
+
 // =====================================================================
 //  Construction des filtres
 // =====================================================================
@@ -109,8 +121,9 @@ pub fn lire_ventes_paginees(
     if let Some(ref r) = recherche {
         if !r.is_empty() {
             // Le `%` entoure la VALEUR liee, pas le gabarit : sinon il
-            // faudrait le concatener dans le SQL.
-            f.ajouter("c.nom LIKE {}", format!("%{}%", r));
+            // faudrait le concatener dans le SQL. Lot D.12 : le nom, le
+            // code ou le numero de la facture, comme la version `Base`.
+            f.ajouter(RECHERCHE_VENTE, format!("%{}%", r.to_lowercase()));
         }
     }
 
@@ -122,28 +135,29 @@ pub fn lire_ventes_paginees(
             "SELECT COUNT(DISTINCT v.id)
              FROM vente v
              JOIN client c ON c.id = v.client_id
+             LEFT JOIN piece_commerciale p ON p.id = v.piece_id
              WHERE {}", where_clause
         ),
         f.params().as_slice(),
         |row| row.get(0),
     ).unwrap_or(0);
 
-    // Lire la page.
-    let offset = page * limite;
+    // Lire la page. Le numero vient de la piece (la table `facture` est
+    // l'ancienne, plus alimentee depuis L31), comme la version `Base`.
+    let offset = page.max(0) * limite.max(1);
     let sql = format!(
         "SELECT v.id, v.date_vente, v.statut, v.mode_reglement,
                 c.nom as client_nom, c.code as client_code,
-                CAST(COALESCE(SUM(lv.prix_pratique * lv.quantite), 0) AS INTEGER) as total,
-                f.numero as numero_facture
+                CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
+                               FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS INTEGER) as total,
+                p.numero as numero_facture
          FROM vente v
          JOIN client c ON c.id = v.client_id
-         LEFT JOIN ligne_vente lv ON lv.vente_id = v.id
-         LEFT JOIN facture f ON f.vente_id = v.id AND f.statut = 'validee'
+         LEFT JOIN piece_commerciale p ON p.id = v.piece_id
          WHERE {}
-         GROUP BY v.id
-         ORDER BY v.date_vente DESC
+         ORDER BY {ORDRE_VENTES}
          LIMIT {} OFFSET {}",
-        where_clause, limite, offset
+        where_clause, limite.max(1), offset
     );
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -167,7 +181,7 @@ pub fn lire_ventes_paginees(
         x
     };
 
-    let pages = (total as f64 / limite as f64).ceil() as i64;
+    let pages = (total as f64 / limite.max(1) as f64).ceil() as i64;
 
     Ok(serde_json::json!({
         "donnees": donnees,
@@ -559,7 +573,8 @@ pub fn lire_ventes_recentes_paginee(
     f.ajouter_si("DATE(v.date_vente) <= {}", date_fin_calc.clone());
     if let Some(ref r) = recherche {
         if !r.is_empty() {
-            f.ajouter("c.nom LIKE {}", format!("%{}%", r));
+            // Lot D.12 : nom, code ou numero de facture (RECHERCHE_VENTE).
+            f.ajouter(RECHERCHE_VENTE, format!("%{}%", r.to_lowercase()));
         }
     }
 
@@ -569,28 +584,34 @@ pub fn lire_ventes_recentes_paginee(
         &format!(
             "SELECT COUNT(DISTINCT v.id)
              FROM vente v JOIN client c ON c.id = v.client_id
+             LEFT JOIN piece_commerciale p ON p.id = v.piece_id
              WHERE {}", where_clause
         ),
         f.params().as_slice(),
         |row| row.get(0),
     ).unwrap_or(0);
 
-    let offset = page * limite;
+    // Lot D.12 : ce que lit la fenetre de retour, comme
+    // `retours::lire_ventes_recentes` — le numero de la PIECE (la table
+    // `facture` est l'ancienne), le client generique (pas d'avoir, D40),
+    // et ce qui est deja revenu de chaque ligne.
+    let offset = page.max(0) * limite.max(1);
     let sql = format!(
         "SELECT v.id, v.date_vente, v.statut, v.client_id,
-                c.nom, c.code, f.numero
+                c.nom, c.code, p.numero, c.est_generique
          FROM vente v
          JOIN client c ON c.id = v.client_id
-         LEFT JOIN facture f ON f.vente_id = v.id AND f.statut = 'validee'
+         LEFT JOIN piece_commerciale p ON p.id = v.piece_id
          WHERE {}
-         ORDER BY v.date_vente DESC
+         ORDER BY {ORDRE_VENTES}
          LIMIT {} OFFSET {}",
-        where_clause, limite, offset
+        where_clause, limite.max(1), offset
     );
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
 
-    let ventes_base: Vec<(String, String, String, String, String, String, Option<String>)> = {
+    type VenteLue = (String, String, String, String, String, String, Option<String>, i64);
+    let ventes_base: Vec<VenteLue> = {
         let x = stmt.query_map(f.params().as_slice(), |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -600,6 +621,7 @@ pub fn lire_ventes_recentes_paginee(
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
                 row.get::<_, Option<String>>(6)?,
+                row.get::<_, i64>(7)?,
             ))
         })
         .map_err(|e| e.to_string())?
@@ -609,12 +631,14 @@ pub fn lire_ventes_recentes_paginee(
     };
 
     let mut donnees = Vec::new();
-    for (id, date_vente, statut, client_id, client_nom, client_code, numero_facture) in ventes_base {
+    for (id, date_vente, statut, client_id, client_nom, client_code, numero_facture, generique) in ventes_base {
         let mut stmt_l = conn.prepare(
             "SELECT lv.id, lv.article_id, a.nom, lv.unite_vente_id,
                     u.libelle, lv.depot_source_id,
                     lv.quantite, lv.prix_pratique,
-                    CAST(lv.prix_pratique * lv.quantite AS INTEGER) as montant
+                    CAST(lv.prix_pratique * lv.quantite AS INTEGER) as montant,
+                    CAST(COALESCE((SELECT SUM(rt.quantite) FROM retour rt
+                                   WHERE rt.ligne_vente_id = lv.id), 0) AS REAL)
              FROM ligne_vente lv
              JOIN article a ON a.id = lv.article_id
              JOIN unite_vente u ON u.id = lv.unite_vente_id
@@ -633,6 +657,7 @@ pub fn lire_ventes_recentes_paginee(
                     "quantite":        row.get::<_, f64>(6)?,
                     "prix_pratique":   row.get::<_, i64>(7)?,
                     "montant":         row.get::<_, i64>(8)?,
+                    "deja_retourne":   row.get::<_, f64>(9)?,
                 }))
             })
             .map_err(|e| e.to_string())?
@@ -651,13 +676,14 @@ pub fn lire_ventes_recentes_paginee(
             "client_id":      client_id,
             "client_nom":     client_nom,
             "client_code":    client_code,
+            "client_generique": generique != 0,
             "numero_facture": numero_facture,
             "total":          total_vente,
             "lignes":         lignes,
         }));
     }
 
-    let pages = (total as f64 / limite as f64).ceil() as i64;
+    let pages = (total as f64 / limite.max(1) as f64).ceil() as i64;
 
     Ok(serde_json::json!({
         "donnees": donnees,
@@ -746,12 +772,16 @@ pub fn lire_ventes_paginees_sur_base(
     f.ajouter_si("v.statut = {}", statut);
     f.ajouter_si("SUBSTR(v.date_vente, 1, 10) >= {}", d1);
     f.ajouter_si("SUBSTR(v.date_vente, 1, 10) <= {}", d2);
-    f.recherche("LOWER(c.nom) LIKE {}", &recherche);
+    // Lot D.12 : nom, code ou numero de facture.
+    f.recherche(RECHERCHE_VENTE, &recherche);
     let ou = f.clause();
 
     let total = compter_sur(
         base,
-        &format!("SELECT COUNT(*) FROM vente v JOIN client c ON c.id = v.client_id WHERE {ou}"),
+        &format!(
+            "SELECT COUNT(*) FROM vente v JOIN client c ON c.id = v.client_id
+             LEFT JOIN piece_commerciale p ON p.id = v.piece_id WHERE {ou}"
+        ),
         &f.valeurs,
     )?;
     let donnees = base
@@ -765,7 +795,7 @@ pub fn lire_ventes_paginees_sur_base(
                  JOIN client c ON c.id = v.client_id
                  LEFT JOIN piece_commerciale p ON p.id = v.piece_id
                  WHERE {ou}
-                 ORDER BY v.date_vente DESC
+                 ORDER BY {ORDRE_VENTES}
                  LIMIT {} OFFSET {}",
                 limite.max(1), page.max(0) * limite.max(1)
             ),
@@ -1039,38 +1069,60 @@ pub fn lire_ventes_recentes_paginee_sur_base(
     f.ajouter("v.dossier_id = {}", dossier.clone());
     f.ajouter_si("SUBSTR(v.date_vente, 1, 10) >= {}", d1);
     f.ajouter_si("SUBSTR(v.date_vente, 1, 10) <= {}", d2);
-    f.recherche("LOWER(c.nom) LIKE {}", &recherche);
+    // Lot D.12 : nom, code ou numero de facture (le ticket rapporte).
+    f.recherche(RECHERCHE_VENTE, &recherche);
     let ou = f.clause();
 
     let total = compter_sur(
         base,
-        &format!("SELECT COUNT(*) FROM vente v JOIN client c ON c.id = v.client_id WHERE {ou}"),
+        &format!(
+            "SELECT COUNT(*) FROM vente v JOIN client c ON c.id = v.client_id
+             LEFT JOIN piece_commerciale p ON p.id = v.piece_id WHERE {ou}"
+        ),
         &f.valeurs,
     )?;
-    let ventes_base: Vec<(String, String, String, String, String, String, Option<String>)> = base
+    // Lot D.12 : ce que lit la fenetre de retour (Retours, Pieces), comme
+    // `retours::lire_ventes_recentes_sur_base` qu'elle remplace : le client
+    // generique (pas d'avoir, D35/D40) et, par ligne, ce qui est deja revenu.
+    type VenteLue = (String, String, String, String, String, String, Option<String>, i64);
+    let ventes_base: Vec<VenteLue> = base
         .lire_plusieurs(
             &format!(
-                "SELECT v.id, v.date_vente, v.statut, v.client_id, c.nom, c.code, p.numero
+                "SELECT v.id, v.date_vente, v.statut, v.client_id, c.nom, c.code, p.numero, c.est_generique
                  FROM vente v
                  JOIN client c ON c.id = v.client_id
                  LEFT JOIN piece_commerciale p ON p.id = v.piece_id
                  WHERE {ou}
-                 ORDER BY v.date_vente DESC
+                 ORDER BY {ORDRE_VENTES}
                  LIMIT {} OFFSET {}",
                 limite.max(1), page.max(0) * limite.max(1)
             ),
             &f.valeurs,
-            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?, r.get::<String>(3)?, r.get::<String>(4)?, r.get::<String>(5)?, r.get::<Option<String>>(6)?)),
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<String>(1)?,
+                    r.get::<String>(2)?,
+                    r.get::<String>(3)?,
+                    r.get::<String>(4)?,
+                    r.get::<String>(5)?,
+                    r.get::<Option<String>>(6)?,
+                    r.get::<i64>(7)?,
+                ))
+            },
         )
         .map_err(|e| e.0)?;
 
     let mut donnees = Vec::with_capacity(ventes_base.len());
-    for (id, date_vente, statut, client_id, client_nom, client_code, numero_facture) in ventes_base {
+    for (id, date_vente, statut, client_id, client_nom, client_code, numero_facture, generique) in ventes_base {
         let lignes: Vec<serde_json::Value> = base
             .lire_plusieurs(
                 "SELECT lv.id, lv.article_id, a.nom, lv.unite_vente_id, u.libelle,
                         lv.depot_source_id, lv.quantite, lv.prix_pratique,
-                        CAST(lv.prix_pratique * lv.quantite AS BIGINT)
+                        CAST(lv.prix_pratique * lv.quantite AS BIGINT),
+                        CAST(COALESCE((SELECT SUM(rt.quantite) FROM retour rt
+                                       WHERE rt.ligne_vente_id = lv.id AND rt.dossier_id = ?2), 0)
+                             AS DOUBLE PRECISION)
                  FROM ligne_vente lv
                  JOIN article a ON a.id = lv.article_id
                  JOIN unite_vente u ON u.id = lv.unite_vente_id
@@ -1087,6 +1139,7 @@ pub fn lire_ventes_recentes_paginee_sur_base(
                         "quantite":        r.get::<f64>(6)?,
                         "prix_pratique":   r.get::<i64>(7)?,
                         "montant":         r.get::<i64>(8)?,
+                        "deja_retourne":   r.get::<f64>(9)?,
                     }))
                 },
             )
@@ -1095,6 +1148,7 @@ pub fn lire_ventes_recentes_paginee_sur_base(
         donnees.push(serde_json::json!({
             "id": id, "date_vente": date_vente, "statut": statut, "client_id": client_id,
             "client_nom": client_nom, "client_code": client_code,
+            "client_generique": generique != 0,
             "numero_facture": numero_facture, "total": total_vente, "lignes": lignes,
         }));
     }

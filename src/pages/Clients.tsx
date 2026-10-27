@@ -44,7 +44,15 @@ interface Creance {
   id: string; date_vente: string; statut: string;
   client_id: string; client_nom: string; client_code: string;
   telephone?: string; numero_facture?: string;
+  // `total_paye` compte la dette éteinte par un retour (il fait le
+  // reste dû) ; `encaisse` est l'argent vraiment versé.
   total: number; total_paye: number; reste: number;
+  encaisse?: number; eteint_par_retour?: number;
+}
+
+/** L'argent vraiment versé : jamais la dette éteinte par un retour. */
+function dejaVerse(c: Creance): number {
+  return c.encaisse ?? c.total_paye;
 }
 
 interface PageResult {
@@ -153,10 +161,16 @@ function ModalReglementCreance({
               <span className="text-muted-foreground">Total facture</span>
               <span>{fmt(creance.total)}</span>
             </div>
-            {creance.total_paye > 0 && (
+            {dejaVerse(creance) > 0 && (
               <div className="flex justify-between text-sm text-green-600">
                 <span>Déjà payé</span>
-                <span>{fmt(creance.total_paye)}</span>
+                <span>{fmt(dejaVerse(creance))}</span>
+              </div>
+            )}
+            {(creance.eteint_par_retour ?? 0) > 0 && (
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Éteint par retour</span>
+                <span>{fmt(creance.eteint_par_retour ?? 0)}</span>
               </div>
             )}
             <div className="flex justify-between text-sm font-bold border-t border-border pt-1">
@@ -702,9 +716,14 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
                             <p className="text-xs text-muted-foreground">
                               {fmtDate(v.date_vente)}
                             </p>
-                            {v.total_paye > 0 && (
+                            {dejaVerse(v) > 0 && (
                               <p className="text-xs text-green-600">
-                                Acompte : {fmt(v.total_paye)}
+                                Acompte : {fmt(dejaVerse(v))}
+                              </p>
+                            )}
+                            {(v.eteint_par_retour ?? 0) > 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                Éteint par retour : {fmt(v.eteint_par_retour ?? 0)}
                               </p>
                             )}
                           </div>

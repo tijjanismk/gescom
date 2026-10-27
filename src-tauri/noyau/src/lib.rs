@@ -20,6 +20,10 @@ pub mod persistance;
 pub mod portes;
 
 pub mod protocole;
+// La decouverte du serveur en UDP (format pur, partage) et le journal
+// d'un changement de port du serveur (27/10/2026).
+pub mod decouverte;
+pub mod reseau_serveur;
 pub mod postes;
 pub mod codebarre;
 pub mod transferts;
@@ -62,6 +66,7 @@ pub mod crm;
 pub mod passage;
 pub mod suivi_stock;
 pub mod menu;
+pub mod horloge;
 pub mod caisses;
 pub mod argent;
 pub mod catalogue;

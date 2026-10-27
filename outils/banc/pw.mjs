@@ -11,7 +11,7 @@ const ICI = path.dirname(fileURLToPath(import.meta.url));
 export const TRAVAIL = path.join(ICI, ".travail");
 export const CAPTURES = path.join(TRAVAIL, "captures");
 fs.mkdirSync(CAPTURES, { recursive: true });
-export const URL = `http://127.0.0.1:${process.env.PORT_ECRAN ?? 1420}/?serveur=127.0.0.1:${process.env.PORT_SERVEUR ?? 7300}`;
+export const URL = `http://127.0.0.1:${process.env.PORT_ECRAN ?? 1420}/?serveur=127.0.0.1:${process.env.PORT_SERVEUR ?? 40000}`;
 /** Gescom Équipe (PLAN-EQUIPE) : la seconde entrée du même écran. */
 export const URL_EQUIPE = URL.replace("/?", "/equipe.html?");
 
@@ -113,7 +113,7 @@ export async function boitesMuettes(page) {
 export const boites = async (page) => BOITES.get(page) ?? [];
 
 /** `/sante` d'un serveur local, ou `null` s'il ne repond pas. */
-export async function sante(port = 7300) {
+export async function sante(port = 40000) {
   try {
     const r = await fetch(`http://127.0.0.1:${port}/sante`, { signal: AbortSignal.timeout(3000) });
     return await r.json();

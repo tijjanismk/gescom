@@ -96,6 +96,14 @@ fn piece_fournisseur(v: &Value) -> bool {
     v.pointer("/piece/tiers_type").and_then(Value::as_str) == Some("fournisseur")
 }
 
+/// Les lignes d'une piece (`lire_lignes_piece`) : un tableau dont chaque
+/// ligne dit le tiers de sa piece (lot C.7). Une seule ligne fournisseur
+/// suffit — elles sont toutes de la meme piece.
+fn lignes_fournisseur(v: &Value) -> bool {
+    v.as_array()
+        .is_some_and(|t| t.iter().any(|l| l.get("tiers_type").and_then(Value::as_str) == Some("fournisseur")))
+}
+
 /// Les regles d'une commande. Une commande absente n'en a aucune.
 pub fn regles(commande: &str) -> &'static [Regle] {
     use Regle::*;
@@ -134,6 +142,12 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         "lire_toutes_pieces_fournisseur" => &[Masque { permissions: ACHATS, cles: TOTAUX_PIECE, si: None }],
         "lire_donnees_piece" => {
             &[Masque { permissions: ACHATS, cles: TOTAUX_PIECE, si: Some(piece_fournisseur) }]
+        }
+        // Lot C.7 : les lignes de la meme piece, lues pour la modifier.
+        // Meme regle que `lire_donnees_piece` — sinon un prix cache sur
+        // l'apercu se lirait dans la fenetre de modification.
+        "lire_lignes_piece" => {
+            &[Masque { permissions: ACHATS, cles: TOTAUX_PIECE, si: Some(lignes_fournisseur) }]
         }
         "lire_fiche_fournisseur" => &[
             Masque { permissions: ACHATS, cles: &["prix_achat"], si: None },
@@ -326,6 +340,42 @@ mod tests {
         let mut m = json!({ "piece": { "tiers_type": "fournisseur" }, "totaux": { "total_ttc": 5000 } });
         filtrer("lire_donnees_piece", avec("achats:creer"), "u", &mut m);
         assert_eq!(m["totaux"]["total_ttc"], 5000);
+    }
+
+    #[test]
+    fn les_lignes_d_une_piece_fournisseur_perdent_leurs_prix_pas_celles_d_un_client() {
+        // Lot C.7 : `lire_lignes_piece` rendait le prix d'achat a tous.
+        let ligne = |tiers: &str| {
+            json!({ "article_nom": "Sucre", "quantite": 6.0, "taux_tva": 0.0, "remise_pct": 0.0,
+                    "prix_unitaire": 800, "montant_ht": 4800, "montant_tva": 0, "remise_montant": 0,
+                    "tiers_type": tiers })
+        };
+        let mut f = json!([ligne("fournisseur"), ligne("fournisseur")]);
+        filtrer("lire_lignes_piece", sans, "u", &mut f);
+        for l in f.as_array().unwrap() {
+            for cle in ["prix_unitaire", "montant_ht", "montant_tva", "remise_montant"] {
+                assert_eq!(l[cle], Value::Null, "{cle}");
+            }
+            // Ce qui n'est pas un prix reste : on voit QUOI, pas combien.
+            assert_eq!(l["quantite"], 6.0);
+            assert_eq!(l["article_nom"], "Sucre");
+        }
+        // Le droit de lire les prix, ou de saisir les achats (comme
+        // `lire_donnees_piece`) : rien n'est masque.
+        for p in [ACHATS_LIRE_PRIX, "achats:creer"] {
+            let mut g = json!([ligne("fournisseur")]);
+            filtrer("lire_lignes_piece", avec(p), "u", &mut g);
+            assert_eq!(g[0]["prix_unitaire"], 800, "{p}");
+        }
+        // Une piece client : le caissier lit ses prix, c'est lui qui vend.
+        let client = json!([ligne("client")]);
+        let mut c = client.clone();
+        filtrer("lire_lignes_piece", sans, "u", &mut c);
+        assert_eq!(c, client);
+        // Une piece sans ligne : rien a masquer, rien ne casse.
+        let mut vide = json!([]);
+        filtrer("lire_lignes_piece", sans, "u", &mut vide);
+        assert_eq!(vide, json!([]));
     }
 
     #[test]

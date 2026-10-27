@@ -11,6 +11,9 @@
 //   poste caisse  — le serveur est sur le poste principal, à l'adresse
 //                   saisie ; ce poste ne garde aucune donnée.
 //
+// L'adresse du poste principal se tape ou se trouve (« Rechercher le
+// serveur », 27/10/2026 : utile aussi quand le serveur a changé de port).
+//
 // Changer de rôle est un geste VOLONTAIRE, jamais une bascule
 // automatique. Devenir caisse exige que le serveur réponde AVANT d'être
 // enregistré : un poste basculé vers une adresse injoignable ne peut
@@ -28,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { appeler as invoke, definirServeur, synchroniserConfig, ADRESSE_LOCALE } from "@/lib/pont";
 import { garderLaBase } from "@/pages/PageRolePoste";
+import { RechercheServeur } from "@/components/RechercheServeur";
 
 interface ConfigReseau {
   mode: string;
@@ -76,12 +80,13 @@ export function OngletReseau() {
       || (mode === "poste" && serveur.trim() !== config.serveur)
       || posteNom.trim() !== config.poste_nom);
 
-  async function tester() {
+  // L'adresse du champ, ou celle qu'un serveur trouvé vient d'y mettre.
+  async function tester(adresse: string = serveur) {
     setEnTest(true);
     setTest(null);
     setErreurTest("");
     try {
-      const s = await invoke<Sante>("tester_serveur", { adresse: serveur });
+      const s = await invoke<Sante>("tester_serveur", { adresse });
       setTest(s);
     } catch (e) {
       setErreurTest(String(e));
@@ -115,7 +120,9 @@ export function OngletReseau() {
       // Le navigateur n'est qu'un miroir de `poste.json` : on l'aligne
       // tout de suite, sinon le prochain appel partirait encore au
       // mauvais endroit.
-      definirServeur(mode, mode === "poste" ? c.serveur : ADRESSE_LOCALE);
+      // Rust rend l'adresse retenue — en monoposte, le serveur local au
+      // port qu'il a pris dans la plage (D39).
+      definirServeur(mode, c.serveur || ADRESSE_LOCALE);
       await synchroniserConfig();
       setEnregistre(true);
       setTimeout(() => setEnregistre(false), 3000);
@@ -216,13 +223,13 @@ export function OngletReseau() {
                 Adresse du poste principal
               </Label>
               <Input value={serveur} onChange={e => { setServeur(e.target.value); setTest(null); }}
-                placeholder="192.168.1.10:7300" className="h-9 font-mono text-sm" />
+                placeholder="192.168.1.10" className="h-9 font-mono text-sm" />
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Sans port, 7300 est supposé. L'adresse est celle du réseau
+                Sans port, 40000 est supposé (le serveur écoute entre 40000 et 40100). L'adresse est celle du réseau
                 local de la boutique, pas une adresse Internet.
               </p>
             </div>
-            <Button variant="outline" onClick={tester}
+            <Button variant="outline" onClick={() => tester()}
               disabled={enTest || !serveur.trim()}>
               {enTest
                 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -230,6 +237,13 @@ export function OngletReseau() {
               Tester
             </Button>
           </div>
+
+          {/* Le serveur a changé de port, ou on ne connaît pas son adresse :
+              le chercher sur le réseau, un clic remplit et teste. */}
+          <RechercheServeur
+            desactive={enTest}
+            onChoisir={(a) => { setServeur(a); tester(a); }}
+          />
 
           {erreurTest && (
             <div className="flex items-start gap-2 rounded border border-destructive/40

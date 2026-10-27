@@ -25,15 +25,17 @@ const { b, page, erreurs } = await fenetre();
 await boitesMuettes(page);
 ok(await page.evaluate(() => "__TAURI_INTERNALS__" in window), "c'est la fenêtre Tauri, pas un navigateur");
 
-// ---- Le dossier isole : la fenetre y a pose sa base et poste.json.
+// ---- Le dossier isole : la fenetre y pose poste.json, et aucune base
+// (lot E.13, 27/10/2026 : elle n'ouvre plus de gescom.db a elle).
 const lirePoste = () => JSON.parse(fs.readFileSync(path.join(DONNEES, "poste.json"), "utf8"));
-ok(fs.existsSync(path.join(DONNEES, "gescom.db")), "GESCOM_DONNEES suivi : la fenêtre a ouvert sa base dans .travail/monoposte");
 // L'ecran ecrit poste.json a son premier demarrage : a froid (Vite
 // compile encore), il arrive apres la fenetre — on attend l'ecran.
 await page.getByText("Comment travaille ce poste ?").waitFor({ timeout: 30000 }).catch(() => {});
 ok(await page.getByText("Comment travaille ce poste ?").count() === 1, "premier démarrage : la fenêtre demande le rôle du poste");
-ok(fs.existsSync(path.join(DONNEES, "poste.json")) && lirePoste().mode === "a_choisir", "poste.json neuf, rôle « à choisir » (rien n'est deviné)");
-ok(await sante() === null, "aucun serveur ne tourne encore sur 127.0.0.1:7300");
+ok(fs.existsSync(path.join(DONNEES, "poste.json")) && lirePoste().mode === "a_choisir",
+  "GESCOM_DONNEES suivi : poste.json neuf dans .travail/monoposte, rôle « à choisir » (rien n'est deviné)");
+ok(!fs.existsSync(path.join(DONNEES, "gescom.db")), "la fenêtre n'a ouvert aucune base à elle (pas de gescom.db)");
+ok(await sante() === null, "aucun serveur ne tourne encore sur 127.0.0.1:40000");
 await capture(page, "p1-01-role");
 
 // ---- « Ce poste garde la base » : la fenetre lance son serveur.
@@ -53,7 +55,7 @@ ok((await page.locator("body").innerText()).includes("Ce poste garde la base —
 const s = await sante();
 ok(!!s && s.base_saine, `la fenêtre a lancé son serveur : il répond (${s?.version_serveur ?? "rien"})`);
 const poste = lirePoste();
-ok(poste.mode === "monoposte" && poste.serveur === "127.0.0.1:7300", `poste.json réécrit (${poste.mode}, ${poste.serveur})`);
+ok(poste.mode === "monoposte" && poste.serveur === "127.0.0.1:40000", `poste.json réécrit (${poste.mode}, ${poste.serveur})`);
 ok(fs.existsSync(path.join(DONNEES, "serveur.db")), "le serveur tient sa base dans le dossier isolé (serveur.db)");
 
 // ---- La connexion du patron, un seul dossier.
@@ -64,7 +66,7 @@ clearInterval(surveiller);
 ok(await page.getByText("Tableau de bord", { exact: true }).count() > 0, "le patron est connecté : le tableau de bord");
 ok(!choix, "un seul dossier : rien à choisir");
 const etat = await page.evaluate(async () => (await import("/src/lib/pont.ts")).etatReseau());
-ok(etat.mode === "monoposte" && etat.serveur === "127.0.0.1:7300" && !!etat.jeton && !!etat.dossierId,
+ok(etat.mode === "monoposte" && etat.serveur === "127.0.0.1:40000" && !!etat.jeton && !!etat.dossierId,
   "le pont parle au serveur de cette machine, jeton et dossier posés");
 const dossiers = await page.evaluate(async () => (await (await import("/src/lib/pont.ts")).appeler("lire_dossiers", {})).length);
 ok(dossiers === 1, `un dossier sur ce serveur (${dossiers})`);
@@ -88,6 +90,7 @@ ok(await page.getByText("Tableau de bord", { exact: true }).count() > 0, "reconn
 const s2 = await sante();
 ok(s2?.postes_connectes >= 1, `le serveur compte ce poste (${s2?.postes_connectes})`);
 
+ok(!fs.existsSync(path.join(DONNEES, "gescom.db")), "toujours aucun gescom.db : la base est celle du serveur (serveur.db)");
 ok(empreinte(PROPRIO) === proprioAvant, "la base et poste.json du propriétaire n'ont pas bougé");
 const utiles = erreursUtiles(erreurs);
 ok(utiles.length === 0, "aucune erreur dans la console" + (utiles.length ? " : " + utiles.join(" | ") : ""));

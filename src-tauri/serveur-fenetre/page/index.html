@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gescom Serveur</title>
+<link rel="stylesheet" href="page.css">
+</head>
+<body>
+<!-- La page LOCALE de la fenetre : elle ne s'affiche que le temps de
+     trouver le serveur, ou quand il ne repond pas. La console, elle, est
+     servie par le serveur (/console) : rien n'est recopie ici. -->
+<main>
+  <h1>Gescom Serveur</h1>
+  <section class="carte" aria-live="polite">
+    <h2 id="titre">Recherche du serveur de ce poste…</h2>
+    <p id="detail" class="aide"></p>
+    <p id="service" class="aide"></p>
+    <p id="message" class="message" role="status"></p>
+    <div class="boutons">
+      <button type="button" id="btn-demarrer" hidden>Démarrer le service</button>
+      <button type="button" id="btn-reessayer" class="secondaire" hidden>Réessayer</button>
+    </div>
+    <p id="configuration" class="discret"></p>
+  </section>
+</main>
+<script src="page.js"></script>
+</body>
+</html>
