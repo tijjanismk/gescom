@@ -83,6 +83,26 @@ pub fn registre() -> Registre {
         )?;
         Ok(serde_json::Value::Null)
     });
+
+    // ---- Avant la fin des dates de travail (27/10/2026) ----
+    //
+    // Le tableau de bord previent un mois avant que les ecritures datees
+    // seront refusees (D21). Ouvert a toute session : le caissier doit le
+    // voir pour prevenir le patron, et une date de fin ne montre aucun
+    // chiffre. L'horloge est celle du serveur, celle qui refusera.
+    r.sur_base("lire_avis_fin_exercice", None, false, |c, _| {
+        gescom_noyau::dossiers::avis_fin_exercice_sur(c.base, &gescom_noyau::utils::maintenant_iso())
+    });
+    // D38 : couper le dernier exercice en plein milieu, comme dans Ciel ;
+    // le suivant s'ouvre le lendemain, dans la meme transaction.
+    r.sur_base("couper_exercice", Some("dossiers:gerer"), true, |c, p| {
+        gescom_noyau::dossiers::couper_exercice_sur(
+            c.base,
+            arg(&p, "exerciceId", "exercice_id")?,
+            arg(&p, "coupeAu", "coupe_au")?,
+            arg(&p, "suivantAu", "suivant_au")?,
+        )
+    });
     // v3, E-1 (D23) : le plan SYSCOHADA, commun, et les sous-comptes du
     // dossier. Le plan se lit par tous (c'est un vocabulaire).
     r.sur_base("lire_plan_comptable", None, false, |c, _| {
@@ -364,6 +384,39 @@ pub fn registre() -> Registre {
         gescom_noyau::historique::marquer_anomalie_vue_sur(c.base, &id)
     });
 
+    // ---- Le duplicata (26/10/2026) : le serveur compte les impressions ----
+    //
+    // Imprimer est ouvert a qui voit la piece ; noter une impression ne
+    // change aucun ecran, d'ou `ecrit = false`. L'original reimprime,
+    // lui, a sa permission (le patron) et va au journal. Le poste vient
+    // de la session, jamais du JSON.
+    r.sur_base("lire_etat_impression", None, false, |c, p| {
+        gescom_noyau::impression::lire_etat_impression_sur(
+            c.base,
+            arg(&p, "objetType", "objet_type")?,
+            arg(&p, "objetId", "objet_id")?,
+            arg(&p, "format", "format")?,
+        )
+    });
+    r.sur_base("noter_impression", None, false, |c, p| {
+        gescom_noyau::impression::noter_impression_sur(
+            c.base,
+            arg(&p, "objetType", "objet_type")?,
+            arg(&p, "objetId", "objet_id")?,
+            arg(&p, "format", "format")?,
+            Some(c.appelant.poste_id.clone()),
+        )
+    });
+    r.sur_base("reimprimer_original", Some("pieces:reimprimer_original"), true, |c, p| {
+        gescom_noyau::impression::reimprimer_original_sur(
+            c.base,
+            arg(&p, "objetType", "objet_type")?,
+            arg(&p, "objetId", "objet_id")?,
+            arg(&p, "format", "format")?,
+            Some(c.appelant.poste_id.clone()),
+        )
+    });
+
     r.sur_base("enregistrer_coordonnees_documents", Some("parametres:modifier"), true, |c, p| {
         let choix: Vec<String> = arg(&p, "coordonnees", "coordonnees")?;
         serde_json::to_value(gescom_noyau::documents::enregistrer_coordonnees_sur(c.base, choix)?)
@@ -397,6 +450,54 @@ pub fn registre() -> Registre {
     r.sur_base("creer_client_rapide", Some("clients:creer"), true, |c, p| {
         comptoir::creer_client_rapide_sur(c.base, texte(&p, "nom")?, option_texte(&p, "telephone"))
     });
+
+    // D36 : cesser ou reprendre le suivi du stock d'un article.
+    r.sur_base("changer_suivi_stock", Some("parametres:modifier"), true, |c, p| {
+        #[derive(serde::Deserialize)]
+        struct Comptage { depot_id: String, quantite: f64 }
+        let comptages: Option<Vec<Comptage>> = arg(&p, "comptages", "comptages")?;
+        gescom_noyau::suivi_stock::changer_suivi_stock_sur(
+            c.base,
+            arg(&p, "articleId", "article_id")?,
+            arg(&p, "suivre", "suivre")?,
+            comptages.unwrap_or_default().into_iter().map(|c| (c.depot_id, c.quantite)).collect(),
+        )
+    });
+
+    // D37 : le menu du dossier — ce qu'il cache (un affichage seulement).
+    r.sur_base("lire_menu", None, false, |c, _| gescom_noyau::menu::lire_menu_sur(c.base));
+    r.sur_base("definir_menu", Some("parametres:modifier"), true, |c, p| {
+        let caches: Vec<String> = arg(&p, "caches", "caches")?;
+        gescom_noyau::menu::definir_menu_sur(c.base, caches)
+    });
+
+    // D35 : les fiches de passage (une par vente sans nom), et le geste
+    // qui fait du passant un client ordinaire.
+    r.sur_base("lire_passages", None, false, |c, p| {
+        let v = gescom_noyau::passage::lire_passages_sur(c.base, option_texte(&p, "recherche"))?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.sur_base("promouvoir_passage", Some("clients:modifier"), true, |c, p| {
+        gescom_noyau::passage::promouvoir_sur(
+            c.base,
+            arg(&p, "clientId", "client_id")?,
+            texte(&p, "nom")?,
+            option_texte(&p, "telephone"),
+        )
+    });
+    // ---- Lot D.10 : rattacher une fiche de passage a un client ----
+    //
+    // Le passant revenu est un client connu : le patron choisit sa fiche,
+    // toute l'histoire du passage y passe (une transaction, au journal).
+    // Meme porte que la promotion : la gestion des fiches clients.
+    r.sur_base("rattacher_passage", Some("clients:modifier"), true, |c, p| {
+        gescom_noyau::passage::rattacher_sur(
+            c.base,
+            arg(&p, "passageId", "passage_id")?,
+            arg(&p, "clientId", "client_id")?,
+        )
+    });
+    // ---- fin du lot D.10 ----
 
     r.sur_base("creer_article_rapide", Some("articles:creer"), true, |c, p| {
         comptoir::creer_article_rapide_sur(
@@ -597,6 +698,8 @@ pub fn registre() -> Registre {
         Ok(json!({ "revoquees": n }))
     });
 
+    // Lot C.6 : la caisse par utilisateur est retiree. La lecture dit
+    // toujours `false` (un tiroir par dossier) ; le reglage refuse `true`.
     r.sur_base("lire_mode_caisse", None, false, |c, _| {
         Ok(json!({ "par_utilisateur": caisses::par_utilisateur_sur(c.base) }))
     });
@@ -607,6 +710,17 @@ pub fn registre() -> Registre {
         )?;
         caisses::definir_par_utilisateur_sur(c.base, actif)?;
         Ok(json!({ "par_utilisateur": actif }))
+    });
+
+    // Lot C.5 : l'horloge de l'ordinateur qui garde la base. La garde
+    // elle-meme est dans `api::rpc` ; ici ce que l'ecran Parametres →
+    // Horloge lit, et le geste du patron quand une reference est restee
+    // dans le futur (horloge avancee par erreur puis corrigee).
+    r.sur_base("lire_horloge", None, false, |c, _| {
+        gescom_noyau::horloge::lire_horloge_sur(c.base, &gescom_noyau::utils::maintenant_iso())
+    });
+    r.sur_base("confirmer_horloge", Some("parametres:modifier"), true, |c, _| {
+        gescom_noyau::horloge::confirmer_heure_sur(c.base, &gescom_noyau::utils::maintenant_iso())
     });
 
 // <<< POIGNEES GENEREES >>>
@@ -1051,7 +1165,15 @@ pub fn registre() -> Registre {
     r.sur_base("importer_articles_csv", Some("articles:creer"), true, |c, p| {
         let contenu: String = arg(&p, "contenu", "contenu")?;
         let mettre_a_jour: Option<bool> = arg(&p, "mettreAJour", "mettre_a_jour")?;
-        let v = catalogue_csv::importer_articles_csv_sur_base(c.base, contenu, mettre_a_jour)?;
+        // Lot D.11 (D36) : creer un article qui ne suit pas son stock
+        // demande, comme changer la case, `parametres:modifier`.
+        let ctx = gescom_noyau::portes::ContexteUtilisateur {
+            id: c.appelant.utilisateur_id.clone(),
+            role: c.appelant.role.clone(),
+        };
+        let peut_ne_pas_suivre =
+            gescom_noyau::portes::verifier_permission_sur(c.base, &ctx, "parametres:modifier").is_ok();
+        let v = catalogue_csv::importer_articles_csv_sur_base(c.base, contenu, mettre_a_jour, peut_ne_pas_suivre)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1843,6 +1965,19 @@ pub fn registre() -> Registre {
             arg(&p, "articleRemplacementId", "article_remplacement_id")?,
             arg(&p, "uniteRemplacementId", "unite_remplacement_id")?,
             arg(&p, "quantiteRemplacement", "quantite_remplacement")?,
+            arg(&p, "modeReliquatPositif", "mode_reliquat_positif")?,
+            arg(&p, "modeEncaissementReliquat", "mode_encaissement_reliquat")?,
+        )
+    });
+    // Plusieurs articles d'une vente en un geste (retour groupe).
+    r.sur_base("enregistrer_retour_groupe", Some("retours:creer"), true, |c, p| {
+        retours::enregistrer_retour_groupe_sur_base(
+            c.base,
+            arg(&p, "venteId", "vente_id")?,
+            arg(&p, "articles", "articles")?,
+            arg(&p, "modeResolution", "mode_resolution")?,
+            arg(&p, "modeEncaissement", "mode_encaissement")?,
+            arg::<Option<Vec<retours::ArticlePris>>>(&p, "pris", "pris")?.unwrap_or_default(),
             arg(&p, "modeReliquatPositif", "mode_reliquat_positif")?,
             arg(&p, "modeEncaissementReliquat", "mode_encaissement_reliquat")?,
         )

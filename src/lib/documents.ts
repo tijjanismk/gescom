@@ -32,6 +32,8 @@ export interface ReglageGenre {
   signatures: SignatureDoc[];
   /** Le filigrane de la société sur ce genre (25/09) ; absent = oui. */
   filigrane?: boolean;
+  /** « DUPLICATA » après la première impression (26/10) ; absent = non. */
+  duplicata?: boolean;
 }
 
 /**
@@ -106,6 +108,10 @@ export const LIBELLES_COORDONNEE: Record<Coordonnee, string> = {
 };
 
 export const SIGNATURES_MAX = 3;
+
+/** Ceux qui peuvent porter un duplicata — `coeur::GENRES_DUPLICATA`. */
+export const GENRES_DUPLICATA: readonly Genre[] =
+  ["facture", "devis", "bon_commande", "bon_livraison", "recu", "ticket"];
 
 /** Le genre d'un type de pièce — même table que `coeur::genre_de_piece`. */
 export function genreDePiece(typePiece: string): Genre {

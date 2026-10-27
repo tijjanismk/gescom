@@ -345,7 +345,12 @@ fn apres_la_cloture_le_lendemain_attend_l_exercice_suivant() {
     let bout = r["id"].as_str().unwrap().to_string();
     let ex2026 = exercices_de(&mut base, &bout)[0]["id"].as_str().unwrap().to_string();
 
-    dossiers::clore_exercice_sur(&mut base, ex2026.clone()).expect("clore");
+    // D38 : on ne clot qu'un exercice termine — le comptable le fait en
+    // janvier.
+    assert!(dossiers::clore_exercice_au_sur(&mut base, ex2026.clone(), "2026-12-31")
+        .unwrap_err()
+        .contains("qu'un exercice terminé"));
+    dossiers::clore_exercice_au_sur(&mut base, ex2026.clone(), "2027-01-02").expect("clore");
     assert_eq!(
         dossiers::verifier_date_sur(&mut base, "2026-06-15").unwrap_err(),
         "Les dates de travail du 1er janvier 2026 au 31 décembre 2026 sont closes : on n'y écrit plus."

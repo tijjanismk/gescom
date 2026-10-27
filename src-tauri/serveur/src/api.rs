@@ -53,6 +53,8 @@ pub fn traiter(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::
         ("POST", "/entretien") => entretien(srv, req, flux),
         ("POST", "/journal-poste") => journal_poste(srv, req, flux),
         ("GET", "/journal") => lire_journal(srv, req, flux),
+        ("GET", "/reseau") => lire_reseau(srv, req, flux),
+        ("POST", "/reseau") => changer_reseau(srv, req, flux),
         _ => erreur(
             flux,
             404,
@@ -471,6 +473,18 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
                 return erreur(flux, 500, CodeErreur::Technique, &e.0);
             }
         }
+        // Lot C.5 : une horloge qui recule (pile du BIOS, coupure). Si
+        // l'heure de cette machine est en arriere de plus de cinq minutes
+        // sur la derniere ecriture reussie, AUCUNE ecriture ne passe —
+        // la vente tomberait au mauvais jour. Les lectures continuent.
+        // Seul le geste du patron qui leve la garde y echappe.
+        let horloge_gardee = entree.ecrit && !gescom_noyau::coeur::horloge::exemptee(nom);
+        if horloge_gardee {
+            let maintenant = gescom_noyau::utils::maintenant_iso();
+            if let Err(m) = gescom_noyau::horloge::verifier_sur(&mut *base, &maintenant) {
+                return erreur(flux, 409, CodeErreur::Metier, &m);
+            }
+        }
         // v3, D-4 (D21) : une ecriture datee tombe dans un exercice
         // ouvert du dossier, ou elle ne s'ecrit pas. Juge ici, une fois,
         // plutot que dans chacune des trente commandes qui datent.
@@ -486,13 +500,24 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
                 return erreur(flux, 409, CodeErreur::Metier, &m);
             }
         }
-        poignee_base(
+        let resultat = poignee_base(
             &mut ContexteBase {
                 base: &mut base,
                 appelant: &appelant,
             },
             params,
-        )
+        );
+        // C.5 : la reference avance avec chaque ecriture reussie (jamais
+        // en arriere, `coeur::horloge::nouvelle_reference`). Une erreur
+        // ici ne defait pas l'ecriture, deja validee : elle se note au
+        // journal technique, la garde jugera sur l'ancienne reference.
+        if entree.ecrit && resultat.is_ok() {
+            let maintenant = gescom_noyau::utils::maintenant_iso();
+            if let Err(e) = gescom_noyau::horloge::noter_ecriture_sur(&mut *base, &maintenant) {
+                journal::avertissement(format!("horloge : derniere ecriture non notee : {e}"));
+            }
+        }
+        resultat
     };
 
     let resultat = match &lectures {
@@ -800,6 +825,262 @@ fn lire_journal(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std:
         ),
         Err(m) => erreur(flux, 400, CodeErreur::Technique, &m),
     }
+}
+
+// =====================================================================
+//  Reseau du serveur — le panneau de la console (27/10/2026)
+// =====================================================================
+
+/// La permission qui change le port et l'ecoute (reservee a qui voit
+/// tous les dossiers, `portes::PERMISSIONS_DE_TOUTE_LA_BASE`).
+const PERMISSION_RESEAU: &str = "parametres:modifier";
+
+/// Les postes connectes, hors celui qui demande (la console elle-meme) :
+/// ceux qui perdront le serveur s'il change de port.
+fn autres_postes_connectes(srv: &Arc<Serveur>, poste_id: &str) -> usize {
+    let Ok(mut base) = srv.base.lock() else { return 0 };
+    let mut postes: Vec<String> = sessions::lister_actives_sur(&mut base)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.poste_id)
+        .filter(|p| p != poste_id)
+        .collect();
+    postes.sort();
+    postes.dedup();
+    postes.len()
+}
+
+/// Ce que le panneau Reseau montre : le nom du poste, ses adresses, le
+/// port et l'ecoute, ce qu'on tape sur les caisses, le pare-feu, la
+/// recherche automatique — et si l'on peut changer, sinon pourquoi.
+/// Lisible par toute session : rien de la boutique la-dedans.
+fn lire_reseau(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Result<()> {
+    use gescom_noyau::coeur::reseau_serveur as regle;
+    let appelant = match authentifier(srv, req) {
+        Ok(a) => a,
+        Err((code, message)) => return erreur(flux, 401, code, &message),
+    };
+    let a_la_permission = {
+        let ctx = ContexteUtilisateur { id: appelant.utilisateur_id.clone(), role: appelant.role.clone() };
+        let mut base = match srv.base.lock() {
+            Ok(b) => b,
+            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+        };
+        verifier_permission_sur(&mut base, &ctx, PERMISSION_RESEAU).is_ok()
+    };
+    let connectes = autres_postes_connectes(srv, &appelant.poste_id);
+
+    // Sans le verrou de la base : `netsh` et la liste des cartes prennent
+    // quelques dizaines de millisecondes.
+    let poste = crate::reseau_local::nom_poste();
+    let cartes = crate::reseau_local::cartes();
+    let ips: Vec<String> = cartes.iter().map(|c| c.ip.to_string()).collect();
+    let principale = cartes.iter().find(|c| c.principale);
+    let ce_poste_seulement = srv.hote.trim().parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback());
+    let a_saisir = if ce_poste_seulement {
+        Vec::new()
+    } else {
+        match srv.hote.trim().parse::<std::net::Ipv4Addr>() {
+            // Une ecoute reglee a la main sur UNE adresse : seulement elle.
+            Ok(ip) if !ip.is_unspecified() => regle::adresses_a_saisir(&poste, &[ip.to_string()], srv.port),
+            _ => regle::adresses_a_saisir(&poste, &ips, srv.port),
+        }
+    };
+    let depuis_ce_poste = regle::requete_locale(&req.ip);
+    let pourquoi_pas = regle::pourquoi_pas(depuis_ce_poste, !srv.reseau_modifiable, a_la_permission)
+        .or_else(|| crate::configuration::ecriture_permise().err());
+    let decouverte = srv.decouverte.lock().map(|d| d.clone()).unwrap_or_else(|_| Err("inconnu".to_string()));
+    let port_udp = *decouverte.as_ref().unwrap_or(&gescom_noyau::decouverte::PORT);
+
+    repondre_json(
+        flux,
+        200,
+        &json!({
+            "poste": poste,
+            "cartes": cartes.iter().map(|c| json!({
+                "ip": c.ip.to_string(),
+                "carte": c.carte,
+                "dhcp": c.dhcp,
+                "principale": c.principale,
+            })).collect::<Vec<_>>(),
+            "port": srv.port,
+            "ecoute": srv.hote,
+            "ecoute_libelle": regle::libelle_ecoute(&srv.hote),
+            "a_saisir": a_saisir,
+            "avertissement_dhcp": principale.and_then(|c| regle::avertissement_dhcp(Some(&c.ip.to_string()), c.dhcp, &poste)),
+            "parefeu": {
+                "tcp": crate::reseau_local::regle_parefeu_presente(srv.port),
+                "udp": crate::reseau_local::regle_recherche_presente(port_udp),
+            },
+            "decouverte": {
+                "active": decouverte.is_ok(),
+                "port": port_udp,
+                "raison": decouverte.err(),
+            },
+            "postes_connectes": connectes,
+            "en_service": srv.en_service,
+            "depuis_ce_poste": depuis_ce_poste,
+            "modifiable": pourquoi_pas.is_none(),
+            "pourquoi_pas": pourquoi_pas,
+            "configuration": crate::configuration::chemin().map(|c| c.display().to_string()),
+            "plage": [gescom_noyau::protocole::PORT_DEFAUT, gescom_noyau::protocole::PORT_MAX],
+        }),
+    )
+}
+
+/// Change le port ou l'ecoute : `{"port": 40005, "ecoute": "0.0.0.0"}`.
+///
+/// Le serveur applique lui-meme : il reecrit `serveur.json` (le reste du
+/// fichier garde), ecrit le geste a l'Historique — les deux, ou aucun —,
+/// repond, puis redemarre sur le nouveau reglage (`main::tourner`). Les
+/// caisses le perdent : elles le retrouvent par « Rechercher le serveur ».
+fn changer_reseau(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Result<()> {
+    use gescom_noyau::coeur::reseau_serveur::{self as regle, Refus, Reglage};
+    use std::sync::atomic::Ordering;
+
+    let appelant = match authentifier(srv, req) {
+        Ok(a) => a,
+        Err((code, message)) => return erreur(flux, 401, code, &message),
+    };
+    // D26 : la ligne de l'Historique est signee par la session.
+    let _auteur = gescom_noyau::auteur::poser(&appelant.utilisateur_id);
+    journal::contexte_ajouter(&format!("reseau · {}@{}", court(&appelant.utilisateur_id), court(&appelant.poste_id)));
+    {
+        let ctx = ContexteUtilisateur { id: appelant.utilisateur_id.clone(), role: appelant.role.clone() };
+        let mut base = match srv.base.lock() {
+            Ok(b) => b,
+            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+        };
+        if let Err(e) = verifier_permission_sur(&mut base, &ctx, PERMISSION_RESEAU) {
+            return erreur(flux, 403, CodeErreur::Permission, &e.to_string());
+        }
+    }
+    // Un changement a la fois, et pas pendant un redemarrage.
+    let _un_a_la_fois = srv.changement_reseau.lock().unwrap_or_else(|e| e.into_inner());
+    if srv.redemarrage.load(Ordering::SeqCst) {
+        return erreur(flux, 409, CodeErreur::Metier, "Le serveur redémarre déjà sur un nouveau réglage.");
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Demande {
+        port: i64,
+        #[serde(default)]
+        ecoute: Option<String>,
+    }
+    let demande: Demande = match req
+        .json()
+        .and_then(|v| serde_json::from_value(v).map_err(|e| format!("Demande illisible : {e}")))
+    {
+        Ok(d) => d,
+        Err(m) => return erreur(flux, 400, CodeErreur::Technique, &m),
+    };
+    let actuel = Reglage { port: srv.port, ecoute: srv.hote.clone() };
+    let Ok(port) = u16::try_from(demande.port) else {
+        return erreur(flux, 409, CodeErreur::Metier, &Refus::PortHorsPlage(demande.port).message());
+    };
+    let voulu = Reglage { port, ecoute: demande.ecoute.unwrap_or_else(|| actuel.ecoute.clone()) };
+    let nouveau = match regle::juger(&actuel, &voulu, regle::requete_locale(&req.ip), !srv.reseau_modifiable) {
+        Ok(n) => n,
+        Err(Refus::PasDuPosteServeur) => {
+            return erreur(flux, 403, CodeErreur::Permission, &Refus::PasDuPosteServeur.message())
+        }
+        Err(r) => return erreur(flux, 409, CodeErreur::Metier, &r.message()),
+    };
+    if appelant.dossier_id.is_empty() {
+        return erreur(flux, 409, CodeErreur::DossierAChoisir, "Choisir un dossier avant de continuer.");
+    }
+    let chemin = match crate::configuration::ecriture_permise() {
+        Ok(c) => c,
+        Err(m) => return erreur(flux, 409, CodeErreur::Metier, &m),
+    };
+    // Un port deja tenu par un autre programme : le serveur ne pourrait
+    // pas y redemarrer, et plus aucune caisse ne le joindrait. On essaie
+    // de l'ouvrir AVANT de rien ecrire.
+    if nouveau.port != actuel.port {
+        if let Err(e) = std::net::TcpListener::bind((nouveau.ecoute.as_str(), nouveau.port)) {
+            return erreur(
+                flux,
+                409,
+                CodeErreur::Metier,
+                &format!(
+                    "Le port {} est déjà pris sur ce poste ({e}) : un autre programme l'écoute. \
+                     Choisir un autre port de la plage.",
+                    nouveau.port
+                ),
+            );
+        }
+    }
+    let existant = match crate::configuration::lire(&chemin) {
+        Ok(t) => t,
+        Err(m) => return erreur(flux, 409, CodeErreur::Metier, &m),
+    };
+    let contenu = match regle::fusionner_configuration(existant.as_deref(), &nouveau) {
+        Ok(c) => c,
+        Err(m) => return erreur(flux, 409, CodeErreur::Metier, &m),
+    };
+
+    // L'Historique et le fichier, tout ou rien : la ligne s'ecrit dans une
+    // transaction validee APRES le fichier ; un fichier qui ne s'ecrit pas
+    // defait la ligne, une validation qui echoue remet l'ancien fichier.
+    {
+        let mut base = match srv.base.lock() {
+            Ok(b) => b,
+            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+        };
+        if let Err(e) = base.choisir_dossier(&appelant.dossier_id) {
+            return erreur(flux, 500, CodeErreur::Technique, &e.0);
+        }
+        let auteur = gescom_noyau::argent::id_utilisateur_courant_sur(&mut *base);
+        let maintenant = gescom_noyau::utils::maintenant_iso();
+        let mut tx = match base.transaction() {
+            Ok(t) => t,
+            Err(e) => return erreur(flux, 500, CodeErreur::Technique, &e.0),
+        };
+        if let Err(m) = gescom_noyau::reseau_serveur::noter_changement_sur(&mut tx, &auteur, &actuel, &nouveau, &maintenant) {
+            return erreur(flux, 500, CodeErreur::Technique, &m);
+        }
+        if let Err(m) = crate::configuration::ecrire(&chemin, &contenu) {
+            // `tx` tombe sans etre validee : la ligne disparait avec elle.
+            return erreur(flux, 500, CodeErreur::Technique, &m);
+        }
+        if let Err(e) = tx.valider() {
+            let remis = match &existant {
+                Some(t) => crate::configuration::ecrire(&chemin, t),
+                None => std::fs::remove_file(&chemin).map_err(|e| e.to_string()),
+            };
+            let suite = match remis {
+                Ok(()) => "serveur.json est remis comme avant".to_string(),
+                Err(r) => format!("serveur.json n'a pas pu être remis comme avant ({r}) : le vérifier"),
+            };
+            return erreur(flux, 500, CodeErreur::Technique, &format!("Historique : {} — {suite}.", e.0));
+        }
+    }
+
+    journal::info(format!(
+        "Réseau du serveur changé : {} → {} ({}). Le serveur redémarre.",
+        actuel.en_texte(),
+        nouveau.en_texte(),
+        chemin.display()
+    ));
+    let hote_console = if nouveau.ecoute == regle::ECOUTE_TOUTES { "127.0.0.1".to_string() } else { nouveau.ecoute.clone() };
+    repondre_json(
+        flux,
+        200,
+        &json!({
+            "etat": "ok",
+            "port": nouveau.port,
+            "ecoute": nouveau.ecoute,
+            "redemarrage": if srv.en_service { "service" } else { "relance" },
+            // Ce que la console attend avant de se rouvrir : le service
+            // revient en 5 s, ou 30 s, ou 60 s (sc failure, D12).
+            "attente_max_s": if srv.en_service { 120 } else { 45 },
+            "console": format!("http://{hote_console}:{}/console", nouveau.port),
+        }),
+    )?;
+    // La reponse est partie ; la boucle s'arrete au prochain tour.
+    let _ = flux.shutdown(std::net::Shutdown::Write);
+    srv.redemarrage.store(true, Ordering::SeqCst);
+    Ok(())
 }
 
 /// Les huit premiers caracteres d'un identifiant : assez pour retrouver

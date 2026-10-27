@@ -2,16 +2,20 @@
 ; administrateur que celle-ci n'a pas (installMode currentUser).
 ;
 ; Ce qu'il fait, dans l'ordre :
-;   1. copie gescom-serveur.exe dans Program Files ;
+;   1. copie gescom-serveur.exe et la fenetre gescom-serveur-fenetre.exe
+;      (« Gescom Serveur », D25) dans Program Files ;
 ;   2. enregistre le certificat auto-signe comme editeur de confiance
 ;      de CETTE machine (les installations suivantes ne demandent plus
 ;      rien ici — ailleurs, l'avertissement reste : D5) ;
 ;   3. ecrit la configuration (base, port) dans ProgramData\Gescom, sans
 ;      ecraser une configuration existante ;
-;   4. ouvre le port dans le pare-feu (profils Domaine et Prive, sur le
-;      PORT, comme outils\parefeu.ps1) ;
-;   5. installe et demarre le service Windows « GescomServeur ».
-; La desinstallation defait les cinq, et garde la base et les
+;   4. ouvre le pare-feu (profils Domaine et Prive, comme
+;      outils\parefeu.ps1) : TCP sur la plage du serveur, et UDP 40000
+;      pour que les caisses le trouvent (« Rechercher le serveur ») ;
+;   5. installe et demarre le service Windows « GescomServeur » ;
+;   6. pose au menu Demarrer « Gescom Serveur » (la fenetre), a cote de
+;      la console dans le navigateur, du journal et de la configuration.
+; La desinstallation defait le tout, et garde la base et les
 ; sauvegardes : un commerçant qui desinstalle ne veut pas perdre ses
 ; ventes.
 ;
@@ -36,6 +40,9 @@ Unicode True
 !define NOM "Gescom Serveur"
 !define SERVICE "GescomServeur"
 !define REGLE_PAREFEU "Gescom serveur"
+; La recherche du serveur par les caisses (UDP 40000, noyau::decouverte) :
+; le nom est celui que lit le serveur (reseau_local::REGLE_UDP).
+!define REGLE_RECHERCHE "Gescom serveur (recherche)"
 !define CLE_DESINSTALL "Software\Microsoft\Windows\CurrentVersion\Uninstall\GescomServeur"
 
 Name "${NOM} ${VERSION}"
@@ -57,7 +64,7 @@ Var DossierConfig
 !insertmacro MUI_PAGE_DIRECTORY
 Page custom PageConfiguration PageConfigurationValider
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_TEXT "Le service « ${NOM} » tourne et demarre avec la machine.$\r$\n$\r$\nJournal : $DossierConfig\serveur.log$\r$\nConfiguration : $DossierConfig\serveur.json$\r$\n$\r$\nL'arreter / le relancer : sc stop ${SERVICE} / sc start ${SERVICE}"
+!define MUI_FINISHPAGE_TEXT "Le service « ${NOM} » tourne et demarre avec la machine.$\r$\n$\r$\nSa fenetre : menu Demarrer, Gescom, « Gescom Serveur » (port, adresse a taper sur les caisses, postes connectes).$\r$\n$\r$\nJournal : $DossierConfig\serveur.log$\r$\nConfiguration : $DossierConfig\serveur.json$\r$\n$\r$\nL'arreter / le relancer : sc stop ${SERVICE} / sc start ${SERVICE}"
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -73,7 +80,7 @@ Function .onInit
   ; LocalSystem, dont le profil n'est pas un endroit pour une boutique.
   ; Barres obliques : JSON n'aime pas les antislashs, Rust lit les deux.
   StrCpy $BaseTexte "$DossierConfig\gescom.db"
-  StrCpy $PortTexte "7300"
+  StrCpy $PortTexte "40000"
 FunctionEnd
 
 Function PageConfiguration
@@ -90,7 +97,7 @@ Function PageConfiguration
   Pop $0
   ${NSD_CreateText} 0 28u 100% 12u "$BaseTexte"
   Pop $ChampBase
-  ${NSD_CreateLabel} 0 50u 100% 12u "Port d'ecoute (7300 par defaut, sur toutes les adresses de la machine) :"
+  ${NSD_CreateLabel} 0 50u 100% 12u "Port d'ecoute (40000 par defaut ; de 40000 a 40100, les seuls que les caisses joignent) :"
   Pop $0
   ${NSD_CreateNumber} 0 64u 60u 12u "$PortTexte"
   Pop $ChampPort
@@ -107,7 +114,15 @@ Function PageConfigurationValider
     Abort
   ${EndIf}
   ${If} $PortTexte == ""
-    StrCpy $PortTexte "7300"
+    StrCpy $PortTexte "40000"
+  ${EndIf}
+  ; Les caisses livrees ne joignent le serveur que de 40000 a 40100
+  ; (leur CSP, tauri.conf.json, D39) : hors de la plage, aucune caisse
+  ; ne le joindrait, sans un mot.
+  ${If} $PortTexte < 40000
+  ${OrIf} $PortTexte > 40100
+    MessageBox MB_ICONEXCLAMATION|MB_OK "Les caisses Gescom ne joignent le serveur que sur un port de 40000 a 40100. Garder 40000, ou un port de cette plage."
+    Abort
   ${EndIf}
 FunctionEnd
 
@@ -128,8 +143,17 @@ Section "Serveur" SEC_SERVEUR
     nsExec::ExecToLog '"$INSTDIR\gescom-serveur.exe" --desinstaller-service'
     Sleep 1000
   ${EndIf}
+  ; La fenetre ouverte tient son executable : on la ferme (elle ne garde
+  ; rien, la console est servie par le service).
+  ${If} ${FileExists} "$INSTDIR\gescom-serveur-fenetre.exe"
+    nsExec::ExecToLog 'taskkill.exe /IM gescom-serveur-fenetre.exe /F'
+  ${EndIf}
 
   File "${SOURCE}\gescom-serveur.exe"
+  ; La fenetre du serveur (D25) : une coque qui affiche sa console.
+  ; Elle a besoin de WebView2, present sur Windows 11 et sur les Windows
+  ; 10 a jour ; il n'est pas embarque ici.
+  File "${SOURCE}\gescom-serveur-fenetre.exe"
   File "${SOURCE}\gescom.cer"
 
   ; 2. Le certificat, editeur de confiance de cette machine.
@@ -147,10 +171,17 @@ Section "Serveur" SEC_SERVEUR
     FileClose $0
   ${EndIf}
 
-  ; 4. Le pare-feu : sur le port, profils Domaine et Prive (pas Public :
-  ;    le reseau d'un hotel n'a pas a voir la base d'un commerce).
+  ; 4. Le pare-feu : sur la plage du serveur (D39), profils Domaine et
+  ;    Prive (pas Public : le reseau d'un hotel n'a pas a voir la base
+  ;    d'un commerce). Toute la plage, comme outils/parefeu.ps1 : un
+  ;    port change plus tard dans serveur.json reste joignable.
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${REGLE_PAREFEU}"'
-  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${REGLE_PAREFEU}" dir=in action=allow protocol=TCP localport=$PortTexte profile=domain,private'
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${REGLE_PAREFEU}" dir=in action=allow protocol=TCP localport=40000-40100 profile=domain,private'
+  ;    Et la recherche du serveur par les caisses : UDP 40000, toujours
+  ;    (meme quand le serveur sert sur un autre port de la plage), memes
+  ;    profils.
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${REGLE_RECHERCHE}"'
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${REGLE_RECHERCHE}" dir=in action=allow protocol=UDP localport=40000 profile=domain,private'
 
   ; 5. Le service.
   nsExec::ExecToLog '"$INSTDIR\gescom-serveur.exe" --installer-service'
@@ -171,8 +202,13 @@ Section "Serveur" SEC_SERVEUR
   WriteRegDWORD HKLM "${CLE_DESINSTALL}" "NoRepair" 1
 
   CreateDirectory "$SMPROGRAMS\Gescom"
+  ; 6. La fenetre du serveur : elle lit le port dans serveur.json a chaque
+  ;    ouverture, elle suit donc un port change depuis la console.
+  CreateShortcut "$SMPROGRAMS\Gescom\Gescom Serveur.lnk" "$INSTDIR\gescom-serveur-fenetre.exe" "" "$INSTDIR\gescom-serveur-fenetre.exe" 0
   CreateShortcut "$SMPROGRAMS\Gescom\Journal du serveur.lnk" "notepad.exe" '"$DossierConfig\serveur.log"'
   CreateShortcut "$SMPROGRAMS\Gescom\Configuration du serveur.lnk" "notepad.exe" '"$DossierConfig\serveur.json"'
+  ; Le port de l'installation : apres un changement de port depuis la
+  ; console, c'est la fenetre « Gescom Serveur » qui suit, pas ce lien.
   CreateShortcut "$SMPROGRAMS\Gescom\Console du serveur.lnk" "http://localhost:$PortTexte"
 SectionEnd
 
@@ -209,14 +245,18 @@ FunctionEnd
 
 Section "Uninstall"
   StrCpy $DossierConfig "$%ProgramData%\Gescom"
+  nsExec::ExecToLog 'taskkill.exe /IM gescom-serveur-fenetre.exe /F'
   nsExec::ExecToLog 'sc.exe stop ${SERVICE}'
   Sleep 2000
   nsExec::ExecToLog '"$INSTDIR\gescom-serveur.exe" --desinstaller-service'
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${REGLE_PAREFEU}"'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${REGLE_RECHERCHE}"'
   Delete "$INSTDIR\gescom-serveur.exe"
+  Delete "$INSTDIR\gescom-serveur-fenetre.exe"
   Delete "$INSTDIR\gescom.cer"
   Delete "$INSTDIR\Desinstaller.exe"
   RMDir "$INSTDIR"
+  Delete "$SMPROGRAMS\Gescom\Gescom Serveur.lnk"
   Delete "$SMPROGRAMS\Gescom\Journal du serveur.lnk"
   Delete "$SMPROGRAMS\Gescom\Configuration du serveur.lnk"
   Delete "$SMPROGRAMS\Gescom\Console du serveur.lnk"

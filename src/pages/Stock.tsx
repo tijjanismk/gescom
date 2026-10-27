@@ -559,6 +559,16 @@ export function Stock({ onHistorique }: {
   const [page, setPage] = useState(0);
   const [recherche, setRecherche] = useState("");
   const [aRegulariserSeulement, setARegulariserSeulement] = useState(false);
+  // D36 : les articles qui ne suivent pas leur stock sont hors de cette
+  // liste ; ce filtre les nomme (sans chiffres : on ne les compte pas).
+  const [voirNonSuivis, setVoirNonSuivis] = useState(false);
+  const [nonSuivis, setNonSuivis] = useState<{ id: string; nom: string; unite_base: string }[] | null>(null);
+  useEffect(() => {
+    if (!voirNonSuivis) return;
+    invoke<{ id: string; nom: string; unite_base: string; gere_en_stock?: boolean }[]>("lire_articles_complets")
+      .then(a => setNonSuivis(a.filter(x => x.gere_en_stock === false)))
+      .catch(e => { console.error("Articles non suivis :", e); setNonSuivis([]); });
+  }, [voirNonSuivis]);
   const [articleEntree, setArticleEntree] = useState<StockRow | null>(null);
   const [articleAjustement, setArticleAjustement] = useState<StockRow | null>(null);
   const [onglet, setOnglet] = useState<"stock" | "mouvements">("stock");
@@ -661,15 +671,54 @@ export function Stock({ onHistorique }: {
           À régulariser {nbRegulariser > 0 && `(${nbRegulariser})`}
         </button>
 
-        {(recherche || aRegulariserSeulement) && (
+        <button
+          onClick={() => setVoirNonSuivis(v => !v)}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors",
+            voirNonSuivis
+              ? "border-violet-400 bg-violet-50 text-violet-700"
+              : "border-border text-muted-foreground hover:bg-muted"
+          )}
+        >
+          Non suivis
+        </button>
+
+        {(recherche || aRegulariserSeulement || voirNonSuivis) && (
           <Button variant="ghost" size="sm" className="h-8 text-xs"
-            onClick={() => { setRecherche(""); setARegulariserSeulement(false); }}>
+            onClick={() => { setRecherche(""); setARegulariserSeulement(false); setVoirNonSuivis(false); }}>
             <X className="h-3 w-3 mr-1" /> Réinitialiser
           </Button>
         )}
       </div>
 
-      {chargement ? (
+      {voirNonSuivis ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Articles dont le stock n'est pas suivi</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Vendus sans compter, jamais à découvert. Pour suivre leur stock :
+              Paramètres → Articles.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            {nonSuivis === null ? (
+              <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : nonSuivis.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">Tous les articles suivent leur stock</p>
+            ) : (
+              <div className="divide-y divide-border">
+                {nonSuivis
+                  .filter(a => !recherche || a.nom.toLowerCase().includes(recherche.toLowerCase()))
+                  .map(a => (
+                    <div key={a.id} data-testid="article-non-suivi" className="py-2.5 px-4 text-sm">
+                      {a.nom} <span className="text-xs text-muted-foreground">· {a.unite_base}</span>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : chargement ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>

@@ -57,6 +57,14 @@ service demanderait les droits administrateur que cet installeur n'a pas
 (`installMode: currentUser`) et un enveloppeur de service en plus. Le
 poste principal d'une boutique reste allumé sur une session ouverte.
 
+**Sur une caisse, ce serveur s'efface** (25/10/2026,
+[role_poste.rs](../../src-tauri/serveur/src/role_poste.rs)) : lancé sans
+`--base`, il lit `poste.json` et s'arrête si le poste est la caisse
+d'une **autre** machine — le journal dit pourquoi. Dans le doute (poste
+sur `127.0.0.1`, adresse de cette machine, nom introuvable), il tourne.
+Sur le poste qui garde la base, la fenêtre le lance aussi elle-même
+s'il ne répond pas (`reseau.rs`, `demarrer_serveur_local`).
+
 À la **désinstallation**, `taskkill` sur le serveur avant de retirer les
 fichiers : tant qu'il tourne, il tient la base ouverte et la
 désinstallation échoue avec un message incompréhensible.
@@ -69,18 +77,36 @@ Un second installeur, **à part**, avec les droits administrateur :
 .\outils\construire_installeur_serveur.ps1   → dist\Gescom-Serveur_<version>_x64-setup.exe
 ```
 
-Il compile en release, signe l'exécutable (`outils\signer.ps1`,
+Il compile en release le service et la fenêtre (`--features
+tauri/custom-protocol`, comme `tauri build` ; sa page est dans le crate,
+pas de npm), signe les deux exécutables (`outils\signer.ps1`,
 certificat auto-signé créé une fois dans `Cert:\CurrentUser\My`, partie
 publique exportée en `gescom.cer`), empaquette
 (`outils\installeur_serveur.nsi`, makensis de `%LOCALAPPDATA%\tauri\NSIS`)
-et signe l'installeur. 2,4 Mo.
+et signe l'installeur. 2,4 Mo sans la fenêtre (avec elle : pas encore
+mesuré, l'installeur n'a pas été reconstruit le 27/10).
+
+**Piège** (27/10/2026) : un serveur lancé à la main dont on change le
+port depuis la console crée `ProgramData\Gescom\serveur.json` (port et
+écoute seulement). Si l'installeur du serveur passe ensuite sur ce poste,
+il voit un fichier existant et saute sa page de configuration : la base
+du service sera celle par défaut (`ProgramData\Gescom\gescom.db`).
 
 Ce que l'installeur fait sur la machine, dans l'ordre : copie
-l'exécutable dans `Program Files\Gescom Serveur` ; `certutil -addstore`
+l'exécutable — et, depuis le 27/10/2026, la fenêtre
+`gescom-serveur-fenetre.exe` (D25, [serveur-fenetre.md](serveur-fenetre.md)) —
+dans `Program Files\Gescom Serveur` ; `certutil -addstore`
 dans `Root` et `TrustedPublisher` ; écrit `%ProgramData%\Gescom\
 serveur.json` (base, port — une page de l'assistant, **jamais par-dessus
-une configuration existante**) ; `netsh advfirewall` sur le port,
-profils Domaine + Privé ; `gescom-serveur.exe --installer-service`. La
+une configuration existante**) ; `netsh advfirewall` sur la plage TCP 40000-40100 (« Gescom serveur ») et,
+depuis le 27/10, UDP 40000 (« Gescom serveur (recherche) », pour
+« Rechercher le serveur »), profils Domaine + Privé ;
+`gescom-serveur.exe --installer-service` ; au menu Démarrer, **« Gescom
+Serveur »** (la fenêtre, qui suit un port changé depuis la console),
+à côté de « Console du serveur » (lien figé au port de l'installation),
+du journal et de la configuration. Une mise à jour ferme la fenêtre
+ouverte (`taskkill`) avant de la remplacer. WebView2 n'est pas embarqué
+(présent sur Windows 11 et les Windows 10 à jour). La
 désinstallation défait tout et **garde** `ProgramData\Gescom` (base,
 journal, sauvegardes). Une mise à jour arrête le service, remplace,
 relance.

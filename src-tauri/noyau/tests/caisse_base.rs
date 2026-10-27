@@ -127,7 +127,7 @@ fn une_vente_comptant_marche_desormais_avec_la_caisse_portee() {
         .unwrap()
         .unwrap();
     let client: String = base
-        .lire_une("SELECT id FROM client WHERE est_generique = 1", &[], |r| r.get::<String>(0))
+        .lire_une("SELECT id FROM client WHERE est_generique = 1 AND statut <> 'passage'", &[], |r| r.get::<String>(0))
         .unwrap()
         .unwrap();
 

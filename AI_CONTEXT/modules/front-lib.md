@@ -33,13 +33,20 @@ actuel.
   `genererBonEchangeHTML`, `genererTicketThermique`.
 - Types : `DonneesPiece`, `DonneesEchange`, `FormatImpression`,
   `Signatures`.
+- « Acompte reçu » (A4/A5 et ticket) imprime `totaux.encaisse` — l'argent
+  versé, calculé par le serveur dans `lire_donnees_piece[_sur_base]` —
+  et une ligne « Éteint par retour » quand `totaux.eteint_par_retour > 0`
+  (lot B.3, 27/10). `total_paye` et le RESTE DÛ ne changent pas ; sans
+  `encaisse` (serveur ancien), retombe sur `total_paye`.
 
 ## genererReleve.ts
 
 `genererReleveHTML`, `genererReleveGlobalHTML`,
 `genererHistoriqueReglementsHTML` + les types `DonneesReleve`,
 `DonneesReleveGlobal`, `LigneReleve`, `LigneReleveGlobal`,
-`LigneHistorique`.
+`LigneHistorique`. `MODE_ETEINT_PAR_RETOUR` (`"retour"`) : l'historique
+des règlements (et l'onglet Règlements de la fiche client) totalise
+hors de ces lignes et les montre à part (lot B.3).
 
 ## Entrant
 

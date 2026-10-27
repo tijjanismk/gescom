@@ -3,13 +3,15 @@ import { chromium } from "playwright";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
+import { execFileSync } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 const ICI = path.dirname(fileURLToPath(import.meta.url));
 export const TRAVAIL = path.join(ICI, ".travail");
 export const CAPTURES = path.join(TRAVAIL, "captures");
 fs.mkdirSync(CAPTURES, { recursive: true });
-export const URL = `http://127.0.0.1:${process.env.PORT_ECRAN ?? 1420}/?serveur=127.0.0.1:${process.env.PORT_SERVEUR ?? 7300}`;
+export const URL = `http://127.0.0.1:${process.env.PORT_ECRAN ?? 1420}/?serveur=127.0.0.1:${process.env.PORT_SERVEUR ?? 40000}`;
 /** Gescom Équipe (PLAN-EQUIPE) : la seconde entrée du même écran. */
 export const URL_EQUIPE = URL.replace("/?", "/equipe.html?");
 
@@ -23,6 +25,110 @@ export async function navigateur() {
   page.on("console", m => { if (m.type() === "error") erreurs.push("console: " + m.text()); });
   return { b, ctx, page, erreurs };
 }
+
+/** Une ecriture directe dans la base du banc, pour poser ce que l'ecran
+ *  ne sait pas provoquer (b4, c1). La base est celle que lancer.ps1 a
+ *  notee dans .travail/moteur.txt : un fichier SQLite, ou une URL
+ *  PostgreSQL — et alors `gescom_test`, rien d'autre. Sans ce fichier
+ *  (lancer.sh), essai.db comme avant. `?` = valeurs, citees ici. */
+export function ecrireEnBase(sql, valeurs = []) {
+  const f = path.join(TRAVAIL, "moteur.txt");
+  const cible = fs.existsSync(f) ? fs.readFileSync(f, "utf8").trim() : path.join(TRAVAIL, "essai.db");
+  if (cible.startsWith("postgresql://")) {
+    if (!/\/gescom_test(\?|$)/.test(cible)) throw new Error(`Le banc n'écrit que dans gescom_test, pas ${cible}`);
+    let i = 0;
+    const lit = v => v === null ? "NULL" : typeof v === "number" ? String(v) : `'${String(v).replace(/'/g, "''")}'`;
+    const texte = sql.replace(/\?/g, () => lit(valeurs[i++]));
+    // Par l'entree standard, en UTF-8 : sur la ligne de commande, Windows
+    // passe le texte dans la page de code du systeme et « n° » casse.
+    execFileSync(process.env.PSQL ?? "C:\\Program Files\\PostgreSQL\\18\\bin\\psql.exe",
+      ["-q", "-v", "ON_ERROR_STOP=1", "-d", cible, "-f", "-"],
+      { input: texte, env: { ...process.env, PGCLIENTENCODING: "UTF8" } });
+    return;
+  }
+  const base = new DatabaseSync(cible);
+  try { base.prepare(sql).run(...valeurs); } finally { base.close(); }
+}
+
+/** La vraie fenetre Tauri (lancer.ps1 monoposte), par le port de
+ *  debogage de WebView2. `b.close()` la detache sans la fermer. */
+export async function fenetre() {
+  const b = await chromium.connectOverCDP(`http://127.0.0.1:${process.env.PORT_CDP ?? 9222}`);
+  let page;
+  for (let i = 0; i < 40 && !page; i++) {
+    page = b.contexts().flatMap(c => c.pages()).find(p => p.url().includes(":1420"));
+    if (!page) await new Promise(r => setTimeout(r, 500));
+  }
+  if (!page) throw new Error("La fenetre Gescom n'a pas de page sur :1420 (lancer.ps1 monoposte ?)");
+  const erreurs = [];
+  page.on("pageerror", e => erreurs.push("pageerror: " + e.message));
+  page.on("console", m => { if (m.type() === "error") erreurs.push("console: " + m.text()); });
+  return { b, page, erreurs };
+}
+
+/** Les boites natives de la fenetre (`message` de plugin-dialog) sont
+ *  des fenetres Windows que Playwright ne peut pas fermer : le geste
+ *  resterait suspendu a leur `await`. On les intercepte dans la page —
+ *  le texte est garde, relu par `boites(page)` —
+ *  et on les rearme a chaque chargement. Rien d'autre n'est touche. */
+//
+// `window.__TAURI_INTERNALS__.invoke` est verrouille (non inscriptible) :
+// le remplacer dans la page ne fait rien, sans erreur — la premiere
+// version de cette aide n'interceptait donc RIEN, et la vraie boite
+// s'ouvrait (vu a l'ecran le 26/10). On intercepte un cran plus bas : sous
+// Windows, chaque commande Tauri est une requete vers
+// `http://ipc.localhost/<commande>`, que Playwright detourne.
+const BOITES = new WeakMap();
+export async function boitesMuettes(page) {
+  if (BOITES.has(page)) return;
+  BOITES.set(page, []);
+  const entetes = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Expose-Headers": "Tauri-Response",
+    "Tauri-Response": "ok",
+  };
+  await page.route(/^https?:\/\/ipc\.localhost\/plugin%3Adialog%7C(message|ask|confirm)/, async (route) => {
+    const req = route.request();
+    if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: entetes });
+    let args = {};
+    try { args = JSON.parse(req.postData() ?? "{}"); } catch { /* corps illisible */ }
+    BOITES.get(page)?.push({ message: args?.message ?? "", kind: args?.kind ?? "info" });
+    // `ask` et `confirm` passent par `message` avec des boutons, et
+    // comparent la reponse au libelle du « oui » : on dit oui.
+    const bt = args?.buttons;
+    const oui = bt === "YesNo" || bt === "YesNoCancel" ? "Yes"
+      : bt && typeof bt === "object" ? (bt.OkCancelCustom?.[0] ?? bt.YesNoCancelCustom?.[0] ?? bt.OkCustom ?? "Ok") : "Ok";
+    // `globalThis.URL` : ce fichier exporte sa propre constante `URL`.
+    const commande = decodeURIComponent(new globalThis.URL(req.url()).pathname.slice(1));
+    await route.fulfill({
+      status: 200,
+      headers: { ...entetes, "Content-Type": "application/json" },
+      body: JSON.stringify(commande === "plugin:dialog|message" ? oui : true),
+    });
+  });
+}
+/** Les boites interceptees sur cette page, dans l'ordre : `{ message, kind }`
+ *  (`kind` : info, warning, error, comme `message()` de plugin-dialog). */
+export const boites = async (page) => BOITES.get(page) ?? [];
+
+/** `/sante` d'un serveur local, ou `null` s'il ne repond pas. */
+export async function sante(port = 40000) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/sante`, { signal: AbortSignal.timeout(3000) });
+    return await r.json();
+  } catch { return null; }
+}
+
+/** Arrete ce qui ecoute sur ce port de la machine (Windows). */
+export function arreterPort(port) {
+  execFileSync("powershell", ["-NoProfile", "-Command",
+    `Get-NetTCPConnection -State Listen -LocalPort ${port} -ErrorAction SilentlyContinue | `
+    + `ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; exit 0`]);
+}
+
+/** L'adresse de la fenetre : celle qu'elle a chargee (devUrl). */
+export const URL_FENETRE = "http://localhost:1420/";
 
 /** Les erreurs qui comptent : ni le 401 du jeton perime au demarrage,
  *  ni les scripts bloques (voulu) des apercus sandboxes, ni les appels

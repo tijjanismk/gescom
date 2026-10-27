@@ -146,6 +146,7 @@ fn le_catalogue_s_exporte_et_se_reimporte() {
         &mut base,
         "Nom;Categorie;Unite;Prix;PrixAchat;TVA;CodeBarre;Stock\nSucre;Epicerie;kg;900;;;\nClous;Quincaillerie;kg;1500;1000;18;3017620422003;40\n;x;y;1\nSans prix;x;y;abc".into(),
         Some(true),
+        true,
     )
     .unwrap();
     assert_eq!(r["crees"], 1);
@@ -187,6 +188,6 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     pieces::changer_statut_piece_sur_base(&mut base, bl_id.clone(), "emis".into()).expect("émettre le bon");
     livraisons::enregistrer_livraison_sur_base(&mut base, bl_id, vec![livraisons::LigneLivraison { ligne_id: lid, quantite_livree: 1.0 }]).expect("livrer");
     catalogue_csv::exporter_articles_csv_sur_base(&mut base).expect("export");
-    catalogue_csv::importer_articles_csv_sur_base(&mut base, "Nom;Categorie;Unite;Prix\nX;C;u;10".into(), None).expect("import");
+    catalogue_csv::importer_articles_csv_sur_base(&mut base, "Nom;Categorie;Unite;Prix\nX;C;u;10".into(), None, true).expect("import");
     catalogue_csv::lire_etat_stock_sur_base(&mut base, None, Some(true)).expect("état");
 }

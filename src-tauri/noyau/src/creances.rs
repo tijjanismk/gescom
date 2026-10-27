@@ -397,8 +397,9 @@ pub fn lire_donnees_recu(
             (i64, String, String, Option<String>, Option<String>,
              String, Option<String>, Option<String>, Option<String>) =
             conn.query_row(
+                // Lot D.9 : le nom ecrit sur la facture reglee, s'il a ete fige.
                 "SELECT pf.montant, pf.mode, pf.date_paiement, pf.note,
-                        u.nom, f.nom, f.telephone, f.adresse, pc.numero
+                        u.nom, COALESCE(pc.tiers_nom, f.nom), f.telephone, f.adresse, pc.numero
                  FROM paiement_fournisseur pf
                  JOIN fournisseur f ON f.id = pf.fournisseur_id
                  LEFT JOIN utilisateur u ON u.id = pf.auteur_id
@@ -445,8 +446,11 @@ pub fn lire_donnees_recu(
         (i64, String, String, Option<String>, String, Option<String>,
          String, String, Option<String>, Option<String>, bool) =
         conn.query_row(
+            // D35, lot D.10 : le nom et le code ecrits sur la facture, s'ils
+            // ont ete figes (renommage, promotion, rattachement).
             "SELECT p.montant, p.mode, p.date_paiement, u.nom,
-                    v.id, pc.numero, c.nom, c.code, c.telephone, c.adresse,
+                    v.id, pc.numero, COALESCE(pc.tiers_nom, c.nom), COALESCE(pc.tiers_code, c.code),
+                    c.telephone, c.adresse,
                     p.annule_paiement_id IS NOT NULL
              FROM paiement p
              JOIN vente v ON v.id = p.vente_id
@@ -472,6 +476,11 @@ pub fn lire_donnees_recu(
         rusqlite::params![vente_id], |r| Ok((r.get(0)?, r.get(1)?)),
     ).unwrap_or((0, 0));
 
+    // D35 : ni « Client de passage » sur le papier, mais le code ; ni ses
+    // coordonnees, qu'il n'avait pas laissees (lot D.10).
+    let c_tel = crate::passage::coordonnee_a_imprimer(&c_nom, c_tel);
+    let c_adr = crate::passage::coordonnee_a_imprimer(&c_nom, c_adr);
+    let imprime = crate::passage::tiers_a_imprimer(c_nom, Some(c_code));
     Ok(serde_json::json!({
         "cote":      "client",
         "montant":   montant,
@@ -485,7 +494,7 @@ pub fn lire_donnees_recu(
         // justificatif de correction, pas un encaissement.
         "est_annulation": est_annulation,
         "tiers": {
-            "nom": c_nom, "code": c_code,
+            "nom": imprime.0, "code": imprime.1.unwrap_or_default(),
             "telephone": c_tel, "adresse": c_adr,
         },
         "societe":   societe(&conn),
@@ -531,7 +540,11 @@ pub fn lire_creances_ouvertes(
                 CAST(COALESCE(SUM(lv.prix_pratique * lv.quantite), 0) AS INTEGER) as total,
                 CAST(COALESCE(
                     (SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0
-                ) AS INTEGER) as total_paye
+                ) AS INTEGER) as total_paye,
+                CAST(COALESCE(
+                    (SELECT SUM(montant) FROM paiement
+                     WHERE vente_id = v.id AND mode = 'retour'), 0
+                ) AS INTEGER) as eteint_par_retour
          FROM vente v
          JOIN client c ON c.id = v.client_id
          LEFT JOIN ligne_vente lv ON lv.vente_id = v.id
@@ -543,27 +556,34 @@ pub fn lire_creances_ouvertes(
 
     let x = stmt.query_map([], |row| {
         Ok((
-            row.get::<_, String>(0)?,   // vente id
-            row.get::<_, String>(1)?,   // date_vente
-            row.get::<_, String>(2)?,   // statut
-            row.get::<_, String>(3)?,   // client_id
-            row.get::<_, String>(4)?,   // client nom
-            row.get::<_, String>(5)?,   // client code
-            row.get::<_, Option<String>>(6)?,  // telephone
-            row.get::<_, Option<String>>(7)?,  // numero_facture
-            row.get::<_, i64>(8)?,      // total
-            row.get::<_, i64>(9)?,      // total_paye
+            (
+                row.get::<_, String>(0)?,   // vente id
+                row.get::<_, String>(1)?,   // date_vente
+                row.get::<_, String>(2)?,   // statut
+                row.get::<_, String>(3)?,   // client_id
+                row.get::<_, String>(4)?,   // client nom
+                row.get::<_, String>(5)?,   // client code
+                row.get::<_, Option<String>>(6)?,  // telephone
+                row.get::<_, Option<String>>(7)?,  // numero_facture
+                row.get::<_, i64>(8)?,      // total
+                row.get::<_, i64>(9)?,      // total_paye
+            ),
+            row.get::<_, i64>(10)?,         // eteint par retour
         ))
     })
     .map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
-    .filter(|(_, _, _, _, nom, _, _, _, _, _)| {
+    .filter(|((_, _, _, _, nom, _, _, _, _, _), _)| {
         filtre.is_empty() || nom.to_lowercase().contains(&filtre)
     })
-    .map(|(id, date, statut, client_id, client_nom, client_code,
-           telephone, numero_facture, total, total_paye)| {
+    .map(|((id, date, statut, client_id, client_nom, client_code,
+           telephone, numero_facture, total, total_paye), eteint)| {
         let reste = crate::coeur::calcul::reste_exigible(total, total_paye);
         serde_json::json!({
+            // L'argent verse, et la dette eteinte par un retour, a part
+            // (coeur::calcul::encaisse) ; `total_paye` fait le reste.
+            "encaisse":       crate::coeur::calcul::encaisse(total_paye, eteint),
+            "eteint_par_retour": eteint,
             "id":             id.clone(),
             "vente_id":       id,
             "date_vente":     date,
@@ -677,7 +697,6 @@ pub fn regler_creance_datee(
         crate::coeur::calcul::StatutVente::Payee => "payee",
         _ => "partiellement_payee",
     };
-    let residu = total - total_paye_apres;
 
     // Mettre à jour le statut de la vente
     tx.execute(
@@ -712,22 +731,10 @@ pub fn regler_creance_datee(
         ],
     ).map_err(|e| e.to_string())?;
 
-    // Trace obligatoire : sans elle, l'ecart entre CA et encaisse
-    // devient inexplicable au rapprochement (D41).
-    if nouveau_statut == "payee" && residu > 0 {
-        tx.execute(
-            "INSERT INTO journal
-             (id, type_evenement, entite_type, entite_id, auteur_id,
-              nouveau_valeur, origine, date_evenement)
-             VALUES (?1, 'residu_absorbe', 'vente', ?2, ?3, ?4, 'app', ?5)",
-            rusqlite::params![
-                uuid::Uuid::new_v4().to_string(),
-                vente_id, auteur_id,
-                format!(r#"{{"residu":{}}}"#, residu),
-                maintenant
-            ],
-        ).ok();
-    }
+    // D41 : le residu que ce reglement laisse se solde ICI, dans sa
+    // transaction, avec sa trace — sans elle, l'ecart entre CA et
+    // encaisse devient inexplicable au rapprochement.
+    let residu_absorbe = solder_residu(&tx, &vente_id, &auteur_id, &maintenant)?;
 
     // Journal
     tx.execute(
@@ -750,17 +757,79 @@ pub fn regler_creance_datee(
     Ok(serde_json::json!({
         "montant_encaisse":  montant_effectif,
         "reste_apres":       crate::coeur::calcul::reste_exigible(total, total_paye_apres),
-        "residu_absorbe":    if nouveau_statut == "payee" { residu.max(0) } else { 0 },
+        "residu_absorbe":    residu_absorbe,
         "statut":            nouveau_statut,
         "soldee":            nouveau_statut == "payee",
     }))
+}
+
+/// D41, au moment du reglement : le residu de 1 a 5 F que CE reglement
+/// laisse sur la vente se solde dans SA transaction — `tx` est celle de
+/// l'appelant, qui ecrit le paiement juste avant.
+///
+/// Solder, c'est ce que dit D41 et rien de plus : la vente passe
+/// `payee`, sa piece `paye`, et le journal garde la trace
+/// (`residu_absorbe`). Aucun paiement n'est cree, la caisse ne bouge pas.
+/// Le jour ou le residu nait, pas plus tard : un bouton ou un traitement
+/// de nuit laissait entre-temps une creance de 3 F dans les relances.
+///
+/// A n'appeler qu'apres avoir ECRIT un paiement sur la vente : un geste
+/// qui n'en ecrit pas (un echange) n'a pas de residu nouveau, et le
+/// journal le compterait deux fois. Rend le residu solde (0 sinon).
+pub fn solder_residu(
+    tx: &rusqlite::Connection,
+    vente_id: &str,
+    auteur_id: &str,
+    maintenant: &str,
+) -> Result<i64, String> {
+    let (statut, total, paye): (String, i64, i64) = tx.query_row(
+        "SELECT v.statut,
+                CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
+                               FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS INTEGER),
+                CAST(COALESCE((SELECT SUM(p.montant)
+                               FROM paiement p WHERE p.vente_id = v.id), 0) AS INTEGER)
+         FROM vente v WHERE v.id = ?1",
+        rusqlite::params![vente_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    ).map_err(|e| e.to_string())?;
+    if !matches!(statut.as_str(), "creance_ouverte" | "partiellement_payee" | "payee") {
+        return Ok(0); // annulee, irrecouvrable : rien a solder ici
+    }
+    let residu = crate::coeur::calcul::residu_a_solder(total, paye);
+    if residu == 0 {
+        return Ok(0);
+    }
+    tx.execute(
+        "UPDATE vente SET statut = 'payee', modifie_le = ?1
+         WHERE id = ?2 AND statut IN ('creance_ouverte','partiellement_payee')",
+        rusqlite::params![maintenant, vente_id],
+    ).map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE piece_commerciale SET statut = 'paye', modifie_le = ?1
+         WHERE id = (SELECT piece_id FROM vente WHERE id = ?2)
+           AND statut IN ('emis','accepte','brouillon')",
+        rusqlite::params![maintenant, vente_id],
+    ).map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT INTO journal
+         (id, type_evenement, entite_type, entite_id, auteur_id,
+          nouveau_valeur, origine, date_evenement)
+         VALUES (?1, 'residu_absorbe', 'vente', ?2, ?3, ?4, 'app', ?5)",
+        rusqlite::params![
+            uuid::Uuid::new_v4().to_string(), vente_id, auteur_id,
+            serde_json::json!({ "residu": residu }).to_string(), maintenant
+        ],
+    ).map_err(|e| e.to_string())?;
+    Ok(residu)
 }
 
 /// Solde les créances devenues non recouvrables (résidus d'arrondi, D41).
 ///
 /// Rattrapage unique : le seuil ne vaut que pour les statuts écrits
 /// après lui. Aucun paiement créé, aucun mouvement de caisse — statut
-/// seul, plus une trace au journal.
+/// seul, plus une trace au journal. Depuis le 27/10, chaque reglement
+/// solde son propre residu (`solder_residu`) : ceci ne rattrape plus que
+/// les ventes anterieures.
 pub fn solder_residus_creances(
     conn: &mut rusqlite::Connection,
     utilisateur_role: Option<String>,
@@ -795,10 +864,7 @@ pub fn solder_residus_creances(
         // `paye > 0` : sans encaissement il n'y a pas de residu, juste
         // une petite vente impayee. `reste > 0` ecarte le trop-percu,
         // qui est un autre probleme et ne doit pas se fermer en silence.
-        .filter(|(_, total, paye)| {
-            let reste = total - paye;
-            *paye > 0 && reste > 0 && reste <= crate::coeur::calcul::SEUIL_SOLDE
-        })
+        .filter(|(_, total, paye)| crate::coeur::calcul::residu_a_solder(*total, *paye) > 0)
         .map(|(id, total, paye)| (id, total - paye, paye))
         .collect();
         v
@@ -961,6 +1027,8 @@ pub fn regler_creance_exceptionnel_sur_base(
             &parametres![maintenant.clone(), vente_id.clone(), dossier.clone()],
         );
     }
+    // D41 : un recouvrement a 5 F pres solde la vente, avec sa trace.
+    solder_residu_sur(&mut tx, &vente_id, &auteur_id, &maintenant)?;
     tx.executer(
         "INSERT INTO mouvement_caisse
          (id, session_id, sens, moyen, montant, motif, libelle,
@@ -1062,6 +1130,8 @@ pub fn regler_creance_exceptionnel(
             rusqlite::params![maintenant, vente_id],
         );
     }
+    // D41 : un recouvrement a 5 F pres solde la vente, avec sa trace.
+    solder_residu(&tx, &vente_id, &auteur_id, &maintenant)?;
     let libelle = format!(
         "Recouvrement exceptionnel{}",
         motif.as_deref().map(|m| format!(" — {m}")).unwrap_or_default()
@@ -1092,6 +1162,75 @@ pub fn regler_creance_exceptionnel(
         "reste": crate::coeur::calcul::reste_exigible(total, paye_apres),
         "statut": nouveau_statut,
     }))
+}
+
+/// D41, au moment du reglement, sur l'un ou l'autre moteur — voir
+/// `solder_residu`. Prend `&mut impl Acces` : elle sert dans la
+/// transaction du reglement (c'est la son usage) comme hors d'elle.
+/// Toute erreur remonte : sur PostgreSQL, une ecriture ignoree qui
+/// echoue avorterait en silence le reglement entier.
+pub fn solder_residu_sur(
+    acces: &mut impl Acces,
+    vente_id: &str,
+    auteur_id: &str,
+    maintenant: &str,
+) -> Result<i64, String> {
+    let dossier = acces.dossier().to_string();
+    let Some((statut, total, paye)) = acces
+        .lire_une(
+            "SELECT v.statut,
+                    CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
+                                   FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(p.montant)
+                                   FROM paiement p WHERE p.vente_id = v.id), 0) AS BIGINT)
+             FROM vente v WHERE v.id = ?1 AND v.dossier_id = ?2",
+            &parametres![vente_id, dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?)),
+        )
+        .map_err(|e| e.0)?
+    else {
+        return Ok(0);
+    };
+    if !matches!(statut.as_str(), "creance_ouverte" | "partiellement_payee" | "payee") {
+        return Ok(0); // annulee, irrecouvrable : rien a solder ici
+    }
+    let residu = crate::coeur::calcul::residu_a_solder(total, paye);
+    if residu == 0 {
+        return Ok(0);
+    }
+    acces
+        .executer(
+            "UPDATE vente SET statut = 'payee', modifie_le = ?1
+             WHERE id = ?2 AND dossier_id = ?3
+               AND statut IN ('creance_ouverte','partiellement_payee')",
+            &parametres![maintenant, vente_id, dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
+    acces
+        .executer(
+            "UPDATE piece_commerciale SET statut = 'paye', modifie_le = ?1
+             WHERE id = (SELECT piece_id FROM vente WHERE id = ?2 AND dossier_id = ?3)
+               AND statut IN ('emis','accepte','brouillon') AND dossier_id = ?3",
+            &parametres![maintenant, vente_id, dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
+    acces
+        .executer(
+            "INSERT INTO journal
+             (id, type_evenement, entite_type, entite_id, auteur_id,
+              nouveau_valeur, origine, date_evenement, dossier_id)
+             VALUES (?1, 'residu_absorbe', 'vente', ?2, ?3, ?4, 'app', ?5, ?6)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                vente_id,
+                auteur_id,
+                serde_json::json!({ "residu": residu }).to_string(),
+                maintenant,
+                dossier
+            ],
+        )
+        .map_err(|e| e.0)?;
+    Ok(residu)
 }
 
 fn total_et_paye(acces: &mut impl Acces, vente_id: &str) -> Result<Option<(i64, i64)>, String> {
@@ -1431,8 +1570,9 @@ pub fn lire_donnees_recu_sur_base(base: &mut Base, paiement_id: String, cote: St
     if cote == "fournisseur" {
         let (montant, mode, date_p, note, auteur, f_nom, f_tel, f_adr, numero): (i64, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>) = base
             .lire_une(
+                // Lot D.9 : le nom ecrit sur la facture reglee, s'il a ete fige.
                 "SELECT pf.montant, pf.mode, pf.date_paiement, pf.note,
-                        u.nom, f.nom, f.telephone, f.adresse, pc.numero
+                        u.nom, COALESCE(pc.tiers_nom, f.nom), f.telephone, f.adresse, pc.numero
                  FROM paiement_fournisseur pf
                  JOIN fournisseur f ON f.id = pf.fournisseur_id
                  LEFT JOIN utilisateur u ON u.id = pf.auteur_id
@@ -1475,8 +1615,11 @@ pub fn lire_donnees_recu_sur_base(base: &mut Base, paiement_id: String, cote: St
 
     let (montant, mode, date_p, auteur, vente_id, numero, c_nom, c_code, c_tel, c_adr, est_annulation): (i64, String, String, Option<String>, String, Option<String>, String, String, Option<String>, Option<String>, bool) = base
         .lire_une(
+            // D35, lot D.10 : le nom et le code ecrits sur la facture, s'ils
+            // ont ete figes (renommage, promotion, rattachement).
             "SELECT p.montant, p.mode, p.date_paiement, u.nom,
-                    v.id, pc.numero, c.nom, c.code, c.telephone, c.adresse,
+                    v.id, pc.numero, COALESCE(pc.tiers_nom, c.nom), COALESCE(pc.tiers_code, c.code),
+                    c.telephone, c.adresse,
                     p.annule_paiement_id IS NOT NULL
              FROM paiement p
              JOIN vente v ON v.id = p.vente_id
@@ -1491,6 +1634,11 @@ pub fn lire_donnees_recu_sur_base(base: &mut Base, paiement_id: String, cote: St
         .ok_or_else(|| "Règlement introuvable".to_string())?;
 
     let (total, paye) = total_et_paye(base, &vente_id)?.unwrap_or((0, 0));
+    // D35 : ni « Client de passage » sur le papier, mais le code ; ni ses
+    // coordonnees, qu'il n'avait pas laissees (lot D.10).
+    let c_tel = crate::passage::coordonnee_a_imprimer(&c_nom, c_tel);
+    let c_adr = crate::passage::coordonnee_a_imprimer(&c_nom, c_adr);
+    let imprime = crate::passage::tiers_a_imprimer(c_nom, Some(c_code));
     Ok(serde_json::json!({
         "cote":      "client",
         "montant":   montant,
@@ -1501,7 +1649,7 @@ pub fn lire_donnees_recu_sur_base(base: &mut Base, paiement_id: String, cote: St
         "reference": numero.unwrap_or_default(),
         "reste_du":  crate::coeur::calcul::reste_exigible(total, paye),
         "est_annulation": est_annulation,
-        "tiers": { "nom": c_nom, "code": c_code, "telephone": c_tel, "adresse": c_adr },
+        "tiers": { "nom": imprime.0, "code": imprime.1.unwrap_or_default(), "telephone": c_tel, "adresse": c_adr },
         "societe":   societe_sur(base),
     }))
 }
@@ -1515,7 +1663,9 @@ pub fn lire_creances_ouvertes_sur_base(base: &mut Base, recherche: Option<String
                     c.id, c.nom, c.code, c.telephone, p.numero,
                     CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
                                    FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS BIGINT),
-                    CAST(COALESCE((SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0) AS BIGINT)
+                    CAST(COALESCE((SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(montant) FROM paiement
+                                   WHERE vente_id = v.id AND mode = 'retour'), 0) AS BIGINT)
              FROM vente v
              JOIN client c ON c.id = v.client_id
              LEFT JOIN piece_commerciale p ON p.id = v.piece_id
@@ -1527,7 +1677,10 @@ pub fn lire_creances_ouvertes_sur_base(base: &mut Base, recherche: Option<String
                 let id: String = r.get::<String>(0)?;
                 let total: i64 = r.get::<i64>(8)?;
                 let total_paye: i64 = r.get::<i64>(9)?;
+                let eteint: i64 = r.get::<i64>(10)?;
                 Ok(serde_json::json!({
+                    "encaisse":       crate::coeur::calcul::encaisse(total_paye, eteint),
+                    "eteint_par_retour": eteint,
                     "id":             id.clone(),
                     "vente_id":       id,
                     "date_vente":     r.get::<String>(1)?,
@@ -1608,7 +1761,6 @@ pub fn regler_creance_datee_sur_base(
         crate::coeur::calcul::StatutVente::Payee => "payee",
         _ => "partiellement_payee",
     };
-    let residu = total - total_paye_apres;
     tx.executer(
         "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3 AND dossier_id = ?4",
         &parametres![nouveau_statut, maintenant.clone(), vente_id.clone(), dossier.clone()],
@@ -1632,15 +1784,8 @@ pub fn regler_creance_datee_sur_base(
         )
         .map_err(|e| e.0)?;
     }
-    if nouveau_statut == "payee" && residu > 0 {
-        let _ = tx.executer(
-            "INSERT INTO journal
-             (id, type_evenement, entite_type, entite_id, auteur_id,
-              nouveau_valeur, origine, date_evenement, dossier_id)
-             VALUES (?1, 'residu_absorbe', 'vente', ?2, ?3, ?4, 'app', ?5, ?6)",
-            &parametres![uuid::Uuid::new_v4().to_string(), vente_id.clone(), auteur_id.clone(), format!(r#"{{"residu":{}}}"#, residu), maintenant.clone(), dossier.clone()],
-        );
-    }
+    // D41 : le residu de ce reglement se solde dans sa transaction.
+    let residu_absorbe = solder_residu_sur(&mut tx, &vente_id, &auteur_id, &maintenant)?;
     let _ = tx.executer(
         "INSERT INTO journal
          (id, type_evenement, entite_type, entite_id, auteur_id,
@@ -1657,7 +1802,7 @@ pub fn regler_creance_datee_sur_base(
     Ok(serde_json::json!({
         "montant_encaisse": montant_effectif,
         "reste_apres":      crate::coeur::calcul::reste_exigible(total, total_paye_apres),
-        "residu_absorbe":   if nouveau_statut == "payee" { residu.max(0) } else { 0 },
+        "residu_absorbe":   residu_absorbe,
         "statut":           nouveau_statut,
         "soldee":           nouveau_statut == "payee",
     }))
@@ -1690,10 +1835,7 @@ pub fn solder_residus_creances_sur_base(
         )
         .map_err(|e| e.0)?
         .into_iter()
-        .filter(|(_, total, paye)| {
-            let reste = total - paye;
-            *paye > 0 && reste > 0 && reste <= crate::coeur::calcul::SEUIL_SOLDE
-        })
+        .filter(|(_, total, paye)| crate::coeur::calcul::residu_a_solder(*total, *paye) > 0)
         .map(|(id, total, paye)| (id, total - paye, paye))
         .collect();
     let total_absorbe: i64 = candidates.iter().map(|(_, r, _)| r).sum();

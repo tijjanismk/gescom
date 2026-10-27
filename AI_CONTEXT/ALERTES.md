@@ -11,22 +11,113 @@ semblent vivantes.
 
 ---
 
-## Trouvé en v3, pas encore corrigé
+## Trouvé en v3
 
-- **Le mode « caisse par utilisateur » casse tout encaissement.**
-  `caisses::exiger_sur(base, None)` : les **17** appelants passent
-  `None` (argent, creances, retours, achats, pieces, avoirs,
-  fournisseurs, caisse, utils). Mode actif (`config_app.caisse_par_utilisateur
-  = '1'`, commande `definir_mode_caisse`), chacun échoue en
-  `CAISSE_SANS_UTILISATEUR`. Et `ouvrir_session_caisse(_sur)` refuse dès
-  qu'**une** session est ouverte dans le dossier et n'écrit jamais
-  `session_caisse.utilisateur_id` / `poste_id`. Aucun écran ne propose
-  le mode : dormant, pas vécu. À régler avant de l'offrir — passer
-  `auteur::courant()` là où `None` est écrit. (Relevé par l'étude de
-  C-1, 23/09.)
-- `lire_lignes_piece` d'une pièce fournisseur rend ses prix d'achat
-  sans `achats:lire_prix` (la réponse ne dit pas le type de pièce) —
-  écrit dans [permissions](modules/permissions.md).
+- ~~**Le mode « caisse par utilisateur » casse tout encaissement.**~~
+  **Retiré le 27/10 (lot C)** : `definir_mode_caisse` refuse `true`
+  (`MODE_CAISSE_INDISPONIBLE`), une base qui porte `'1'` se comporte en
+  un tiroir par dossier (D46). L'en-tête de `caisses.rs` dit comment le
+  reprendre un jour (passer `auteur::courant()`, une session par
+  personne).
+- ~~`lire_lignes_piece` rend les prix d'achat~~ **corrigé le 27/10 (lot
+  C)** : `coeur/lecture.rs` masque les totaux d'une pièce fournisseur
+  sans `achats:lire_prix` ni `achats:creer`.
+
+## Trouvé le 25-26/10/2026
+
+Tous faits le 27/10 par les lots A à E (voir JOURNAL) :
+~~colonne « suivre le stock » de l'import CSV~~ (lot D, une valeur qui
+changerait le suivi d'un article existant refuse la ligne) ;
+~~article non suivi muet dans les achats~~ (lot C, « stock non suivi ») ;
+~~doublons de passants~~ (lot D, « Rattacher à un client », la fiche de
+passage désactivée, `piece_commerciale.tiers_code` figé) ; ~~nom figé
+côté fournisseur~~ (lot D) ; ~~la fenêtre ouvre `gescom.db`~~ (lot E :
+plus de `setup`, les façades `Connection` refusent toutes au même
+endroit, `REFUS_SANS_BASE`) ; ~~CSP de `tauri.conf.json`~~ (lot A, D39 :
+la plage 40000–40100).
+
+- **Le grand nettoyage des façades `Connection`** reste un chantier :
+  182 appels `etat.conn.lock()` refusent désormais, mais le code est là.
+- ~~**`postgres_amorcage::le_compte_limite_ne_voit…`** échoue sur ce poste~~
+  **corrigé le 27/10** : le test accepte le refus en anglais comme en
+  français (`lc_messages`) ; `postgres_amorcage` 22/22 sur `gescom_test`.
+- **Banc** : sous Windows, `window.__TAURI_INTERNALS__.invoke` est
+  verrouillé — les boîtes natives s'interceptent par les requêtes
+  `ipc.localhost` (`pw.mjs::boitesMuettes`) ; lancer `lancer.ps1` avec
+  sa sortie redirigée vers un fichier, jamais dans un tube.
+
+## Trouvé le 27/10/2026 en relisant, pas encore fait
+
+- ~~**Le 1er janvier 2027, plus aucune vente.**~~ **Fait le 27/10** :
+  l'avis de fin d'exercice au tableau de bord (orange dans le mois, rouge
+  les 7 derniers jours ; « prolonger » pour le patron, « prévenir le
+  patron » pour les autres) et D38 (prolonger jusqu'à 5 ans, couper,
+  clore seulement un exercice terminé). Reste à voir à l'écran.
+- ~~**Une horloge qui recule.**~~ **Fait le 27/10 (lot C)** : plus de
+  5 min de recul sur la dernière écriture → toute écriture refusée
+  (`HORLOGE_RECULE`), lectures libres ; Paramètres → Horloge pour le
+  seul cas d'une heure réglée en avance puis corrigée (`confirmer_horloge`,
+  au journal). **Limite** : `changer_mot_de_passe` est une écriture,
+  donc bloqué pendant l'alerte.
+- **Smart App Control chez le client.** La fenêtre n'est pas signée et le
+  serveur l'est par un certificat auto-signé : SmartScreen se contourne,
+  Smart App Control (Windows 11 neuf) bloque sans recours sauf à le
+  désactiver. Ce poste de développement en souffre déjà (4551).
+- ~~**CSP confirmée**~~ **Corrigé le 27/10 (lot A, D39)** : `connect-src`
+  énumère les ports 40000–40100, et rien d'autre (`tests/plage_de_ports.rs`).
+- **Le serveur embarqué peut être vieux.** `src-tauri/binaires/` (ignoré
+  par git) gardait un `gescom-serveur` du 20/09 ; chaque construction de
+  la fenêtre le recopie dans `target/<profil>/gescom-serveur.exe`, sans
+  erreur. **Toujours `outils/preparer_serveur.ps1` avant `tauri build`**,
+  et construire `gescom` AVANT `gescom-serveur` en débogage (le banc le
+  fait).
+- **Duplicata, les limites assumées** : une impression annulée ou
+  « enregistrée en PDF » consomme l'original (le bouton du patron
+  rattrape) ; une facture POS retouchée (note, échéance) après sa
+  première impression sort en duplicata avec un texte qui diffère de
+  l'original.
+- ~~**Le banc `monoposte -Neuf` efface la base d'essai à la main.**~~
+  **Séparé le 27/10 (lot E)** : l'essai à la main a son dossier
+  (`outils/banc/essai-main.ps1`, `.travail/essai-main/`, port 40050,
+  `-Neuf` met de côté au lieu d'effacer) ; chaque dossier porte une
+  marque `.proprietaire` et `lancer.ps1` refuse ce qui n'est pas à lui.
+  **À faire à la main** : `.travail/monoposte` n'a pas de marque, donc
+  le banc monoposte le refuse — vérifier la copie dans `essai-main`,
+  puis le déplacer ou l'effacer.
+
+## Trouvé le 27/10/2026 pendant les lots, pas encore fait
+
+- **Rapport TVA** : la TVA des marchandises rendues reste collectée
+  (`ligne_vente.montant_tva` des ventes de la période ;
+  `chantiers::lire_resume_tva` pareil). Proposé : la déduire au prorata
+  de `retour.quantite`, à la date du retour. Le cahier du jour
+  (`journal.rs`) et le CA par magasin (`depots.rs`) ne sont pas nets des
+  retours non plus.
+- **Relevé client imprimé** (`lire_etat_creances_client`) : sa colonne
+  « Payé » compte encore la dette éteinte par un retour. Dans l'onglet
+  Règlements de la fiche client, une ligne `retour` garde « Reçu » et
+  « Annuler ».
+- **Une facture réglée en partie par avoir** imprime cette part comme
+  due : `lire_donnees_piece` exclut les paiements `mode = 'avoir'` de
+  `total_paye` (défaut antérieur, vu au lot B).
+- `lire_etat_dette_fournisseur` compte une facture fournisseur encore en
+  **brouillon** comme une dette.
+- **Import CSV** : un en-tête présent mais incomplet retombe sur les
+  positions v1.3 (`Nom;Categorie;Unite;Prix;Stock` lit le stock comme
+  prix d'achat).
+- Le reçu d'une vente **sans** pièce lit la fiche cliente d'aujourd'hui
+  (pas de nom figé).
+- **D40, limites assumées** : un service relancé trop souvent dans la
+  journée attend 30 puis 60 s (la règle de relance de D12) ; le raccourci
+  « Console du serveur » garde le port de l'installation (la fenêtre
+  Gescom Serveur, elle, suit `serveur.json`) ; un `serveur.json` créé par
+  un serveur lancé à la main fait sauter la page de configuration de
+  l'installeur. Le test `un_serveur_rallume_chaque_matin…` a vu une fois
+  un `…db-journal` pendant que `VACUUM INTO` écrivait (course du test,
+  pas du code) — à rendre le test patient.
+- `MANUEL.md` parle encore de 7300 ; `p6-role-caisse.mjs` lance un
+  serveur sur 7301 (hors de la plage D39) ; le commentaire de `LOCALES`
+  dans `pont.ts` parle encore d'une base locale.
 
 ## Ce que la revue du 23/09/2026 a corrigé (branche `correctif/revue-v2`)
 
@@ -131,12 +222,13 @@ parametres::lire_stocks
 pagination::lire_ventes_paginees      pagination::lire_ventes_recentes_paginee
 ```
 
-Deux qui devraient l'être :
-- **les deux `pagination::lire_ventes_*`** — les listes de ventes se
-  chargent **sans** pagination alors que la commande existe ;
-- **`creances::solder_residus_creances`** — l'application de D41 (seuil
-  de 5 F) : le reste exigible est calculé à la lecture, mais rien ne
-  solde jamais en base.
+Deux qui devaient l'être, faits le 27/10 :
+- ~~les deux `pagination::lire_ventes_*`~~ — `lire_ventes_recentes_paginee`
+  sert l'écran Retours et la fenêtre de retour de Pièces (lot D) ;
+  `lire_ventes_recentes` n'est plus appelée ;
+- ~~`creances::solder_residus_creances`~~ — D41 se solde maintenant dans
+  la transaction du règlement qui crée le résidu (`creances::solder_residu_sur`,
+  lot B) ; la commande reste pour rattraper une base ancienne.
 
 ## Fichiers les plus sollicités
 

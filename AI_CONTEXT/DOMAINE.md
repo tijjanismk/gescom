@@ -118,6 +118,17 @@ Convention : `[CONFIRMÉ]` = lu dans le code, référence cliquable.
   [comptoir.rs:172](../src-tauri/noyau/src/comptoir.rs#L172) et
   `argent::est_client_generique_sur` (`Base`) — si l'un change, vérifier
   les autres.
+- [CONFIRMÉ] **D35 (25/10/2026) : une fiche par vente sans nom.** Une
+  vente ou une facture au « Comptant » ouvre, dans sa transaction, une
+  fiche « Client de passage » (`PAS-000123`, `est_generique = 1`,
+  `statut = 'passage'`) — [passage.rs](../src-tauri/noyau/src/passage.rs).
+  Le passant **paie en entier** : `coeur::saisie::verifier_vente_passage`,
+  dans les deux versions de `creer_vente` et de `valider_facture`, avant
+  d'écrire. « Passer en client ordinaire » (`passage::promouvoir_sur`)
+  garde le code et les achats ; avant tout changement de nom, le nom en
+  cours est figé sur les pièces émises (`piece_commerciale.tiers_nom`).
+  `lire_client_generique` rend le seul « Comptant », `lire_clients` ne
+  rend pas les fiches de passage.
 
 ## Codes-barres
 

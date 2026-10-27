@@ -79,7 +79,7 @@ fn client_reel(base: &mut Base) -> String {
 fn client_generique(base: &mut Base) -> String {
     let dossier = base.dossier().to_string();
     base.lire_une(
-        "SELECT id FROM client WHERE est_generique = 1 AND dossier_id = ?1",
+        "SELECT id FROM client WHERE est_generique = 1 AND statut <> 'passage' AND dossier_id = ?1",
         &parametres![dossier],
         |r| r.get::<String>(0),
     )
@@ -351,7 +351,10 @@ fn vendre_au_dela_du_stock_marque_la_ligne_a_decouvert() {
     let mut base = base_avec_demo();
     let depot = depot_defaut(&mut base);
     let sucre = article_unite(&mut base, "Sucre"); // stock démo : 200 kg
-    let client = client_generique(&mut base);
+    // Un client nommé : au « Comptant », une vente sans encaissement est
+    // refusée depuis D35 (le passant paie en entier) — ce n'est pas le
+    // sujet ici.
+    let client = client_reel(&mut base);
 
     let r = argent::creer_vente_sur_base(
         &mut base,

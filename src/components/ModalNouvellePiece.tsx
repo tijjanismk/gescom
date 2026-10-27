@@ -28,11 +28,16 @@ interface Article {
   id: string; nom: string; unite_base: string; stock: number;
   taux_tva_defaut?: number;
   unites: { id: string; libelle: string; facteur: number; prix_reference: number }[];
+  /** D36 : `false` = stock non suivi (C.8) — s'achète et se vend, sans
+   *  compter son stock. */
+  gere_en_stock?: boolean;
 }
 interface Tiers { id: string; nom: string; code?: string; telephone?: string; }
 interface Ligne {
   article_id: string; unite_vente_id: string;
   article_nom: string; unite_libelle: string;
+  /** D36 (C.8) : l'article ne suit pas son stock — dit sur la ligne. */
+  non_suivi?: boolean;
   // Unites disponibles pour cet article — permet de changer de
   // conditionnement sans retirer et rajouter la ligne.
   unites?: { id: string; libelle: string; facteur: number; prix_reference: number }[];
@@ -254,6 +259,7 @@ export function ModalNouvellePiece({
         return [...prev, {
           article_id: article.id, unite_vente_id: unite.id,
           article_nom: article.nom, unite_libelle: unite.libelle,
+          non_suivi: article.gere_en_stock === false,
           unites: article.unites,
           quantite: 1, prix_unitaire: unite.prix_reference,
           remise_pct: 0, taux_tva: article.taux_tva_defaut ?? 0,
@@ -540,7 +546,12 @@ export function ModalNouvellePiece({
                     <span className="font-medium">{a.nom}</span>
                     <span className="text-xs text-muted-foreground shrink-0">
                       {fmt(a.unites[0].prix_reference)} / {a.unite_base}
-                      {a.stock >= 0 && (
+                      {/* D36 (C.8) : un article non suivi n'a pas de stock
+                          à montrer — « Stock : 0 » en rouge ferait croire
+                          à une rupture. Il reste proposé. */}
+                      {a.gere_en_stock === false ? (
+                        <span className="ml-3 text-amber-700">stock non suivi</span>
+                      ) : a.stock >= 0 && (
                         <span className={`ml-3 ${a.stock <= 0 ? "text-red-500" : "text-green-600"}`}>
                           Stock : {a.stock % 1 === 0 ? a.stock : a.stock.toFixed(2)} {a.unite_base}
                         </span>
@@ -616,7 +627,15 @@ export function ModalNouvellePiece({
                     const montant = brut - remise;
                     return (
                       <tr key={i} className="border-t border-border hover:bg-muted/20">
-                        <td className="px-4 py-2 font-medium">{l.article_nom}</td>
+                        <td className="px-4 py-2 font-medium">
+                          {l.article_nom}
+                          {l.non_suivi && (
+                            <span className="ml-1.5 text-[10px] font-normal text-amber-700"
+                              title="Cet article ne suit pas son stock (Paramètres → Articles) : la pièce s'enregistre, l'écran Stock ne le montre pas.">
+                              non suivi
+                            </span>
+                          )}
+                        </td>
                         <td className="px-2 py-2 text-center">
                           {(l.unites?.length ?? 0) > 1 ? (
                             <select

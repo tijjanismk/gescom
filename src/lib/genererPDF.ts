@@ -8,7 +8,7 @@
 
 import {
   type Habillage, type PageDoc, blocSociete, mention, documentHTML,
-  blocSignatures, blocMontantLettres, choisir, esc, pourGenre,
+  blocSignatures, blocMontantLettres, choisir, dateHeure, esc, pourGenre,
 } from "@/lib/impression";
 import type { ReglagesDocuments } from "@/lib/documents";
 
@@ -21,15 +21,20 @@ import type { ReglagesDocuments } from "@/lib/documents";
 // que l'utilisateur ait imprime OU annule. Dans les deux cas la fenetre
 // n'a plus d'objet : on la ferme.
 //
-// `window.close()` est refuse par certains moteurs sur une fenetre que
-// le script n'a pas ouverte. D'ou le bouton de repli, qui n'apparait
-// qu'apres 2,5 s et seulement si la fenetre est encore la. Il est
-// masque a l'impression : il ne doit jamais finir sur le papier.
+// `window.close()` est refuse par WebView2 sur une fenetre que le script
+// n'a pas ouverte : la fenetre restait ouverte, blanche. Le document
+// change donc aussi son titre en un signal que la fenetre Tauri attend
+// (`TITRE_FERMER`, commandes/impression.rs) et c'est elle qui se ferme.
+// Le bouton de repli (apres 2,5 s, si la fenetre est encore la) fait
+// pareil ; il est masque a l'impression et ne finit jamais sur le papier.
 export const SCRIPT_IMPRESSION = `
 <style>@media print { #gescom-fermer { display:none !important; } }</style>
 <script>
 (function () {
-  function fermer() { try { window.close(); } catch (e) {} }
+  function fermer() {
+    try { window.close(); } catch (e) {}
+    document.title = '__gescom_impression_finie__';
+  }
   window.onload = function () {
     window.focus();
     window.onafterprint = function () { setTimeout(fermer, 300); };
@@ -70,6 +75,16 @@ export interface DonneesPiece {
 
 function fmt(n: number, devise = "FCFA"): string {
   return new Intl.NumberFormat("fr-ML").format(n) + " " + devise;
+}
+
+/**
+ * L'acompte imprimé : l'argent réellement versé (`totaux.encaisse`,
+ * calculé par le serveur). `total_paye` compte aussi la dette éteinte
+ * par un retour — il fait le reste dû, pas l'acompte. Un serveur plus
+ * ancien sans `encaisse` retombe sur `total_paye`, comme avant.
+ */
+function acompteRecu(totaux: any): number {
+  return totaux.encaisse ?? totaux.total_paye ?? 0;
 }
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("fr-ML", {
@@ -203,11 +218,21 @@ function pieceEnPage(
     // payer, meme sans acompte. Le client doit lire sur son document ce
     // qu'il doit encore — c'est la premiere source de litige.
     if (totaux.reste_du > 0 && piece.type_piece === "facture") {
-      if (totaux.total_paye > 0) {
+      // « Acompte reçu » = l'argent versé, seulement. La dette éteinte
+      // par un retour a sa propre ligne : le client n'a rien payé.
+      if (acompteRecu(totaux) > 0) {
         rows.push(`<tr>
           <td style="padding:3px 8px;color:#555">Acompte reçu</td>
           <td style="padding:3px 8px;text-align:right">
-            −${fmt(totaux.total_paye, devise)}
+            −${fmt(acompteRecu(totaux), devise)}
+          </td>
+        </tr>`);
+      }
+      if ((totaux.eteint_par_retour ?? 0) > 0) {
+        rows.push(`<tr>
+          <td style="padding:3px 8px;color:#555">Éteint par retour</td>
+          <td style="padding:3px 8px;text-align:right">
+            −${fmt(totaux.eteint_par_retour, devise)}
           </td>
         </tr>`);
       }
@@ -275,16 +300,23 @@ function pieceEnPage(
         </div>
       </div>
 
-      <div style="margin-bottom:12px;padding:8px;border:1px solid #ddd;
-                  border-radius:4px;display:inline-block;min-width:210px">
-        <div style="font-size:9px;color:#777;text-transform:uppercase;margin-bottom:2px">
+      <!-- Le cadre du tiers : c'est lui qu'on cherche des yeux sur une
+           facture. Plus large et plus aere en A4 (la page le permet). -->
+      <div class="doc-tiers" style="margin-bottom:14px;padding:${isA5 ? "9px 12px" : "12px 16px"};
+                  border:1px solid #ccc;border-radius:4px;display:inline-block;
+                  min-width:${isA5 ? "52%" : "48%"};max-width:100%;overflow-wrap:anywhere">
+        <!-- Un nom tres long : le cadre s'elargit jusqu'a la page, puis le
+             nom passe a la ligne — meme un mot sans espace (overflow-wrap). -->
+        <div style="font-size:${isA5 ? 9 : 10}px;color:#777;text-transform:uppercase;margin-bottom:3px">
           ${piece.tiers_type === "fournisseur" ? "Fournisseur" : "Client"}
         </div>
-        <div style="font-weight:bold">${esc(piece.client_nom)}</div>
-        ${piece.client_code ? `<div style="font-size:10px;color:#555">${esc(piece.client_code)}</div>` : ""}
-        ${piece.client_telephone ? `<div style="font-size:10px;color:#555">Tél: ${esc(piece.client_telephone)}</div>` : ""}
-        ${piece.client_adresse ? `<div style="font-size:10px;color:#555">${esc(piece.client_adresse)}</div>` : ""}
-        ${piece.client_nif ? `<div style="font-size:10px;color:#555">NIF: ${esc(piece.client_nif)}</div>` : ""}
+        <div style="font-weight:bold;font-size:${isA5 ? 12 : 14}px">${esc(piece.client_nom)}</div>
+        ${[
+          piece.client_code ? esc(piece.client_code) : "",
+          piece.client_telephone ? `Tél : ${esc(piece.client_telephone)}` : "",
+          piece.client_adresse ? esc(piece.client_adresse) : "",
+          piece.client_nif ? `NIF : ${esc(piece.client_nif)}` : "",
+        ].filter(Boolean).map(l => `<div style="font-size:${isA5 ? 10 : 11}px;color:#444;margin-top:1px">${l}</div>`).join("")}
       </div>
 
       <table class="doc-lignes" style="width:100%;border-collapse:collapse;margin:10px 0">
@@ -453,6 +485,11 @@ export function genererTicketThermique(
   ${societe.telephone ? `<div style="text-align:center;font-size:10px">Tél: ${societe.telephone}</div>` : ""}
   <div style="border-top:1px solid #000;margin:4px 0"></div>
   <div style="text-align:center;font-weight:bold">${titre}</div>
+  ${h.duplicata
+    // Pas de filigrane sur un rouleau : la mention seule, bien visible.
+    ? `<div style="text-align:center;font-weight:bold;margin:2px 0">*** DUPLICATA ***</div>
+       <div style="text-align:center;font-size:10px">Original du ${dateHeure(h.duplicata.originalLe)}</div>`
+    : ""}
   <div style="display:flex;justify-content:space-between">
     <span>N° ${piece.numero}</span>
     <span>${fmtDateHeure(piece.date_piece)}</span>
@@ -478,9 +515,13 @@ export function genererTicketThermique(
     <span>${fmt(totaux.total_ttc, devise)}</span>
   </div>
   ${totaux.reste_du > 0 && piece.type_piece === "facture" ? `
-    ${totaux.total_paye > 0 ? `
+    ${acompteRecu(totaux) > 0 ? `
       <div style="display:flex;justify-content:space-between">
-        <span>Acompte reçu</span><span>−${fmt(totaux.total_paye, devise)}</span>
+        <span>Acompte reçu</span><span>−${fmt(acompteRecu(totaux), devise)}</span>
+      </div>` : ""}
+    ${(totaux.eteint_par_retour ?? 0) > 0 ? `
+      <div style="display:flex;justify-content:space-between">
+        <span>Éteint par retour</span><span>−${fmt(totaux.eteint_par_retour, devise)}</span>
       </div>` : ""}
     <div style="border-top:1px solid #000;margin:3px 0"></div>
     <div style="display:flex;justify-content:space-between;font-weight:bold">
@@ -717,13 +758,16 @@ export function genererFactureEtBonHTML(
 //  Bon d'échange — A5, SANS AUCUN MONTANT
 // =====================================================================
 
+export interface ArticleEchange { article_nom: string; unite_libelle: string; quantite: number }
+
 export interface DonneesEchange {
   numero_vente: string;
   date: string;
   client_nom: string;
   client_telephone?: string | null;
-  rendu: { article_nom: string; unite_libelle: string; quantite: number };
-  remis: { article_nom: string; unite_libelle: string; quantite: number };
+  /** Un article, ou plusieurs (retour groupé). */
+  rendu: ArticleEchange | ArticleEchange[];
+  remis: ArticleEchange | ArticleEchange[];
   societe: any;
   note?: string | null;
 }
@@ -752,14 +796,17 @@ export function genererBonEchangeHTML(
   const logoBase64 = h.logo;
   const q = (n: number) => (n % 1 === 0 ? n : n.toFixed(2));
 
+  // Un bloc par sens, une ligne par article : le magasinier lit d'un
+  // coup tout ce qui rentre, puis tout ce qui sort.
   const bloc = (
     titre: string, sens: string, couleur: string,
-    a: { article_nom: string; unite_libelle: string; quantite: number },
+    a: ArticleEchange | ArticleEchange[],
   ) => `
     <div class="bloc" style="border-left:5px solid ${couleur}">
       <div class="bloc-t" style="color:${couleur}">${sens} ${titre}</div>
-      <div class="bloc-a">${a.article_nom}</div>
-      <div class="bloc-q">${q(a.quantite)} <span>${a.unite_libelle}</span></div>
+      ${(Array.isArray(a) ? a : [a]).map(x => `
+        <div class="bloc-a">${esc(x.article_nom)}</div>
+        <div class="bloc-q">${q(x.quantite)} <span>${esc(x.unite_libelle)}</span></div>`).join("")}
     </div>`;
 
   return `<!DOCTYPE html>

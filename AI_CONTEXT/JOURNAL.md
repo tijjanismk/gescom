@@ -1996,3 +1996,606 @@ changement de mot de passe se ferme, et que la boîte « Quel dossier
 ouvrir ? » paraisse. Sous Git Bash, `lancer.sh` ne sait pas arrêter
 l'instance précédente (`lsof` absent) : tuer les ports 7300 et 1420 à
 la main avant `neuf`.
+
+## 25/10/2026 — Le banc d'écran sur les deux installations de la v3
+
+Demande du propriétaire : des tests Playwright, la v3 comme référence
+pour le monoposte et le multiposte. Le banc (`outils/banc/`) ne
+connaissait qu'un serveur SQLite et un navigateur ; il monte
+maintenant, sous Windows (`lancer.ps1`), les deux installations telles
+qu'elles se posent chez un commerçant, chacune sur une base jetable.
+
+**Monoposte : la vraie fenêtre.** Playwright pilote `gescom.exe`
+(débogage) par le port de débogage de WebView2. Pour qu'elle n'ouvre
+pas la base du propriétaire (`%APPDATA%\ml.gescom.app`, sa base de
+790 Ko et son `poste.json`), une variable `GESCOM_DONNEES` remplace
+son dossier de données — **lue seulement en build de débogage**
+(`lib.rs::dossier_donnees`, servie à la base, à `poste.json` et aux
+images) : un exécutable livré l'ignore. `p1` vérifie que les fichiers
+du propriétaire n'ont pas bougé. Le profil WebView2 est à part aussi.
+
+Constat en route : **la fenêtre n'ouvre plus de base locale.** En mode
+« monoposte » (le défaut de `poste.json`), `App.tsx` affiche « Brancher
+ce poste » et `appeler` refuse sans serveur ; c'est ce que dit
+ARCHITECTURE.md (« une seule machine ne veut pas dire sans serveur »),
+pas PLAN-V3 § 6 ni le tableau de D22, qui décrivent encore la fenêtre
+sur sa base SQLite par les façades `Connection`. Le monoposte du banc
+est donc le serveur SQLite + la fenêtre sur `127.0.0.1`. La fenêtre
+crée encore un `gescom.db` local à son démarrage (`lib.rs`), que plus
+rien ne lit depuis l'écran. Non corrigé : à trancher.
+
+**Multiposte : PostgreSQL `gescom_test`, rien d'autre.** Le lanceur
+refuse toute autre base, y fait `DROP SCHEMA` avec `-Neuf`, puis pose
+la démo par `examples/amorcer --demo` — sur PostgreSQL le serveur ne
+l'écrit pas lui-même (`GESCOM_DEMO` ne joue que sur SQLite) : sans
+elle, la moitié du banc tombait faute d'articles. Le journal du
+serveur va dans `.travail` (`--journal`) : par défaut, sous Windows,
+il s'écrivait dans `%APPDATA%\ml.gescom.app\serveur.log`.
+
+**Nouveaux parcours.** `p1` premier démarrage (branchement, `poste.json`
+réécrit, un seul dossier, cache vidé sans retour au branchement), `p2`
+tous les écrans dans WebView2, `p3` l'argent (refus caisse fermée,
+caisse ouverte **par l'écran**, stock et caisse au franc près, crédit
+puis règlement, fermeture à écart 0), `p4` la copie automatique du
+25/09 qui part seule (20 s par `GESCOM_SAUVEGARDE_DELAI_S`). `m2` deux
+caisses en même temps (12 devis sans doublon, 10 ventes : stock −10 lu
+pareil des deux côtés, caisse commune juste), `m3` ce qu'un poste fait
+l'autre le voit (la comptable encaisse une créance faite sur A ; A
+ferme la caisse, elle est refusée), `m4` deux dossiers ouverts en même
+temps sur deux postes. `suite.mjs` joue tout sans s'arrêter et fait le
+bilan. `b4` et `c1` écrivaient dans `essai.db` : `ecrireEnBase` vise la
+base du mode (SQLite, ou `gescom_test` par `psql` en UTF-8 sur l'entrée
+standard — sur la ligne de commande, Windows cassait « n° »). `i3`
+accepte le `.dump` de PostgreSQL.
+
+**Résultats, bases neuves, Edge du poste.** Monoposte 4/4 parcours,
+71 vérifications. Multiposte : le banc d'origine 31/31 (385
+vérifications ; `d5` rejoué seul après un `ERR_NO_BUFFER_SPACE` de
+Windows), M 3/3 (35). SQLite, pour comparer : 31/31 (385) et M 3/3.
+`i2` sauté partout (`pdftoppm` absent). Workspace Rust 660/660.
+
+Pièges du banc, pas du produit : la fenêtre charge `localhost`, que
+Windows résout en `::1` — un Vite sur `127.0.0.1` lui refusait la
+connexion (page blanche) ; le surveillant de Vite tombait sur les
+fichiers verrouillés du profil WebView2 (`vite.banc.config.ts` ignore
+`.travail`) ; les boîtes natives de `plugin-dialog` bloqueraient un
+geste (`boitesMuettes` les intercepte dans la page) ; le serveur et
+Vite lancés par `Start-Process` héritent de la sortie de l'appelant —
+rediriger `lancer.ps1` vers un fichier. L'employé n'a ni la caisse du
+patron, ni les soldes, ni `creances:gerer` (C-1) : `m3` prend une
+comptable.
+
+## 25/10/2026 (suite) — la v3 en monoposte comme en multiposte
+
+Le banc a montré que D22 et D24 décrivaient une fenêtre monoposte qui
+n'existait plus depuis le 11/09 (elle ne parle qu'au serveur), et que
+73 commandes de la v3 n'existent que côté serveur. Le propriétaire :
+« je veux seulement que v3 travaille en mono et multiposte ». Retenu,
+choix écrits avant le code et acceptés : un seul chemin (le serveur),
+mais le poste qui garde la base n'a plus rien à saisir.
+
+**Ce qui change.** `poste.json` porte le rôle : `monoposte` (« ce poste
+garde la base »), `poste` (caisse d'un autre poste), `a_choisir` (neuf
+ou illisible — on demande, on ne devine plus « monoposte », ce qui
+faisait d'une caisse fraîche un poste principal à base vide). En
+`monoposte`, la fenêtre se branche sur `127.0.0.1:7300` et, s'il ne
+répond pas, lance `gescom-serveur.exe` à côté d'elle, comme le
+raccourci, sans fenêtre noire, et ne l'arrête pas en se fermant. Le
+serveur du raccourci, lui, s'efface sur la caisse d'une autre machine
+(`role_poste.rs`) ; il tourne dans le doute — et sur « caisse de
+127.0.0.1 », le réglage du poste principal du propriétaire entre le
+11/09 et aujourd'hui. Changer de rôle : Paramètres → Réseau, avec une
+confirmation qui dit que les ventes du poste principal ne suivent pas.
+
+**Trouvé par le banc en route.** React lance les effets deux fois en
+développement : deux `demarrer_serveur_local` simultanés lançaient deux
+serveurs, le second trouvait le port pris et son échec s'affichait
+alors que le premier répondait — un verrou (une demande à la fois) et
+un dernier `/sante` avant de déclarer l'échec. Les effets d'`App.tsx`
+(droits relus, canal, sauvegarde automatique) appelaient le serveur
+avant qu'il soit joint : ils attendent `serveurJoint`. La page de
+connexion disait « Poste caisse » sur le poste principal.
+`definir_config_reseau` prenait un `String` et recevait `null` quand le
+nom du poste était laissé vide — `Option` maintenant.
+
+**Tests.** `role_poste` : 6 tests purs (autre machine, 127.0.0.1,
+localhost, `::1`, adresse de ce poste, nom résolu ou introuvable,
+fichier absent ou illisible). Banc monoposte refait sur la fenêtre
+seule (`lancer.ps1 monoposte` ne démarre plus de serveur) : `p1` le
+rôle demandé puis le serveur lancé par la fenêtre ; `p5` le serveur
+tué puis relancé à la réouverture (retour à la connexion : un serveur
+qui redémarre ferme les sessions), le port 7300 pris par un autre
+programme (l'écran le dit, « Réessayer » repart) ; `p6` le rôle caisse,
+le serveur « du raccourci » qui s'arrête sur une caisse (journal, pas de
+base créée) et tourne sur 127.0.0.1, le retour au rôle « garde la base »
+par Réseau. Monoposte 6/6 (100), multiposte 31/31 + 3/3, SQLite 31/31 +
+3/3, Rust 666/666, `tsc` propre, release vérifiée (`cargo check
+--release`). Sur PostgreSQL, a1, a2 et a2b ont échoué une fois en tête
+de passage (délais, « Jeton absent ») dans une période où Windows
+rendait `ERR_NO_BUFFER_SPACE` ; rejoués seuls sur base neuve, verts.
+
+**Pas fait.** La fenêtre ouvre encore un `gescom.db` local au démarrage
+(le même fichier que la base par défaut du serveur) ; le retrait des
+façades `Connection` reste le grand nettoyage d'ALERTES.md. Le poste
+principal du propriétaire est réglé « caisse de 127.0.0.1 » : il marche
+comme avant ; Paramètres → Réseau → « Ce poste garde la base » lui
+donnerait le lancement automatique du serveur.
+
+## 26/10/2026 — D35 : chaque vente sans nom a sa fiche « passage »
+
+La question du propriétaire (« comment les comptants sont traités ? »)
+a montré un trou : le serveur refusait au « Comptant » le crédit et
+l'avoir, mais acceptait une vente « comptant » payée en partie ou pas
+du tout, et une facture à crédit validée depuis Pièces. La marchandise
+sortait, rien n'entrait, et la dette, au nom de « Comptant »,
+n'apparaissait dans aucune relance ni aucun rapport. L'écran envoyait
+toujours le total — mais le serveur juge la saisie (D27).
+
+Sa proposition — un code client de passage incrémenté, crédit bloqué,
+un passage vers client ordinaire — est devenue D35, avec sept
+garde-fous écrits avant le code (DECISIONS.md). Ce qui a été fait :
+
+- `noyau/src/passage.rs` : la fiche « Client de passage » créée DANS la
+  transaction de la vente (compteur `PAS`, code `PAS-000123` préfixé du
+  dossier), `est_generique = 1` pour qu'elle sorte d'office de toutes
+  les listes et de tous les chiffres qui écartaient déjà le
+  « Comptant », `statut = 'passage'` pour la distinguer de lui ;
+  `lire_passages_sur` (code ou numéro de facture) ; `promouvoir_sur` ;
+  `figer_noms_sur`.
+- La règle `coeur::saisie::verifier_vente_passage` (payé en entier, pas
+  de crédit), jugée avant d'écrire dans les deux versions de
+  `creer_vente` et de `valider_facture`.
+- `creer_facture_depuis_vente` prend désormais le client de la VENTE :
+  l'écran passe le « Comptant », la facture du ticket va à la fiche.
+- `piece_commerciale.tiers_nom` (schema, amorçage, v2) : le nom écrit à
+  l'émission, figé au premier renommage (promotion ou
+  `modifier_client`) ; la pièce imprimée le lit en premier.
+- `lire_client_generique` ne rend que le « Comptant », `lire_clients`
+  pas les fiches de passage.
+- Écran : Clients → « Passages », « Passer en client ordinaire ».
+
+Trois anciens tests vendaient au « Comptant » sans encaisser : adaptés
+(un client nommé pour la vente à découvert ; caisse ouverte et total
+encaissé dans deux tests de routes).
+
+**Le banc, à corriger lui-même.** L'aide qui faisait taire les boîtes
+natives de Tauri (`boitesMuettes`) n'avait jamais rien intercepté :
+`window.__TAURI_INTERNALS__.invoke` est non inscriptible, le remplacer
+ne faisait rien, sans erreur. `p6` échouait une fois sur deux sur la
+confirmation « Ce poste garde la base » ; c'est le propriétaire, qui
+regardait la fenêtre, qui a vu la vraie boîte Windows s'ouvrir.
+L'interception passe maintenant par les requêtes `http://ipc.localhost/
+plugin:dialog|…`, que Playwright détourne ; `p6` vérifie que la
+confirmation est demandée. Aussi : Vite du banc sans HMR (son
+SharedWorker de reconnexion faisait planter la connexion de Playwright
+à WebView2), le port 7301 libéré avant et après l'essai du serveur
+« du raccourci », `arreterPort` tolérant quand rien n'écoute.
+
+**Résultats** — voir la ligne D35 d'ETAPES. Pendant le premier passage
+multiposte, la machine s'est mise en veille au milieu de `j1` (aucune
+ligne au journal du serveur pendant 32 minutes) : rejoué seul ensuite.
+
+**Pas fait** : rattacher à la promotion les autres tickets d'un même
+passant (doublons) ; le nom figé côté fournisseur (le même trou existe
+quand on renomme un fournisseur) ; `postgres_amorcage` dépend de la
+langue des messages de PostgreSQL.
+
+## 26/10/2026 (suite) — D37 le menu réglable, D36 les articles sans stock
+
+Deux demandes du propriétaire pour le petit commerçant, décidées avant
+le code (DECISIONS.md), faites dans cet ordre.
+
+**D37 — le menu se règle.** Paramètres → Menu : une case par entrée,
+« Boutique simple » (Tableau de bord, Ventes, Achats, Stock, Clients,
+Caisse, Rapports) et « Complet ». Quatre entrées ne se cachent jamais
+(`coeur::menu`, le serveur le refuse) : sans Caisse on n'encaisse plus,
+sans Paramètres on ne réaffiche plus rien. Cacher n'est qu'un affichage
+— l'Historique enregistre toujours, payer par chèque reste possible.
+Le réglage vit par dossier dans `config_app` ; `Layout` filtre le menu
+et la palette Ctrl K (`lib/menu.ts`, événement `gescom:menu`).
+
+**D36 — un article peut ne pas suivre son stock.** La colonne
+`article.gere_en_stock` existait depuis le début, lue par les alertes et
+la valeur du stock, sans écran pour la régler. Case « Suivre le stock »
+à la création, « Ne plus suivre / Suivre le stock » sur la fiche
+article. Non suivi : jamais à découvert (le drapeau de la ligne de vente
+reste à 0, la caisse n'annonce ni rupture ni découvert), hors de l'écran
+Stock (« Non suivis » le nomme), transfert et inventaire refusés. Les
+mouvements s'écrivent quand même : le stock reste la somme des
+mouvements et aucun des trente endroits qui en écrivent n'a bougé.
+Cesser dit combien d'unités sortent du stock (« 200 kg sortent… ») ;
+reprendre demande un comptage pour chaque magasin et pose les
+ajustements dans la même transaction. L'article étant commun aux
+dossiers, la réponse nomme les autres dossiers où il a du stock.
+
+**Trouvé en route** : la liste des clients écrasait parfois le bon
+résultat par celui d'une recherche précédente arrivée en retard
+(`j1` échouait une fois sur trois) — seule la dernière demande écrit
+maintenant la liste. Dans un navigateur (le banc multiposte) la boîte
+native de confirmation n'existe pas : « Ne plus suivre le stock » se
+teste dans la vraie fenêtre (`p7`).
+
+**Résultats** — voir les lignes D37 et D36 d'ETAPES.
+
+**Pas fait** : la case à l'import CSV (proposée, pas codée) ; un article
+non suivi reste proposé dans les écrans d'achat comme les autres.
+
+## 26/10/2026 (fin) — essai à la main, poste.json avec BOM
+
+**Le propriétaire teste à la main.** Base d'essai isolée dans
+`outils/banc/.travail/monoposte` (jamais `%APPDATA%`), remplie PAR LE
+SERVEUR avec `outils/banc/donnees-essai.mjs` (connexion `admin` au mot
+de passe d'usine, sur base neuve) : 100 articles de `catalogue_test.csv`,
+12 clients, 5 fournisseurs, 39 ventes au comptoir sur trois semaines,
+8 crédits dont 4 à moitié réglés, 4 achats, 4 dépenses, un article non
+suivi. Pour refaire : `lancer.ps1 arreter`, base effacée, serveur lancé
+sur `.travail/monoposte/serveur.db` (mêmes options que la fenêtre),
+`node donnees-essai.mjs`, puis la fenêtre avec `GESCOM_DONNEES` et un
+`poste.json` « monoposte » (scripts de travail `.travail/essai-manuel.ps1`
+et `essai-fenetre.ps1`, hors git). Le script échoue si le mot de passe
+d'usine a déjà été changé — c'est voulu.
+
+**Trouvé en route** : un `poste.json` enregistré avec un BOM (Bloc-notes,
+ou `Set-Content -Encoding utf8` de PowerShell 5.1) paraissait illisible :
+le poste perdait son rôle et redemandait « Comment travaille ce poste ? ».
+Corrigé aux trois lectures (fenêtre `reseau.rs`, Équipe `main.rs`,
+serveur `role_poste.rs`) : le BOM est retiré avant de lire. Compilé, pas
+testé (demande du propriétaire). **Pas commité**, avec
+`donnees-essai.mjs`.
+
+## 26/10/2026 (soir) — retours de l'essai à la main : Relances, passage, taille du texte, retours dans Pièces
+
+Quatre retours du propriétaire, d'après une capture de Relances. Choix
+écrits avant le code, acceptés (« Oui, vas-y ») ; deux tranchés par lui.
+
+**Relances : les tuiles du tableau de bord.** Les quatre cartes teintées
+(orange, rouge, bleu) deviennent `KpiCard` dans `GRILLE`, comme
+l'accueil ; « Sans relance » teinte son bord s'il y en a. Au passage, le
+tri affichait « jours » (la valeur brute du `Select`) au lieu
+d'« Ancienneté ». Le « payé 223 700 F » égal au reste n'était pas un
+défaut : le jeu d'essai règle la moitié de quatre crédits.
+
+**Le code de passage ne s'imprime plus** (choix du propriétaire : le
+code seul, pas le bloc). `lire_donnees_piece` (deux versions) rend
+`client_code: null` pour une fiche `statut = 'passage'`, le reçu un code
+vide ; promu client ordinaire, il redevient son code et s'imprime.
+
+**Le texte imprimé grandit** (choix du propriétaire : ~11 pt en A4).
+Mesuré : le corps d'une pièce sortait à 11 px = 8,25 pt, les détails à
+7 pt ; l'usage est 10–12 pt pour un document imprimé, jamais moins de 10
+(Practical Typography, guides de facturation). Plutôt que reprendre la
+soixantaine de tailles écrites à la main, `documentHTML` pose le contenu
+et le texte du pied dans un `zoom` qui porte la police du document à
+11 pt en A4 et 10 pt en A5 (`echelleTexte`) : toutes les proportions
+restent, les bandeaux images et les marges ne bougent pas. Vu dans
+Chrome à la largeur du papier : facture A4 et A5, reçu, relevé, rien ne
+déborde.
+
+**Pièces dit ce que les retours ont fait.** Un retour sur une facture à
+crédit éteint la dette par un paiement « retour » : la facture passait
+« Payé » sans un franc encaissé, et rien ne le disait. Troisième badge
+sous le statut — « Retour partiel », « Retournée », « Remboursée » — et
+« −X F rendus » sous le total, le détail au survol. « Remboursée » se
+juge sur l'argent **sorti du tiroir**, pas sur le mode choisi : un
+« remboursement » sur une facture à crédit ne rend rien (vu en écrivant
+le test, la première version de la règle l'aurait dit remboursée).
+Règle `coeur::pieces::etat_retour`, colonnes 21..23 des listes client.
+
+**Pas fait** : le côté fournisseur (retours fournisseur dans Pièces) ;
+le bon d'échange et le ticket gardent leur taille ; pas de réglage
+« taille du texte » par genre (un défaut seulement, comme demandé).
+
+**Revu le même soir, à la demande du propriétaire.** « Client de
+passage » sur une facture, c'est « presque une insulte » ; le code, lui,
+retrouve la facture. Donc l'inverse du premier choix : le papier porte
+le code à la place du nom (`passage::tiers_a_imprimer`, facture, reçu,
+bon d'échange), y compris sur une facture émise avant une promotion.
+Pièces, pour une vue d'un coup d'œil (ses deux choix sur quatre
+proposés) : une facture entièrement revenue affiche « Remboursée » ou
+« Retournée » **à la place** de son statut, ligne grisée ; une pastille
+« Retours » avec leur nombre. Vu sur le banc SQLite (jeu d'essai + trois
+retours posés par le serveur). **Trouvé en le regardant** : la colonne
+« Payé » compte la dette éteinte par un retour (paiement `mode =
+'retour'`) comme un encaissement — 15 000 F « payés » sur une facture où
+rien n'est entré. Proposé, accepté, corrigé : les listes client rendent
+`encaisse` (`total_paye` moins les paiements `mode = 'retour'`, colonne
+24) ; « Payé », son total de pied et le « Déjà payé » d'Encaisser le
+lisent, la fenêtre d'encaissement ajoute « Éteint par un retour » pour
+que le compte tombe juste. `total_paye` ne change pas : c'est lui qui
+fait le reste dû. **Reste pareil ailleurs** : Relances (« payé »), la
+fiche client et l'« Acompte reçu » imprimé sur la facture comptent
+encore la part éteinte par un retour.
+
+**Le cadre client, les noms longs, une page de trop.** Le cadre du tiers
+grandit (au moins la moitié de la largeur en A4, nom plus gros, plus
+d'air). En essayant un nom très long en A5, le PDF de Chrome sortait
+**deux pages** pour un contenu qui en tenait une : le `zoom` CSS du
+texte trompe le découpage en pages. Remplacé par un vrai agrandissement
+des tailles (`agrandirTexte`) : facture A4/A5, noms long et sans espace,
+reçu, relevé — une page chacun, rien ne déborde. **La page blanche que
+le propriétaire voit après impression n'est pas expliquée par là** : sa
+facture de 12:40 (avant le zoom) tient sur une page dans Chrome ; elle
+vient du chemin d'impression de la fenêtre (WebView2, boîte de Windows).
+Essai à la main relancé sur sa base d'essai pour l'observer.
+
+**La fenêtre blanche.** Observé par le propriétaire : après « Imprimer »,
+la fenêtre d'impression reste ouverte, blanche — surtout gênant avec le
+bon de sortie. Le script du document appelait `window.close()`, que
+WebView2 refuse sur une fenêtre ouverte par l'application. Désormais le
+document change aussi son titre en `__gescom_impression_finie__` après
+la boîte d'impression (imprimé ou annulé), et la fenêtre Tauri, qui
+l'écoute (`on_document_title_changed`, `commandes/impression.rs`), se
+ferme elle-même. Vaut pour tout ce qui passe par `imprimer_facture` :
+pièces A4/A5, facture + bon de sortie, bon de sortie seul, ticket, bon
+d'échange. **Vérifié par le propriétaire** dans la vraie fenêtre : elle
+se ferme toute seule, avec la facture et avec le bon de sortie.
+
+## 26/10/2026 (nuit) — retourner plusieurs articles en un geste
+
+Demande du propriétaire : « si on doit cliquer à chaque article, et les
+échanges aussi ». Plan écrit et accepté (tout d'un coup), après ses trois
+raisons de vouloir « Remboursée » dans Pièces — **pas deux fois**, **le
+vrai chiffre d'affaires**, **le crédit du client** (pas « surveiller la
+caisse »).
+
+**Une fenêtre de retour** (`ModalRetour`) : tous les articles de la
+vente, une case et une quantité chacun (ce qui reste, l'article tout
+revenu grisé), rembourser / avoir / échange, et en échange les articles
+pris (plusieurs). Pièces n'a plus qu'une entrée « Retour ou échange… » ;
+l'écran Retours, trois boutons par vente. Les trois anciennes fenêtres
+(un article, un mode) sont parties.
+
+**Le serveur** : `enregistrer_retour_groupe`, né sur `Base` (D22 — la
+fenêtre ne parle plus qu'au serveur, comme D36/D37). L'ancien retour
+d'un article est devenu un cas de la même fonction (`retourner_une_ligne`,
+dans la transaction de l'appelant). Tout ou rien ; une seule pièce AVC
+par geste ; l'échange réglé une fois, reliquat en avoir réparti au
+prorata ; **le plafond de remboursement se juge sur le geste** (trouvé en
+écrivant : chaque article sous le plafond aurait laissé passer un total
+au-dessus) ; une ligne d'une autre vente est refusée (l'ancien retour ne
+vérifiait pas que la ligne était de la vente).
+
+**La liste dit où est partie la valeur** : « 2 200 F en avoir »,
+« rendus en argent », « dette annulée », « échangés » (le « rendus » de
+la capture était faux pour un avoir) ; un avoir de retour **rendu ensuite
+en espèces** fait passer la facture « Remboursée » ; le pied de Pièces
+déduit la marchandise revenue et le dit. **Pas touché, signalé** : le
+tableau de bord et les rapports ne déduisent aucun retour de leur
+chiffre d'affaires.
+
+## 26/10/2026 (nuit, suite) — le duplicata, côté serveur
+
+Demande du propriétaire : des duplicatas optionnels en filigrane sur ses
+pièces. Choix du propriétaire et plan dans
+[PLAN-DUPLICATA.md](PLAN-DUPLICATA.md) ; plan en cinq lignes accepté,
+« commence par la table impression et noter_impression ». Fait : le
+premier lot, **noyau et serveur**. Rien à l'écran encore.
+
+**Le serveur compte les impressions** (comme D27 : l'écran ne protège
+rien). Table `impression` cloisonnée (`TABLES_CLOISONNEES` : colonne,
+index, politique RLS du compte limité), dans `schema.sql` — les deux
+chemins d'amorçage la lisent. La première impression d'une pièce ou d'un
+reçu est l'original, les suivantes des duplicatas, quel que soit le
+poste ou la personne. Trois commandes nées sur `Base` :
+`lire_etat_impression` (l'aperçu, n'écrit rien), `noter_impression` (au
+clic, fait foi), `reimprimer_original` (permission
+`pieces:reimprimer_original`, le patron ; journal `original_reimprime`).
+
+**Écarts au plan, choisis en écrivant** : `objet_type` (les noms du
+journal, pour que l'Historique retrouve client et pièce) au lieu de
+`genre`, déjà pris par « facture, devis… » ; `rang` et `poste_id` en
+plus ; l'original du patron en commande à part, pour que la permission
+se juge au registre comme partout ; un brouillon ne se compte pas ; la
+lecture d'état s'ajoute, sans elle l'aperçu ne pourrait pas montrer le
+duplicata avant d'imprimer.
+
+**Preuves** : `tests/impression_base.rs`, 8 scénarios (original puis
+duplicata, autre poste et autre personne, original du patron tracé et
+lu dans l'Historique, droit réservé au patron, brouillon, objet inconnu
+ou introuvable, autre dossier, détecteur) — verts sur SQLite,
+PostgreSQL et PostgreSQL sous compte limité ; `--workspace` SQLite vert
+(715). **Reste** : la case par genre, le rendu (filigrane + mention), les
+quatre chemins d'impression et le bouton du patron, la vérification dans
+Chrome.
+
+## 27/10/2026 — le duplicata : la case par genre, le rendu ; une relecture
+
+**La case** (« enchaîne sur la case par genre ») : `ReglageGenre::duplicata`,
+non par défaut (optionnel : une mise à jour ne change pas le papier),
+refusée sur relevé et bulletin. Le serveur la lit : il déduit le genre
+(`genre_imprime` : pièce → `genre_de_piece`, rouleau → ticket, reçu),
+d'où un `format` facultatif sur les trois commandes. Case décochée :
+l'impression se compte quand même — cochée plus tard, la feuille déjà
+sortie reste l'original — et l'original du patron est refusé (rien à
+rattraper). Case « Duplicata » dans Paramètres → Documents.
+
+**Le rendu** : `Habillage.duplicata = { originalLe }`, posé par
+l'appelant d'après le serveur. « DUPLICATA » en travers de chaque page
+(15 %, par-dessus le filigrane de la société) et un cadre net en haut du
+corps ; le ticket, deux lignes sans filigrane. Vu dans le navigateur
+(générateur chargé depuis Vite) : facture A4 sur une page, reçu A5 à
+600 px sur 794, ticket lisible, original sans aucune marque.
+
+**Relecture demandée par le propriétaire** (« ce qu'on n'a pas pensé, les
+erreurs de logique ») : une **erreur à moi**, corrigée — une facture ou
+un avoir *fournisseur* passait pour une facture et serait sorti en
+« DUPLICATA » ; ce n'est pas notre pièce (`hors_compte`). Le reste est
+consigné dans [ALERTES.md](ALERTES.md) § 27/10 : le **1er janvier 2027**
+(exercices finissant le 31/12, aucun avertissement, seul le patron
+prolonge), l'**horloge qui recule**, **Smart App Control** chez le
+client, la **CSP** confirmée sans l'adresse du serveur.
+
+**Preuves** : `impression_base.rs` 10/10 (+ case décochée, ticket) sur
+SQLite, PostgreSQL et compte limité ; `documents_base` 14/14 sur
+PostgreSQL ; unitaires du noyau 235 ; `--workspace` SQLite 719 (lancé
+avant le correctif fournisseur, rejoué depuis sur les fichiers touchés) ;
+`tsc` propre.
+
+## 27/10/2026 (suite) — le duplicata à l'écran : chemins d'impression, bouton du patron
+
+« Attaque le lot 4. » Une aide, [lib/duplicata.ts](../src/lib/duplicata.ts),
+pour les quatre chemins : l'aperçu **lit** (`lire_etat_impression`), le
+clic **note** (`noter_impression`) et la feuille est **regénérée d'après
+cette réponse** — un autre poste a pu imprimer entre-temps. Le serveur ne
+répond pas : **on n'imprime pas**, une feuille sans marque serait un
+original de plus. `ApercuPiece` (et le ticket du POS, qui passe par lui),
+`ApercuRecu` (paiement client ou fournisseur), `Pieces.tsx` et
+`FicheClient.tsx` (impressions directes). Bouton « Réimprimer l'original »
+dans les deux aperçus, pour qui a `pieces:reimprimer_original`, quand la
+prochaine feuille serait un duplicata ; l'aperçu dit « original imprimé
+le … — celle-ci sortira en duplicata ». Le bon de sortie ne se compte pas.
+
+**Trouvé en essayant** : passer d'A4 au ticket montrait un instant la
+marque et le bouton d'A4. L'état est maintenant rattaché au format pour
+lequel il a été lu, et les boutons sont grisés tant qu'il n'est pas
+arrivé. (Une partie de l'éclair venait du rechargement à chaud de React,
+qui gardait l'ancien composant : mesuré à 0 faux sur 217 après
+rechargement complet.)
+
+**Preuves** : `tsc` propre ; serveur construit et lancé sur une base
+jetable, appelé par HTTP avec les paramètres de l'écran — 14/14 ;
+l'écran dans le navigateur contre ce serveur (aperçu, avertissement,
+bouton, ticket). **Puis l'essai du propriétaire dans la vraie fenêtre**
+(banc `monoposte -Neuf`, vraie boîte d'impression Windows) : original
+sans marque, duplicata marqué, original du patron sans marque et tracé
+dans l'Historique, ticket sans marque — conforme. Non rapportés :
+l'impression annulée, le reçu à l'écran. **À savoir** : un serveur d'avant ce
+lot répond « commande inconnue » et l'écran refuse alors d'imprimer — le
+serveur se met à jour avec la fenêtre.
+
+**Une perte, de mon fait** : pour cet essai, `lancer.ps1 monoposte -Neuf`
+a supprimé `outils/banc/.travail/monoposte` — la base d'essai que le
+propriétaire remplissait à la main depuis le 26/10, et ses sauvegardes
+(sans corbeille, pas de cliché lisible sans droits d'administrateur).
+L'en-tête d'ETAPES disait de ne pas l'effacer ; il n'avait pas été lu
+avant de lancer le banc. Consigné dans ALERTES § 27/10.
+
+## 27/10/2026 — D38 les exercices comme dans Ciel, et l'avis avant leur fin
+
+Ouvert par la relecture du même jour : chaque dossier amorcé en 2026 a un
+exercice qui finit le 31/12/2026 ; le 1er janvier, toute écriture datée
+est refusée (D21) et rien ne prévenait. Mené dans une session à part
+(« Prévenir avant la fin de l'exercice »), sur les fichiers des dossiers
+seulement.
+
+**L'avis** : `coeur/fin_exercice.rs` (pure) dit le dernier jour
+écrivable sans interruption depuis aujourd'hui, jugé par
+`dossier_accepte` — l'avis prédit exactement le refus. Rien au-delà de 30
+jours, orange dans le mois, rouge les 7 derniers et le jour du refus.
+`lire_avis_fin_exercice` (ouverte à tous), bandeau `AvisFinExercice` dans
+les deux branches du tableau de bord : « prolonger ou ouvrir le suivant »
+et un bouton vers Paramètres → Dossiers pour qui a `dossiers:gerer`,
+« prévenir le patron » sinon.
+
+**D38, demandé en cours de route par le propriétaire** (« on suit la
+logique de Ciel si elle n'altère pas la nôtre ») : dates libres
+(juillet → juin), plusieurs années (5 au plus — une faute d'année
+bloquerait le dossier des dizaines d'années), **couper** le dernier
+exercice ouvert (le suivant s'ouvre le lendemain dans la même
+transaction), et **clore seulement un exercice terminé, dans l'ordre** :
+clore celui qu'on vit arrêtait toutes les ventes sur-le-champ, sans
+remède. L'écran dit la raison avant la confirmation. D21 ne bouge pas.
+
+**Preuves** : `exercice_coupe_base` 5/5, `fin_exercice_base` 7/7 sur
+SQLite, PostgreSQL et compte limité ; six anciens tests qui closaient un
+exercice encore en cours réécrits (même vérification, exercice terminé) ;
+le test de route du serveur (409, clôture acceptée une fois l'exercice
+terminé). Au passage, `postgres_amorcage::le_compte_limite_ne_voit…`,
+rouge sur ce poste depuis le début (il attendait le refus en anglais,
+ce PostgreSQL répond en français), accepte les deux : 22/22 sur
+`gescom_test`. **Pas vu à l'écran.**
+
+## 27/10/2026 (soir) — les lots A à E, et le serveur sur 40000–40100
+
+Les cinq sessions des lots n'ont jamais démarré : créées disque plein
+(1,2 Go libres, 5,4 Go par worktree). Place libérée (19,6 Go : caches
+de compilation régénérables, restes d'essais), puis, à la demande du
+propriétaire (« on fait ici seulement les lots »), les lots faits ici
+l'un après l'autre, chacun par un agent, relu et rejoué ensuite. Les
+quatre questions ouvertes du plan prises dans le sens proposé : retour
+déduit à sa date, horloge qui refuse, caisse par utilisateur retirée,
+`gescom.db` seulement plus ouvert.
+
+**A — la CSP, puis le port (D39).** Élargir `connect-src` à `http:
+https:` a été refusé par le contrôle de sécurité. Le propriétaire a
+choisi le port 7300 seul, puis : « prends un autre port dans une plage
+de 40000 à 40100 », repli automatique, 7300 abandonné. La CSP des deux
+fenêtres énumère les 101 ports (`tests/plage_de_ports.rs` la compare à
+`protocole`) ; le serveur local du poste qui garde la base prend le
+suivant libre et `poste.json` le retient (sans sonder toute la plage :
+sous Windows une connexion refusée sur 127.0.0.1 coûte deux secondes) ;
+une caisse réglée en 7300 redemande une fois ; installeur et pare-feu
+ouvrent la plage. **Vérifié sur le build release** : la CSP compilée
+porte la plage ; appliquée par Edge à une page locale, elle joint le
+serveur release sur 40000 et refuse un témoin hors plage (39999, CORS
+ouvert) et 7300. La vraie fenêtre release refuse de tourner hors d'une
+installation (la garde) : **pas essayée installée**.
+
+**B — des chiffres justes après un retour.** CA net = ventes − retours
+datés dans la période (tableau de bord, courbe, rapport mensuel, tops) ;
+l'échange ne se déduit pas (son remplacement n'est pas une vente). La
+dette éteinte par un retour (`paiement.mode = 'retour'`) n'est plus
+« payée » : Relances, fiche et liste clients, « Acompte reçu » imprimé
+(+ « Éteint par retour »). D41 se solde dans la transaction du règlement
+qui crée le résidu, sur tous les chemins de règlement.
+
+**C — garde-fous.** L'horloge : plus de 5 min de recul sur la dernière
+écriture → toute écriture refusée ; le piège d'une heure réglée en
+avance puis corrigée a son geste du patron (Paramètres → Horloge, au
+journal). La caisse par utilisateur est retirée (refusée net, un tiroir
+par dossier). `lire_lignes_piece` masque les prix d'achat. « Stock non
+suivi » dans les écrans d'achat.
+
+**D — les données.** Le nom du fournisseur figé sur ses pièces émises ;
+« Rattacher à un client » une fiche de passage (toute son histoire, la
+fiche désactivée, nom et code figés sur ses pièces) ; la colonne
+« suivre le stock » de l'import CSV (refuse plutôt que de faire reprendre
+un suivi sans comptage) ; Retours paginé par 50.
+
+**E — le ménage.** La fenêtre n'ouvre plus `gescom.db` ; les 182 façades
+`Connection` refusent au même endroit (le grand nettoyage reste à
+faire). L'essai à la main a son dossier (`essai-main.ps1`, 40050), le
+banc marque les siens et `-Neuf` refuse le reste ; la base d'essai a été
+**copiée** (empreintes identiques), l'ancien dossier attend une décision
+à la main.
+
+**Trouvé en route** : `src-tauri/binaires/` gardait un serveur du 20/09,
+recopié sans erreur dans `target/<profil>` à chaque construction de la
+fenêtre — `preparer_serveur.ps1` l'a remplacé ; voir ALERTES. Ce qui
+reste (TVA des retours, relevé client, facture réglée par avoir, dette
+fournisseur en brouillon, en-tête CSV partiel…) est listé dans ALERTES.
+
+**Preuves** : `retours_chiffres_base` 9, `garde_fous_base` 6,
+`donnees_base` 6 sur SQLite, PostgreSQL et compte limité ; noyau SQLite
+complet vert ; **noyau PostgreSQL complet 748/748** (62 séries) ;
+serveur 11 + routes 14 ; fenêtre `gescom` 20 ; `tsc`
+propre ; essai release de la CSP ci-dessus. **Rien vu à l'écran.**
+
+## 27/10/2026 (nuit) — D40, la fenêtre « Gescom Serveur » et la recherche automatique
+
+Le propriétaire : « pour l'IP et le port, une interface graphique dédiée
+à mon serveur, comme sur Ciel », puis : comment Ciel fait-il découvrir
+le serveur ? Vérifié dans les guides de Sage et les forums : rien
+d'automatique — le client désigne le serveur par son nom sur le réseau
+local, ce que Gescom accepte déjà. Proposé mieux, accepté : la recherche
+automatique. Choix écrits avant, acceptés (D40).
+
+La coque de D25, jamais construite, l'est : une fenêtre sans base qui
+affiche la console du serveur et, quand il ne répond pas, propose de
+démarrer le service. La console gagne son panneau Réseau ; le changement
+de port ou d'écoute ne se fait que depuis le poste du serveur, par le
+patron, et c'est le serveur qui réécrit `serveur.json` et redémarre. La
+recherche répond en UDP sur 40000 sans rien dire de la boutique ; la
+caisse a son bouton « Rechercher le serveur ». Fait par un agent (coupé
+une fois par une panne réseau, repris là où il était), relu et rejoué.
+
+**Trouvé au passage** : la lecture des règles de pare-feu ne voyait pas
+40057 dans « 40000-40100 » (corrigé, toute langue de Windows) ; et
+`check --package gescom` recopie le serveur de `binaires/` sur
+`target\debug\gescom-serveur.exe` — `binaires/` refait par
+`preparer_serveur.ps1` après ce chantier.
+
+**Preuves** : `coeur::reseau_serveur` et `decouverte` (règles pures) ;
+serveur 13 + routes 18 ; `gescom-serveur-fenetre` 2 ; `plage_de_ports` 3
+(la CSP de la nouvelle fenêtre et sa copie de la plage) ; noyau 291 ;
+`tsc` propre. **Pas vu en vrai** — section K de TESTS-MANUELS.

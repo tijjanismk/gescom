@@ -58,9 +58,93 @@ pub fn verifier_retour_fournisseur_divers(est_divers: bool, mode_resolution: Opt
     }
 }
 
+/// Ce qu'il faut savoir d'une fiche client pour juger un rattachement
+/// (lot D.10). `passage` : `statut = 'passage'` (D35).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FicheARattacher {
+    pub id: String,
+    pub est_generique: bool,
+    pub passage: bool,
+    pub actif: bool,
+}
+
+/// Lot D.10 — « Rattacher a un client » : le patron choisit la bonne
+/// fiche cliente pour un passant revenu, et toute l'histoire de la fiche
+/// de passage y passe. Jamais automatique : un passant n'a ni nom ni
+/// telephone sur lesquels s'appuyer. Pure ; les fiches sont lues DANS le
+/// dossier ouvert (`None` : pas dans ce dossier).
+///
+/// - la source est une fiche de passage active (pas le « Comptant », qui
+///   porte toutes les ventes sans nom d'avant D35, ni un client
+///   ordinaire, ni une fiche deja rattachee) ;
+/// - la cible est un client ordinaire actif : ni le « Comptant », ni une
+///   fiche de passage, ni la fiche elle-meme.
+pub fn juger_rattachement(
+    passage: Option<&FicheARattacher>,
+    cible: Option<&FicheARattacher>,
+) -> Result<(), String> {
+    let passage = passage.ok_or_else(|| "Fiche de passage introuvable dans ce dossier.".to_string())?;
+    if !passage.passage || !passage.est_generique {
+        return Err("Seule une fiche de client de passage (PAS-…) se rattache à un client.".to_string());
+    }
+    if !passage.actif {
+        return Err("Cette fiche de passage est déjà rattachée à un client.".to_string());
+    }
+    let cible = cible.ok_or_else(|| "Client introuvable dans ce dossier.".to_string())?;
+    if cible.id == passage.id {
+        return Err("Une fiche ne se rattache pas à elle-même.".to_string());
+    }
+    if cible.est_generique || cible.passage {
+        return Err("Rattacher à un client ordinaire : ni le « Comptant », ni une autre fiche de passage.".to_string());
+    }
+    if !cible.actif {
+        return Err("Ce client est désactivé : le réactiver d'abord.".to_string());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fiche(id: &str, est_generique: bool, passage: bool, actif: bool) -> FicheARattacher {
+        FicheARattacher { id: id.into(), est_generique, passage, actif }
+    }
+
+    #[test]
+    fn un_passant_se_rattache_a_un_client_ordinaire() {
+        let pas = fiche("p", true, true, true);
+        let awa = fiche("a", false, false, true);
+        assert!(juger_rattachement(Some(&pas), Some(&awa)).is_ok());
+    }
+
+    #[test]
+    fn la_source_est_une_fiche_de_passage_active() {
+        let awa = fiche("a", false, false, true);
+        assert!(juger_rattachement(None, Some(&awa)).unwrap_err().contains("introuvable"));
+        // Le « Comptant » : generique, pas une fiche de passage.
+        let comptant = fiche("c", true, false, true);
+        assert!(juger_rattachement(Some(&comptant), Some(&awa)).unwrap_err().contains("passage"));
+        // Un client ordinaire ne se rattache pas (ce serait une fusion).
+        let moussa = fiche("m", false, false, true);
+        assert!(juger_rattachement(Some(&moussa), Some(&awa)).is_err());
+        // Deja rattachee : desactivee.
+        let deja = fiche("p", true, true, false);
+        assert!(juger_rattachement(Some(&deja), Some(&awa)).unwrap_err().contains("déjà"));
+    }
+
+    #[test]
+    fn la_cible_est_un_client_ordinaire_actif_et_pas_elle_meme() {
+        let pas = fiche("p", true, true, true);
+        assert!(juger_rattachement(Some(&pas), None).unwrap_err().contains("dossier"));
+        assert!(juger_rattachement(Some(&pas), Some(&pas.clone())).unwrap_err().contains("elle-même"));
+        let comptant = fiche("c", true, false, true);
+        assert!(juger_rattachement(Some(&pas), Some(&comptant)).unwrap_err().contains("ordinaire"));
+        let autre_passage = fiche("q", true, true, true);
+        assert!(juger_rattachement(Some(&pas), Some(&autre_passage)).unwrap_err().contains("ordinaire"));
+        let inactif = fiche("a", false, false, false);
+        assert!(juger_rattachement(Some(&pas), Some(&inactif)).unwrap_err().contains("désactivé"));
+    }
 
     #[test]
     fn le_fournisseur_divers_ne_recoit_que_des_achats_comptant() {

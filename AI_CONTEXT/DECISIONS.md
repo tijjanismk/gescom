@@ -427,6 +427,12 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D40 | **la fenêtre « Gescom Serveur »** (la coque de D25) et son panneau **Réseau** — port 40000–40100 et écoute changés par le patron, depuis le poste du serveur seulement, appliqués par le serveur lui-même — et la **recherche automatique** des caisses (UDP 40000, rien de la boutique) |
+| D39 | **le serveur écoute de 40000 à 40100** (40000 par défaut, 7300 abandonné) : la CSP des deux fenêtres énumère ces ports et rien d'autre ; sur le poste qui garde la base, si 40000 est pris, le serveur local prend le suivant libre et `poste.json` le retient ; installeur et pare-feu suivent la plage |
+| D38 | **des exercices comme dans Ciel** : dates libres (juillet → juin se donne), plusieurs années (**5 au plus**), et le dernier exercice ouvert **se coupe** en plein milieu — le suivant s'ouvre le lendemain, au moins jusqu'à l'ancienne fin ; on ne **clôt** qu'un exercice **terminé**, dans l'ordre ; D21 tient (pas de trou, refus hors dates) |
+| D36 | **un article peut ne pas suivre son stock** (`article.gere_en_stock`) : il se vend normalement, jamais à découvert, hors des écrans de stock (Stock, inventaire, alertes, valeur), transfert refusé ; ses mouvements s'écrivent quand même ; cesser de suivre est tracé, reprendre exige un comptage par magasin |
+| D37 | **le menu se règle par dossier** (Paramètres → Menu, patron) : cacher n'est qu'un affichage — aucune donnée, aucune règle, aucune trace ne change ; Tableau de bord, Ventes, Caisse, Paramètres toujours visibles ; « Boutique simple » / « Complet » |
+| D35 | **chaque vente sans nom a sa fiche « passage »** (code `PAS-000123`, réservé dans la transaction) : hors des listes et des chiffres, payée en entier à la vente (ni crédit, ni acompte, ni avoir), « Passer en client ordinaire » garde l'historique ; une facture garde le nom écrit à son émission |
 | D34 | le **suivi client** s'appuie sur la fiche client de Gescom : échanges, rappels, prospects, fiche 360 — pas de second fichier — [PLAN-EQUIPE.md](PLAN-EQUIPE.md) |
 | D33 | **cotisations facultatives, jamais devinées** : lignes de réglage du dossier, vides par défaut, seulement pour les personnes déclarées |
 | D32 | **les avances d'abord** : rattachées à la personne, retenues d'office sur la fiche suivante ; **hors caisse** (révisé le 24/09) |
@@ -437,9 +443,9 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D27 | **le serveur juge la saisie** : pas de mode « avoir » sans avoir consommé, montant > 0, quantité > 0, prix ≥ 0, remise 0–100 — règles dans `coeur/saisie.rs`, les deux versions |
 | D26 | **l'auteur d'un geste est l'utilisateur de la session**, posé par le serveur sur le fil de la requête (`noyau::auteur`) — plus le premier compte du rôle |
 | D25 | **le serveur gagne une fenêtre** : une coque Tauri fine qui affiche la console existante — pas une interface reconstruite |
-| D24 | **deux rôles, un seul produit** : simple (monoposte, existe déjà) ou complet (serveur + plusieurs postes/dossiers), choisis **à l'installation**, jamais devinés en cours de route |
+| D24 | **deux rôles, un seul produit** : simple (monoposte, existe déjà) ou complet (serveur + plusieurs postes/dossiers), choisis **à l'installation**, jamais devinés en cours de route — **révisé le 25/10/2026** : le rôle se demande au premier démarrage de la fenêtre (« garde la base » / « caisse d'un autre poste ») ; le serveur du raccourci s'efface sur une caisse |
 | D23 | le **plan comptable SYSCOHADA** en base, les opérations affectées en réglage, les journaux lus et exportés — rien de stocké ; la comptabilité complète après |
-| D22 | **SQLite reste** ; plusieurs dossiers demandent **le serveur**, pas PostgreSQL — le serveur sert tout par `Base` sur les deux moteurs, la fenêtre monoposte garde un dossier (révise D11 et D13) |
+| D22 | **SQLite reste** ; plusieurs dossiers demandent **le serveur**, pas PostgreSQL — le serveur sert tout par `Base` sur les deux moteurs, la fenêtre monoposte garde un dossier (révise D11 et D13) — **révisé le 25/10/2026** : la fenêtre n'ouvre jamais de base ; le poste qui garde la base lance son serveur SQLite et s'y branche sur 127.0.0.1 |
 | D21 | les **dates de travail** d'un dossier se donnent à sa création et se prolongent ; une écriture hors dates est refusée en disant quoi faire |
 | D20 | la v3 se fait dans l'ordre A (pièces simplifiées), B (journal), C (droits), D (dossiers), E (plan comptable) — [PLAN-V3.md](PLAN-V3.md) |
 | D19 | cinq permissions de **lecture** (prix d'achat, rapports, soldes, historique, autres caisses) ; `employe` n'en porte aucune |
@@ -744,3 +750,366 @@ Au passage, `regler_creance_datee` (version `Connection`, celle du
 serveur sur fichier SQLite) écrit désormais paiement, statut, pièce,
 caisse et journal **dans une transaction** (règle 4) ; l'écriture en
 caisse n'est plus ignorée en cas d'échec.
+
+## D22 et D24 révisés (25/10/2026) — la fenêtre ne garde jamais de base ; le rôle du poste se demande
+
+**Ce qui était faux.** D22 et D24 (21/09) affirmaient, « vérifié dans le
+code », qu'en `monoposte` la fenêtre ouvre sa base SQLite locale par ses
+façades `Connection`. Depuis le 11/09 (commit `1da32c3`, « le client ne
+parle qu'au serveur ») ce n'était plus vrai : en `monoposte`, la fenêtre
+affichait « Brancher ce poste » et `appeler` refusait sans serveur. Toute
+la v3 a ensuite été construite côté serveur : **73 commandes** (réglages
+des documents, Historique, droits, dossiers, exercices, plan comptable,
+paie, suivi client) n'existent pas dans la fenêtre seule. Constaté par le
+banc d'écran le 25/10.
+
+**Décision du propriétaire** (25/10) : « je veux seulement que v3
+travaille en mono et multiposte ». Retenu, sur proposition de
+l'assistant :
+
+1. **La fenêtre ne parle jamais qu'au serveur**, dans les deux rôles —
+   un seul chemin, celui qui a fermé la panne du cache vidé.
+2. **`monoposte` = ce poste garde la base** (une seule caisse, ou le
+   poste principal) : la fenêtre se branche toute seule sur
+   `127.0.0.1:7300` ; s'il ne répond pas, elle lance le
+   `gescom-serveur.exe` livré à côté d'elle (`reseau.rs`,
+   `demarrer_serveur_local`), mêmes réglages que le raccourci, sans
+   fenêtre noire, et ne l'arrête pas en se fermant (la sauvegarde
+   automatique et Gescom Équipe en ont besoin). Rien à saisir.
+3. S'il ne démarre pas : un écran qui le dit, avec la raison,
+   « Réessayer » et « Ce poste est une caisse d'un autre poste » —
+   jamais un écran de connexion qui échouerait.
+4. **`poste` = la caisse d'un autre poste** : inchangé (adresse saisie,
+   essayée avant d'être enregistrée). Une caisse ne lance jamais de
+   serveur.
+5. **Le rôle se demande au premier démarrage** (`poste.json` neuf ou
+   illisible → `a_choisir`) : deviner « monoposte » faisait d'une caisse
+   fraîchement installée un poste principal avec une base vide. Une
+   installation existante garde son mode. C'est l'écran que D24
+   prévoyait, fait dans la fenêtre (l'installeur n'a pas les droits
+   administrateur).
+6. **Le serveur du raccourci de démarrage s'efface sur une caisse**
+   (`serveur/src/role_poste.rs`) : lancé sans `--base`, il lit
+   `poste.json` et s'arrête si ce poste est la caisse d'une **autre**
+   machine. Dans le doute il tourne : `poste` sur `127.0.0.1` (le
+   réglage du poste principal entre le 11/09 et le 25/10), une adresse
+   de cette machine, un nom qu'on ne sait pas résoudre. Le service
+   Windows (D12), les tests et le banc passent `--base`.
+7. **Changer de rôle reste un geste volontaire** : Paramètres → Réseau
+   (« Ce poste garde la base », avec confirmation : les ventes du poste
+   principal ne s'y trouvent pas ; « En faire une caisse d'un autre
+   poste »), et le lien de retour sur l'écran de branchement.
+8. En build de débogage, la fenêtre ne lance de serveur que si
+   `GESCOM_DONNEES` est posé (et alors sur ce dossier) : un essai
+   n'ouvre jamais la base du propriétaire.
+
+**Ce qui reste.** La fenêtre ouvre encore un `gescom.db` local à son
+démarrage (`lib.rs`) — le même fichier que la base par défaut du serveur,
+sans danger en WAL — et ses façades `Connection` ne servent plus à
+l'écran : leur retrait est le grand nettoyage annoncé dans ALERTES.md.
+
+## D35 — Chaque vente sans nom a sa fiche « passage » (25/10/2026)
+
+**Le constat.** Toutes les ventes sans nom allaient au client unique
+« Comptant » (`est_generique = 1`). Le serveur lui refusait le crédit
+(D40) et l'avoir, mais **pas une vente « comptant » payée en partie ou
+pas du tout** (`argent.rs`, `a_encaisser = min(montant_paye, …)`), ni
+une facture à crédit validée depuis Pièces (`valider_facture`) : la
+marchandise sortait, rien n'entrait, et la dette, au nom de
+« Comptant », n'apparaissait dans aucune relance ni aucun rapport (ils
+filtrent `est_generique = 0`). L'écran envoyait toujours le total — mais
+le serveur juge la saisie (D27), l'écran ne protège rien.
+
+**La proposition du propriétaire** : un code client de passage
+incrémenté, traité comme un client ordinaire, crédit bloqué, et un
+passage vers client ordinaire. Retenue avec ces garde-fous (proposés
+par l'assistant, acceptés le 25/10/2026) :
+
+1. **Une fiche par vente sans nom.** Quand une vente ou une facture
+   arrive au « Comptant », le serveur crée dans la MÊME transaction une
+   fiche « Client de passage », code `PAS-000123` (préfixe du dossier
+   comme les autres codes), numéro réservé au compteur
+   (`compteur_piece`, clé `PAS`) — pas de doublon à deux caisses.
+   La fiche est `est_generique = 1`, `statut = 'passage'`.
+2. **Hors des listes et des chiffres.** `est_generique = 1` la fait
+   sortir d'office de la liste des clients, des relances, des rapports
+   de créances et de « meilleurs clients » : ces lectures filtrent déjà
+   `est_generique = 0`, aucune à oublier. Un filtre « Passages »
+   (Clients) la retrouve par son code ou le numéro de sa facture.
+3. **Payée en entier à la vente.** Règle pure
+   `coeur::saisie::verifier_vente_passage` : pour un client de passage
+   (le « Comptant » ou une fiche passage), pas de crédit, et
+   l'encaissement couvre le total — sinon refus AVANT d'écrire, dans
+   les deux versions de `creer_vente` et de `valider_facture`. Les
+   retours restent remboursement ou échange (déjà en place : la fiche
+   est `est_generique`).
+4. **« Passer en client ordinaire »** (`passage::promouvoir_sur`,
+   permission `clients:modifier`) : nom obligatoire, téléphone
+   facultatif ; la fiche devient `est_generique = 0`,
+   `statut = 'client'`, garde son code et ses achats ; geste tracé au
+   journal (Historique). Une seule porte : `modifier_client` refuse
+   toujours une fiche générique.
+5. **Une facture garde le nom écrit à son émission.** Une pièce ne
+   portait que `tiers_id` : renommer un client changeait le nom des
+   factures déjà émises à la réimpression (OHADA). Colonne
+   `piece_commerciale.tiers_nom` : avant tout changement de nom
+   (promotion, `modifier_client`), le nom en cours est figé sur les
+   pièces de ce client qui n'en ont pas encore ; la lecture d'une pièce
+   à imprimer rend `COALESCE(tiers_nom, nom du client)`. Figer au
+   renommage revient à figer à l'émission : jusque-là, les deux noms
+   sont les mêmes.
+6. **Les ventes passées ne bougent pas.** Ce qui est au « Comptant » y
+   reste ; le « Comptant » reste la porte de l'écran (« client de
+   passage » au comptoir, rien à saisir) — c'est le serveur qui
+   remplace, vente par vente, par une fiche neuve.
+   `lire_client_generique` rend toujours le « Comptant », jamais une
+   fiche passage.
+7. **Doublons** : une même personne passée trois fois a trois fiches ;
+   rattacher ses autres tickets à la promotion viendra plus tard (noté,
+   pas fait).
+
+**Mise en œuvre.** `coeur/saisie.rs` (la règle, testée) ; nouveau
+module `noyau/src/passage.rs` (créer la fiche — `&mut impl Acces` côté
+`Base`, une version `rusqlite` pour les façades `Connection` —, lire
+les passages, promouvoir, figer les noms) ; `creer_vente` et
+`valider_facture`, deux versions chacune ; `lire_client_generique`,
+`modifier_client` et `lire_donnees_piece`, deux versions ; colonne
+`tiers_nom` dans `schema.sql`, `amorcage.rs` et `persistance/v2.rs` ;
+serveur : `lire_passages`, `promouvoir_passage` ; écran Clients :
+filtre « Passages » et « Passer en client ordinaire ». `lire_passages`
+et `promouvoir_passage` n'ont que leur version `Base` : la fenêtre ne
+passe plus par les façades `Connection` (D22 révisé), comme les
+commandes de la v3. Tests : `noyau/tests/passage_base.rs` sur SQLite
+et PostgreSQL (stock, caisse, créance après chaque geste, refus sans
+écriture, deux ventes deux codes, promotion, nom figé, le détecteur),
+et un parcours du banc.
+
+## D37 — Le menu se règle par dossier (26/10/2026)
+
+**Le besoin** (le propriétaire) : un petit commerçant n'a que faire de
+Relances, Historique, Chèques… et se perd dans quinze entrées. Un onglet
+de Paramètres pour régler ce que le menu montre.
+
+**Retenu** (proposé par l'assistant, accepté le 26/10/2026) :
+
+1. **Paramètres → Menu** : une case par entrée du menu, montrer ou
+   cacher. Deux réglages tout faits : **« Boutique simple »** (Tableau de
+   bord, Ventes, Achats, Stock, Clients, Caisse, Rapports) et
+   **« Complet »** (tout).
+2. **Toujours visibles, sans case** : Tableau de bord, Ventes, Caisse,
+   Paramètres — sans Caisse on n'encaisse plus, sans Paramètres on ne
+   réaffiche plus rien. La règle est pure (`coeur::menu`) : le serveur
+   refuse de les cacher, quel que soit l'écran.
+3. **Cacher n'est qu'un affichage.** Aucune donnée, aucune règle, aucune
+   trace ne change : l'Historique continue d'enregistrer chaque geste
+   même caché ; les créances restent suivies dans Clients si Relances
+   est caché ; payer par chèque reste possible si Chèques est caché.
+   Les liens d'un écran vers un autre (fiche client → Historique)
+   restent valables. La palette (Ctrl K) suit le même réglage.
+4. **Par dossier** : toutes les caisses d'un dossier voient le même
+   menu ; chaque dossier a le sien (`config_app`, clé
+   `menu_caches:<dossier>`).
+5. **Le patron seul** (`parametres:modifier`) ; le changement est tracé
+   (journal `menu_modifie`, l'Historique le dit).
+6. **Les droits restent au-dessus** : une entrée paraît si la personne a
+   le droit ET si elle n'est pas cachée.
+
+**Mise en œuvre.** `coeur/menu.rs` (entrées, toujours visibles,
+« Boutique simple », la validation, testés) ; `noyau/src/menu.rs`
+(`lire_menu_sur`, `definir_menu_sur`, version `Base` seule comme les
+réglages de la v3) ; serveur `lire_menu`, `definir_menu` ; écran
+`lib/menu.ts`, `Layout` (menu et palette), onglet `OngletMenu`. Tests :
+`noyau/tests/menu_base.rs` sur les deux moteurs, un parcours du banc.
+
+## D36 — Un article peut ne pas suivre son stock (26/10/2026)
+
+**Le besoin** (le propriétaire) : sachets, crédit de recharge,
+livraison, coupe, réparation, vrac qu'on ne compte jamais. Aujourd'hui
+leurs ventes font passer le stock en négatif, déclenchent des alertes et
+encombrent l'écran Stock. La colonne `article.gere_en_stock` existait,
+lue par les alertes et la valeur du stock, mais aucun écran ne la
+réglait : elle valait toujours 1.
+
+**Retenu** (proposé par l'assistant, accepté le 26/10/2026) :
+
+1. **Une case « Suivre le stock »** (Paramètres → Articles), cochée par
+   défaut ; la colonne existante, rien d'ajouté à la base.
+2. **Un article non suivi se vend normalement** — chiffre d'affaires,
+   caisse, factures inchangés — et n'est **jamais à découvert** : le
+   drapeau `vente_a_decouvert` reste à 0 (deux versions de `creer_vente`
+   et de `valider_facture`), la caisse n'annonce ni rupture ni découvert.
+3. **Hors des écrans de stock** : écran Stock (filtre « Non suivis »
+   pour le retrouver), inventaire (ajustement refusé), alertes de
+   rupture et valeur du stock (déjà), **transfert refusé** — il n'y a
+   rien à déplacer.
+4. **Les mouvements s'écrivent quand même** (le stock reste la somme des
+   mouvements) : on sait combien de sachets sont sortis ce mois-ci, et
+   les trente endroits qui écrivent un mouvement ne bougent pas.
+5. **Changer la case** (`changer_suivi_stock`, `parametres:modifier`,
+   journal `suivi_stock_change`) :
+   - **cesser de suivre** un article qui a du stock est permis ; la
+     réponse dit combien d'unités sortent ainsi du stock et de sa
+     valeur, l'écran le demande avant, l'Historique le note ;
+   - **reprendre le suivi** exige un **comptage pour chaque magasin
+     actif** du dossier (`coeur::stock::verifier_comptages`) : le stock
+     repart de la quantité réelle (mouvement `ajustement`, motif « Reprise
+     du suivi du stock »), jamais d'un chiffre faux. Tout dans une
+     transaction.
+6. **Achats et retours** inchangés : un achat se paie et se trace, un
+   retour rembourse ou échange ; leurs mouvements s'écrivent sans se
+   voir.
+
+**Le risque nommé** : marquer « non suivi » un article qu'on vend
+beaucoup pour ne plus voir ses manques. Garde-fous : la permission
+réservée et la trace dans l'Historique.
+
+**Mise en œuvre.** `coeur::stock::verifier_comptages` (testée) ;
+`noyau/src/suivi_stock.rs` (`changer_suivi_stock_sur`, `est_suivi_sur` /
+`est_suivi`) ; le découvert dans `creer_vente` et `valider_facture`, le
+refus dans `enregistrer_transfert` et `enregistrer_ajustement_inventaire`
+(deux versions chacun) ; `lire_stocks_pagines` (filtre `nonSuivis`),
+`lire_articles_avec_unites` et `lire_articles_complets` disent
+`gere_en_stock` ; écrans Articles, Stock, Ventes. Tests :
+`noyau/tests/suivi_stock_base.rs` sur les deux moteurs, un parcours du
+banc.
+
+## D38 — Des exercices comme dans Ciel (27/10/2026)
+
+**Le besoin** (le propriétaire) : une boutique dont l'année va de
+juillet à juin ; une autre qui veut prolonger de plus de deux ans pour ne
+pas y repenser ; et pouvoir, comme dans Ciel, arrêter l'exercice en
+cours en plein milieu de l'année pour repartir sur un autre cycle. « On
+suit la logique de Ciel si elle n'altère pas la nôtre. »
+
+**Retenu** (proposé par l'assistant, accepté le 27/10/2026) :
+
+1. **Dates libres** : un exercice commence n'importe quel jour (à la
+   création du dossier ; le suivant, le lendemain du précédent).
+2. **Plusieurs années, cinq au plus** (`coeur::fin_exercice::DUREE_MAX_ANS`) :
+   une prolongation va au plus 5 ans après la fin prévue, un exercice
+   ouvert ou créé dure au plus 5 ans. Une prolongation ne se raccourcit
+   pas : une faute d'année (2062 pour 2026) bloquerait le dossier des
+   dizaines d'années. L'écran propose +1/+2/+3 ans et dit l'écart en clair.
+3. **Couper** (`couper_exercice`, `dossiers:gerer`) : le dernier
+   exercice ouvert s'arrête au jour choisi, le suivant s'ouvre le
+   lendemain dans la même transaction, **au moins jusqu'à l'ancienne
+   fin** (par défaut un an). Journal `exercice_coupe` (avec l'ancienne
+   fin) et `exercice_ouvert`.
+
+4. **Clore, seulement un exercice terminé, et dans l'ordre**
+   (`juger_cloture`, ajouté le même jour — « on force l'utilisateur à
+   éviter les incohérences ») : sa fin, prolongation comprise, est
+   passée à l'horloge du serveur, et aucun exercice plus ancien n'est
+   encore ouvert. Clore celui qu'on vit arrêtait toutes les ventes
+   sur-le-champ, sans remède (le suivant ne commence qu'après sa fin) ;
+   pour s'arrêter plus tôt : couper, puis clore la partie terminée.
+
+**Ce qui ne change pas de la nôtre** : D21 — pas de trou, refus hors
+dates en disant quoi faire ; un exercice clos ne se rouvre, ne se
+prolonge ni ne se coupe ; on ne coupe pas un exercice qui a déjà un
+suivant (trou ou chevauchement) ; rien de ce qui s'écrivait la veille
+n'est refusé le lendemain. Aucune écriture ne porte son exercice (elles
+s'y rangent par leur date) : couper ne déplace aucune donnée, les
+rapports vont par dates.
+
+**Ce qu'on ne prend pas** : rouvrir un exercice clos ; raccourcir sans
+ouvrir la suite. **Le risque nommé** : la numérotation suit l'année
+civile (`FAC-2026-…`), pas l'exercice — un exercice juillet → juin
+change de série au 1er janvier. La suite reste continue et
+chronologique ; numéroter par exercice serait un autre chantier.
+
+**Mise en œuvre.** `dossiers::juger_coupe` (pure, testée),
+`couper_exercice_sur`, plafond dans `dates_de_travail` et
+`prolonger_exercice_sur` ; écran `ExercicesDossier.tsx` (bouton Couper
+sur le dernier exercice, phrase en clair). Tests :
+`noyau/tests/exercice_coupe_base.rs` et `fin_exercice_base.rs` sur les
+deux moteurs et sous le compte limité.
+
+## D39 — Le serveur écoute de 40000 à 40100 (27/10/2026)
+
+**Le besoin.** La fenêtre parle au serveur par `fetch`, mais sa CSP
+(`connect-src`) ne l'y autorisait pas : en build livré, risque de ne
+joindre personne (ALERTES, lot A). Ouvrir tout `http:` a été refusé par
+le contrôle de sécurité ; le propriétaire a d'abord choisi le seul port
+7300, puis : « prends un autre port dans une plage de 40000 à 40100 ».
+
+**Retenu** (choix du propriétaire, 27/10/2026) :
+
+1. **40000 par défaut**, plage **40000–40100** (`protocole::PORT_DEFAUT`,
+   `PORT_MAX`, `port_dans_la_plage`, `adresse_joignable`). **7300 est
+   abandonné** : rien n'était livré.
+2. **La CSP des deux fenêtres énumère les 101 ports**, et rien d'autre
+   (une CSP ne connaît pas les plages). `noyau/tests/plage_de_ports.rs`
+   vérifie que les deux `tauri.conf.json` et la copie de Gescom Équipe
+   suivent `protocole`.
+3. **Repli sur le poste qui garde la base** : si 40000 est pris par un
+   autre programme, le serveur local prend le suivant libre de la plage,
+   et `poste.json` le retient (`reseau::demarrer_serveur_local`). Un
+   serveur Gescom qui répond déjà sur la machine est repris tel quel —
+   jamais deux serveurs sur la même base. On ne sonde pas toute la plage
+   d'avance : sous Windows, une connexion refusée sur 127.0.0.1 peut
+   prendre deux secondes.
+4. **Refuser plutôt que faire semblant** : la fenêtre refuse d'enregistrer
+   une adresse de caisse hors de la plage ; une caisse encore réglée en
+   7300 redemande son rôle une fois ; l'installeur du serveur refuse un
+   port hors de la plage ; le serveur lancé hors de la plage tourne mais
+   l'écrit en avertissement au journal technique (essais, console).
+5. **Le pare-feu ouvre toute la plage** (`outils/parefeu.ps1`,
+   l'installeur) : un poste principal rabattu sur 40001 reste joignable
+   par les caisses.
+
+**Pas pris** : `http:` / `https:` sans port (refusé) ; un port libre au
+hasard (la CSP est figée au build).
+
+## D40 — La fenêtre « Gescom Serveur », son panneau Réseau, la recherche automatique (27/10/2026)
+
+**Le besoin** (le propriétaire) : « une interface graphique dédiée à mon
+serveur, comme sur Ciel », pour l'IP et le port ; puis, ayant appris que
+Ciel laisse le client désigner le serveur par son nom, la recherche
+automatique (« Rechercher le serveur »).
+
+**Retenu** (proposé, accepté le 27/10/2026) :
+
+1. **La coque de D25, enfin construite** : `src-tauri/serveur-fenetre/`
+   (`ml.gescom.serveur`), sans base ni noyau. Elle lit le port dans
+   `serveur.json` (sinon 40000), affiche la console servie par le
+   serveur — la même page que dans le navigateur, rien en double — et,
+   s'il ne répond pas, une page locale « Le serveur ne tourne pas » avec
+   « Démarrer le service » (accord administrateur) et « Réessayer ».
+   L'installeur du serveur la pose au menu Démarrer.
+2. **Le panneau Réseau dans la console** : nom du poste, cartes et IP
+   (fixe ou donnée par la box, qui avertit et conseille le nom), port,
+   écoute, ce qu'on tape sur une caisse (le nom d'abord), pare-feu TCP
+   et UDP, postes connectés. **Changer** le port (40000–40100) ou
+   l'écoute : `parametres:modifier`, **seulement depuis le poste du
+   serveur** (127.0.0.1 / ::1), jamais sur un serveur lancé avec
+   `--port`/`--hote` (le monoposte de D39 : géré par Gescom). Règle pure
+   `coeur/reseau_serveur.rs`.
+3. **Le serveur applique lui-même** : il essaie le nouveau port, réécrit
+   `serveur.json` en gardant le reste (fichier temporaire puis renommage),
+   écrit `reseau_serveur_modifie` à l'Historique (tout ou rien), répond,
+   puis redémarre — en service, en sortant en échec pour la relance de
+   D12 ; lancé à la main, en se relançant avec les mêmes arguments.
+4. **La recherche automatique** : le serveur répond en UDP sur 40000
+   (`decouverte::PORT`, même quand son TCP est ailleurs dans la plage) à
+   `{"q":"gescom","v":1}`, venu du réseau local, 20 fois par seconde au
+   plus : « Gescom Serveur », le nom du poste, ses IPv4, son port, les
+   versions — **rien de la boutique**. Côté caisse, `rechercher_serveurs`
+   (diffusion, /24 du poste, 127.0.0.1 ; 2 s) et le bouton « Rechercher
+   le serveur » (branchement, Paramètres → Réseau) : un clic remplit
+   l'adresse, de préférence le nom du poste s'il mène bien à ce serveur.
+   Le pare-feu ouvre UDP 40000 (Domaine et Privé).
+
+**Précisions prises au passage** (le plus prudent) : un serveur lancé à
+la main sans `--port`/`--hote` lit `port` et `hote` dans `serveur.json`
+(sinon il reprendrait l'ancien port après un changement) ; en service,
+`--hote` passe devant la clé du fichier ; un build de débogage n'écrit
+`serveur.json` que si `GESCOM_SERVEUR_JSON` le désigne (les tests) ; la
+fenêtre de caisse monoposte vérifie aussi le port du service de son poste
+avant de lancer un serveur (jamais deux serveurs sur deux bases).
+
+**Le risque nommé** : changer le port coupe les caisses jusqu'à ce
+qu'elles retrouvent le serveur — l'écran le dit avant, avec le nombre de
+postes connectés et « Rechercher le serveur ». **Pas vu en vrai** : la
+fenêtre, l'accord administrateur, la relance par Windows, la diffusion
+entre deux machines (TESTS-MANUELS, section K).

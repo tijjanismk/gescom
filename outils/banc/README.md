@@ -7,10 +7,117 @@ n'enregistre rien, un aperçu qui ne suit pas le réglage.
 
 ```bash
 cd outils/banc && npm install          # Playwright, une fois
-./lancer.sh neuf                       # serveur :7300 + écran :1420
+./lancer.sh neuf                       # serveur :40000 + écran :1420
 node a1-documents.mjs                  # un parcours
 npm run tout                           # tous, dans l'ordre
 ```
+
+## Sous Windows : les deux installations de la v3
+
+```powershell
+cd outils\banc ; npm install ; cd ..\.. ; npm install      # Playwright, et Vite pour l'écran
+$env:CHROMIUM = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"   # Edge déjà là, rien à télécharger
+.\outils\banc\lancer.ps1 monoposte  -Neuf   # la vraie fenêtre Tauri, seule (elle lance son serveur)
+node outils\banc\suite.mjs p                # p1 … p6, dans la fenêtre
+.\outils\banc\lancer.ps1 multiposte -Neuf   # serveur sur PostgreSQL gescom_test, chaque navigateur un poste
+node outils\banc\suite.mjs                  # a1 … i3 (le banc ci-dessous, sur PostgreSQL)
+node outils\banc\suite.mjs m                # m2 … m4, deux postes à la fois
+.\outils\banc\lancer.ps1 sqlite -Neuf       # comme lancer.sh : serveur SQLite
+.\outils\banc\lancer.ps1 arreter
+```
+
+- **monoposte** — la boutique à une caisse telle qu'elle s'installe :
+  `gescom.exe` seul (build de débogage), piloté par le port de débogage
+  de WebView2 (`:9222`). Au premier démarrage il demande le rôle du
+  poste ; « Ce poste garde la base » : il lance lui-même son serveur
+  SQLite (`127.0.0.1:40000`) et s'y branche (D22/D24 révisés le
+  25/10/2026). La fenêtre n'ouvre aucune base à elle (lot E.13,
+  27/10/2026) : la seule base est `serveur.db`, celle du serveur.
+  `GESCOM_DONNEES` (lu **seulement en débogage**, par la fenêtre et par
+  le serveur) et le profil WebView2 (`webview/`) tiennent tout dans
+  `.travail/monoposte` : la base et la session du propriétaire
+  (`%APPDATA%\ml.gescom.app`) ne sont pas ouvertes — `p1` le vérifie.
+- **Le dossier du banc porte sa marque** : `.travail/monoposte/.proprietaire`
+  contient `banc`. `lancer.ps1 monoposte` — avec ou sans `-Neuf` — ne
+  travaille que dans un dossier absent (il le crée, marqué) ou marqué
+  `banc` ; sinon il **refuse avant d'arrêter quoi que ce soit** et dit
+  quoi faire. `-Neuf` n'efface donc jamais que le dossier du banc ;
+  avant, il arrête aussi le serveur qui tient cette base sur un autre
+  port de la plage (`p5` le laisse sur 40001), repéré par sa base. Le
+  27/10/2026, il avait effacé l'essai à la main du propriétaire, qui
+  vivait là (sauvegardes comprises, sans corbeille). Le dossier
+  `.travail/monoposte` d'avant cette date n'a pas de marque : le banc le
+  refuse tant que quelqu'un ne l'a pas déplacé ou effacé à la main —
+  après avoir vérifié sa copie dans `.travail/essai-main` (voir plus
+  bas). L'ancien profil `.travail/monoposte-webview` n'est plus utilisé
+  par personne.
+- **multiposte** — le lanceur **refuse toute base qui n'est pas
+  `gescom_test`** ; `-Neuf` y fait `DROP SCHEMA` puis pose la démo
+  avec `examples/amorcer --demo` (sur PostgreSQL, le serveur ne la
+  pose pas lui-même). Ne pas lancer en même temps que des `cargo test`
+  sur `gescom_test`.
+- `suite.mjs` joue tout sans s'arrêter au premier échec, garde chaque
+  sortie dans `.travail/suite/` et fait le bilan ; `i2` est sauté
+  (et dit) sans `pdftoppm`.
+- Vite tourne avec `vite.banc.config.ts` : la config du projet, sans
+  surveiller `.travail` (le profil WebView2 y a des fichiers verrouillés).
+
+## L'essai à la main du propriétaire : `essai-main.ps1`
+
+Gescom tel qu'il tourne sur le poste qui garde la base (build de
+débogage), sur les données d'essai du propriétaire, **dans un dossier à
+lui** : `.travail/essai-main/`, marqué `.proprietaire` = `essai-main`.
+Le banc n'y touche jamais ; ce script ne touche jamais au dossier du
+banc.
+
+```powershell
+.\outils\banc\essai-main.ps1              # reprend l'essai : serveur, écran, fenêtre
+.\outils\banc\essai-main.ps1 -Arreter     # arrête ce qui tourne sur CE dossier (pas le banc)
+.\outils\banc\essai-main.ps1 -Neuf        # base neuve + données d'essai ; l'ancien dossier est mis de côté
+.\outils\banc\essai-main.ps1 -Preparer    # prépare le dossier, ne lance rien
+```
+
+- **Port 40050** (plage D39), écrit dans son `poste.json` : le banc
+  monoposte prend 40000. Le script démarre le serveur de l'essai
+  (`--base .travail/essai-main/serveur.db`, journal et sauvegardes à
+  côté) **avant** la fenêtre, qui le lit par `GESCOM_DONNEES` et s'y
+  branche. `-Port 40051` (40001 à 40100) si 40050 est pris.
+- **La première fois** (dossier absent, sans `-Neuf`), il **copie** tout
+  `.travail/monoposte` dans `.travail/essai-main` — l'original n'est pas
+  touché, la copie est vérifiée fichier par fichier, une trace
+  `copie-de-monoposte.txt` dit d'où et quand — puis règle `poste.json`
+  sur 40050 (même nom de poste, même empreinte). Il refuse de copier si
+  un serveur tient encore cette base. Faite le 27/10/2026 : 9 fichiers,
+  7,5 Mo.
+- **`-Neuf` ne détruit rien** : l'ancien dossier devient
+  `essai-main.mis-de-cote-<date>` (à effacer à la main quand on veut),
+  puis base neuve, remplie par `donnees-essai.mjs` **par le serveur**
+  (catalogue, clients, ventes sur trois semaines, crédits…), comme le
+  26/10. Refusé tant que l'essai tourne (`-Arreter` d'abord).
+- Il reconstruit `gescom-serveur` et `gescom` avant de lancer ce qui ne
+  tourne pas déjà ; un exécutable de `target\debug` tenu par un autre
+  processus (le banc, un test) fait échouer la construction :
+  `-SansConstruire`.
+- **Banc et essai partagent l'écran** : la fenêtre de débogage charge
+  Vite sur `:1420` (figé au build). `lancer.ps1` arrête ce qui écoute sur
+  1420 à chaque lancement : la fenêtre de l'essai perd alors son écran,
+  son serveur et ses données ne bougent pas. Ne pas jouer le banc
+  monoposte pendant un essai à la main.
+
+| parcours | mode | ce qu'il prouve |
+|---|---|---|
+| `p1-premier-demarrage.mjs` | monoposte | la fenêtre neuve demande le rôle (`poste.json` « à choisir ») et n'ouvre aucune base à elle (pas de `gescom.db`, au début comme à la fin) ; « garde la base » : elle lance son serveur (aucun ne tournait) et arrive à la connexion, sans adresse ; `poste.json` en `monoposte` sur 127.0.0.1 ; patron connecté, un seul dossier, rien à choisir ; cache vidé : rien n'est redemandé ; la base du propriétaire intacte |
+| `p2-tous-les-ecrans.mjs` | monoposte | chaque menu et chaque onglet de Paramètres s'ouvre dans WebView2 sans erreur ; Réseau dit « ce poste garde la base », serveur ici |
+| `p3-argent.mjs` | monoposte | caisse fermée : vente refusée, stock intact ; caisse ouverte **par l'écran** (10 000 F) ; vente comptant ×2 : stock −2, caisse + prix ; crédit puis règlement : créance aller-retour, argent entré ; fermeture à écart 0 |
+| `p4-sauvegarde-auto.mjs` | monoposte | la copie automatique part seule après le démarrage (20 s ici, `GESCOM_SAUVEGARDE_DELAI_S`), nommée à la seconde, une vraie base ; Paramètres → Sauvegarde la montre |
+| `p5-serveur-relance.mjs` | monoposte | le serveur arrêté : à sa réouverture la fenêtre le relance seule, retour à la connexion (les sessions d'avant sont fermées), même base ; le port 40000 pris par un autre programme : le serveur prend 40001 sans rien demander, la connexion y passe, et il y revient une fois l'intrus parti (port retenu dans `poste.json`, D39) |
+| `p6-role-caisse.mjs` | les deux | un poste neuf dit « caisse » : branchement essayé puis enregistré, même empreinte ; le serveur lancé comme par le raccourci (sans `--base`) s'arrête sur la caisse d'une autre machine, journal à l'appui, sans créer de base — et tourne sur « caisse de 127.0.0.1 » ; Paramètres → Réseau : la caisse redevient « garde la base » (confirmation), la fenêtre rejoint son serveur |
+| `p7-ne-plus-suivre.mjs` | monoposte | D36 dans la fenêtre : « Ne plus suivre le stock » demande confirmation (boîte native, interceptée) en disant ce qui sort du stock ; l'article est « Stock non suivi », la caisse le sait ; le suivi repris en comptant |
+| `m2-deux-caisses.mjs` | multiposte | deux postes, deux comptes, en même temps : 12 devis sans numéro en double ; 10 ventes du même article (5 + 5) : stock −10 lu pareil des deux côtés, caisse commune + 10 × prix |
+| `m3-un-poste-l-autre-voit.mjs` | multiposte | crédit sur A ; la comptable sur B lit la créance et encaisse 300 F ; A relit la créance et la caisse ; A ferme la caisse : B refusé, la créance ne bouge pas |
+| `m4-deux-dossiers.mjs` | multiposte | deux dossiers ouverts en même temps sur deux postes : une caisse chacun, clients séparés, articles communs mais stock à soi, deux numérotations |
+
+## Le banc d'origine (serveur SQLite, `lancer.sh`)
 
 Chaque parcours affiche `ok` / `ECHEC` par vérification et sort en
 erreur au premier échec. Base, journaux et captures : `.travail/`
@@ -25,7 +132,7 @@ installé.
 | `a3-atelier.mjs` | A-3 | l'atelier est parti : ni onglet, ni commande ; la Société renvoie à Documents |
 | `b1-historique.mjs` | B-1 | un règlement annulé retrouvé par le nom du client ; filtres type / dates / tout effacer ; ouvert depuis une fiche client (puce, retour), une pièce, un article ; l'employé n'a ni menu ni réponse du serveur |
 | `b2-journal-poste.mjs` | B-2 | une erreur et une promesse rejetée de la fenêtre arrivent `[POSTE ]` dans le journal du serveur, avec le poste, l'écran et la pile ; une boucle n'envoie qu'une ligne |
-| `b3-console-journal.mjs` | B-3 | la console du serveur (`:7300`) montre son journal après identification, les plus récentes en haut ; filtres Caisses / Erreurs / Tout ; une ligne piégée venue d'une caisse s'affiche en texte, rien n'est injecté |
+| `b3-console-journal.mjs` | B-3 | la console du serveur (`:40000`) montre son journal après identification, les plus récentes en haut ; filtres Caisses / Erreurs / Tout ; une ligne piégée venue d'une caisse s'affiche en texte, rien n'est injecté |
 | `b4-anomalies.mjs` | B-4 | le compteur rouge du tableau de bord ouvre l'Historique sur les anomalies à vérifier ; « Marquer vue » la retire, « Vue par Patron le … » s'affiche, le compteur redescend |
 | `c1b-droits-relus.mjs` | — | une session du navigateur sans `rapports:lire` (comme avant la v3) : au rechargement les droits sont relus, le tableau de bord chiffré revient sans reconnexion, la session est réécrite ; Équipe de même |
 | `c4-sessions.mjs` | C-4 | deux navigateurs, deux postes : la session de la caisse B listée avec sa dernière commande ; « Déconnecter » la renvoie à la connexion ; « Désactiver » ferme sa session dans le même geste et le compte ne se reconnecte plus ; réactiver |
@@ -51,3 +158,6 @@ installé.
 | `i1-achat-sans-fournisseur.mjs` | — | Achats sans fournisseur (correctif du 25/09) : « À crédit » fermé et l'écran dit pourquoi ; la confirmation dit « Fournisseur divers », payé comptant ; une FAF numérotée, payée, de 800 F ; choisir « Fournisseur divers » dans la liste ne rouvre pas le crédit |
 | `i2-pages-repetees.mjs` | — | Pièces comme dans Word (25/09) : une facture de 70 lignes imprimée en PDF, chaque page lue pixel par pixel — en-tête en haut et pied en bas, bord à bord, filigrane au milieu ; facture + bon de sortie de même ; « Pour acquit » souligné ; le filigrane réglé par Paramètres → Documents (mot, intensité) et relu. Demande `pdftoppm` |
 | `i3-sauvegarde.mjs` | — | Paramètres → Sauvegarde lit le dossier du serveur : vide, en alerte ; après une copie (nommée à la seconde), la date en clair et la liste |
+| `j1-client-de-passage.mjs` | D35 | une vente au « Comptant » payée en partie : refusée, le stock ne bouge pas ; payée en entier : sa fiche de passage `PAS-…`, la facture du ticket à elle (« Client de passage ») ; Clients : pas dans la liste, « Passages » la retrouve par le numéro du ticket ; « Passer en client ordinaire » : il entre dans la liste sous son nom, sa facture émise garde « Client de passage » |
+| `k1-menu.mjs` | D37 | Paramètres → Menu : Caisse grisée ; « Boutique simple » enregistré — Chèques, Relances, Historique, Transferts, Journal quittent le menu, l'essentiel reste ; Ctrl K ne propose plus Relances ; le réglage tient au rechargement ; le serveur refuse de cacher la Caisse ; l'Historique dit « Menu réglé » ; « Complet » remet tout |
+| `k2-articles-sans-stock.mjs` | D36 | un article créé case « Suivre le stock » décochée : « stock non suivi » ; il se vend ; transfert et inventaire refusés ; absent de l'écran Stock, nommé par « Non suivis » ; « Suivre le stock » : un champ par magasin, fermé tant qu'il en manque un, le stock repart de la quantité comptée |

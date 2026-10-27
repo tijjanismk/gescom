@@ -16,23 +16,30 @@
 //! ## Usage
 //!
 //! ```text
-//! gescom-serveur [--port 7300] [--base CHEMIN] [--sauvegardes DOSSIER]
+//! gescom-serveur [--port 40000] [--base CHEMIN] [--sauvegardes DOSSIER]
 //! gescom-serveur --installer-service | --desinstaller-service   (Windows, administrateur)
 //! ```
 //!
 //! En service Windows (`--service`, lance par le gestionnaire de
 //! services), la configuration se lit dans `%ProgramData%\Gescom\
 //! serveur.json` et la sortie va dans `serveur.log` a cote : voir
-//! `service.rs`.
+//! `service.rs`. Lance a la main sans `--port` ni `--hote`, le serveur y
+//! lit son port et son ecoute (et seulement eux) : le panneau Reseau de
+//! la console les y change, puis le serveur redemarre dessus — le service
+//! en s'arretant en echec (la relance automatique de D12), le serveur
+//! lance a la main en se relancant lui-meme avec les memes arguments.
 
 mod api;
 mod canal;
+mod configuration;
 mod console;
+mod decouverte;
 mod etat;
 mod http;
 mod journal_poste;
 mod journal_technique;
 mod reseau_local;
+mod role_poste;
 mod sauvegarde;
 mod service;
 mod socle;
@@ -41,7 +48,7 @@ use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gescom_noyau::protocole::PORT_DEFAUT;
 use gescom_noyau::utils::maintenant_iso;
@@ -58,6 +65,30 @@ use etat::Serveur;
 /// un poste debranche en pleine requete laisserait un fil bloque pour
 /// toujours.
 const DELAI_LECTURE: Duration = Duration::from_secs(60);
+
+/// Posee sur le serveur relance par lui-meme apres un changement de port :
+/// l'ancien processus libere peut-etre encore ses ports, on reessaie
+/// quelques secondes au lieu d'abandonner tout de suite.
+const VARIABLE_RELANCE: &str = "GESCOM_RELANCE";
+
+/// Le code de sortie du service qui s'arrete pour redemarrer sur un
+/// nouveau port : un arret sans « SERVICE_STOPPED » est un incident pour
+/// Windows, qui applique la relance posee par `--installer-service`
+/// (`sc failure … restart/5000/…`, D12).
+#[cfg(windows)]
+const CODE_REDEMARRAGE: i32 = 75;
+
+fn relance() -> bool {
+    std::env::var(VARIABLE_RELANCE).is_ok_and(|v| v == "1")
+}
+
+/// Comment la boucle s'est terminee.
+enum Fin {
+    /// `sc stop`, ou rien (on ne revient jamais d'un serveur a la main).
+    Arret,
+    /// Le panneau Reseau a change le port ou l'ecoute : redemarrer.
+    Redemarrage,
+}
 
 fn main() {
     let mut options = Options::depuis_arguments();
@@ -82,15 +113,25 @@ fn main() {
             // Sous le gestionnaire de services : la configuration vient
             // du fichier, les arguments de la ligne de commande passent
             // devant s'ils sont donnes.
-            options.completer_depuis(&service::chemin_configuration());
+            if let Some(c) = configuration::chemin() {
+                options.completer_depuis(&c);
+            }
             if options.base.is_none() {
                 options.base = Some(
                     service::dossier_programme().join("gescom.db").to_string_lossy().to_string(),
                 );
             }
             if let Err(e) = service::executer(move |arret| {
-                let (srv, ecouteur) = preparer(options.clone());
-                boucle(srv, ecouteur, arret);
+                if let Fin::Redemarrage = tourner(options.clone(), arret) {
+                    // Pas de « SERVICE_STOPPED » : Windows y voit un
+                    // incident et relance le service (D12), qui relira
+                    // serveur.json.
+                    journal_technique::info(
+                        "Le service s'arrête pour redémarrer sur le nouveau réglage : Windows le relance \
+                         (5 s, puis 30 s et 60 s si cela se répète dans la journée).",
+                    );
+                    std::process::exit(CODE_REDEMARRAGE);
+                }
             }) {
                 eprintln!("{e}");
                 std::process::exit(1);
@@ -119,8 +160,75 @@ fn main() {
         }
     }
 
+    // D24 (revise le 25/10) : lance par le raccourci de demarrage — sans
+    // `--base` — sur la caisse d'un AUTRE poste, le serveur s'efface :
+    // la base de la boutique est la-bas. Les gestes ponctuels
+    // (`--promouvoir`, `--compte-limite`) ne sont pas concernes.
+    if options.base.is_none() && options.promouvoir.is_none() && options.compte_limite.is_none() {
+        if let Some(raison) = role_poste::verifier() {
+            // Le journal qu'il aurait tenu (a cote de la base par defaut),
+            // et la console : c'est la qu'on cherchera pourquoi.
+            journal_technique::ouvrir(Some(role_poste::dossier_donnees().join("gescom.log")), true);
+            journal_technique::info(format!("Serveur non démarré : {raison}"));
+            return;
+        }
+    }
+
+    // Lance a la main sans `--port` ni `--hote` : le port et l'ecoute de
+    // serveur.json, s'il en a — ceux que le panneau Reseau y ecrit avant
+    // de relancer le serveur. Rien d'autre n'y est lu : la base d'un
+    // serveur lance a la main reste celle de ce poste (D24).
+    if !options.port_donne && !options.hote_donne {
+        if let Some(c) = configuration::chemin() {
+            options.completer_reseau_depuis(&c);
+        }
+    }
+
+    if let Fin::Redemarrage = tourner(options, Arc::new(AtomicBool::new(false))) {
+        relancer();
+    }
+}
+
+/// Prepare, se met a l'ecoute (TCP et recherche UDP), sert jusqu'a la fin.
+fn tourner(options: Options, arret: Arc<AtomicBool>) -> Fin {
     let (srv, ecouteur) = preparer(options);
-    boucle(srv, ecouteur, Arc::new(AtomicBool::new(false)));
+    let (ecoute, etat) = decouverte::lancer(srv.port, &srv.hote, relance());
+    if let Ok(mut d) = srv.decouverte.lock() {
+        *d = etat;
+    }
+    let fin = boucle(Arc::clone(&srv), ecouteur, arret);
+    // Le port UDP libere AVANT de relancer : le suivant le reprend.
+    if let Some(e) = ecoute {
+        e.arreter();
+    }
+    fin
+}
+
+/// Le serveur lance a la main se relance lui-meme, avec les memes
+/// arguments : le nouveau processus relit serveur.json et prend le nouveau
+/// port. Celui-ci s'en va.
+fn relancer() -> ! {
+    let exe = match std::env::current_exe() {
+        Ok(e) => e,
+        Err(e) => {
+            journal_technique::erreur(format!("Redémarrage impossible ({e}) : relancer Gescom Serveur à la main."));
+            std::process::exit(1);
+        }
+    };
+    let arguments: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    match std::process::Command::new(&exe).args(&arguments).env(VARIABLE_RELANCE, "1").spawn() {
+        Ok(enfant) => {
+            journal_technique::info(format!(
+                "Redémarrage sur le nouveau réglage : nouveau processus (pid {}), mêmes arguments.",
+                enfant.id()
+            ));
+            std::process::exit(0);
+        }
+        Err(e) => {
+            journal_technique::erreur(format!("Redémarrage impossible ({e}) : relancer Gescom Serveur à la main."));
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Ouvre la base, l'amorce, pose le poste serveur, planifie les
@@ -334,6 +442,14 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
         registre: socle::registre(),
         jetons: Mutex::new(HashMap::new()),
         port: options.port,
+        hote: options.hote.clone(),
+        // `--port` ou `--hote` decident (la fenetre de Gescom, D39 ; les
+        // essais) : le panneau Reseau montre, mais ne change pas.
+        reseau_modifiable: !options.port_donne && !options.hote_donne && configuration::chemin().is_some(),
+        en_service: options.service,
+        redemarrage: AtomicBool::new(false),
+        decouverte: Mutex::new(Err("pas encore lancée".to_string())),
+        changement_reseau: Mutex::new(()),
         demarre_le: maintenant_iso(),
         derniere_sauvegarde: Mutex::new(None),
         limiteur_postes: Mutex::new(journal_poste::Limiteur::default()),
@@ -358,11 +474,32 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
     sauvegarde::planifier(Arc::clone(&srv));
 
     let adresse = format!("{}:{}", options.hote, options.port);
-    let ecouteur = match TcpListener::bind(&adresse) {
-        Ok(e) => e,
-        Err(e) => {
-            journal_technique::erreur(format!("Impossible d'écouter sur {adresse} : {e} — un autre Gescom tourne-t-il déjà sur ce poste ?"));
-            std::process::exit(1);
+    // D39 : les fenetres livrees ne joignent que 40000..=40100 (leur
+    // CSP). Hors de la plage, le serveur tourne — les essais et la
+    // console en ont besoin — mais aucune caisse ne le joindra : le dire.
+    if !gescom_noyau::protocole::port_dans_la_plage(options.port) {
+        journal_technique::avertissement(format!(
+            "Port {} hors de la plage {}-{} : les caisses Gescom ne joindront pas ce serveur. \
+             Choisir un port de la plage (serveur.json ou --port).",
+            options.port,
+            gescom_noyau::protocole::PORT_DEFAUT,
+            gescom_noyau::protocole::PORT_MAX
+        ));
+    }
+    // Relance apres un changement de port : l'ancien processus ferme
+    // peut-etre encore son ecoute (meme port, autre ecoute) — quelques
+    // secondes de patience, pas plus.
+    let debut = Instant::now();
+    let ecouteur = loop {
+        match TcpListener::bind(&adresse) {
+            Ok(e) => break e,
+            Err(_) if relance() && debut.elapsed() < Duration::from_secs(15) => {
+                std::thread::sleep(Duration::from_millis(300));
+            }
+            Err(e) => {
+                journal_technique::erreur(format!("Impossible d'écouter sur {adresse} : {e} — un autre Gescom tourne-t-il déjà sur ce poste ?"));
+                std::process::exit(1);
+            }
         }
     };
 
@@ -413,9 +550,9 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
 /// les 200 ms pour regarder le drapeau. Un `accept` bloquant ne se
 /// reveillerait qu'a la prochaine connexion, et « sc stop » attendrait
 /// qu'une caisse veuille bien appeler.
-fn boucle(srv: Arc<Serveur>, ecouteur: TcpListener, arret: Arc<AtomicBool>) {
+fn boucle(srv: Arc<Serveur>, ecouteur: TcpListener, arret: Arc<AtomicBool>) -> Fin {
     ecouteur.set_nonblocking(true).ok();
-    while !arret.load(Ordering::SeqCst) {
+    while !arret.load(Ordering::SeqCst) && !srv.redemarrage.load(Ordering::SeqCst) {
         match ecouteur.accept() {
             Ok((flux, _)) => {
                 flux.set_nonblocking(false).ok();
@@ -432,11 +569,26 @@ fn boucle(srv: Arc<Serveur>, ecouteur: TcpListener, arret: Arc<AtomicBool>) {
             Err(e) => journal_technique::erreur(format!("Connexion refusée par le système : {e}")),
         }
     }
-    journal_technique::info("Arrêt demandé : le serveur ferme.");
+    let redemarrage = srv.redemarrage.load(Ordering::SeqCst);
+    journal_technique::info(if redemarrage {
+        "Redémarrage demandé (port ou écoute changés) : le serveur ferme."
+    } else {
+        "Arrêt demandé : le serveur ferme."
+    });
     // Les jetons meurent avec le processus ; le dire en base evite une
     // liste de postes « connectes » qui ment au prochain demarrage.
     if let Ok(mut b) = srv.base.lock() {
-        gescom_noyau::sessions::revoquer_toutes_sur(&mut b, "arret_serveur").ok();
+        gescom_noyau::sessions::revoquer_toutes_sur(
+            &mut b,
+            if redemarrage { "redemarrage_serveur" } else { "arret_serveur" },
+        )
+        .ok();
+    }
+    // `ecouteur` tombe ici : le port est libre pour le serveur relance.
+    if redemarrage {
+        Fin::Redemarrage
+    } else {
+        Fin::Arret
     }
 }
 
@@ -484,6 +636,8 @@ struct Options {
     /// Le port a-t-il ete donne sur la ligne de commande ? Sinon le
     /// fichier de configuration peut le fixer.
     port_donne: bool,
+    /// L'ecoute (`--hote`), meme chose.
+    hote_donne: bool,
 }
 
 impl Options {
@@ -492,11 +646,12 @@ impl Options {
     ///
     /// ```json
     /// { "base": "postgresql://gescom:***@127.0.0.1:5432/gescom",
-    ///   "port": 7300, "sauvegardes": "D:\\Sauvegardes" }
+    ///   "port": 40000, "sauvegardes": "D:\\Sauvegardes" }
     /// ```
     fn completer_depuis(&mut self, chemin: &std::path::Path) {
         let Ok(texte) = std::fs::read_to_string(chemin) else { return };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&texte) else {
+        // Le Bloc-notes peut y laisser un BOM : on le retire avant de lire.
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(texte.trim_start_matches('\u{feff}')) else {
             eprintln!("[configuration] {} illisible — ignoree", chemin.display());
             return;
         };
@@ -514,8 +669,27 @@ impl Options {
         if self.journal.is_none() {
             self.journal = v.get("journal").and_then(|s| s.as_str()).filter(|s| !s.trim().is_empty()).map(str::to_string);
         }
+        if !self.hote_donne {
+            if let Some(h) = v.get("hote").and_then(|h| h.as_str()).filter(|h| !h.trim().is_empty()) {
+                self.hote = h.trim().to_string();
+            }
+        }
+    }
+
+    /// Le port et l'ecoute seulement, pour un serveur lance a la main sans
+    /// `--port` ni `--hote` (voir `main`). Un fichier absent ou illisible
+    /// ne change rien : les defauts restent.
+    fn completer_reseau_depuis(&mut self, chemin: &std::path::Path) {
+        let Ok(texte) = std::fs::read_to_string(chemin) else { return };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(texte.trim_start_matches('\u{feff}')) else {
+            eprintln!("[configuration] {} illisible — ignoree", chemin.display());
+            return;
+        };
+        if let Some(p) = v.get("port").and_then(|p| p.as_u64()).and_then(|p| u16::try_from(p).ok()) {
+            self.port = p;
+        }
         if let Some(h) = v.get("hote").and_then(|h| h.as_str()).filter(|h| !h.trim().is_empty()) {
-            self.hote = h.to_string();
+            self.hote = h.trim().to_string();
         }
     }
 
@@ -536,6 +710,7 @@ impl Options {
             installer_service: false,
             desinstaller_service: false,
             port_donne: false,
+            hote_donne: false,
         };
         let args: Vec<String> = std::env::args().skip(1).collect();
         let mut i = 0;
@@ -563,6 +738,7 @@ impl Options {
                 "--hote" => {
                     if let Some(v) = args.get(i + 1) {
                         o.hote = v.clone();
+                        o.hote_donne = true;
                     }
                     i += 2;
                 }
@@ -645,8 +821,5 @@ fn chemin_journal_par_defaut(cible: &str, est_postgres: bool, service: bool) -> 
 }
 
 fn chemin_base_par_defaut() -> String {
-    let base = dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("ml.gescom.app");
-    base.join("gescom.db").to_string_lossy().to_string()
+    role_poste::dossier_donnees().join("gescom.db").to_string_lossy().to_string()
 }

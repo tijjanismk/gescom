@@ -8,6 +8,13 @@
     certificat auto-signe de outils\signer.ps1. La version est celle de
     src-tauri\serveur\Cargo.toml.
 
+    Il embarque le service (gescom-serveur.exe) et sa fenetre
+    (gescom-serveur-fenetre.exe, D25 : une coque Tauri qui affiche la
+    console servie par le service). La fenetre se compile comme le fait
+    « tauri build » (feature tauri/custom-protocol) : sa page locale est
+    dans le crate (src-tauri\serveur-fenetre\page), rien a construire
+    avec npm.
+
     makensis vient de l'installation NSIS que Tauri a deja telechargee
     (%LOCALAPPDATA%\tauri\NSIS) ; a defaut, celle du PATH.
 
@@ -38,18 +45,25 @@ Push-Location $srcTauri
 try {
     & (Join-Path $PSScriptRoot "cargo-tenace.ps1") -Arguments @("build", "--release", "-p", "gescom-serveur")
     if ($LASTEXITCODE -ne 0) { Write-Host "La compilation a echoue." -ForegroundColor Red; exit 1 }
+    # La fenetre « Gescom Serveur » : comme « tauri build » (custom-protocol
+    # = la page embarquee, pas un serveur de developpement).
+    & (Join-Path $PSScriptRoot "cargo-tenace.ps1") -Arguments @("build", "--release", "-p", "gescom-serveur-fenetre", "--features", "tauri/custom-protocol")
+    if ($LASTEXITCODE -ne 0) { Write-Host "La compilation de la fenetre a echoue." -ForegroundColor Red; exit 1 }
 } finally { Pop-Location }
 
 New-Item -ItemType Directory -Force $dist | Out-Null
 Copy-Item (Join-Path $srcTauri "target\release\gescom-serveur.exe") (Join-Path $dist "gescom-serveur.exe") -Force
+Copy-Item (Join-Path $srcTauri "target\release\gescom-serveur-fenetre.exe") (Join-Path $dist "gescom-serveur-fenetre.exe") -Force
 
 # --- Certificat public + signature de l'executable ---
 $signer = Join-Path $PSScriptRoot "signer.ps1"
 & $signer -ExporterVers (Join-Path $dist "gescom.cer")
 if ($LASTEXITCODE -ne 0) { exit 1 }
 if (-not $SansSignature) {
-    & $signer (Join-Path $dist "gescom-serveur.exe")
-    if ($LASTEXITCODE -ne 0) { exit 1 }
+    foreach ($exe in @("gescom-serveur.exe", "gescom-serveur-fenetre.exe")) {
+        & $signer (Join-Path $dist $exe)
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+    }
 }
 
 # --- makensis ---

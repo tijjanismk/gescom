@@ -20,6 +20,25 @@ export interface Habillage {
   reglage?: ReglageGenre | null;
   coordonnees?: Coordonnee[] | null;
   filigrane?: FiligraneDoc | null;
+  /**
+   * Le duplicata (26/10/2026) : posé par l'APPELANT d'après le verdict du
+   * serveur (`lire_etat_impression` pour l'aperçu, `noter_impression` au
+   * clic) — jamais deviné ici. `null` : un original.
+   */
+  duplicata?: { originalLe: string } | null;
+}
+
+/** « 26/10/2026 à 14:32 ». */
+export function dateHeure(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("fr-ML", { day: "2-digit", month: "2-digit", year: "numeric" })
+    + " à " + d.toLocaleTimeString("fr-ML", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** La mention nette du duplicata : le filigrane, pâle, peut disparaître
+ *  à la photocopie ; elle, non. */
+export function libelleDuplicata(originalLe: string): string {
+  return `DUPLICATA — original imprimé le ${dateHeure(originalLe)}`;
 }
 
 export const COORDONNEES_HISTORIQUES: Coordonnee[] = [
@@ -244,6 +263,31 @@ const PAPIER: Record<Papier, { l: number; h: number }> = {
   a5: { l: 148, h: 210 },
 };
 
+/**
+ * La taille du texte courant sur le papier, en points : 11 pt en A4,
+ * 10 pt en A5 (la fourchette d'usage d'un document imprimé est 10–12 pt ;
+ * nos pièces sortaient à ~8 pt, détails à 7). Le document garde ses
+ * tailles écrites en px, toutes multipliées par un même facteur
+ * (`agrandirTexte`) : les proportions restent, rien n'est oublié.
+ *
+ * Pas de `zoom` CSS : le moteur d'impression découpe mal un contenu
+ * zoomé — une facture A5 presque pleine sortait sur deux pages, la
+ * seconde blanche (vu le 26/10/2026).
+ */
+const TEXTE_PT: Record<Papier, number> = { a4: 11, a5: 10 };
+
+/** Le facteur qui porte la police du document (px) à la taille voulue. */
+export function echelleTexte(papier: Papier, police = 11): number {
+  return (TEXTE_PT[papier] * 96) / 72 / police;
+}
+
+/** Chaque `font-size: Npx` du HTML, multiplié par `k`. Les marges et
+ *  les cadres ne bougent pas : seul le texte grandit. */
+export function agrandirTexte(html: string, k: number): string {
+  return html.replace(/font-size:\s*([\d.]+)px/g,
+    (_, n: string) => `font-size:${(parseFloat(n) * k).toFixed(1)}px`);
+}
+
 export interface PageDoc {
   /** Le titre de la fenêtre (et du fichier PDF). */
   titre: string;
@@ -287,12 +331,26 @@ export function blocFiligrane(h: Habillage, papier: Papier): string {
            transform:rotate(-30deg);${effet}">${esc(t)}</div></div>`;
 }
 
+/**
+ * « DUPLICATA » en travers de chaque page, par-dessus le filigrane de la
+ * société (qui reste). Taille et intensité fixes : ce n'est pas un
+ * réglage de goût, c'est une marque qui doit se lire sans masquer les
+ * montants — 15 %, comme le haut de la fourchette d'un filigrane.
+ */
+function blocDuplicata(h: Habillage, papier: Papier): string {
+  if (!h.duplicata) return "";
+  const mot = "DUPLICATA";
+  const police = (PAPIER[papier].l * 0.75) / (0.62 * mot.length);
+  return `<div class="cadre-filigrane cadre-duplicata"><div class="doc-duplicata-texte"
+    style="font:bold ${police.toFixed(1)}mm Arial,sans-serif;white-space:nowrap;color:#000;
+           transform:rotate(-30deg);opacity:0.15">${mot}</div></div>`;
+}
+
 /** Le document complet : la page, ses bandeaux répétés, son contenu. */
 export function documentHTML(h: Habillage, p: PageDoc): string {
   const { h: hauteur } = PAPIER[p.papier];
   const image = (src: string, classe: string) =>
     `<img class="${classe}" src="${src}" alt="" style="width:100%;height:auto;display:block"/>`;
-
   const lignesPied = [
     !h.pied && p.mention ? `<div class="doc-mention">${p.mention}</div>` : "",
     p.imprimeLe ? `<div class="doc-imprime">Imprimé le ${esc(p.imprimeLe)}</div>` : "",
@@ -308,7 +366,9 @@ export function documentHTML(h: Habillage, p: PageDoc): string {
     ? `<div style="height:4mm"></div><div class="cadre-reserve" aria-hidden="true">${pied}</div>`
     : `<div style="height:${p.marge}"></div>`;
 
-  return `<!DOCTYPE html>
+  // Le texte grandit (toutes les tailles en px, celle du corps comprise) ;
+  // les bandeaux images, les cadres et les marges du papier, non.
+  return agrandirTexte(`<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
@@ -331,6 +391,9 @@ export function documentHTML(h: Habillage, p: PageDoc): string {
                        mix-blend-mode:multiply;
                        display:flex; align-items:center; justify-content:center;
                        overflow:hidden; pointer-events:none; }
+    .cadre-duplicata { z-index:4; }
+    .doc-duplicata { border:1.5px solid #000; padding:3px 6px; margin-bottom:3mm;
+                     text-align:center; font-weight:bold; font-size:11px; letter-spacing:0.5px; }
     .cadre-pied-texte { margin:0 ${p.marge}; padding:5px 0 4mm; text-align:center;
                         border-top:1px solid #ddd; }
     .cadre-pied-texte.sur-image { border-top:0; padding:0 0 2px; }
@@ -345,13 +408,16 @@ export function documentHTML(h: Habillage, p: PageDoc): string {
 </head>
 <body>
   ${blocFiligrane(h, p.papier)}
+  ${blocDuplicata(h, p.papier)}
   ${pied ? `<div class="cadre-bas">${pied}</div>` : ""}
   <table class="cadre">
     <thead><tr><td>${enTete}</td></tr></thead>
     <tfoot><tr><td>${reserveBas}</td></tr></tfoot>
-    <tbody><tr><td class="cadre-corps">${p.contenu}</td></tr></tbody>
+    <tbody><tr><td class="cadre-corps">${h.duplicata
+      ? `<div class="doc-duplicata">${esc(libelleDuplicata(h.duplicata.originalLe))}</div>`
+      : ""}${p.contenu}</td></tr></tbody>
   </table>
   ${p.script ?? ""}
 </body>
-</html>`;
+</html>`, echelleTexte(p.papier, p.police ?? 11));
 }

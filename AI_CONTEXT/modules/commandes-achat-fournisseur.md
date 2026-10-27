@@ -18,7 +18,7 @@ Chaque commande existe en `fn(conn)` et `fn_sur_base(base)`.
 
 | écran | appelle |
 |---|---|
-| [Achats.tsx](../../src/pages/Achats.tsx) | `enregistrer_achat`, `creer_fournisseur` |
+| [Achats.tsx](../../src/pages/Achats.tsx) | `enregistrer_achat`, `creer_fournisseur` ; `lire_articles_avec_unites` porte `gere_en_stock` (D36) : un article non suivi reste achetable et l'écran le marque (lot C.8) |
 | [Fournisseurs.tsx](../../src/pages/Fournisseurs.tsx), [FicheFournisseur.tsx](../../src/pages/FicheFournisseur.tsx) | listes, dettes, fiche, `regler_dette_fournisseur`, `annuler_paiement_fournisseur` |
 | [Stock.tsx](../../src/pages/Stock.tsx) | `enregistrer_entree_stock`, `enregistrer_ajustement_inventaire` |
 | [RetourFournisseur.tsx](../../src/components/RetourFournisseur.tsx), [RetourSansFacture.tsx](../../src/components/RetourSansFacture.tsx) | retour sur facture (avec reliquat), retour sans facture |
@@ -43,6 +43,8 @@ Sortant : `coeur::calcul::repartir_reglement`, `coeur::stock`,
 - [CONFIRMÉ] Un AVF « remboursement » naît `paye` : il ne réduit pas la dette en plus de l'entrée de caisse.
 - [CONFIRMÉ] `annuler_paiement_fournisseur` : contre-passation (jamais de suppression), l'argent **rentre** si le fournisseur rembourse ; virement et chèque ne touchent pas le tiroir — symétrique de `annuler_reglement`.
 - [CONFIRMÉ] Annuler une FAF validée = un retour intégral (`annuler_facture_fournisseur_par_avoir`) ; un brouillon n'a rien à annuler.
+- [CONFIRMÉ] **Le nom figé du fournisseur** (lot D.9, 27/10/2026, comme D35 côté client) : `modifier_fournisseur[_sur_base]` appelle d'abord `fournisseurs::figer_noms[_sur]` (`&mut impl Acces`), qui écrit le nom EN COURS dans `piece_commerciale.tiers_nom` des pièces émises qui n'en portent pas (les brouillons suivent la fiche) — fige puis renomme dans **une** transaction (avant : pas de transaction du tout). Lecture `COALESCE(pc.tiers_nom, f.nom)` dans `lire_donnees_piece` (impression), `lire_toutes_pieces_fournisseur` (liste ; la recherche trouve l'ancien nom comme le nouveau) et le reçu `lire_donnees_recu` côté fournisseur — les deux versions chaque fois. Les états de dette (par fournisseur, aujourd'hui) gardent le nom de la fiche. Scénario `donnees_base::une_facture_fournisseur_emise_garde_le_nom_ecrit_a_son_emission`.
+- [DÉDUIT] `lire_etat_dette_fournisseur` compte aussi une FAF **brouillon** (filtre `statut <> 'annule'` seulement) : vu en écrivant le scénario D.9, non corrigé (hors lot).
 
 ## Tests
 
@@ -50,4 +52,5 @@ Sortant : `coeur::calcul::repartir_reglement`, `coeur::stock`,
 [miroir_fournisseur.rs](../../src-tauri/noyau/tests/miroir_fournisseur.rs) ;
 sur `Base` : [achats_base.rs](../../src-tauri/noyau/tests/achats_base.rs),
 [fournisseurs_base.rs](../../src-tauri/noyau/tests/fournisseurs_base.rs),
-[gestion_base.rs](../../src-tauri/noyau/tests/gestion_base.rs) (chantiers).
+[gestion_base.rs](../../src-tauri/noyau/tests/gestion_base.rs) (chantiers),
+[donnees_base.rs](../../src-tauri/noyau/tests/donnees_base.rs) (nom figé, lot D.9).

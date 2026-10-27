@@ -5,6 +5,7 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { Layout } from "@/components/Layout";
 import { PageLogin, UtilisateurConnecte } from "@/pages/PageLogin";
 import { PageServeur } from "@/pages/PageServeur";
+import { PageRolePoste, PageServeurLocal, garderLaBase } from "@/pages/PageRolePoste";
 import { ModalChangerMdp } from "@/components/ModalChangerMdp";
 import { Dashboard } from "@/pages/Dashboard";
 import { Ventes } from "@/pages/Ventes";
@@ -19,7 +20,7 @@ import { Caisse } from "@/pages/Caisse";
 import { Parametres } from "@/pages/Parametres";
 import {
   synchroniserConfig, ecouterCanal, enReseau,
-  surSessionPerdue, sessionUtilisable, serveurConfigure, noterPage,
+  surSessionPerdue, sessionUtilisable, serveurConfigure, noterPage, etatReseau,
 } from "@/lib/pont";
 import { Retours } from "@/pages/Retours";
 import { Relances } from "@/pages/Relances";
@@ -178,6 +179,22 @@ function App() {
   useEffect(() => {
     synchroniserConfig().finally(() => setPontPret(true));
   }, []);
+  // Le serveur de cette machine a repondu (poste qui garde la base).
+  const [serveurLocalPret, setServeurLocalPret] = useState(false);
+  // On a dit « caisse d'un autre poste » : l'ecran de branchement.
+  const [brancherAilleurs, setBrancherAilleurs] = useState(false);
+  const garderBase = async () => {
+    await garderLaBase();
+    setBrancherAilleurs(false);
+    setServeurLocalPret(false);
+    setRevisionReseau((n) => n + 1);
+  };
+  // Le serveur est-il joint ? Avant, rien ne doit l'appeler : pendant
+  // que la fenetre lance celui de cette machine, chaque appel echouait
+  // en « Serveur injoignable » dans la console, pour rien.
+  const modePont = etatReseau().mode;
+  const serveurJoint = pontPret && !brancherAilleurs
+    && (modePont === "poste" || (modePont === "monoposte" && serveurLocalPret));
 
   // Le jeton du serveur est la SOURCE.
   //
@@ -202,7 +219,7 @@ function App() {
   // Les droits gardés par le navigateur datent de la connexion : on les
   // relit une fois le pont prêt (lib/droits.ts, relireDroits).
   useEffect(() => {
-    if (!pontPret || !utilisateur || (enReseau() && !sessionUtilisable())) return;
+    if (!serveurJoint || !utilisateur || (enReseau() && !sessionUtilisable())) return;
     let annule = false;
     relireDroits(utilisateur).then(u => {
       if (annule || !u) return;
@@ -212,7 +229,7 @@ function App() {
       sauvegarderSession(u, pageActive, navParams);
     });
     return () => { annule = true; };
-  }, [pontPret, utilisateur?.id]);
+  }, [serveurJoint, utilisateur?.id]);
 
   // Le canal : ce que les autres caisses viennent de faire.
   //
@@ -221,13 +238,13 @@ function App() {
   // interessent le liront. Le serveur ne renvoie jamais au poste ce
   // qu'il a lui-meme provoque.
   useEffect(() => {
-    if (!pontPret || !utilisateur || !enReseau()) return;
+    if (!serveurJoint || !utilisateur || !enReseau()) return;
     const arreter = ecouterCanal((evenements) => {
       console.info("[canal]", evenements.length, "evenement(s)");
       setDerniereActivite(Date.now());
     });
     return arreter;
-  }, [pontPret, utilisateur?.id]);
+  }, [serveurJoint, utilisateur?.id]);
 
   /**
    * Sauvegarde hebdomadaire.
@@ -244,7 +261,9 @@ function App() {
     // Seulement pour qui peut sauvegarder : pour les autres, le serveur
     // refusait à chaque connexion — une ligne REFUS au journal et une
     // erreur dans la console, pour rien (trouvé par le banc, v3 C-1).
-    if (!utilisateur || !peut("sauvegarde:lancer")) return;
+    // Et seulement une fois le serveur joint, avec une session : sinon la
+    // fenetre qui relance son serveur appelait dans le vide.
+    if (!serveurJoint || !utilisateur || !sessionUtilisable() || !peut("sauvegarde:lancer")) return;
     invoke<{ effectuee: boolean; chemin?: string; erreur?: string }>(
       "sauvegarde_auto_si_necessaire",
     )
@@ -256,7 +275,7 @@ function App() {
         }
       })
       .catch(e => console.error("Sauvegarde automatique :", e));
-  }, [utilisateur?.id]);
+  }, [serveurJoint, utilisateur?.id]);
 
   function naviguer(page: string, params?: any) {
     setPageActive(page);
@@ -298,6 +317,9 @@ function App() {
               ouvrirHistorique(
                 { type_evenement: "anomalie", a_verifier: true, libelle: "Anomalies à vérifier" },
                 "dashboard", null)
+              : undefined}
+            onExercices={peut("dossiers:gerer") ? () =>
+              naviguer("parametres", { onglet: "dossiers" })
               : undefined}
           />
         );
@@ -401,14 +423,27 @@ function App() {
     );
   }
 
-  // Avant meme la connexion : sait-on OU joindre le serveur ?
-  //
-  // Le client v2 ne sait parler qu'au serveur — le monoposte reste la
-  // v1. Sans adresse, il n'y a personne a qui demander un mot de passe,
-  // et les Parametres sont derriere la connexion : sans cet ecran, le
-  // poste serait definitivement coince.
+  // Avant meme la connexion : OU est le serveur ? (D22/D24, revises le
+  // 25/10/2026.) La fenetre ne parle qu'a lui, quel que soit le role du
+  // poste. Sans lui, il n'y a personne a qui demander un mot de passe,
+  // et les Parametres sont derriere la connexion : ces ecrans sont le
+  // seul chemin, il ne faut pas qu'ils puissent coincer le poste.
+  const modeReseau = etatReseau().mode;
+  const brancher = () => { setBrancherAilleurs(false); setRevisionReseau((n) => n + 1); };
+  // Premier demarrage : le role se demande, il ne se devine pas.
+  if (brancherAilleurs || modeReseau === "a_choisir") {
+    return brancherAilleurs
+      ? <PageServeur onConfigure={brancher} onGarderBase={garderBase} />
+      : <PageRolePoste onGarderBase={garderBase} onCaisse={() => setBrancherAilleurs(true)} />;
+  }
+  // Ce poste garde la base : son serveur est ici, on le joint ou on le
+  // lance — rien a saisir.
+  if (modeReseau === "monoposte" && !serveurLocalPret) {
+    return <PageServeurLocal onPret={() => setServeurLocalPret(true)}
+                             onCaisse={() => setBrancherAilleurs(true)} />;
+  }
   if (!serveurConfigure()) {
-    return <PageServeur onConfigure={() => setRevisionReseau((n) => n + 1)} />;
+    return <PageServeur onConfigure={brancher} onGarderBase={garderBase} />;
   }
 
   if (!utilisateur) {

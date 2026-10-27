@@ -46,7 +46,7 @@ use windows_sys::Win32::System::Services::{
 pub const NOM_SERVICE: &str = "GescomServeur";
 const NOM_AFFICHE: &str = "Gescom Serveur";
 const DESCRIPTION: &str =
-    "Détient la base Gescom et sert les caisses du magasin (port 7300 par défaut).";
+    "Détient la base Gescom et sert les caisses du magasin (port 40000 par défaut, plage 40000-40100).";
 
 /// Le dossier de la machine, pas d'un utilisateur : le service tourne
 /// sous LocalSystem, dont le profil n'est pas un endroit ou ranger la

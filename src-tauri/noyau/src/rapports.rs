@@ -1,5 +1,55 @@
 //! Rapports — CA mensuel, top clients, top articles, export données.
+//!
+//! Le chiffre d'affaires est NET des retours (`coeur::calcul::ca_net`) :
+//! les ventes de la periode moins les retours DATES dans la periode,
+//! l'echange mis a part (`RETOUR_HORS_CA`). Un retour d'octobre sur une
+//! vente de septembre se deduit d'octobre ; septembre ne bouge plus.
+//! L'« encaisse » ne compte pas la dette eteinte par un retour
+//! (`coeur::calcul::encaisse`) : aucun argent n'est entre.
 
+/// Une vente du rapport mensuel : (mois `AAAA-MM`, total, tout le paye,
+/// la part de ce paye eteinte par un retour).
+type VenteDuMois = (String, i64, i64, i64);
+
+/// Assemble le rapport mensuel a partir des ventes (par mois de VENTE)
+/// et des retours (par mois de RETOUR) — le meme pour les deux moteurs.
+///
+/// Par mois : `ca` net des retours du mois, `nb_ventes`, `encaisse`
+/// (l'argent reellement recu sur les ventes du mois), `retours` (ce qui
+/// a ete deduit) et `creances` (ce qui reste du sur les ventes du mois,
+/// vente par vente via `reste_exigible`, D41). `ca - encaisse` ne dit
+/// plus la creance des qu'un retour a eu lieu : l'ecran lit `creances`.
+/// Un mois de retours sans vente a sa ligne, son chiffre negatif.
+fn mois_du_rapport(ventes: Vec<VenteDuMois>, retours: Vec<(String, i64)>) -> Vec<serde_json::Value> {
+    use crate::coeur::calcul::{ca_net, encaisse, reste_exigible};
+    // (brut, nb, encaisse, creances, retours) par mois, dans l'ordre.
+    let mut par_mois: std::collections::BTreeMap<String, (i64, i64, i64, i64, i64)> =
+        std::collections::BTreeMap::new();
+    for (mois, total, paye, eteint) in ventes {
+        let m = par_mois.entry(mois).or_default();
+        m.0 += total;
+        m.1 += 1;
+        m.2 += encaisse(paye, eteint);
+        m.3 += reste_exigible(total, paye);
+    }
+    for (mois, montant) in retours {
+        par_mois.entry(mois).or_default().4 += montant;
+    }
+    par_mois
+        .into_iter()
+        .rev()
+        .map(|(mois, (brut, nb, enc, creances, ret))| {
+            serde_json::json!({
+                "mois":      mois,
+                "ca":        ca_net(brut, ret),
+                "nb_ventes": nb,
+                "encaisse":  enc,
+                "retours":   ret,
+                "creances":  creances,
+            })
+        })
+        .collect()
+}
 
 // =====================================================================
 //  CA mensuel sur N mois
@@ -10,41 +60,51 @@ pub fn lire_rapport_ca_mensuel(
     nb_mois: Option<i64>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let mois = nb_mois.unwrap_or(12).min(24).max(1);
-
-    let mut stmt = conn.prepare(
-        "SELECT
-            strftime('%Y-%m', date_vente) as mois,
-            CAST(COALESCE(SUM(
-              (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
-               FROM ligne_vente WHERE vente_id = v.id)
-            ), 0) AS INTEGER) as ca,
-            COUNT(*) as nb_ventes,
-            CAST(COALESCE(SUM(
-              (SELECT COALESCE(SUM(montant), 0) FROM paiement WHERE vente_id = v.id)
-            ), 0) AS INTEGER) as encaisse
-         FROM vente v
-         WHERE v.statut != 'annulee'
-           AND v.date_vente >= date('now', ?1)
-         GROUP BY mois
-         ORDER BY mois DESC"
-    ).map_err(|e| e.to_string())?;
-
-    let x = stmt.query_map(
-        rusqlite::params![format!("-{} months", mois)],
-        |row| Ok(serde_json::json!({
-            "mois":      row.get::<_,String>(0)?,
-            "ca":        row.get::<_,i64>(1)?,
-            "nb_ventes": row.get::<_,i64>(2)?,
-            "encaisse":  row.get::<_,i64>(3)?,
-        }))
-    ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-    // Gescom Equipe : le cout des salaires du mois, a cote du CA.
-    let depuis = chrono::Local::now()
+    let depuis_jour = chrono::Local::now()
         .date_naive()
         .checked_sub_months(chrono::Months::new(mois as u32))
         .unwrap_or_else(|| chrono::Local::now().date_naive())
-        .format("%Y-%m")
+        .format("%Y-%m-%d")
         .to_string();
+
+    // Vente par vente : le reste du se juge par vente (D41), pas sur
+    // une somme.
+    let ventes: Vec<VenteDuMois> = {
+        let mut stmt = conn.prepare(
+            "SELECT SUBSTR(v.date_vente, 1, 7),
+                    CAST(COALESCE((SELECT SUM(prix_pratique * quantite)
+                                   FROM ligne_vente WHERE vente_id = v.id), 0) AS INTEGER),
+                    CAST(COALESCE((SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0) AS INTEGER),
+                    CAST(COALESCE((SELECT SUM(montant) FROM paiement
+                                   WHERE vente_id = v.id AND mode = 'retour'), 0) AS INTEGER)
+             FROM vente v
+             WHERE v.statut != 'annulee'
+               AND SUBSTR(v.date_vente, 1, 10) >= ?1"
+        ).map_err(|e| e.to_string())?;
+        let v = stmt.query_map(rusqlite::params![depuis_jour], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?))
+        }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+        v
+    };
+    let retours: Vec<(String, i64)> = {
+        let mut stmt = conn.prepare(
+            "SELECT SUBSTR(rt.date_retour, 1, 7),
+                    CAST(COALESCE(SUM(rt.montant_credit), 0) AS INTEGER)
+             FROM retour rt
+             JOIN vente v ON v.id = rt.vente_id
+             WHERE v.statut != 'annulee'
+               AND rt.mode_resolution <> ?2
+               AND SUBSTR(rt.date_retour, 1, 10) >= ?1
+             GROUP BY SUBSTR(rt.date_retour, 1, 7)"
+        ).map_err(|e| e.to_string())?;
+        let v = stmt.query_map(rusqlite::params![depuis_jour, crate::coeur::calcul::RETOUR_HORS_CA], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+        v
+    };
+    let x = mois_du_rapport(ventes, retours);
+    // Gescom Equipe : le cout des salaires du mois, a cote du CA.
+    let depuis = depuis_jour[..7].to_string();
     let salaires: std::collections::HashMap<String, i64> = conn
         .prepare(
             "SELECT SUBSTR(f.au, 1, 7),
@@ -73,6 +133,8 @@ pub fn lire_rapport_top_clients(
 ) -> Result<Vec<serde_json::Value>, String> {
     let lim = limite.unwrap_or(20);
 
+    // Les retours de la periode, par client de la vente rendue ; le
+    // classement se fait sur le chiffre net, la limite apres.
     let mut stmt = conn.prepare(
         "SELECT c.id, c.code, c.nom, c.telephone,
                 CAST(COALESCE(SUM(
@@ -85,30 +147,33 @@ pub fn lire_rapport_top_clients(
                    FROM ligne_vente WHERE vente_id = v.id) -
                   (SELECT COALESCE(SUM(montant), 0)
                    FROM paiement WHERE vente_id = v.id)
-                ), 0) AS INTEGER) as creances
+                ), 0) AS INTEGER) as creances,
+                CAST(COALESCE((SELECT SUM(rt.montant_credit) FROM retour rt
+                               JOIN vente vr ON vr.id = rt.vente_id
+                               WHERE vr.client_id = c.id
+                                 AND rt.date_retour BETWEEN ?1 AND ?2
+                                 AND vr.statut != 'annulee'
+                                 AND rt.mode_resolution <> ?3), 0) AS INTEGER)
          FROM vente v
          JOIN client c ON c.id = v.client_id
          WHERE v.date_vente BETWEEN ?1 AND ?2
            AND v.statut != 'annulee'
            AND c.est_generique = 0
-         GROUP BY c.id
-         ORDER BY ca DESC
-         LIMIT ?3"
+         GROUP BY c.id"
     ).map_err(|e| e.to_string())?;
 
     let x = stmt.query_map(
-        rusqlite::params![date_debut, date_fin, lim],
-        |row| Ok(serde_json::json!({
+        rusqlite::params![date_debut, date_fin, crate::coeur::calcul::RETOUR_HORS_CA],
+        |row| Ok((serde_json::json!({
             "id":        row.get::<_,String>(0)?,
             "code":      row.get::<_,String>(1)?,
             "nom":       row.get::<_,String>(2)?,
             "telephone": row.get::<_,Option<String>>(3)?,
-            "ca":        row.get::<_,i64>(4)?,
             "nb_ventes": row.get::<_,i64>(5)?,
             "creances":  row.get::<_,i64>(6)?,
-        }))
+        }), row.get::<_,i64>(4)?, row.get::<_,i64>(7)?))
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-    Ok(x)
+    Ok(crate::tableau_bord::classer_par_ca_net(x, lim.max(0) as usize))
 }
 
 // =====================================================================
@@ -123,6 +188,8 @@ pub fn lire_rapport_top_articles(
 ) -> Result<Vec<serde_json::Value>, String> {
     let lim = limite.unwrap_or(20);
 
+    // Les retours de la periode, par article rendu : montant, quantite,
+    // et le cout d'achat de ce qui revient — la marge est nette aussi.
     let mut stmt = conn.prepare(
         "SELECT a.id, a.nom, a.unite_base,
                 CAST(COALESCE(SUM(lv.prix_pratique * lv.quantite), 0) AS INTEGER) as ca,
@@ -130,34 +197,74 @@ pub fn lire_rapport_top_articles(
                 COUNT(DISTINCT lv.vente_id) as nb_ventes,
                 CAST(COALESCE(SUM(
                   (COALESCE(a.dernier_prix_achat, 0) * lv.quantite)
-                ), 0) AS INTEGER) as cout_achat
+                ), 0) AS INTEGER) as cout_achat,
+                CAST(COALESCE((SELECT SUM(rt.montant_credit) FROM retour rt
+                               JOIN vente vr ON vr.id = rt.vente_id
+                               WHERE rt.article_id = a.id
+                                 AND rt.date_retour BETWEEN ?1 AND ?2
+                                 AND vr.statut != 'annulee'
+                                 AND rt.mode_resolution <> ?3), 0) AS INTEGER),
+                CAST(COALESCE((SELECT SUM(rt.quantite) FROM retour rt
+                               JOIN vente vr ON vr.id = rt.vente_id
+                               WHERE rt.article_id = a.id
+                                 AND rt.date_retour BETWEEN ?1 AND ?2
+                                 AND vr.statut != 'annulee'
+                                 AND rt.mode_resolution <> ?3), 0) AS REAL),
+                COALESCE(a.dernier_prix_achat, 0)
          FROM ligne_vente lv
          JOIN article a ON a.id = lv.article_id
          JOIN vente v ON v.id = lv.vente_id
          WHERE v.date_vente BETWEEN ?1 AND ?2
            AND v.statut != 'annulee'
-         GROUP BY a.id
-         ORDER BY ca DESC
-         LIMIT ?3"
+         GROUP BY a.id"
     ).map_err(|e| e.to_string())?;
 
     let x = stmt.query_map(
-        rusqlite::params![date_debut, date_fin, lim],
+        rusqlite::params![date_debut, date_fin, crate::coeur::calcul::RETOUR_HORS_CA],
         |row| {
-            let ca: i64 = row.get(3)?;
-            let cout: i64 = row.get(6)?;
-            Ok(serde_json::json!({
-                "id":         row.get::<_,String>(0)?,
-                "nom":        row.get::<_,String>(1)?,
-                "unite":      row.get::<_,String>(2)?,
-                "ca":         ca,
-                "qte_vendue": row.get::<_,f64>(4)?,
-                "nb_ventes":  row.get::<_,i64>(5)?,
-                "marge":      ca - cout,
-            }))
+            Ok(article_du_rapport(
+                row.get::<_,String>(0)?, row.get::<_,String>(1)?, row.get::<_,String>(2)?,
+                row.get::<_,i64>(3)?, row.get::<_,f64>(4)?, row.get::<_,i64>(5)?,
+                row.get::<_,i64>(6)?, row.get::<_,i64>(7)?, row.get::<_,f64>(8)?,
+                row.get::<_,i64>(9)?,
+            ))
         }
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-    Ok(x)
+    Ok(crate::tableau_bord::classer_par_ca_net(x, lim.max(0) as usize))
+}
+
+/// Une ligne du top articles, nette des retours de la periode : la
+/// quantite rendue se retire de la vendue, et la marge retire aussi le
+/// cout d'achat de ce qui est revenu en stock. Rend (ligne, brut,
+/// retours) pour `classer_par_ca_net`, qui pose le `ca` net.
+#[allow(clippy::too_many_arguments)]
+fn article_du_rapport(
+    id: String,
+    nom: String,
+    unite: String,
+    brut: i64,
+    qte: f64,
+    nb_ventes: i64,
+    cout: i64,
+    retours: i64,
+    qte_rendue: f64,
+    prix_achat: i64,
+) -> (serde_json::Value, i64, i64) {
+    let ca = crate::coeur::calcul::ca_net(brut, retours);
+    // Tronque comme le `CAST(SUM(prix_achat * quantite))` du cout vendu.
+    let cout_rendu = (prix_achat as f64 * qte_rendue) as i64;
+    (
+        serde_json::json!({
+            "id":         id,
+            "nom":        nom,
+            "unite":      unite,
+            "qte_vendue": qte - qte_rendue,
+            "nb_ventes":  nb_ventes,
+            "marge":      ca - (cout - cout_rendu),
+        }),
+        brut,
+        retours,
+    )
 }
 
 // =====================================================================
@@ -310,38 +417,43 @@ pub fn lire_rapport_ca_mensuel_sur_base(
         .format("%Y-%m-%d")
         .to_string();
 
-    base.lire_plusieurs(
-        "SELECT SUBSTR(v.date_vente, 1, 7),
-                CAST(COALESCE(SUM(
-                  (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
-                   FROM ligne_vente WHERE vente_id = v.id)
-                ), 0) AS BIGINT),
-                COUNT(*),
-                CAST(COALESCE(SUM(
-                  (SELECT COALESCE(SUM(montant), 0) FROM paiement WHERE vente_id = v.id)
-                ), 0) AS BIGINT)
-         FROM vente v
-         WHERE v.statut != 'annulee'
-           AND SUBSTR(v.date_vente, 1, 10) >= ?1
-           AND v.dossier_id = ?2
-         GROUP BY SUBSTR(v.date_vente, 1, 7)
-         ORDER BY SUBSTR(v.date_vente, 1, 7) DESC",
-        &parametres![depuis.clone(), dossier],
-        |r| {
-            Ok(serde_json::json!({
-                "mois":      r.get::<String>(0)?,
-                "ca":        r.get::<i64>(1)?,
-                "nb_ventes": r.get::<i64>(2)?,
-                "encaisse":  r.get::<i64>(3)?,
-            }))
-        },
-    )
-    .map_err(|e| e.0)
-    .and_then(|ventes| {
-        // Gescom Equipe : le cout des salaires du mois, a cote du CA.
-        let salaires = crate::paie::salaires_par_mois_sur(base, &depuis[..7])?;
-        Ok(crate::coeur::paie::avec_salaires(ventes, &salaires))
-    })
+    // Vente par vente : le reste du se juge par vente (D41).
+    let ventes: Vec<VenteDuMois> = base
+        .lire_plusieurs(
+            "SELECT SUBSTR(v.date_vente, 1, 7),
+                    CAST(COALESCE((SELECT SUM(prix_pratique * quantite)
+                                   FROM ligne_vente WHERE vente_id = v.id), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(montant) FROM paiement
+                                   WHERE vente_id = v.id AND mode = 'retour'), 0) AS BIGINT)
+             FROM vente v
+             WHERE v.statut != 'annulee'
+               AND SUBSTR(v.date_vente, 1, 10) >= ?1
+               AND v.dossier_id = ?2",
+            &parametres![depuis.clone(), dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?, r.get::<i64>(3)?)),
+        )
+        .map_err(|e| e.0)?;
+    // Les retours, par mois du RETOUR.
+    let retours: Vec<(String, i64)> = base
+        .lire_plusieurs(
+            "SELECT SUBSTR(rt.date_retour, 1, 7),
+                    CAST(COALESCE(SUM(rt.montant_credit), 0) AS BIGINT)
+             FROM retour rt
+             JOIN vente v ON v.id = rt.vente_id
+             WHERE v.statut != 'annulee'
+               AND rt.mode_resolution <> ?3
+               AND SUBSTR(rt.date_retour, 1, 10) >= ?1
+               AND rt.dossier_id = ?2
+             GROUP BY SUBSTR(rt.date_retour, 1, 7)",
+            &parametres![depuis.clone(), dossier, crate::coeur::calcul::RETOUR_HORS_CA],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?)),
+        )
+        .map_err(|e| e.0)?;
+    let mois = mois_du_rapport(ventes, retours);
+    // Gescom Equipe : le cout des salaires du mois, a cote du CA.
+    let salaires = crate::paie::salaires_par_mois_sur(base, &depuis[..7])?;
+    Ok(crate::coeur::paie::avec_salaires(mois, &salaires))
 }
 
 pub fn lire_rapport_top_clients_sur_base(
@@ -351,42 +463,54 @@ pub fn lire_rapport_top_clients_sur_base(
     limite: Option<i64>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let dossier = base.dossier().to_string();
-    base.lire_plusieurs(
-        "SELECT c.id, c.code, c.nom, c.telephone,
-                CAST(COALESCE(SUM(
-                  (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
-                   FROM ligne_vente WHERE vente_id = v.id)
-                ), 0) AS BIGINT) AS ca,
-                COUNT(v.id),
-                CAST(COALESCE(SUM(
-                  (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
-                   FROM ligne_vente WHERE vente_id = v.id) -
-                  (SELECT COALESCE(SUM(montant), 0)
-                   FROM paiement WHERE vente_id = v.id)
-                ), 0) AS BIGINT)
-         FROM vente v
-         JOIN client c ON c.id = v.client_id
-         WHERE v.date_vente BETWEEN ?1 AND ?2
-           AND v.statut != 'annulee'
-           AND c.est_generique = 0
-           AND v.dossier_id = ?4
-         GROUP BY c.id, c.code, c.nom, c.telephone
-         ORDER BY ca DESC
-         LIMIT ?3",
-        &parametres![date_debut, date_fin, limite.unwrap_or(20), dossier],
-        |r| {
-            Ok(serde_json::json!({
-                "id":        r.get::<String>(0)?,
-                "code":      r.get::<String>(1)?,
-                "nom":       r.get::<String>(2)?,
-                "telephone": r.get::<Option<String>>(3)?,
-                "ca":        r.get::<i64>(4)?,
-                "nb_ventes": r.get::<i64>(5)?,
-                "creances":  r.get::<i64>(6)?,
-            }))
-        },
-    )
-    .map_err(|e| e.0)
+    // Les retours de la periode, par client de la vente rendue ; le
+    // classement se fait sur le chiffre net, la limite apres.
+    let lignes = base
+        .lire_plusieurs(
+            "SELECT c.id, c.code, c.nom, c.telephone,
+                    CAST(COALESCE(SUM(
+                      (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
+                       FROM ligne_vente WHERE vente_id = v.id)
+                    ), 0) AS BIGINT) AS ca,
+                    COUNT(v.id),
+                    CAST(COALESCE(SUM(
+                      (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
+                       FROM ligne_vente WHERE vente_id = v.id) -
+                      (SELECT COALESCE(SUM(montant), 0)
+                       FROM paiement WHERE vente_id = v.id)
+                    ), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(rt.montant_credit) FROM retour rt
+                                   JOIN vente vr ON vr.id = rt.vente_id
+                                   WHERE vr.client_id = c.id
+                                     AND rt.date_retour BETWEEN ?1 AND ?2
+                                     AND vr.statut != 'annulee'
+                                     AND rt.mode_resolution <> ?3
+                                     AND rt.dossier_id = ?4), 0) AS BIGINT)
+             FROM vente v
+             JOIN client c ON c.id = v.client_id
+             WHERE v.date_vente BETWEEN ?1 AND ?2
+               AND v.statut != 'annulee'
+               AND c.est_generique = 0
+               AND v.dossier_id = ?4
+             GROUP BY c.id, c.code, c.nom, c.telephone",
+            &parametres![date_debut, date_fin, crate::coeur::calcul::RETOUR_HORS_CA, dossier],
+            |r| {
+                Ok((
+                    serde_json::json!({
+                        "id":        r.get::<String>(0)?,
+                        "code":      r.get::<String>(1)?,
+                        "nom":       r.get::<String>(2)?,
+                        "telephone": r.get::<Option<String>>(3)?,
+                        "nb_ventes": r.get::<i64>(5)?,
+                        "creances":  r.get::<i64>(6)?,
+                    }),
+                    r.get::<i64>(4)?,
+                    r.get::<i64>(7)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+    Ok(crate::tableau_bord::classer_par_ca_net(lignes, limite.unwrap_or(20).max(0) as usize))
 }
 
 pub fn lire_rapport_top_articles_sur_base(
@@ -396,37 +520,49 @@ pub fn lire_rapport_top_articles_sur_base(
     limite: Option<i64>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let dossier = base.dossier().to_string();
-    base.lire_plusieurs(
-        "SELECT a.id, a.nom, a.unite_base,
-                CAST(COALESCE(SUM(lv.prix_pratique * lv.quantite), 0) AS BIGINT) AS ca,
-                CAST(COALESCE(SUM(lv.quantite), 0) AS DOUBLE PRECISION),
-                COUNT(DISTINCT lv.vente_id),
-                CAST(COALESCE(SUM(COALESCE(a.dernier_prix_achat, 0) * lv.quantite), 0) AS BIGINT)
-         FROM ligne_vente lv
-         JOIN article a ON a.id = lv.article_id
-         JOIN vente v ON v.id = lv.vente_id
-         WHERE v.date_vente BETWEEN ?1 AND ?2
-           AND v.statut != 'annulee'
-           AND v.dossier_id = ?4
-         GROUP BY a.id, a.nom, a.unite_base, a.dernier_prix_achat
-         ORDER BY ca DESC
-         LIMIT ?3",
-        &parametres![date_debut, date_fin, limite.unwrap_or(20), dossier],
-        |r| {
-            let ca: i64 = r.get::<i64>(3)?;
-            let cout: i64 = r.get::<i64>(6)?;
-            Ok(serde_json::json!({
-                "id":         r.get::<String>(0)?,
-                "nom":        r.get::<String>(1)?,
-                "unite":      r.get::<String>(2)?,
-                "ca":         ca,
-                "qte_vendue": r.get::<f64>(4)?,
-                "nb_ventes":  r.get::<i64>(5)?,
-                "marge":      ca - cout,
-            }))
-        },
-    )
-    .map_err(|e| e.0)
+    // Les retours de la periode, par article rendu (voir la version
+    // fenetre et `article_du_rapport`).
+    let lignes = base
+        .lire_plusieurs(
+            "SELECT a.id, a.nom, a.unite_base,
+                    CAST(COALESCE(SUM(lv.prix_pratique * lv.quantite), 0) AS BIGINT) AS ca,
+                    CAST(COALESCE(SUM(lv.quantite), 0) AS DOUBLE PRECISION),
+                    COUNT(DISTINCT lv.vente_id),
+                    CAST(COALESCE(SUM(COALESCE(a.dernier_prix_achat, 0) * lv.quantite), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(rt.montant_credit) FROM retour rt
+                                   JOIN vente vr ON vr.id = rt.vente_id
+                                   WHERE rt.article_id = a.id
+                                     AND rt.date_retour BETWEEN ?1 AND ?2
+                                     AND vr.statut != 'annulee'
+                                     AND rt.mode_resolution <> ?3
+                                     AND rt.dossier_id = ?4), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(rt.quantite) FROM retour rt
+                                   JOIN vente vr ON vr.id = rt.vente_id
+                                   WHERE rt.article_id = a.id
+                                     AND rt.date_retour BETWEEN ?1 AND ?2
+                                     AND vr.statut != 'annulee'
+                                     AND rt.mode_resolution <> ?3
+                                     AND rt.dossier_id = ?4), 0) AS DOUBLE PRECISION),
+                    CAST(COALESCE(a.dernier_prix_achat, 0) AS BIGINT)
+             FROM ligne_vente lv
+             JOIN article a ON a.id = lv.article_id
+             JOIN vente v ON v.id = lv.vente_id
+             WHERE v.date_vente BETWEEN ?1 AND ?2
+               AND v.statut != 'annulee'
+               AND v.dossier_id = ?4
+             GROUP BY a.id, a.nom, a.unite_base, a.dernier_prix_achat",
+            &parametres![date_debut, date_fin, crate::coeur::calcul::RETOUR_HORS_CA, dossier],
+            |r| {
+                Ok(article_du_rapport(
+                    r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?,
+                    r.get::<i64>(3)?, r.get::<f64>(4)?, r.get::<i64>(5)?,
+                    r.get::<i64>(6)?, r.get::<i64>(7)?, r.get::<f64>(8)?,
+                    r.get::<i64>(9)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+    Ok(crate::tableau_bord::classer_par_ca_net(lignes, limite.unwrap_or(20).max(0) as usize))
 }
 
 pub fn lire_rapport_creances_sur_base(base: &mut Base) -> Result<serde_json::Value, String> {

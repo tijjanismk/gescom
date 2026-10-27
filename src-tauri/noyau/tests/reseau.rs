@@ -2,9 +2,9 @@
 //!
 //! Ce sont les regles qu'on ne peut pas verifier a l'oeil : une session
 //! revoquee doit tomber tout de suite, un poste desactive doit couper
-//! ses sessions, et la caisse nominative ne doit pas servir le tiroir
-//! du voisin. Chacune de ces trois erreurs se solde par un compte faux
-//! que personne ne rattache a sa cause.
+//! ses sessions, et la caisse nominative — retiree en C.6 — reste
+//! refusee. Chacune de ces erreurs se solde par un compte faux que
+//! personne ne rattache a sa cause.
 
 use rusqlite::Connection;
 
@@ -179,51 +179,58 @@ fn par_defaut_la_caisse_reste_unique() {
     assert_eq!(caisses::exiger(&conn, Some("u1")).unwrap(), "c1");
 }
 
+/// Lot C.6 : la caisse par utilisateur est retiree. Elle n'a jamais
+/// marche (tous les appelants passent `None`, le mode actif aurait
+/// refuse tout encaissement) : on la refuse net plutot que de la laisser
+/// dormir.
 #[test]
-fn en_mode_nominatif_chacun_son_tiroir() {
+fn le_mode_nominatif_est_refuse_et_une_base_qui_l_a_garde_un_tiroir() {
     let conn = base();
     creer_utilisateur(&conn, "u1", "Awa", "employe");
     creer_utilisateur(&conn, "u2", "Moussa", "employe");
-    caisses::definir_par_utilisateur(&conn, true).unwrap();
 
+    let err = caisses::definir_par_utilisateur(&conn, true).unwrap_err();
+    assert!(err.starts_with("MODE_CAISSE_INDISPONIBLE"), "{err}");
+    assert!(!caisses::par_utilisateur(&conn));
+
+    // Une base qui porte encore '1' (essai d'avant le retrait) : le
+    // mode par defaut, un tiroir — celui d'Awa sert aussi a Moussa, et
+    // une operation sans utilisateur n'est plus refusee.
+    conn.execute(
+        "INSERT INTO config_app (cle, valeur) VALUES ('caisse_par_utilisateur', '1')
+         ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
+        [],
+    )
+    .unwrap();
+    assert!(!caisses::par_utilisateur(&conn));
     ouvrir_caisse(&conn, "c-awa", Some("u1"));
     assert_eq!(caisses::exiger(&conn, Some("u1")).unwrap(), "c-awa");
+    assert_eq!(caisses::exiger(&conn, Some("u2")).unwrap(), "c-awa");
+    assert_eq!(caisses::exiger(&conn, None).unwrap(), "c-awa");
 
-    // Moussa n'a pas ouvert : il ne doit PAS encaisser dans le tiroir
-    // d'Awa. C'est tout l'interet du mode — l'ecart de cloture doit
-    // rester imputable.
-    assert!(caisses::exiger(&conn, Some("u2")).is_err());
-
-    // Et une operation qui ne dit pas qui l'enregistre est refusee,
-    // plutot que rattachee au premier tiroir venu.
-    let err = caisses::exiger(&conn, None).unwrap_err();
-    assert!(err.contains("CAISSE_SANS_UTILISATEUR"), "{err}");
+    // Revenir au tiroir unique reste permis, caisse ouverte ou non : le
+    // comportement ne change pas, seul le reglage est remis a '0'.
+    caisses::definir_par_utilisateur(&conn, false).unwrap();
+    let v: String = conn
+        .query_row("SELECT valeur FROM config_app WHERE cle = 'caisse_par_utilisateur'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(v, "0");
 }
 
 #[test]
 fn un_utilisateur_ne_peut_pas_ouvrir_deux_caisses() {
     let conn = base();
     creer_utilisateur(&conn, "u1", "Awa", "employe");
-    caisses::definir_par_utilisateur(&conn, true).unwrap();
     ouvrir_caisse(&conn, "c-awa", Some("u1"));
 
     // Deux tiroirs ouverts au meme nom, c'est un fond de caisse compte
-    // deux fois. L'index partiel doit le refuser en base, pas
-    // seulement dans l'ecran.
+    // deux fois. L'index partiel (pose pour le mode nominatif, retire en
+    // C.6 mais l'index reste) le refuse en base, pas seulement a
+    // l'ecran.
     let deuxieme = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         ouvrir_caisse(&conn, "c-awa-2", Some("u1"));
     }));
     assert!(deuxieme.is_err());
-}
-
-#[test]
-fn on_ne_change_pas_de_mode_caisse_ouverte() {
-    let conn = base();
-    ouvrir_caisse(&conn, "c1", None);
-    // Basculer maintenant laisserait une session sans proprietaire
-    // dans un monde ou tout en a un, et la cloture suivante ne saurait
-    // a qui reclamer l'ecart.
-    assert!(caisses::definir_par_utilisateur(&conn, true).is_err());
 }
 
 /// La console ne se desactive pas elle-meme.

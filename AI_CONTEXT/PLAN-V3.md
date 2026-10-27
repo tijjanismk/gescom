@@ -322,6 +322,12 @@ c'est le chemin le plus testé de tout le logiciel. Donc :
 | | moteur | chemin | dossiers |
 |---|---|---|---|
 | fenêtre **monoposte** | SQLite | façades `Connection` | **un seul** (le dossier d'origine) |
+
+> **Révisé le 25/10/2026** ([DECISIONS.md](DECISIONS.md), « D22 et D24
+> révisés ») : cette ligne était déjà fausse quand elle a été écrite —
+> depuis le 11/09 la fenêtre ne parle qu'au serveur. Le poste qui garde
+> la base lance son serveur SQLite et s'y branche sur 127.0.0.1 ; un
+> seul dossier tant qu'on n'en crée pas d'autre.
 | **serveur** | SQLite ou PostgreSQL | **`Base` pour tout** | plusieurs |
 
 Ce que ça change dans le code : le serveur cesse d'avoir deux chemins
@@ -361,6 +367,13 @@ depuis le début.
 > utiliser SQLite sans serveur. — le propriétaire, 21/09/2026.
 
 ### Ce qui existe déjà
+
+> **Révisé le 25/10/2026** : le paragraphe ci-dessous décrit un
+> `monoposte` qui ouvre sa base locale — faux depuis le 11/09. La
+> fenêtre ne parle qu'au serveur ; `monoposte` veut dire « ce poste
+> garde la base » : elle lance le serveur de la machine et s'y branche.
+> Le rôle se demande au premier démarrage, et le serveur du raccourci
+> s'efface sur une caisse. Voir DECISIONS.md, « D22 et D24 révisés ».
 
 Vérifié dans le code, pas supposé : [reseau.rs](../../src-tauri/src/reseau.rs)
 porte depuis la v2 un réglage `monoposte` / `poste`, dans `poste.json`,

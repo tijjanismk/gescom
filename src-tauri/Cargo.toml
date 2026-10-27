@@ -1,9 +1,10 @@
 [workspace]
-# Trois executables : ce crate (le client, fenetre
-# Tauri), `serveur/` (sans fenetre) et `equipe/` (Gescom Equipe, une
-# coque qui ne parle qu'au serveur). `noyau/` porte ce qu'ils
-# partagent — calculs, schema, protocole.
-members = ["noyau", "serveur", "equipe"]
+# Quatre executables : ce crate (le client, fenetre
+# Tauri), `serveur/` (sans fenetre), `equipe/` (Gescom Equipe, une
+# coque qui ne parle qu'au serveur) et `serveur-fenetre/` (Gescom
+# Serveur, la coque qui affiche la console du serveur, D25). `noyau/`
+# porte ce qu'ils partagent — calculs, schema, protocole.
+members = ["noyau", "serveur", "equipe", "serveur-fenetre"]
 
 [package]
 name = "gescom"

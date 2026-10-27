@@ -26,6 +26,46 @@ supprimées par migration idempotente, deux chemins).
 l'aperçu et l'impression (règle du 17/09). **Le réglage est en base** :
 le serveur le distribue à toutes les caisses.
 
+## Le duplicata (26/10/2026, en cours — [PLAN-DUPLICATA.md](../PLAN-DUPLICATA.md))
+
+**Le serveur compte les impressions** ; l'écran ne décide pas si une
+feuille est un original. Fait : le noyau, le serveur, la case par genre
+(`ReglageGenre::duplicata`, non par défaut, `GENRES_DUPLICATA` : pas sur
+relevé ni bulletin), le rendu (`Habillage.duplicata = { originalLe }` :
+filigrane « DUPLICATA » + cadre en haut du corps dans `documentHTML`,
+deux lignes sur le ticket), les chemins d'impression
+([lib/duplicata.ts](../../src/lib/duplicata.ts) : `ApercuPiece` — donc
+le ticket du POS —, `ApercuRecu`, `Pieces.tsx`, `FicheClient.tsx`) et le
+bouton « Réimprimer l'original ». **Règle de l'écran** : l'aperçu lit,
+le clic note, la feuille est regénérée d'après la réponse du clic ; sans
+réponse, on n'imprime pas. Ne se comptent pas : un brouillon, une facture ou un
+avoir fournisseur (`coeur::impression::hors_compte`).
+
+Toutes les commandes prennent `format` (facultatif) : le serveur en
+déduit le genre dont la case décide (`genre_imprime` : rouleau →
+ticket). La réponse dit `genre` et `actif` ; `duplicata` n'est vrai que
+case cochée. Case décochée, l'impression se compte quand même.
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Règle | [coeur/impression.rs](../../src-tauri/noyau/src/coeur/impression.rs) | `Objet` (`piece_commerciale`, `paiement`, `paiement_fournisseur` — les noms du journal), `compte` (un brouillon ne compte pas), `verdict` |
+| Stockage | [impression.rs](../../src-tauri/noyau/src/impression.rs) | table `impression` (cloisonnée : rang, original, imprime_le, auteur_id, poste_id) |
+| Commandes | [serveur/src/socle.rs](../../src-tauri/serveur/src/socle.rs) | 3, nées sur `Base` |
+
+- `lire_etat_impression(objetType, objetId, format?)` → `{ genre, actif, compte, impressions,
+  duplicata, original_le }` : ce que l'**aperçu** montre ; n'écrit rien.
+- `noter_impression(objetType, objetId, format?)` → `{ genre, actif, compte, duplicata,
+  original_le, rang }` : appelé **au moment d'imprimer**, fait foi (un
+  autre poste a pu imprimer entre l'aperçu et le clic). Ouvert à tout
+  connecté, `ecrit = false` (aucun écran à rafraîchir). Le poste vient
+  de la session.
+- `reimprimer_original(objetType, objetId, format?)` — permission
+  `pieces:reimprimer_original` (le patron) ; journal
+  `original_reimprime` si l'objet avait déjà été imprimé. Refusé sur un
+  brouillon.
+- Le ticket est un **format** de la pièce : il partage son original.
+  Le bon de sortie n'est pas la facture : ne pas le noter.
+
 ## Les genres et leur type de pièce
 
 `facture` (facture, acompte, avoirs, côté client et fournisseur),
@@ -67,6 +107,36 @@ mention de pied, « Imprimé le », les styles propres et le contenu.
   (`ReglageGenre.filigrane`, absent = oui ; ticket : non).
 - Les signatures (`blocSignatures`) : libellé **souligné**, place de
   signer dessous, cachet dedans. Plus de trait séparé.
+- **La taille du texte** (26/10/2026) : le texte courant sort à **11 pt
+  en A4, 10 pt en A5** (l'usage d'un document imprimé : 10–12 pt ; avant,
+  ~8 pt et des détails à 7). `documentHTML` passe tout le document par
+  `agrandirTexte(html, echelleTexte(papier, police))` : chaque
+  `font-size: Npx` est multiplié (×1,33 pour une pièce A4 à 11 px), les
+  cadres, les bandeaux images et les marges du papier non. **Pas de
+  `zoom` CSS** : essayé d'abord, le moteur d'impression découpait mal le
+  contenu zoomé — une facture A5 presque pleine sortait sur deux pages.
+  Le ticket et le bon d'échange (`genererBonEchangeHTML`, sa propre page)
+  n'y passent pas.
+- Le **cadre du tiers** (`.doc-tiers`) : au moins 48 % de la largeur en
+  A4 (52 % en A5), le nom en 14 px (12 en A5) avant agrandissement ; un
+  nom très long élargit le cadre jusqu'à la page puis passe à la ligne,
+  même sans espace (`overflow-wrap: anywhere`).
+- **Jamais « Client de passage » sur le papier** (le propriétaire :
+  « presque une insulte ») : `passage::tiers_a_imprimer` met le code
+  (`PAS-000123`, il retrouve la facture) à la place du nom, sans le
+  répéter dessous — `lire_donnees_piece` et le reçu (deux versions), et
+  le bon d'échange côté écran. Vaut aussi pour une facture émise avant
+  une promotion, dont le nom est figé.
+- **Le tiers écrit à l'émission** (lots D.9-D.10, 27/10/2026) : la
+  pièce imprimée et le reçu lisent `COALESCE(pc.tiers_nom, nom de la
+  fiche)` côté client **et fournisseur**, et `COALESCE(pc.tiers_code,
+  code)` côté client (un passant rattaché à un client garde son
+  `PAS-…`). Une pièce dont le nom figé est « Client de passage »
+  n'imprime ni téléphone, ni adresse, ni NIF
+  (`passage::coordonnee_a_imprimer`) — même si la fiche a été promue ou
+  rattachée à un client qui en a. Deux versions de `lire_donnees_piece`
+  et de `lire_donnees_recu`. Limite : un reçu d'une vente **sans** pièce
+  lit encore la fiche d'aujourd'hui.
 
 Commandes : `enregistrer_filigrane_documents { reglage }`,
 `poser_image_filigrane { image | null }` (`parametres:modifier`) ;

@@ -18,7 +18,14 @@ import { appeler as tauriInvoke } from "@/lib/pont";
 
 // `salaires` / `apres_salaires` : le coût de la paie du mois (Gescom
 // Équipe), null pour qui ne lit pas la paie.
-interface MoisCA { mois: string; ca: number; nb_ventes: number; encaisse: number; salaires?: number | null; apres_salaires?: number | null; }
+// `ca` est NET des retours du mois ; `encaisse` ne compte pas la dette
+// éteinte par un retour ; `creances` est ce qui reste dû sur les ventes
+// du mois — `ca - encaisse` ne le dit plus dès qu'un retour a eu lieu.
+interface MoisCA {
+  mois: string; ca: number; nb_ventes: number; encaisse: number;
+  retours?: number; creances?: number;
+  salaires?: number | null; apres_salaires?: number | null;
+}
 interface ClientRapport {
   id: string; code: string; nom: string; telephone?: string;
   ca: number; nb_ventes: number; creances: number;
@@ -49,6 +56,10 @@ interface CreanceRapport {
 
 function fmt(n: number) {
   return new Intl.NumberFormat("fr-ML").format(n) + " F";
+}
+/** Le reste dû des ventes du mois, tel que le serveur le calcule (D41). */
+function creancesDuMois(m: MoisCA): number {
+  return m.creances ?? Math.max(0, m.ca - m.encaisse);
 }
 function nomMois(ym: string) {
   const [y, m] = ym.split("-");
@@ -211,11 +222,12 @@ export function Rapports() {
         <td class="droite">${m.nb_ventes}</td>
         <td class="droite">${fmt(m.ca)}</td>
         <td class="droite">${fmt(m.encaisse)}</td>
-        <td class="droite">${fmt(m.ca - m.encaisse)}</td>
+        <td class="droite">${fmt(creancesDuMois(m))}</td>
         ${voitSalaires ? `<td class="droite">${fmt(m.salaires ?? 0)}</td><td class="droite">${fmt(m.apres_salaires ?? 0)}</td>` : ""}
       </tr>`).join("");
     const totalCA = moisCA.reduce((s, m) => s + m.ca, 0);
     const totalEnc = moisCA.reduce((s, m) => s + m.encaisse, 0);
+    const totalCre = moisCA.reduce((s, m) => s + creancesDuMois(m), 0);
     const totalSal = moisCA.reduce((s, m) => s + (m.salaires ?? 0), 0);
     const html = genererHTMLRapport("Rapport CA mensuel", `
       <table>
@@ -230,7 +242,7 @@ export function Rapports() {
           <td>TOTAL</td><td></td>
           <td class="droite">${fmt(totalCA)}</td>
           <td class="droite">${fmt(totalEnc)}</td>
-          <td class="droite">${fmt(totalCA - totalEnc)}</td>
+          <td class="droite">${fmt(totalCre)}</td>
           ${voitSalaires ? `<td class="droite">${fmt(totalSal)}</td><td class="droite">${fmt(totalCA - totalSal)}</td>` : ""}
         </tr></tfoot>
       </table>`);
@@ -245,7 +257,7 @@ export function Rapports() {
         "Nb ventes": m.nb_ventes,
         "CA (F)": m.ca,
         "Encaissé (F)": m.encaisse,
-        "Créances (F)": m.ca - m.encaisse,
+        "Créances (F)": creancesDuMois(m),
         ...(voitSalaires ? { "Salaires (F)": m.salaires ?? 0, "Après salaires (F)": m.apres_salaires ?? 0 } : {}),
       }))
     }], "rapport_ca_mensuel.xlsx");
@@ -469,7 +481,7 @@ export function Rapports() {
                           <td className="px-4 py-2 text-right font-semibold">{fmt(m.ca)}</td>
                           <td className="px-4 py-2 text-right text-green-600">{fmt(m.encaisse)}</td>
                           <td className="px-4 py-2 text-right text-orange-600">
-                            {m.ca - m.encaisse > 0 ? fmt(m.ca - m.encaisse) : "—"}
+                            {creancesDuMois(m) > 0 ? fmt(creancesDuMois(m)) : "—"}
                           </td>
                           {voitSalaires && (
                             <td className="px-4 py-2 text-right text-muted-foreground" data-testid="salaires-mois">
@@ -497,7 +509,7 @@ export function Rapports() {
                           {fmt(moisCA.reduce((s, m) => s + m.encaisse, 0))}
                         </td>
                         <td className="px-4 py-2 text-right font-bold text-orange-600">
-                          {fmt(moisCA.reduce((s, m) => s + (m.ca - m.encaisse), 0))}
+                          {fmt(moisCA.reduce((s, m) => s + creancesDuMois(m), 0))}
                         </td>
                         {voitSalaires && (
                           <td className="px-4 py-2 text-right font-bold">

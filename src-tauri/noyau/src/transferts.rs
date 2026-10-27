@@ -86,6 +86,8 @@ pub fn enregistrer_transfert_sur(
         if l.quantite <= 0.0 || l.facteur <= 0.0 {
             return Err("Chaque ligne doit porter une quantité positive".to_string());
         }
+        // D36 : un article qui ne suit pas son stock ne se transfere pas.
+        crate::suivi_stock::exiger_suivi(conn, &l.article_id)?;
     }
 
     // Vérifier le stock disponible AVANT d'ouvrir la transaction : un
@@ -338,6 +340,8 @@ pub fn enregistrer_transfert_sur_base(
         if l.quantite <= 0.0 || l.facteur <= 0.0 {
             return Err("Chaque ligne doit porter une quantité positive".to_string());
         }
+        // D36 : un article qui ne suit pas son stock ne se transfere pas.
+        crate::suivi_stock::exiger_suivi_sur(base, &l.article_id)?;
     }
 
     // Le controle porte sur le TOTAL par article (D32).

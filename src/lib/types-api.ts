@@ -91,7 +91,11 @@ export interface CreanceOuverteApi {
   telephone?: string | null;
   numero_facture?: string | null;
   total: number;
+  /** Tout le payé, dette éteinte par un retour comprise : fait le reste. */
   total_paye: number;
+  /** L'argent vraiment versé (`total_paye` sans la part éteinte par retour). */
+  encaisse?: number;
+  eteint_par_retour?: number;
   reste: number;
 }
 
@@ -107,6 +111,9 @@ export interface CreanceRelanceApi {
   facture_num?: string | null;
   total: number;
   total_paye: number;
+  /** L'argent vraiment versé (`total_paye` sans la part éteinte par retour). */
+  encaisse?: number;
+  eteint_par_retour?: number;
   reste: number;
   jours_retard: number;
   nb_relances: number;

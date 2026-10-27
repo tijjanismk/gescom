@@ -101,10 +101,31 @@ pub struct ReglageGenre {
     /// on le retire d'un genre, on ne l'ajoute pas genre par genre.
     #[serde(default = "vrai")]
     pub filigrane: bool,
+    /// Le duplicata (26/10/2026) : apres la premiere impression, la
+    /// feuille dit « DUPLICATA ». Optionnel, donc NON par defaut — une
+    /// mise a jour ne change pas le papier sans qu'on l'ait coche.
+    #[serde(default)]
+    pub duplicata: bool,
 }
 
 fn vrai() -> bool {
     true
+}
+
+/// Les genres qui peuvent porter un duplicata : les pieces numerotees,
+/// le recu, le ticket. Le releve se reimprime a volonte ; le bulletin ne
+/// passe pas par les impressions comptees.
+pub const GENRES_DUPLICATA: [&str; 6] = ["facture", "devis", "bon_commande", "bon_livraison", "recu", "ticket"];
+
+/// Le genre dont le reglage dit si une impression porte le duplicata.
+/// Une piece imprimee sur rouleau est un ticket ; `type_piece` absent :
+/// un recu.
+pub fn genre_imprime(type_piece: Option<&str>, format: Option<&str>) -> &'static str {
+    match type_piece {
+        None => "recu",
+        Some(_) if format.is_some_and(|f| f.starts_with("thermique")) => "ticket",
+        Some(t) => genre_de_piece(t),
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -230,6 +251,7 @@ pub fn defaut(genre: &str, ancienne: &dyn Fn(&str) -> Option<String>) -> Reglage
         mention: None,
         signatures: vec![],
         filigrane: true,
+        duplicata: false,
     };
     match genre {
         "facture" => ReglageGenre {
@@ -271,6 +293,9 @@ pub fn valider(genre: &str, r: &ReglageGenre) -> Result<(), String> {
     }
     if genre == "bulletin" && r.format.starts_with("thermique") {
         return Err("Un bulletin de paie se remet sur une page (A4 ou A5), pas sur un rouleau.".to_string());
+    }
+    if r.duplicata && !GENRES_DUPLICATA.contains(&genre) {
+        return Err("Pas de duplicata sur ce document : il se réimprime à volonté.".to_string());
     }
     if genre == "ticket" && !r.signatures.is_empty() {
         return Err("On ne signe pas un ticket de caisse.".to_string());
@@ -359,6 +384,29 @@ mod tests {
         assert_eq!(genre_de_piece("bon_commande_fournisseur"), "bon_commande");
         assert_eq!(genre_de_piece("avoir_client"), "facture");
         assert_eq!(genre_de_piece("inconnu"), "facture");
+    }
+
+    #[test]
+    fn le_duplicata_est_optionnel_et_borne() {
+        for g in GENRES {
+            assert!(!defaut(g, &rien).duplicata, "{g} : non par défaut");
+        }
+        // Un reglage d'avant le duplicata se lit sans lui.
+        let ancien = serde_json::json!({ "format": "a4" });
+        assert!(!fusionner("facture", Some(&ancien), &rien).duplicata);
+        for g in GENRES {
+            let r = ReglageGenre { duplicata: true, ..defaut(g, &rien) };
+            assert_eq!(valider(g, &r).is_ok(), GENRES_DUPLICATA.contains(&g), "{g}");
+        }
+    }
+
+    #[test]
+    fn le_genre_imprime_suit_la_piece_et_le_rouleau() {
+        assert_eq!(genre_imprime(Some("facture"), Some("a4")), "facture");
+        assert_eq!(genre_imprime(Some("proforma"), None), "devis");
+        assert_eq!(genre_imprime(Some("facture"), Some("thermique_80")), "ticket");
+        assert_eq!(genre_imprime(Some("bon_livraison"), Some("a5")), "bon_livraison");
+        assert_eq!(genre_imprime(None, Some("a5")), "recu");
     }
 
     #[test]

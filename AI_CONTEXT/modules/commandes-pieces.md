@@ -75,7 +75,62 @@ EXISTS (vente irrecouvrable derrière la pièce) THEN 1 ELSE 0 END`
 tient hors des totaux, comme une annulée. La liste fournisseur côté
 `Base` porte la même colonne (toujours 0) ; côté fenêtre, non.
 
+## Ce que les retours ont fait d'une facture (26/10/2026)
+
+Un retour sur une facture à crédit éteint la dette par un paiement
+`mode = 'retour'` : la facture passe « Payé » sans un franc encaissé.
+Les listes client (fenêtre et `Base`) rendent `retour: { etat, montant,
+rembourse }`, colonnes **21..23** (`RETOURS_SQL`, après les autres) :
+crédit des retours, argent **sorti du tiroir** pour eux (`mouvement_caisse`
+motifs `remboursement`, `remboursement_reliquat` — pas le mode choisi :
+un « remboursement » sur une facture à crédit ne rend rien), total de la
+vente. La règle est `coeur::pieces::etat_retour` : `aucun`, `partiel`,
+`rembourse` (tout revenu, de l'argent rendu), `retourne` (tout revenu,
+sans argent). Pièces : tout revenu, « Remboursée » / « Retournée »
+**remplace** le statut et la ligne se grise ; une partie, « Payé » reste
+avec le badge « Retour partiel ». « −X F rendus » sous le total. La
+pastille **Retours** (avec leur nombre) demande les factures au serveur
+et ne garde que celles qui ont eu un retour. La liste fournisseur `Base`
+porte les colonnes (0).
+
+**Où est partie la valeur** (colonne 25 : ce qui reste en avoir sur les
+pièces AVC de ces retours, hors part remboursée) : `retour` porte aussi
+`dette`, `avoir`, `echange` (`coeur::pieces::ventiler_retour`, l'échange
+étant le reste). L'argent (22) compte aussi l'avoir de ces retours rendu
+ensuite en espèces : la facture passe alors « Remboursée ». Pièces les
+écrit sous le total (« 2 200 F en avoir », « 19 400 F rendus en
+argent »…) et le pied déduit la marchandise revenue (« dont −X F
+revenus »), chaque facture gardant son montant émis.
+
+**`encaisse`** (colonne 24 : la dette éteinte par les retours,
+paiements `mode = 'retour'`) = `total_paye` − cette part : l'argent
+vraiment entré. « Payé » à l'écran et son total le lisent ;
+`total_paye` reste tel quel, il fait le reste dû. La liste fournisseur
+de la fenêtre ne l'a pas (l'écran retombe sur `total_paye`).
+Scénario : `retours_base::la_liste_des_pieces_dit_ce_que_les_retours_ont_fait`.
+
+## Le tiers écrit à l'émission (D35, lots D.9-D.10, 27/10/2026)
+
+`piece_commerciale.tiers_nom` (D35) et `tiers_code` (lot D.10, nouvelle
+colonne : `schema.sql`, `amorcage.rs`, `persistance/v2.rs`) gardent le
+nom et le code du tiers tels qu'ils étaient à l'émission. Posés au
+renommage d'un client (`passage::figer_noms[_sur]`), d'un **fournisseur**
+(`fournisseurs::figer_noms[_sur]`, D.9) et au rattachement d'une fiche
+de passage (`passage::rattacher_sur`, D.10, les deux) ; NULL tant que
+rien n'a changé. `lire_donnees_piece` (deux versions) les lit pour les
+deux côtés ; la liste fournisseur (deux versions) montre
+`COALESCE(pc.tiers_nom, f.nom)` et cherche dans les deux noms ; la liste
+client garde le nom d'aujourd'hui mais sa recherche trouve aussi
+`tiers_code` (le `PAS-…` d'un passant rattaché).
+
 ## Commandes exposées
+
+`lire_lignes_piece` (deux versions) rend sur chaque ligne le
+`tiers_type` de sa pièce depuis le 27/10/2026 (lot C.7) : le serveur
+masque les prix d'une pièce fournisseur sans `achats:lire_prix` ni
+`achats:creer` ([permissions.md](permissions.md)). La modale
+« Modifier la pièce » de `Pieces.tsx` ne renvoie pas des lignes aux
+prix masqués.
 
 **pieces.rs** (19) — `lire_toutes_pieces_client`,
 `lire_toutes_pieces_fournisseur`, `lire_pieces_client`,

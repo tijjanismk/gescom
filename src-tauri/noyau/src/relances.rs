@@ -33,7 +33,10 @@ pub fn lire_creances_relances(
             , 0) as nb_relances,
             COALESCE(
               (SELECT MAX(rc.date_relance) FROM relance_creance rc WHERE rc.vente_id = v.id)
-            , NULL) as derniere_relance
+            , NULL) as derniere_relance,
+            CAST(COALESCE(
+              (SELECT SUM(montant) FROM paiement WHERE vente_id = v.id AND mode = 'retour')
+            , 0) AS INTEGER) as eteint_par_retour
          FROM vente v
          JOIN client c ON c.id = v.client_id
          LEFT JOIN piece_commerciale p ON p.id = v.piece_id
@@ -49,6 +52,7 @@ pub fn lire_creances_relances(
     let x = stmt.query_map([], |row| {
         let total: i64 = row.get(8)?;
         let paye: i64 = row.get(9)?;
+        let eteint: i64 = row.get(13)?;
         Ok(serde_json::json!({
             "vente_id":       row.get::<_,String>(0)?,
             "date_vente":     row.get::<_,String>(1)?,
@@ -59,7 +63,13 @@ pub fn lire_creances_relances(
             "telephone":      row.get::<_,Option<String>>(6)?,
             "facture_num":    row.get::<_,Option<String>>(7)?,
             "total":          total,
+            // Tout ce qui est paye, dette eteinte par un retour comprise :
+            // c'est lui qui fait le reste du.
             "total_paye":     paye,
+            // Ce que le client a reellement verse, et ce que ses retours
+            // ont eteint — a montrer a part (coeur::calcul::encaisse).
+            "encaisse":       crate::coeur::calcul::encaisse(paye, eteint),
+            "eteint_par_retour": eteint,
             "reste":          total - paye,
             "jours_retard":   row.get::<_,i64>(10)?,
             "nb_relances":    row.get::<_,i64>(11)?,
@@ -200,7 +210,10 @@ pub fn lire_creances_relances_sur_base(
                   (SELECT SUM(montant) FROM paiement WHERE vente_id = v.id)
                 , 0) AS BIGINT),
                 (SELECT COUNT(*) FROM relance_creance rc WHERE rc.vente_id = v.id),
-                (SELECT MAX(rc.date_relance) FROM relance_creance rc WHERE rc.vente_id = v.id)
+                (SELECT MAX(rc.date_relance) FROM relance_creance rc WHERE rc.vente_id = v.id),
+                CAST(COALESCE(
+                  (SELECT SUM(montant) FROM paiement WHERE vente_id = v.id AND mode = 'retour')
+                , 0) AS BIGINT)
              FROM vente v
              JOIN client c ON c.id = v.client_id
              LEFT JOIN piece_commerciale p ON p.id = v.piece_id
@@ -212,6 +225,7 @@ pub fn lire_creances_relances_sur_base(
             |r| {
                 let total: i64 = r.get::<i64>(8)?;
                 let paye: i64 = r.get::<i64>(9)?;
+                let eteint: i64 = r.get::<i64>(12)?;
                 let date_vente: String = r.get::<String>(1)?;
                 Ok(serde_json::json!({
                     "vente_id":       r.get::<String>(0)?,
@@ -224,7 +238,12 @@ pub fn lire_creances_relances_sur_base(
                     "telephone":      r.get::<Option<String>>(6)?,
                     "facture_num":    r.get::<Option<String>>(7)?,
                     "total":          total,
+                    // Voir la version fenetre : `total_paye` fait le reste,
+                    // `encaisse` dit l'argent verse, `eteint_par_retour` la
+                    // part de la dette que les retours ont eteinte.
                     "total_paye":     paye,
+                    "encaisse":       crate::coeur::calcul::encaisse(paye, eteint),
+                    "eteint_par_retour": eteint,
                     "reste":          total - paye,
                     "nb_relances":    r.get::<i64>(10)?,
                     "derniere_relance": r.get::<Option<String>>(11)?,

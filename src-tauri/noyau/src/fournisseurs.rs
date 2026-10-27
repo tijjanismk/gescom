@@ -144,7 +144,11 @@ pub fn modifier_fournisseur(
     let vide = |o: Option<String>| o.filter(|s| !s.trim().is_empty());
     let now = maintenant_iso();
 
-    conn.execute(
+    // Lot D.9 : ses pieces emises gardent le nom sous lequel elles l'ont
+    // ete (comme le client, D35). Fige puis renomme, d'un seul geste.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    figer_noms(&tx, &fournisseur_id)?;
+    tx.execute(
         "UPDATE fournisseur
          SET nom = ?1, telephone = ?2, adresse = ?3, nif = ?4, email = ?5,
              est_voisin = ?6, modifie_le = ?7
@@ -154,8 +158,22 @@ pub fn modifier_fournisseur(
             est_voisin.unwrap_or(false) as i64, now, fournisseur_id
         ],
     ).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+/// Voir `figer_noms_sur` (facades `Connection`, un seul dossier).
+pub fn figer_noms(conn: &rusqlite::Connection, fournisseur_id: &str) -> Result<(), String> {
+    conn.execute(
+        "UPDATE piece_commerciale
+         SET tiers_nom = (SELECT f.nom FROM fournisseur f WHERE f.id = ?1)
+         WHERE tiers_type = 'fournisseur' AND tiers_id = ?1
+           AND tiers_nom IS NULL AND statut <> 'brouillon'",
+        rusqlite::params![fournisseur_id],
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
 }
 
 /// Etat de la dette envers UN fournisseur — le releve qu'on lui oppose.
@@ -550,6 +568,8 @@ pub fn enregistrer_ajustement_inventaire(
     motif: Option<String>,
     utilisateur_role: Option<String>,
 ) -> Result<(), String> {
+    // D36 : un article qui ne suit pas son stock ne se compte pas.
+    crate::suivi_stock::exiger_suivi(conn, &article_id)?;
 
     let quantite_actuelle: f64 = conn.query_row(
         "SELECT COALESCE(quantite, 0) FROM stock_depot
@@ -1021,7 +1041,12 @@ pub fn modifier_fournisseur_sur_base(
     )?;
     let dossier = base.dossier().to_string();
     let vide = |o: Option<String>| o.filter(|s| !s.trim().is_empty());
-    let modifiees = base
+    // Lot D.9 : ses pieces emises gardent le nom sous lequel elles l'ont
+    // ete (comme le client, D35). Fige puis renomme dans une transaction :
+    // un fournisseur introuvable ne laisse rien d'ecrit.
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    figer_noms_sur(&mut tx, &fournisseur_id)?;
+    let modifiees = tx
         .executer(
             "UPDATE fournisseur
              SET nom = ?1, telephone = CAST(?2 AS TEXT), adresse = CAST(?3 AS TEXT),
@@ -1037,7 +1062,29 @@ pub fn modifier_fournisseur_sur_base(
     if modifiees == 0 {
         return Err("Fournisseur introuvable".to_string());
     }
+    tx.valider().map_err(|e| e.0)?;
     Ok(())
+}
+
+/// Lot D.9 — le nom fige des pieces d'un fournisseur, comme celui des
+/// pieces d'un client (D35, `passage::figer_noms_sur`) : avant de
+/// renommer la fiche, le nom EN COURS est ecrit sur ses pieces emises qui
+/// n'en portent pas encore. Figer au renommage revient a figer a
+/// l'emission : jusque-la, les deux noms sont les memes. Les brouillons
+/// suivent la fiche (ils ne sont pas emis). La lecture d'une piece rend
+/// ensuite `COALESCE(tiers_nom, nom du fournisseur)`.
+pub fn figer_noms_sur(acces: &mut impl Acces, fournisseur_id: &str) -> Result<(), String> {
+    let dossier = acces.dossier().to_string();
+    acces
+        .executer(
+            "UPDATE piece_commerciale
+             SET tiers_nom = (SELECT f.nom FROM fournisseur f WHERE f.id = ?1 AND f.dossier_id = ?2)
+             WHERE tiers_type = 'fournisseur' AND tiers_id = ?1 AND dossier_id = ?2
+               AND tiers_nom IS NULL AND statut <> 'brouillon'",
+            &parametres![fournisseur_id.to_string(), dossier],
+        )
+        .map(|_| ())
+        .map_err(|e| e.0)
 }
 
 /// Ce qu'une piece fournisseur doit encore : une FAF son reste, un AVF
@@ -1306,6 +1353,8 @@ pub fn enregistrer_ajustement_inventaire_sur_base(
     motif: Option<String>,
     utilisateur_role: Option<String>,
 ) -> Result<(), String> {
+    // D36 : un article qui ne suit pas son stock ne se compte pas.
+    crate::suivi_stock::exiger_suivi_sur(base, &article_id)?;
     let dossier = base.dossier().to_string();
     let quantite_actuelle: f64 = base
         .lire_une(

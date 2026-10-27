@@ -36,6 +36,13 @@ vient avec `acces_total` (patron, superadmin), ou se donne à la main
 par le sur-mesure. `avoirs:gerer` (le comptable) applique et rembourse
 les avoirs existants ; il n'en crée pas.
 
+## `pieces:reimprimer_original` (26/10/2026, le duplicata)
+
+Une pièce n'a qu'un original : toute impression après la première sort
+en duplicata. Ressortir l'original (`reimprimer_original`) est réservé
+au patron, comme `avoirs:accorder` : aucun rôle livré, `acces_total` ou
+à la main. Chaque usage va au journal (`original_reimprime`).
+
 ## `dossiers:gerer` (19/09/2026, v3)
 
 Créer un dossier, ouvrir, prolonger ou clore un exercice. Comme
@@ -95,8 +102,22 @@ dette, onglet Pièces fournisseur, onglet Retour fournisseur, valeur du
 stock et des magasins, export CSV du catalogue, écarts de caisse — tous
 suivent `peut(...)` et ne demandent pas ce qui serait refusé.
 
-Reste ouvert, écrit : `lire_lignes_piece` d'une pièce fournisseur rend
-ses prix sans condition (la réponse ne dit pas le type de la pièce).
+**Fermé le 27/10/2026 (lot C.7)** : `lire_lignes_piece` d'une pièce
+fournisseur rendait ses prix à tous. Chaque ligne porte désormais le
+`tiers_type` de sa pièce (deux versions de `pieces::lire_lignes_piece`),
+et `coeur::lecture` masque `TOTAUX_PIECE` (prix unitaire, montants,
+remise en francs) sans `achats:lire_prix` **ni** `achats:creer` — la
+même règle que `lire_donnees_piece`, sinon un prix caché sur l'aperçu
+se lisait dans la fenêtre de modification. Une pièce client garde ses
+prix. Écran : `Pieces.tsx` (modale « Modifier la pièce ») lit les
+lignes masquées, ne les renvoie pas (`lignes: null`) et le dit. Aucune
+autre lecture de lignes de pièce ne rendait de prix d'achat
+(`lire_livraison_piece` n'a que des quantités ; les autres lectures qui
+rendent un coût sont déjà dans la table). Preuves :
+`coeur::lecture::tests::les_lignes_d_une_piece_fournisseur_perdent_leurs_prix_pas_celles_d_un_client`,
+`garde_fous_base.rs`, route
+`les_lignes_d_une_piece_fournisseur_cachent_le_prix_d_achat_au_caissier`.
+
 Avec une seule caisse partagée par dossier, la session ouverte et les
 mouvements du jour restent lisibles par tous les caissiers :
 `caisse:lire_autres` porte sur l'historique des sessions.
@@ -146,6 +167,17 @@ de base. Saisir la date du jour n'antidate pas. La raison n'est pas
 comptable : antidater une vente en espèces masque un trou dans le
 tiroir. Le rôle `patron` (accès total) l'a d'office ; un caissier ne
 l'hérite pas.
+
+Même mécanisme pour l'import CSV des articles (lot D.11, 27/10/2026) :
+la commande demande `articles:creer`, mais **créer un article qui ne
+suit pas son stock** (« Suivre le stock : non ») demande en plus
+`parametres:modifier`, comme changer la case (D36). La poignée le juge
+par `verifier_permission_sur` et le passe au noyau
+(`peut_ne_pas_suivre`) ; sans lui, la ligne est refusée, les autres
+passent.
+
+`rattacher_passage` (lot D.10) porte `clients:modifier`, la même porte
+que `promouvoir_passage` : la gestion des fiches clients.
 
 ## Règles
 

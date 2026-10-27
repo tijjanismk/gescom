@@ -295,8 +295,10 @@ fn tout_ce_qui_est_porte_passe_le_detecteur() {
         "2028-01-31".into(),
     )
     .expect("prolonger");
-    dossiers::clore_exercice_sur(&mut base, exercice["id"].as_str().unwrap().to_string())
-        .expect("clore");
+    // D38 : on clot un exercice termine, dans l'ordre — le premier, une
+    // fois le second fini.
+    let premier = dossiers::lire_exercices_sur(&mut base).unwrap()[0]["id"].as_str().unwrap().to_string();
+    dossiers::clore_exercice_au_sur(&mut base, premier, "2028-02-01").expect("clore");
 }
 
 #[test]
@@ -439,7 +441,8 @@ fn prolonger_puis_clore_un_exercice() {
     dossiers::verifier_date_sur(&mut base, &debut_annee_suivante)
         .expect("accepté après prolongation");
 
-    dossiers::clore_exercice_sur(&mut base, id).expect("clore");
+    // D38 : le comptable clot une fois l'exercice termine.
+    dossiers::clore_exercice_au_sur(&mut base, id, &format!("{}-02-01", annee + 1)).expect("clore");
     let refus = dossiers::verifier_date_sur(&mut base, &debut_annee_suivante)
         .expect_err("un exercice clos refuse toute écriture");
     assert!(refus.contains("clos"), "{refus}");

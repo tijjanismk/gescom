@@ -294,7 +294,16 @@ CREATE TABLE IF NOT EXISTS piece_commerciale (
     reference        TEXT,
     cree_le          TEXT NOT NULL,
     modifie_le       TEXT NOT NULL,
-    origine          TEXT NOT NULL DEFAULT 'app'
+    origine          TEXT NOT NULL DEFAULT 'app',
+    -- D35 : le nom du tiers tel qu'il etait ecrit a l'emission. Pose
+    -- au premier renommage du client (passage::figer_noms) ou du
+    -- fournisseur (fournisseurs::figer_noms, lot D.9) ; NULL tant que la
+    -- fiche n'a pas change de nom — on lit alors la fiche.
+    tiers_nom        TEXT,
+    -- Lot D.10 : le code du client tel qu'il etait ecrit a l'emission.
+    -- Pose quand une fiche de passage est rattachee a un client
+    -- (passage::rattacher_sur) : sa facture garde son PAS-…
+    tiers_code       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ligne_piece (
@@ -722,6 +731,24 @@ CREATE TABLE IF NOT EXISTS anomalie_vue (
     vue_le      TEXT NOT NULL
 );
 
+-- Chaque impression d'une piece ou d'un recu (le duplicata, 26/10/2026) :
+-- la premiere est l'original, les suivantes des duplicatas, quel que
+-- soit le poste. `objet_type` reprend les noms du journal
+-- (`piece_commerciale`, `paiement`, `paiement_fournisseur`). `rang`
+-- ordonne (l'horloge Windows tique par 15 ms). `original` = 1 pour la
+-- premiere ET pour l'original reimprime par le patron (trace au journal).
+CREATE TABLE IF NOT EXISTS impression (
+    id           TEXT PRIMARY KEY,
+    dossier_id   TEXT NOT NULL,
+    objet_type   TEXT NOT NULL,
+    objet_id     TEXT NOT NULL,
+    rang         INTEGER NOT NULL,
+    original     INTEGER NOT NULL DEFAULT 0,
+    imprime_le   TEXT NOT NULL,
+    auteur_id    TEXT,
+    poste_id     TEXT
+);
+
 
 -- =====================================================================
 --  INDEX
@@ -748,6 +775,7 @@ CREATE INDEX IF NOT EXISTS idx_echange_client       ON echange(client_id);
 CREATE INDEX IF NOT EXISTS idx_rappel_client        ON rappel(client_id);
 CREATE INDEX IF NOT EXISTS idx_rappel_pour          ON rappel(pour_utilisateur_id, fait);
 CREATE INDEX IF NOT EXISTS idx_relance_vente        ON relance_creance(vente_id);
+CREATE INDEX IF NOT EXISTS idx_impression_objet     ON impression(objet_type, objet_id);
 
 -- =====================================================================
 --  CHÈQUES REÇUS — une promesse, pas de l'argent (cf. cheques.rs)

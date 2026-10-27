@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { peut } from "@/lib/droits";
 import {
@@ -27,6 +27,7 @@ import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { Pagination } from "@/components/Pagination";
 import { UTILISATEUR_ACTIF } from "@/App";
 import { useActionsPalette } from "@/lib/palette";
+import { ListePassages } from "@/components/ListePassages";
 
 const LIMITE = 30;
 
@@ -43,7 +44,15 @@ interface Creance {
   id: string; date_vente: string; statut: string;
   client_id: string; client_nom: string; client_code: string;
   telephone?: string; numero_facture?: string;
+  // `total_paye` compte la dette éteinte par un retour (il fait le
+  // reste dû) ; `encaisse` est l'argent vraiment versé.
   total: number; total_paye: number; reste: number;
+  encaisse?: number; eteint_par_retour?: number;
+}
+
+/** L'argent vraiment versé : jamais la dette éteinte par un retour. */
+function dejaVerse(c: Creance): number {
+  return c.encaisse ?? c.total_paye;
 }
 
 interface PageResult {
@@ -152,10 +161,16 @@ function ModalReglementCreance({
               <span className="text-muted-foreground">Total facture</span>
               <span>{fmt(creance.total)}</span>
             </div>
-            {creance.total_paye > 0 && (
+            {dejaVerse(creance) > 0 && (
               <div className="flex justify-between text-sm text-green-600">
                 <span>Déjà payé</span>
-                <span>{fmt(creance.total_paye)}</span>
+                <span>{fmt(dejaVerse(creance))}</span>
+              </div>
+            )}
+            {(creance.eteint_par_retour ?? 0) > 0 && (
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Éteint par retour</span>
+                <span>{fmt(creance.eteint_par_retour ?? 0)}</span>
               </div>
             )}
             <div className="flex justify-between text-sm font-bold border-t border-border pt-1">
@@ -296,6 +311,9 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
   const [recherche, setRecherche] = useState("");
   const [avecCreancesSeulement, setAvecCreancesSeulement] = useState(false);
   const [ventesFiltre, setVentesFiltre] = useState<"tous" | "avec" | "sans">("tous");
+  // D35 : les fiches « Client de passage » (une par vente sans nom),
+  // hors de la liste des clients ; ce filtre les montre.
+  const [voirPassages, setVoirPassages] = useState(false);
   // v3, C-1 : ce que DOIVENT les clients demande `tiers:lire_solde`.
   // Sans elle, le serveur masque les soldes et refuse les états : on
   // n'affiche ni l'onglet Créances, ni le filtre, ni le tri par dette.
@@ -358,7 +376,12 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
       droit: "clients:creer", executer: () => setModalNouveauClient(true) },
   ]);
 
+  // Deux recherches peuvent partir l'une derriere l'autre (taper, changer
+  // de filtre) : seule la DERNIERE a le droit d'ecrire la liste — une
+  // reponse perimee qui arrive apres effacait le bon resultat.
+  const derniereDemande = useRef(0);
   const chargerClients = useCallback(async (p: number) => {
+    const demande = ++derniereDemande.current;
     setChargement(true);
     try {
       const data = await invoke<PageResult>("lire_clients_pagines", {
@@ -368,10 +391,11 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
         ventesFiltre: ventesFiltre === "tous" ? null : ventesFiltre,
         tri,
       });
+      if (demande !== derniereDemande.current) return;
       setResultat(data);
     } catch (e) {
       console.error("Erreur clients :", e);
-    } finally { setChargement(false); }
+    } finally { if (demande === derniereDemande.current) setChargement(false); }
   }, [recherche, avecCreancesSeulement, ventesFiltre, tri]);
 
   const chargerCreances = useCallback(async () => {
@@ -390,7 +414,9 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
     setPage(0);
     if (onglet === "clients") chargerClients(0);
     else chargerCreances();
-  }, [recherche, avecCreancesSeulement, ventesFiltre, tri, onglet]);
+    // `voirPassages` : en revenant des passages, la liste se relit — un
+    // passant devenu client ordinaire doit y paraître.
+  }, [recherche, avecCreancesSeulement, ventesFiltre, tri, onglet, voirPassages]);
 
   useEffect(() => {
     if (onglet === "clients") chargerClients(page);
@@ -498,6 +524,15 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
               }`}>
               Sans vente
             </button>
+            <button
+              onClick={() => setVoirPassages(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
+                voirPassages
+                  ? "border-violet-400 bg-violet-50 text-violet-700"
+                  : "border-border text-muted-foreground hover:bg-muted"
+              }`}>
+              Passages
+            </button>
             <Select value={tri} onValueChange={v => { if (v) setTri(v as typeof tri); }}>
               <SelectTrigger className="h-8 text-xs w-40">
                 <SelectValue />
@@ -510,11 +545,11 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
             </Select>
           </>
         )}
-        {(recherche || avecCreancesSeulement || ventesFiltre !== "tous" || tri !== triDefaut) && (
+        {(recherche || avecCreancesSeulement || ventesFiltre !== "tous" || tri !== triDefaut || voirPassages) && (
           <Button variant="ghost" size="sm" className="h-8 text-xs"
             onClick={() => {
               setRecherche(""); setAvecCreancesSeulement(false);
-              setVentesFiltre("tous"); setTri(triDefaut);
+              setVentesFiltre("tous"); setTri(triDefaut); setVoirPassages(false);
             }}>
             <X className="h-3 w-3 mr-1" /> Réinitialiser
           </Button>
@@ -525,6 +560,8 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
+      ) : onglet === "clients" && voirPassages ? (
+        <ListePassages recherche={recherche} />
       ) : onglet === "clients" ? (
         // ---- Onglet Clients ----
         <Card>
@@ -679,9 +716,14 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
                             <p className="text-xs text-muted-foreground">
                               {fmtDate(v.date_vente)}
                             </p>
-                            {v.total_paye > 0 && (
+                            {dejaVerse(v) > 0 && (
                               <p className="text-xs text-green-600">
-                                Acompte : {fmt(v.total_paye)}
+                                Acompte : {fmt(dejaVerse(v))}
+                              </p>
+                            )}
+                            {(v.eteint_par_retour ?? 0) > 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                Éteint par retour : {fmt(v.eteint_par_retour ?? 0)}
                               </p>
                             )}
                           </div>

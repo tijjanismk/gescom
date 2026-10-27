@@ -20,6 +20,7 @@ import {
   SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { message } from "@tauri-apps/plugin-dialog";
+import { KpiCard, GRILLE } from "@/components/ui/KpiVerre";
 
 // =====================================================================
 //  Types
@@ -29,8 +30,17 @@ interface Creance {
   vente_id: string; date_vente: string; statut: string;
   client_id: string; client_nom: string; client_code: string;
   telephone?: string; facture_num?: string;
+  // `total_paye` compte la dette éteinte par un retour (c'est lui qui
+  // fait le reste dû) ; `encaisse` est l'argent vraiment versé, et
+  // `eteint_par_retour` ce que les retours ont éteint — à montrer à part.
   total: number; total_paye: number; reste: number;
+  encaisse?: number; eteint_par_retour?: number;
   jours_retard: number; nb_relances: number; derniere_relance?: string;
+}
+
+/** L'argent vraiment versé : jamais la dette éteinte par un retour. */
+function encaisseDe(c: Creance): number {
+  return c.encaisse ?? c.total_paye - (c.eteint_par_retour ?? 0);
 }
 
 interface Relance {
@@ -69,6 +79,12 @@ const CANAUX = [
   { value: "email",    label: "Email",     icone: Mail,          couleur: "text-orange-600"},
   { value: "visite",   label: "Visite",    icone: MapPin,        couleur: "text-red-600"   },
 ];
+
+const TRIS: Record<"jours" | "montant" | "nb_relances", string> = {
+  jours: "Ancienneté",
+  montant: "Montant",
+  nb_relances: "Moins relancés",
+};
 
 function urgence(jours: number): { label: string; couleur: string } {
   if (jours > 90) return { label: "Critique",  couleur: "bg-red-100 text-red-700 border-red-200" };
@@ -456,25 +472,14 @@ export function Relances() {
           </Button>
         </div>
 
-        {/* KPIs */}
+        {/* KPIs — la tuile du tableau de bord, pas une quatrieme variante. */}
         {stats && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { label: "Créances ouvertes", val: stats.total_creances.toString(),
-                couleur: "text-orange-600", bg: "bg-orange-50 border-orange-200" },
-              { label: "Sans relance", val: stats.sans_relance.toString(),
-                couleur: "text-red-600", bg: "bg-red-50 border-red-200" },
-              { label: "Relances cette semaine", val: stats.relances_semaine.toString(),
-                couleur: "text-blue-600", bg: "bg-blue-50 border-blue-200" },
-              { label: "Montant en jeu", val: fmt(stats.montant_en_jeu),
-                couleur: "text-foreground", bg: "bg-muted border-border" },
-            ].map(k => (
-              <div key={k.label}
-                className={`border rounded-xl px-4 py-3 ${k.bg}`}>
-                <p className={`text-xl font-bold ${k.couleur}`}>{k.val}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{k.label}</p>
-              </div>
-            ))}
+          <div style={GRILLE}>
+            <KpiCard titre="Créances ouvertes" valeur={stats.total_creances.toString()} />
+            <KpiCard titre="Sans relance" valeur={stats.sans_relance.toString()}
+              variante={stats.sans_relance > 0 ? "tinted" : "neutral"} />
+            <KpiCard titre="Relances cette semaine" valeur={stats.relances_semaine.toString()} />
+            <KpiCard titre="Montant en jeu" valeur={fmt(stats.montant_en_jeu)} />
           </div>
         )}
 
@@ -505,12 +510,13 @@ export function Relances() {
 
           <Select value={triPar} onValueChange={v => { if (v) setTriPar(v as any); }}>
             <SelectTrigger className="h-8 text-xs w-40">
-              <SelectValue />
+              {/* Sans enfant, la valeur brute (« jours ») s'affichait. */}
+              <SelectValue>{TRIS[triPar]}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="jours" className="text-xs">Ancienneté</SelectItem>
-              <SelectItem value="montant" className="text-xs">Montant</SelectItem>
-              <SelectItem value="nb_relances" className="text-xs">Moins relancés</SelectItem>
+              {Object.entries(TRIS).map(([v, l]) => (
+                <SelectItem key={v} value={v} className="text-xs">{l}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
@@ -579,9 +585,14 @@ export function Relances() {
                     {/* Montant */}
                     <div className="text-right shrink-0">
                       <p className="text-sm font-bold text-orange-600">{fmt(c.reste)}</p>
-                      {c.total_paye > 0 && (
+                      {encaisseDe(c) > 0 && (
                         <p className="text-xs text-muted-foreground">
-                          payé {fmt(c.total_paye)}
+                          payé {fmt(encaisseDe(c))}
+                        </p>
+                      )}
+                      {(c.eteint_par_retour ?? 0) > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          éteint par retour {fmt(c.eteint_par_retour ?? 0)}
                         </p>
                       )}
                     </div>
@@ -631,10 +642,16 @@ export function Relances() {
                         <span>Total facture</span>
                         <span className="font-medium text-foreground">{fmt(c.total)}</span>
                       </div>
-                      {c.total_paye > 0 && (
+                      {encaisseDe(c) > 0 && (
                         <div className="flex justify-between">
                           <span>Acomptes reçus</span>
-                          <span className="text-green-600">{fmt(c.total_paye)}</span>
+                          <span className="text-green-600">{fmt(encaisseDe(c))}</span>
+                        </div>
+                      )}
+                      {(c.eteint_par_retour ?? 0) > 0 && (
+                        <div className="flex justify-between">
+                          <span>Éteint par retour</span>
+                          <span>{fmt(c.eteint_par_retour ?? 0)}</span>
                         </div>
                       )}
                       <div className="flex justify-between font-medium text-foreground

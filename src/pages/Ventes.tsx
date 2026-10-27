@@ -36,6 +36,8 @@ interface UniteVente {
 }
 interface Article {
   id: string; nom: string; unite_base: string; stock: number;
+  /** D36 : false = stock non suivi — jamais à découvert, jamais en rupture. */
+  gere_en_stock?: boolean;
   taux_tva_defaut?: number;
   unites: UniteVente[];
   // Renseigne uniquement par le scan : l'unite dont le code-barres
@@ -108,7 +110,8 @@ function ajouterOuFusionner(
     return [...prev, {
       id: genId(), article, unite, quantite, prix_pratique,
       montant: Math.round(prix_pratique * quantite),
-      a_decouvert: quantite > stockUV(article.stock, unite.facteur)
+      a_decouvert: article.gere_en_stock !== false
+                   && quantite > stockUV(article.stock, unite.facteur)
                    && article.stock >= 0,
       depot_id, depot_nom,
     }];
@@ -120,7 +123,8 @@ function ajouterOuFusionner(
     ...copie[i],
     quantite: totale,
     montant: Math.round(prix_pratique * totale),
-    a_decouvert: totale > stockUV(article.stock, unite.facteur)
+    a_decouvert: article.gere_en_stock !== false
+                 && totale > stockUV(article.stock, unite.facteur)
                  && article.stock >= 0,
   };
   return copie;
@@ -930,19 +934,22 @@ export function Ventes() {
   const stockIciUV      = stockUV(stockIci, facteurSel);
   const totalAilleursUV = stockUV(totalAilleurs, facteurSel);
 
-  const aDecouvert = !!articleSelectionne && qteNum > stockDispo && stockDispo >= 0;
+  // D36 : un article qui ne suit pas son stock n'a ni découvert, ni
+  // rupture, ni répartition entre magasins à proposer.
+  const suiviSel = articleSelectionne?.gere_en_stock !== false;
+  const aDecouvert = !!articleSelectionne && suiviSel && qteNum > stockDispo && stockDispo >= 0;
   // Le depot actif ne suffit pas, mais un autre a le complement :
   // c'est le cas ou l'on envoie quelqu'un chercher.
-  const completableAilleurs = !!articleSelectionne
+  const completableAilleurs = !!articleSelectionne && suiviSel
     && qteNum > stockIciUV && qteNum <= stockIciUV + totalAilleursUV;
   // Le modal s'ouvre des qu'un AUTRE depot a du stock, meme si le total
   // ne suffit pas. Sinon la vente entiere etait imputee au depot actif
   // et le stock des autres restait faux — un decouvert etait possible
   // en mono-depot mais pas en multi-depot, ce qui n'a pas de sens :
   // seul le TRANSFERT refuse le decouvert (D32), pas la vente.
-  const repartitionNecessaire = !!articleSelectionne
+  const repartitionNecessaire = !!articleSelectionne && suiviSel
     && qteNum > stockIciUV && totalAilleurs > 0;
-  const enRupture = !!articleSelectionne && articleSelectionne.stock <= 0;
+  const enRupture = !!articleSelectionne && suiviSel && articleSelectionne.stock <= 0;
 
   // Ecart entre le prix de reference et le prix pratique, sur la
   // quantite saisie. Positif = remise, negatif = majoration.
@@ -953,7 +960,9 @@ export function Ventes() {
   const majoration = Math.max(0, -ecartUnitaire) * (parseFloat(quantite) || 1);
 
   // Texte affiche au vendeur : « 5 ici · 30 à Djelibougou ».
-  const resumeStock = articleSelectionne
+  const resumeStock = articleSelectionne && !suiviSel
+    ? "stock non suivi"
+    : articleSelectionne
     ? [`${stockIci} ici`,
        ...stockAilleurs.map(sd => `${sd.quantite} à ${sd.depot_nom}`)].join(" · ")
     : "";

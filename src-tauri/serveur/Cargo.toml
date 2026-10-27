@@ -21,5 +21,10 @@ dirs = "5"
 [target.'cfg(windows)'.dependencies]
 # Le service Windows parle a l'API Win32 sans crate d'enveloppe
 # (service.rs) : Services pour le gestionnaire, Console pour envoyer la
-# sortie dans le journal.
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Services", "Win32_System_Console"] }
+# sortie dans le journal. IpHelper (+ Ndis, WinSock pour ses types) :
+# les cartes reseau et l'origine DHCP de leurs adresses, pour le panneau
+# Reseau de la console (reseau_local.rs) — meme crate, rien a telecharger.
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation", "Win32_System_Services", "Win32_System_Console",
+    "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock",
+] }

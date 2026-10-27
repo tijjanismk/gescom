@@ -1,23 +1,19 @@
 // B-4 : le compteur rouge « anomalies à vérifier » du tableau de bord,
 // qui ouvre l'Historique filtré ; « Marquer vue » dit par qui, quand,
 // et le compteur redescend.
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { navigateur, connecter, capture, verifieur, erreursUtiles, TRAVAIL } from "./pw.mjs";
+import { navigateur, connecter, capture, verifieur, erreursUtiles, ecrireEnBase } from "./pw.mjs";
 const { b, page, erreurs } = await navigateur();
 const ok = verifieur();
 
 // Deux anomalies, comme le noyau les ecrit (le banc ne sait pas
 // provoquer a coup sur un « montant ni imputable ni remboursable »).
-const base = new DatabaseSync(path.join(TRAVAIL, "essai.db"));
 const marque = `banc-b4-${Date.now() % 100000}`;
-const inserer = base.prepare(
-  `INSERT INTO journal (id, type_evenement, entite_type, entite_id, nouveau_valeur, origine, date_evenement)
-   VALUES (?, 'anomalie', 'vente', 'v-banc', ?, 'app', ?)`);
 for (const n of [1, 2]) {
-  inserer.run(`${marque}-${n}`, JSON.stringify({ message: `${marque} n°${n}` }), new Date(Date.now() + n).toISOString());
+  ecrireEnBase(
+    `INSERT INTO journal (id, type_evenement, entite_type, entite_id, nouveau_valeur, origine, date_evenement)
+     VALUES (?, 'anomalie', 'vente', 'v-banc', ?, 'app', ?)`,
+    [`${marque}-${n}`, JSON.stringify({ message: `${marque} n°${n}` }), new Date(Date.now() + n).toISOString()]);
 }
-base.close();
 
 await connecter(page);
 await page.getByText("Tableau de bord", { exact: true }).first().click();

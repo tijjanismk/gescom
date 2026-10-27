@@ -42,7 +42,7 @@ const CLE_RESEAU = "gescom_reseau";
  * le serveur tourne à côté, et les outils de développement montrent
  * chaque requête.
  */
-function estDansTauri(): boolean {
+export function estDansTauri(): boolean {
   return typeof window !== "undefined" &&
     ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
 }
@@ -61,14 +61,26 @@ function serveurDeMiseAuPoint(defaut: string): string {
   } catch {
     // Pas de `location` : contexte de test.
   }
-  return defaut && defaut.trim() ? defaut : "127.0.0.1:7300";
+  return defaut && defaut.trim() ? defaut : "127.0.0.1:40000";
 }
 
-export type ModeReseau = "monoposte" | "poste";
+/**
+ * Le rôle du poste (D22/D24, révisés le 25/10/2026) — dans tous les cas
+ * la fenêtre ne parle qu'au serveur ; seul change l'endroit où il est :
+ *
+ * - `monoposte` : ce poste garde la base, son serveur est ici
+ *   (127.0.0.1) et la fenêtre le lance s'il ne répond pas ;
+ * - `poste` : la caisse d'un autre poste, à l'adresse saisie ;
+ * - `a_choisir` : premier démarrage, la fenêtre demande.
+ */
+export type ModeReseau = "monoposte" | "poste" | "a_choisir";
+
+/** L'adresse du serveur quand ce poste garde la base. */
+export const ADRESSE_LOCALE = "127.0.0.1:40000";
 
 export interface EtatReseau {
   mode: ModeReseau;
-  /** « 192.168.1.10:7300 », sans schéma. */
+  /** « 192.168.1.10:40000 », sans schéma. */
   serveur: string;
   /** Nom lisible de ce poste, tel que le serveur l'affichera. */
   posteNom: string;
@@ -84,7 +96,7 @@ export interface EtatReseau {
 }
 
 const DEFAUT: EtatReseau = {
-  mode: "monoposte",
+  mode: "a_choisir",
   serveur: "",
   posteNom: "",
   posteEmpreinte: "",
@@ -102,8 +114,8 @@ function charger(): EtatReseau {
     if (!brut) return { ...DEFAUT };
     return { ...DEFAUT, ...JSON.parse(brut) };
   } catch {
-    // localStorage inaccessible (fenêtre privée, stockage bloqué) :
-    // le monoposte reste utilisable, c'est le comportement du v1.
+    // localStorage inaccessible (fenêtre privée, stockage bloqué) : le
+    // rôle viendra de poste.json (synchroniserConfig), pas d'ici.
     return { ...DEFAUT };
   }
 }
@@ -163,14 +175,21 @@ export async function synchroniserConfig(): Promise<EtatReseau> {
       poste_empreinte: string;
     }>("lire_config_reseau");
 
-    const mode: ModeReseau = c.mode === "poste" ? "poste" : "monoposte";
+    const mode: ModeReseau =
+      c.mode === "poste" ? "poste" : c.mode === "monoposte" ? "monoposte" : "a_choisir";
+    // Ce poste garde la base : son serveur est ici, au port que Rust a
+    // retenu dans la plage 40000–40100 (D39 : si 40000 est pris, le
+    // suivant libre). Sans réponse lisible, le port par défaut.
+    const serveur = mode === "monoposte"
+      ? (c.serveur?.startsWith("127.0.0.1:") ? c.serveur : ADRESSE_LOCALE)
+      : c.serveur;
     // Le serveur a changé depuis la dernière fois : le jeton qu'on
     // garde a été émis par l'autre, il ne vaut plus rien.
-    const change = mode !== etat.mode || c.serveur !== etat.serveur;
+    const change = mode !== etat.mode || serveur !== etat.serveur;
     etat = {
       ...etat,
       mode,
-      serveur: c.serveur,
+      serveur,
       posteNom: c.poste_nom,
       posteEmpreinte: c.poste_empreinte,
       ...(change ? { jeton: null, posteId: null, utilisateurId: null } : {}),
@@ -188,16 +207,15 @@ export async function synchroniserConfig(): Promise<EtatReseau> {
 /**
  * Le serveur est-il configure sur ce poste ?
  *
- * Ce n'est PLUS une question de mode. Le client v2 ne sait parler qu'au
- * serveur : le monoposte reste la v1, et c'est ce qui supprime la
- * classe de pannes ou deux chemins se contredisent — une base locale
- * vide qu'on croit pleine, un ecran qui marche a moitie selon le
- * reglage.
- *
- * La seule question qui reste est donc : sait-on OU joindre le serveur ?
+ * Le client ne sait parler qu'au serveur, quel que soit son rôle : c'est
+ * ce qui supprime la classe de pannes ou deux chemins se contredisent —
+ * une base locale vide qu'on croit pleine, un ecran qui marche a moitie
+ * selon le reglage. La seule question est donc : sait-on OU le joindre ?
+ * Ici (`monoposte`, 127.0.0.1), ou a l'adresse saisie (`poste`). Un
+ * poste dont le rôle n'est pas encore choisi ne le sait pas.
  */
 export function serveurConfigure(): boolean {
-  return etat.mode === "poste" && Boolean(etat.serveur.trim());
+  return (etat.mode === "poste" || etat.mode === "monoposte") && Boolean(etat.serveur.trim());
 }
 
 /** @deprecated Le client v2 est toujours en reseau. */
@@ -210,7 +228,7 @@ export function definirServeur(mode: ModeReseau, serveur: string) {
   // Changer de serveur invalide le jeton : il a été émis par l'autre.
   // Le comparer AVANT d'écrire, sinon on compare la nouvelle valeur à
   // elle-même et le jeton périmé survit au changement.
-  const change = mode === "monoposte" || neuf !== etat.serveur;
+  const change = mode !== etat.mode || neuf !== etat.serveur;
   etat = { ...etat, mode, serveur: neuf };
   if (change) {
     etat.jeton = null;
@@ -222,7 +240,7 @@ export function definirServeur(mode: ModeReseau, serveur: string) {
 
 function racine(): string {
   const a = etat.serveur.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-  return `http://${a.includes(":") ? a : `${a}:7300`}`;
+  return `http://${a.includes(":") ? a : `${a}:40000`}`;
 }
 
 // =====================================================================
@@ -241,7 +259,9 @@ function racine(): string {
  * - **ouvrir un fichier** avec l'application du système ;
  * - **le réglage réseau lui-même** : il vit dans le `poste.json` de
  *   cette machine. Le demander au serveur serait circulaire — et
- *   `tester_serveur` doit justement pouvoir échouer sans réseau.
+ *   `tester_serveur` doit justement pouvoir échouer sans réseau ;
+ *   `rechercher_serveurs` cherche le serveur avant de le connaître
+ *   (diffusion UDP sur le réseau local, 27/10/2026).
  *
  * Cette liste est **fermée**. Une commande absente part au serveur :
  * c'est le bon défaut, parce qu'une commande métier oubliée ici
@@ -255,6 +275,8 @@ const LOCALES = new Set([
   "lire_config_reseau",
   "definir_config_reseau",
   "tester_serveur",
+  "demarrer_serveur_local",
+  "rechercher_serveurs",
 ]);
 
 /**

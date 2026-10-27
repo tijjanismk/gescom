@@ -34,6 +34,7 @@ dist-ssr
 # depot, et l'exclure faisait pointer la carte vers un fichier absent.
 !outils/
 !outils/*.ps1
+!outils/banc/*.ps1
 preparer_demo_video.py
 creer_tiers_test.py
 generer_catalogue.py

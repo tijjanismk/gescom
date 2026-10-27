@@ -51,9 +51,31 @@ rapports, pagination.
 `lire_rapport_top_clients`, `lire_rapport_top_articles`,
 `lire_rapport_stock`, `lire_rapport_creances`.
 
+**Chiffre d'affaires net des retours (lot B.2, 27/10/2026)** — le
+résumé du tableau de bord (jour, semaine, mois, mois précédent), la
+courbe `lire_ventes_periode`, les tops du tableau de bord et des
+rapports, `lire_rapport_ca_mensuel` et le `ca_total` de la fiche client
+déduisent les retours **datés dans la période** (`coeur::calcul::ca_net`,
+échange exclu par `RETOUR_HORS_CA`), filtrés comme la vente rendue
+(magasin, vente non annulée, dossier). Le retour d'une vente du mois
+dernier se déduit de ce mois-ci. Les tops se classent sur le net, la
+limite après ; le top articles retire aussi la quantité rendue et son
+coût d'achat de la marge. `lire_rapport_ca_mensuel` se calcule vente par
+vente : chaque mois porte `ca` (net), `nb_ventes`, `encaisse` (sans la
+dette éteinte par retour), `retours` et `creances` (reste dû des ventes
+du mois via `reste_exigible`) — l'écran lit `creances`, plus
+`ca - encaisse`. **Pas** le rapport TVA ni le cahier du jour
+(`journal.rs`, qui liste les retours à part).
+
 **pagination** — `lire_clients_pagines`, `lire_stocks_pagines`,
-`lire_fournisseurs_pagines` ; `lire_ventes_paginees` et
-`lire_ventes_recentes_paginee` *(jamais appelées)*.
+`lire_fournisseurs_pagines` ; `lire_ventes_recentes_paginee` (depuis le
+lot D.12, 27/10/2026 : l'écran Retours et la fenêtre de retour de
+Pièces, 50 par page ; rend `client_generique` et `deja_retourne`) et
+`lire_ventes_paginees` *(toujours sans écran)*. Les deux : `v.dossier_id`
+filtré, recherche sur nom, code du client et numéro de la facture
+(`RECHERCHE_VENTE`), ordre `date_vente DESC, cree_le DESC, id`
+(`ORDRE_VENTES`), numéro lu dans `piece_commerciale` dans les deux
+versions. Scénario `donnees_base::les_ventes_se_lisent_par_pages_de_50`.
 
 ## Entrant
 

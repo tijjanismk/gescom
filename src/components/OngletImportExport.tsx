@@ -99,7 +99,8 @@ export function OngletImportExport() {
             </div>
             <p className="text-xs text-muted-foreground">
               Tous les articles actifs, avec catégorie, unité, prix de
-              vente, prix d'achat, TVA, code-barres et stock.
+              vente, prix d'achat, TVA, code-barres, stock et « suivre le
+              stock » (oui/non).
             </p>
             {/* Le fichier porte les prix d'achat : il demande
                 `achats:lire_prix` (v3, C-1), le serveur refuse sinon. */}
@@ -179,14 +180,18 @@ export function OngletImportExport() {
         <CardContent className="pt-4">
           <h3 className="text-sm font-semibold mb-2">Format attendu</h3>
           <pre className="text-xs bg-muted p-3 rounded-md overflow-x-auto">
-{`Nom;Categorie;Unite;Prix;Prix achat;TVA %;Code barre;Stock
-Sucre;Alimentaire;kg;1500;1200;18;;50
-Riz local;Alimentaire;sac;35000;30000;0;;10
-Huile;;litre;2500;;;;`}
+{`Nom;Categorie;Unite;Prix;Prix achat;TVA %;Code barre;Stock;Suivre le stock
+Sucre;Alimentaire;kg;1500;1200;18;;50;oui
+Riz local;Alimentaire;sac;35000;30000;0;;10;
+Sachets;;paquet;100;;;;;non`}
           </pre>
           <ul className="text-xs text-muted-foreground mt-3 space-y-1">
             <li>· <strong>Nom</strong> et <strong>Prix</strong> sont
               obligatoires, le reste peut rester vide</li>
+            <li>· <strong>Suivre le stock</strong> (facultative) : oui ou
+              non. Vide, un nouvel article suit son stock. Une autre valeur
+              rejette la ligne, comme une valeur qui changerait le réglage
+              d'un article déjà présent : cela se fait dans Articles</li>
             <li>· Les prix acceptent les espaces et les points :
               « 12 500 » et « 12.500 » donnent 12500</li>
             <li>· Une catégorie inconnue est créée automatiquement</li>

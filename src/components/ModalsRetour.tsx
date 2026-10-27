@@ -1,21 +1,21 @@
 // components/ModalsRetour.tsx
 //
-// Les trois modals de retour — remboursement, avoir, échange.
+// La fenêtre de retour, commune à l'écran Retours et à l'écran Pièces.
 //
-// Extraits de `pages/Retours.tsx` sans changer une ligne de leur
-// contenu : l'écran Pièces doit pouvoir lancer les mêmes opérations
-// sur une facture. Les dupliquer aurait donné un quatrième cas de
-// divergence après les trois générateurs d'impression et les deux
-// FiltresVentes.
+// Tous les articles de la vente s'affichent, chacun avec sa case et sa
+// quantité (ce qui reste à retourner), puis on choisit : rembourser,
+// avoir ou échange. UN geste, une commande (`enregistrer_retour_groupe`),
+// tout ou rien. Elle remplace « Quel article retourner ? » suivi d'une
+// fenêtre par article et par mode — il fallait cliquer article par
+// article, échanges compris.
 
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
-import { Loader2, Search, Wallet, Gift, X } from "lucide-react";
+import { ArrowLeftRight, Gift, Loader2, Search, Wallet, X } from "lucide-react";
 import { genererBonEchangeHTML } from "@/lib/genererPDF";
 import { chargerHabillage } from "@/lib/impression";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -54,6 +54,8 @@ export interface LigneVente {
   quantite: number;
   prix_pratique: number;
   montant: number;
+  /** Ce qui en est déjà revenu (tous retours confondus). */
+  deja_retourne?: number;
 }
 
 export interface Vente {
@@ -62,6 +64,8 @@ export interface Vente {
   client_id: string;
   client_nom: string;
   client_code: string;
+  /** Le « Comptant » ou une fiche de passage : pas d'avoir (D40). */
+  client_generique?: boolean;
   date_vente: string;
   total: number;
   statut: string;
@@ -76,6 +80,8 @@ export interface Avoir {
   cree_le: string;
 }
 
+export type ModeRetour = "remboursement" | "avoir" | "echange";
+
 export function formaterMontant(n: number): string {
   return new Intl.NumberFormat("fr-ML").format(n) + " F";
 }
@@ -86,347 +92,152 @@ export function formaterDate(iso: string): string {
   });
 }
 
-// =====================================================================
-//  Modal : Remboursement simple
-// =====================================================================
+/** Ce qui reste à retourner sur une ligne, arrondi au centième. */
+export function restantDe(l: LigneVente): number {
+  return Math.max(0, Math.round((l.quantite - (l.deja_retourne ?? 0)) * 100) / 100);
+}
 
-export function ModalRemboursement({
-  ouvert, vente, ligne, onFermer, onConfirmer,
-}: {
-  ouvert: boolean;
-  vente: Vente | null;
-  ligne: LigneVente | null;
-  onFermer: () => void;
-  onConfirmer: () => void;
+const MOYENS = [
+  { value: "especes", label: "Espèces" },
+  { value: "orange_money", label: "Orange Money" },
+  { value: "moov_money", label: "Moov Money" },
+];
+
+function ChoixMoyen({ valeur, onChange, cheque = false }: {
+  valeur: string; onChange: (v: string) => void; cheque?: boolean;
 }) {
-  const [quantiteRetour, setQuantiteRetour] = useState("1");
-  const [modeEncaissement, setModeEncaissement] = useState("especes");
-  const [chargement, setChargement] = useState(false);
-
-  useEffect(() => {
-    if (ouvert && ligne) setQuantiteRetour(ligne.quantite.toString());
-  }, [ouvert, ligne]);
-
-  const quantiteNum = parseFloat(quantiteRetour) || 0;
-  const montantCredit = ligne ? Math.round(ligne.prix_pratique * quantiteNum) : 0;
-
-  async function handleConfirmer() {
-    if (!vente || !ligne || quantiteNum <= 0) return;
-    setChargement(true);
-    try {
-      const res = await invoke<{ part_especes: number; part_avoir: number; numero_avoir: string | null }>(
-        "enregistrer_retour", {
-          venteId: vente.id,
-          ligneVenteId: ligne.id,
-          quantite: quantiteNum,
-          modeResolution: "remboursement",
-          modeEncaissement,
-          articleRemplacementId: null,
-          uniteRemplacementId: null,
-          quantiteRemplacement: null,
-          modeReliquatPositif: null,
-        });
-      // Ce que le client avait paye avec un avoir revient en avoir, pas
-      // en especes (D15) : le vendeur doit le savoir AVANT d'ouvrir le
-      // tiroir, sinon il rend de l'argent qui n'est jamais entre.
-      if (res?.part_avoir > 0) {
-        await message(
-          `À rendre en espèces : ${formaterMontant(res.part_especes)}. ` +
-          `Le reste (${formaterMontant(res.part_avoir)}) avait été payé avec un avoir : ` +
-          `il revient en avoir ${res.numero_avoir ?? ""} — imprimable depuis Pièces.`,
-          { title: "Remboursement partiel en espèces", kind: "info" },
-        );
-      }
-      onConfirmer();
-    } catch (e) {
-      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
-    } finally {
-      setChargement(false);
-    }
-  }
-
-  if (!vente || !ligne) return null;
-
+  const liste = cheque ? [...MOYENS, { value: "cheque", label: "Chèque" }] : MOYENS;
   return (
-    <Dialog open={ouvert} onOpenChange={onFermer}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Remboursement — {ligne.article_nom}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 pt-2">
-          <div className="bg-muted rounded-md px-3 py-2 text-xs text-muted-foreground">
-            Vente du {formaterDate(vente.date_vente)} · {vente.client_nom}
-          </div>
-
-          <div>
-            <Label>Quantité retournée ({ligne.unite_libelle}) *</Label>
-            <Input type="number" value={quantiteRetour}
-              onChange={e => setQuantiteRetour(e.target.value)}
-              max={ligne.quantite} className="mt-1" autoFocus />
-            <p className="text-xs text-muted-foreground mt-1">
-              Vendu : {ligne.quantite} {ligne.unite_libelle}
-            </p>
-          </div>
-
-          <div className="bg-muted rounded-md px-3 py-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Montant à rembourser</span>
-              <span className="font-bold text-green-600">{formaterMontant(montantCredit)}</span>
-            </div>
-          </div>
-
-          <div>
-            <Label>Mode de remboursement</Label>
-            <Select value={modeEncaissement} onValueChange={v => { if (v) setModeEncaissement(v); }}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="especes">Espèces</SelectItem>
-                <SelectItem value="orange_money">Orange Money</SelectItem>
-                <SelectItem value="moov_money">Moov Money</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-orange-500 mt-1">
-              Une sortie de caisse sera enregistrée
-            </p>
-          </div>
-
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onFermer} disabled={chargement} className="flex-1">
-              Annuler
-            </Button>
-            <Button onClick={handleConfirmer}
-              disabled={quantiteNum <= 0 || quantiteNum > ligne.quantite || chargement}
-              className="flex-1">
-              {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : "Rembourser"}
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <Select value={valeur} onValueChange={v => { if (v) onChange(v); }}>
+      <SelectTrigger className="h-8 text-xs w-44">
+        <SelectValue>{liste.find(m => m.value === valeur)?.label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {liste.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+      </SelectContent>
+    </Select>
   );
 }
 
-// =====================================================================
-//  Modal : Avoir conservé
-// =====================================================================
+interface Pris { article: ArticleAchat; unite: UniteVente; quantite: string }
 
-export function ModalAvoirConserve({
-  ouvert, vente, ligne, onFermer, onConfirmer,
-}: {
-  ouvert: boolean;
-  vente: Vente | null;
-  ligne: LigneVente | null;
-  onFermer: () => void;
-  onConfirmer: () => void;
-}) {
-  const [quantiteRetour, setQuantiteRetour] = useState("1");
-  const [chargement, setChargement] = useState(false);
-
-  useEffect(() => {
-    if (ouvert && ligne) setQuantiteRetour(ligne.quantite.toString());
-  }, [ouvert, ligne]);
-
-  const quantiteNum = parseFloat(quantiteRetour) || 0;
-  const montantCredit = ligne ? Math.round(ligne.prix_pratique * quantiteNum) : 0;
-
-  async function handleConfirmer() {
-    if (!vente || !ligne || quantiteNum <= 0) return;
-    setChargement(true);
-    try {
-      const res = await invoke<{ numero_avoir: string | null }>(
-        "enregistrer_retour", {
-          venteId: vente.id,
-          ligneVenteId: ligne.id,
-          quantite: quantiteNum,
-          modeResolution: "avoir_conserve",
-          modeEncaissement: null,
-          articleRemplacementId: null,
-          uniteRemplacementId: null,
-          quantiteRemplacement: null,
-          modeReliquatPositif: null,
-        });
-      // L'avoir est desormais un document numerote (AVC-AAAA-NNNNN),
-      // consultable et imprimable depuis l'ecran Pieces.
-      if (res?.numero_avoir) {
-        await message(
-          `Avoir ${res.numero_avoir} créé — imprimable depuis Pièces.`,
-          { title: "Avoir créé", kind: "info" },
-        );
-      }
-      onConfirmer();
-    } catch (e) {
-      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
-    } finally {
-      setChargement(false);
-    }
-  }
-
-  if (!vente || !ligne) return null;
-
-  return (
-    <Dialog open={ouvert} onOpenChange={onFermer}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Avoir conservé — {ligne.article_nom}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 pt-2">
-          <div className="bg-muted rounded-md px-3 py-2 text-xs text-muted-foreground">
-            Vente du {formaterDate(vente.date_vente)} · {vente.client_nom}
-          </div>
-
-          <div>
-            <Label>Quantité retournée ({ligne.unite_libelle}) *</Label>
-            <Input type="number" value={quantiteRetour}
-              onChange={e => setQuantiteRetour(e.target.value)}
-              max={ligne.quantite} className="mt-1" autoFocus />
-          </div>
-
-          <div className="bg-muted rounded-md px-3 py-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Avoir créé au nom de</span>
-              <span className="font-medium">{vente?.client_nom}</span>
-            </div>
-            <div className="flex justify-between text-sm mt-1">
-              <span className="text-muted-foreground">Montant</span>
-              <span className="font-bold text-green-600">{formaterMontant(montantCredit)}</span>
-            </div>
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            L'avoir sera utilisable lors d'une prochaine vente. Pas de mouvement de caisse.
-          </p>
-
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onFermer} disabled={chargement} className="flex-1">
-              Annuler
-            </Button>
-            <Button onClick={handleConfirmer}
-              disabled={quantiteNum <= 0 || quantiteNum > ligne.quantite || chargement}
-              className="flex-1">
-              {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : "Créer l'avoir"}
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
+interface ResultatRetour {
+  montant_credit: number; part_creance: number; part_client: number;
+  part_especes: number; part_avoir: number; reliquat: number;
+  numero_avoir: string | null;
 }
 
 // =====================================================================
-//  Modal : Échange complet
+//  La fenêtre de retour
 // =====================================================================
 
-export function ModalEchange({
-  ouvert, vente, ligne, articles, comptant, bonSortieActif,
+export function ModalRetour({
+  ouvert, vente, modeInitial, ligneInitiale, articles, bonSortieActif,
   onFermer, onConfirmer,
 }: {
   ouvert: boolean;
   vente: Vente | null;
-  ligne: LigneVente | null;
+  modeInitial: ModeRetour;
+  /** Cochée d'office (le bouton d'une ligne dans l'écran Retours). */
+  ligneInitiale?: string | null;
   articles: ArticleAchat[];
-  // Client de passage : le reliquat repart en especes, jamais en avoir.
-  comptant: boolean;
-  // Magasin separe de la caisse : on imprime un bon pour le magasinier.
+  /** Magasin séparé de la caisse : un échange imprime un bon d'échange. */
   bonSortieActif: boolean;
   onFermer: () => void;
   onConfirmer: () => void;
 }) {
-  // Article retourné
-  const [quantiteRetour, setQuantiteRetour] = useState("1");
-
-  // Article de remplacement
-  const [rechercheRemplacement, setRechercheRemplacement] = useState("");
-  const [articlesFiltres, setArticlesFiltres] = useState<ArticleAchat[]>([]);
-  const [articleRemplacement, setArticleRemplacement] = useState<ArticleAchat | null>(null);
-  const [uniteRemplacement, setUniteRemplacement] = useState<UniteVente | null>(null);
-  const [quantiteRemplacement, setQuantiteRemplacement] = useState("1");
-
-  // Reliquat
-  const [modeReliquatPositif, setModeReliquatPositif] = useState<"remboursement" | "avoir">("remboursement");
-  // Garde-fou d'etat : un changement de vente ne doit pas laisser
-  // "avoir" selectionne sur un client de passage.
-  useEffect(() => {
-    if (comptant) setModeReliquatPositif("remboursement");
-  }, [comptant, ouvert]);
-  const [modeEncaissementReliquat, setModeEncaissementReliquat] = useState("especes");
-  const [modeEncaissementComplement, setModeEncaissementComplement] = useState("especes");
-
+  const comptant = !!vente?.client_generique;
+  const [mode, setMode] = useState<ModeRetour>("remboursement");
+  const [choix, setChoix] = useState<Record<string, { coche: boolean; quantite: string }>>({});
+  const [moyen, setMoyen] = useState("especes");
+  const [pris, setPris] = useState<Pris[]>([]);
+  const [recherche, setRecherche] = useState("");
+  const [modeReliquat, setModeReliquat] = useState<"remboursement" | "avoir">("remboursement");
+  const [moyenReliquat, setMoyenReliquat] = useState("especes");
   const [chargement, setChargement] = useState(false);
 
   useEffect(() => {
-    if (ouvert && ligne) {
-      setQuantiteRetour(ligne.quantite.toString());
-      setArticleRemplacement(null);
-      setUniteRemplacement(null);
-      setQuantiteRemplacement("1");
-      setRechercheRemplacement("");
-      setArticlesFiltres([]);
-    }
-  }, [ouvert, ligne]);
+    if (!ouvert || !vente) return;
+    const ouvertes = vente.lignes.filter(l => restantDe(l) > 0);
+    setChoix(Object.fromEntries(vente.lignes.map(l => [l.id, {
+      // Une seule ligne encore retournable : inutile de la faire cocher.
+      coche: restantDe(l) > 0 && (l.id === ligneInitiale || ouvertes.length === 1),
+      quantite: String(restantDe(l)),
+    }])));
+    setMode(comptant && modeInitial === "avoir" ? "remboursement" : modeInitial);
+    setMoyen("especes");
+    setPris([]);
+    setRecherche("");
+    setModeReliquat("remboursement");
+    setMoyenReliquat("especes");
+  }, [ouvert, vente, modeInitial, ligneInitiale, comptant]);
 
-  const quantiteRetourNum = parseFloat(quantiteRetour) || 0;
-  const quantiteRemplacementNum = parseFloat(quantiteRemplacement) || 0;
+  if (!vente) return null;
+  const v = vente;
 
-  const creditRetour = ligne
-    ? Math.round(ligne.prix_pratique * quantiteRetourNum)
-    : 0;
+  const qte = (l: LigneVente) => parseFloat(choix[l.id]?.quantite ?? "") || 0;
+  const coches = v.lignes.filter(l => choix[l.id]?.coche);
+  const credit = coches.reduce((s, l) => s + Math.round(l.prix_pratique * qte(l)), 0);
+  const montantPris = pris.reduce((s, p) => s + Math.round(p.unite.prix_reference * (parseFloat(p.quantite) || 0)), 0);
+  const reliquat = credit - montantPris;
+  const ligneInvalide = (l: LigneVente) => qte(l) <= 0 || qte(l) > restantDe(l) + 1e-9;
+  const invalide = coches.length === 0 || coches.some(ligneInvalide)
+    || (mode === "echange" && (pris.length === 0 || pris.some(p => (parseFloat(p.quantite) || 0) <= 0)));
 
-  const montantRemplacement = uniteRemplacement
-    ? Math.round(uniteRemplacement.prix_reference * quantiteRemplacementNum)
-    : 0;
-
-  const reliquat = creditRetour - montantRemplacement;
-
-  function handleRechercheRemplacement(val: string) {
-    setRechercheRemplacement(val);
-    if (val.length < 1) { setArticlesFiltres([]); return; }
-    // Le meme article reste proposable : echanger un carton contre les
-    // pieces qu'il contient est le cas le plus courant. Il n'etait
-    // exclu que parce qu'a l'epoque un article n'avait qu'une unite —
-    // l'echanger contre lui-meme n'aurait alors rien voulu dire.
-    setArticlesFiltres(
-      articles.filter(a => a.nom.toLowerCase().includes(val.toLowerCase()))
-    );
+  function basculer(l: LigneVente, coche: boolean) {
+    setChoix(c => ({ ...c, [l.id]: { ...c[l.id], coche } }));
+  }
+  function toutCocher() {
+    setChoix(c => Object.fromEntries(v.lignes.map(l => [l.id, {
+      ...c[l.id], coche: restantDe(l) > 0,
+    }])));
+  }
+  function ajouterPris(a: ArticleAchat) {
+    if (a.unites.length === 0) return;
+    setPris(ps => [...ps, { article: a, unite: a.unites[0], quantite: "1" }]);
+    setRecherche("");
   }
 
-  function selectionnerArticleRemplacement(a: ArticleAchat) {
-    setArticleRemplacement(a);
-    // Meme article : proposer d'emblee une AUTRE unite que celle
-    // vendue, sinon l'echange serait sans objet.
-    const memeArticle = a.id === ligne?.article_id;
-    const autre = memeArticle
-      ? a.unites.find(u => u.id !== ligne?.unite_vente_id)
-      : undefined;
-    setUniteRemplacement(autre ?? a.unites[0]);
-    setQuantiteRemplacement("1");
-    setRechercheRemplacement("");
-    setArticlesFiltres([]);
-  }
-
-  async function handleConfirmer() {
-    if (!vente || !ligne || !articleRemplacement || !uniteRemplacement) return;
+  async function confirmer() {
     setChargement(true);
     try {
-      const res = await invoke<{ part_avoir: number; numero_avoir: string | null }>("enregistrer_retour", {
-        venteId: vente.id,
-        ligneVenteId: ligne.id,
-        quantite: quantiteRetourNum,
-        modeResolution: "echange",
-        modeEncaissement: reliquat < 0 ? modeEncaissementComplement : null,
-        articleRemplacementId: articleRemplacement.id,
-        uniteRemplacementId: uniteRemplacement.id,
-        quantiteRemplacement: quantiteRemplacementNum,
-        modeReliquatPositif: reliquat > 0 ? modeReliquatPositif : null,
-        modeEncaissementReliquat: reliquat > 0 && modeReliquatPositif === "remboursement"
-          ? modeEncaissementReliquat
-          : null,
+      const r = await invoke<ResultatRetour>("enregistrer_retour_groupe", {
+        venteId: v.id,
+        articles: coches.map(l => ({ ligne_vente_id: l.id, quantite: qte(l) })),
+        modeResolution: mode === "avoir" ? "avoir_conserve" : mode,
+        // Remboursement : le moyen rendu ; échange : celui du complément.
+        modeEncaissement: mode === "avoir" ? null : moyen,
+        pris: mode === "echange"
+          ? pris.map(p => ({ article_id: p.article.id, unite_vente_id: p.unite.id, quantite: parseFloat(p.quantite) || 0 }))
+          : [],
+        modeReliquatPositif: mode === "echange" && reliquat > 0 ? (comptant ? "remboursement" : modeReliquat) : null,
+        modeEncaissementReliquat: mode === "echange" && reliquat > 0 ? moyenReliquat : null,
       });
 
-      // Bon d'échange pour le magasinier : c'est le seul cas où il doit
-      // faire deux gestes opposés, reprendre puis remettre. Non
-      // bloquant — l'échange est déjà enregistré, une impression ratée
-      // ne doit pas laisser croire qu'il a échoué.
-      if (bonSortieActif) {
+      // Ce qui s'est passé, chiffré par le serveur : c'est lui qui sait
+      // ce que le client avait versé et ce qu'il devait encore.
+      const dire: string[] = [];
+      if (r.part_creance > 0) dire.push(`Dette du client réduite de ${formaterMontant(r.part_creance)}.`);
+      if (mode === "remboursement") {
+        if (r.part_especes > 0) dire.push(`À rendre au client : ${formaterMontant(r.part_especes)}.`);
+        if (r.part_avoir > 0) {
+          dire.push(`${formaterMontant(r.part_avoir)} payés avec un avoir reviennent en avoir ${r.numero_avoir ?? ""}, pas en espèces.`);
+        }
+      } else if (mode === "avoir") {
+        if (r.part_client > 0) dire.push(`Avoir ${r.numero_avoir ?? ""} : ${formaterMontant(r.part_client)} au crédit du client.`);
+      } else if (r.reliquat > 0) {
+        dire.push(r.numero_avoir
+          ? `Reliquat de ${formaterMontant(r.reliquat)} : en avoir ${r.numero_avoir} (tout ou partie).`
+          : `À rendre au client : ${formaterMontant(r.reliquat)}.`);
+      } else if (r.reliquat < 0) {
+        dire.push(`Le client paie la différence : ${formaterMontant(-r.reliquat)}.`);
+      } else {
+        dire.push("Échange soldé exactement.");
+      }
+
+      // Bon d'échange pour le magasinier : deux gestes opposés, reprendre
+      // puis remettre. Non bloquant — le retour est déjà enregistré.
+      if (mode === "echange" && bonSortieActif) {
         try {
           const [societe, habillage] = await Promise.all([
             invoke<any>("lire_parametres_societe"),
@@ -434,276 +245,243 @@ export function ModalEchange({
           ]);
           await invoke("imprimer_facture", {
             html: genererBonEchangeHTML({
-              numero_vente: vente.numero_facture ?? vente.id.slice(0, 8),
+              numero_vente: v.numero_facture ?? v.id.slice(0, 8),
               date: new Date().toISOString(),
-              client_nom: vente.client_nom,
-              rendu: {
-                article_nom: ligne.article_nom,
-                unite_libelle: ligne.unite_libelle,
-                quantite: quantiteRetourNum,
-              },
-              remis: {
-                article_nom: articleRemplacement.nom,
-                unite_libelle: uniteRemplacement.libelle,
-                quantite: quantiteRemplacementNum,
-              },
+              // Jamais « Client de passage » sur le papier : son code
+              // (même règle que passage::tiers_a_imprimer côté serveur).
+              client_nom: v.client_nom === "Client de passage" ? v.client_code : v.client_nom,
+              rendu: coches.map(l => ({ article_nom: l.article_nom, unite_libelle: l.unite_libelle, quantite: qte(l) })),
+              remis: pris.map(p => ({ article_nom: p.article.nom, unite_libelle: p.unite.libelle, quantite: parseFloat(p.quantite) || 0 })),
               societe,
             }, habillage),
-            nomFichier: `echange_${vente.id.slice(0, 8)}.html`,
+            nomFichier: `echange_${v.id.slice(0, 8)}.html`,
           });
         } catch (e) {
           console.error("Bon d'échange non imprimé :", e);
         }
       }
 
-      // Le reliquat demande en especes revient en avoir pour la part
-      // que le client avait payee avec un avoir (D15).
-      if (reliquat > 0 && modeReliquatPositif === "remboursement" && res?.part_avoir > 0) {
-        await message(
-          `Le client avait payé avec un avoir : ${formaterMontant(res.part_avoir)} ` +
-          `reviennent en avoir ${res.numero_avoir ?? ""}, pas en espèces.`,
-          { title: "Reliquat en avoir", kind: "info" },
-        );
-      }
-
+      await message(dire.join("\n") || "Retour enregistré.", { title: "Retour enregistré", kind: "info" });
       onConfirmer();
     } catch (e) {
-      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
+      await message(`${e}`, { title: "Retour refusé", kind: "error" });
     } finally {
       setChargement(false);
     }
   }
 
-  if (!vente || !ligne) return null;
+  const MODES: { value: ModeRetour; label: string; icone: typeof Wallet }[] = [
+    { value: "remboursement", label: "Rembourser", icone: Wallet },
+    ...(comptant ? [] : [{ value: "avoir" as const, label: "Avoir", icone: Gift }]),
+    { value: "echange", label: "Échange", icone: ArrowLeftRight },
+  ];
+  const articlesTrouves = recherche.trim().length < 1 ? [] :
+    articles.filter(a => a.nom.toLowerCase().includes(recherche.toLowerCase())).slice(0, 8);
 
   return (
-    <Dialog open={ouvert} onOpenChange={onFermer}>
-      <DialogContent className="max-w-lg">
+    <Dialog open={ouvert} onOpenChange={o => { if (!o) onFermer(); }}>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Échange — {ligne.article_nom}</DialogTitle>
+          <DialogTitle>Retour — {v.client_nom}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 pt-2 max-h-[70vh] overflow-auto pr-1">
+        <div className="space-y-4 pt-1 max-h-[72vh] overflow-auto pr-1">
+          <p className="text-xs text-muted-foreground">
+            Vente du {formaterDate(v.date_vente)}
+            {v.numero_facture ? ` · ${v.numero_facture}` : ""} · {formaterMontant(v.total)}
+          </p>
 
-          <div className="bg-muted rounded-md px-3 py-2 text-xs text-muted-foreground">
-            Vente du {formaterDate(vente.date_vente)} · {vente.client_nom}
+          {/* Le mode */}
+          <div className="flex gap-2">
+            {MODES.map(m => {
+              const Icone = m.icone;
+              return (
+                <button key={m.value} type="button" onClick={() => setMode(m.value)}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-2 py-2 rounded-md border text-sm font-medium transition-colors",
+                    mode === m.value ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-muted",
+                  )}>
+                  <Icone className="h-4 w-4" />{m.label}
+                </button>
+              );
+            })}
+          </div>
+          {comptant && (
+            <p className="text-xs text-muted-foreground -mt-2">
+              Client de passage : pas d'avoir, on rembourse ou on échange.
+            </p>
+          )}
+
+          {/* Les articles de la vente */}
+          <div className="border border-border rounded-lg">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                {mode === "echange" ? "Ce que le client rapporte" : "Articles retournés"}
+              </p>
+              <button type="button" onClick={toutCocher} className="text-xs text-primary hover:underline">
+                Tout cocher
+              </button>
+            </div>
+            {v.lignes.map(l => {
+              const reste = restantDe(l);
+              const c = choix[l.id];
+              const fini = reste <= 0;
+              return (
+                <label key={l.id}
+                  className={cn("flex items-center gap-3 px-3 py-2 border-b border-border/60 last:border-0",
+                    fini ? "opacity-50" : "cursor-pointer hover:bg-muted/40")}>
+                  <input type="checkbox" className="h-4 w-4 accent-primary"
+                    disabled={fini} checked={!!c?.coche}
+                    onChange={e => basculer(l, e.target.checked)} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{l.article_nom}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Vendu {l.quantite} {l.unite_libelle} × {formaterMontant(l.prix_pratique)}
+                      {(l.deja_retourne ?? 0) > 0 && (fini
+                        ? " · tout est déjà revenu"
+                        : ` · déjà revenu ${l.deja_retourne}`)}
+                    </p>
+                  </div>
+                  {!fini && (
+                    <Input type="number" min={0} max={reste} step="any"
+                      value={c?.quantite ?? ""} disabled={!c?.coche}
+                      onChange={e => setChoix(x => ({ ...x, [l.id]: { ...x[l.id], quantite: e.target.value } }))}
+                      className={cn("h-8 w-20 text-sm text-right",
+                        c?.coche && ligneInvalide(l) && "border-red-500")} />
+                  )}
+                  <span className="w-24 text-right text-sm tabular-nums">
+                    {c?.coche ? formaterMontant(Math.round(l.prix_pratique * qte(l))) : ""}
+                  </span>
+                </label>
+              );
+            })}
           </div>
 
-          {/* Article retourné */}
-          <div className="border border-border rounded-lg p-3 space-y-2">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-              Article retourné
-            </p>
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium">{ligne.article_nom}</p>
-              <span className="text-xs text-muted-foreground">
-                {formaterMontant(ligne.prix_pratique)}/{ligne.unite_libelle}
-              </span>
-            </div>
-            <div>
-              <Label className="text-xs">Quantité retournée ({ligne.unite_libelle})</Label>
-              <Input type="number" value={quantiteRetour}
-                onChange={e => setQuantiteRetour(e.target.value)}
-                max={ligne.quantite} className="h-8 text-sm mt-0.5" />
-            </div>
-            <div className="flex justify-between text-sm pt-1">
-              <span className="text-muted-foreground">Crédit généré</span>
-              <span className="font-semibold text-green-600">{formaterMontant(creditRetour)}</span>
-            </div>
-          </div>
-
-          {/* Article de remplacement */}
-          <div className="border border-border rounded-lg p-3 space-y-2">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-              Article de remplacement
-            </p>
-
-            {articleRemplacement ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">{articleRemplacement.nom}</p>
-                  <button onClick={() => setArticleRemplacement(null)}
-                    className="text-xs text-muted-foreground hover:text-foreground">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                {/* Toujours affiche, meme avec une seule unite : l'operateur
-                    doit VOIR dans quel conditionnement il echange. Masquer
-                    le champ faisait passer un carton pour une piece. */}
-                {articleRemplacement.unites.length >= 1 && (
-                  <Select value={uniteRemplacement?.id ?? ""}
-                    onValueChange={v => {
-                      if (v) {
-                        const u = articleRemplacement.unites.find(u => u.id === v);
-                        if (u) setUniteRemplacement(u);
-                      }
-                    }}>
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue>
-                        {uniteRemplacement?.libelle ?? "Choisir"}
-                      </SelectValue>
-                    </SelectTrigger>
+          {/* Échange : ce que le client prend */}
+          {mode === "echange" && (
+            <div className="border border-border rounded-lg p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Ce que le client prend
+              </p>
+              {pris.map((p, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <p className="flex-1 text-sm font-medium truncate">{p.article.nom}</p>
+                  <Select value={p.unite.id} onValueChange={id => {
+                    const u = p.article.unites.find(x => x.id === id);
+                    if (u) setPris(ps => ps.map((q, j) => j === i ? { ...q, unite: u } : q));
+                  }}>
+                    <SelectTrigger className="h-8 text-xs w-36"><SelectValue>{p.unite.libelle}</SelectValue></SelectTrigger>
                     <SelectContent>
-                      {articleRemplacement.unites.map(u => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.libelle} — {formaterMontant(u.prix_reference)}
-                        </SelectItem>
+                      {p.article.unites.map(u => (
+                        <SelectItem key={u.id} value={u.id}>{u.libelle} — {formaterMontant(u.prix_reference)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                )}
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-xs">Quantité</Label>
-                    <Input type="number" value={quantiteRemplacement}
-                      onChange={e => setQuantiteRemplacement(e.target.value)}
-                      className="h-8 text-sm mt-0.5" />
-                  </div>
-                  <div className="flex items-end pb-0.5">
-                    <p className="text-sm">
-                      {uniteRemplacement && `${formaterMontant(uniteRemplacement.prix_reference)}/${uniteRemplacement.libelle}`}
-                    </p>
-                  </div>
+                  <Input type="number" min={0} step="any" value={p.quantite}
+                    onChange={e => setPris(ps => ps.map((q, j) => j === i ? { ...q, quantite: e.target.value } : q))}
+                    className="h-8 w-20 text-sm text-right" />
+                  <span className="w-24 text-right text-sm tabular-nums">
+                    {formaterMontant(Math.round(p.unite.prix_reference * (parseFloat(p.quantite) || 0)))}
+                  </span>
+                  <button type="button" onClick={() => setPris(ps => ps.filter((_, j) => j !== i))}
+                    className="text-muted-foreground hover:text-foreground" title="Retirer">
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
-
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Montant remplacement</span>
-                  <span className="font-semibold">{formaterMontant(montantRemplacement)}</span>
-                </div>
-              </div>
-            ) : (
+              ))}
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                <Input value={rechercheRemplacement}
-                  onChange={e => handleRechercheRemplacement(e.target.value)}
-                  placeholder="Rechercher l'article de remplacement..."
-                  className="pl-8 h-8 text-sm" autoFocus />
-                {articlesFiltres.length > 0 && (
+                <Input value={recherche} onChange={e => setRecherche(e.target.value)}
+                  placeholder="Ajouter un article pris en échange…" className="pl-8 h-8 text-sm" />
+                {articlesTrouves.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-md">
-                    {articlesFiltres.map(a => (
-                      <button key={a.id} onClick={() => selectionnerArticleRemplacement(a)}
-                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">{a.nom}</span>
+                    {articlesTrouves.map(a => (
+                      <button key={a.id} type="button" onClick={() => ajouterPris(a)}
+                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent flex justify-between">
+                        <span className="font-medium">{a.nom}</span>
+                        {a.unites[0] && (
                           <span className="text-xs text-muted-foreground">
-                            {a.unites[0].prix_reference} F/{a.unite_base}
+                            {formaterMontant(a.unites[0].prix_reference)}/{a.unites[0].libelle}
                           </span>
-                        </div>
+                        )}
                       </button>
                     ))}
                   </div>
                 )}
               </div>
-            )}
-          </div>
-
-          {/* Résumé du reliquat */}
-          {articleRemplacement && (
-            <div className={cn(
-              "border rounded-lg p-3 space-y-2",
-              reliquat > 0 ? "border-green-200 bg-green-50 dark:bg-green-950/20"
-              : reliquat < 0 ? "border-orange-200 bg-orange-50 dark:bg-orange-950/20"
-              : "border-border bg-muted"
-            )}>
-              <div className="flex justify-between text-sm font-semibold">
-                <span>
-                  {reliquat > 0 ? "Reliquat à restituer"
-                  : reliquat < 0 ? "Complément à payer"
-                  : "Échange soldé exactement"}
-                </span>
-                <span className={
-                  reliquat > 0 ? "text-green-600"
-                  : reliquat < 0 ? "text-orange-600"
-                  : ""
-                }>
-                  {reliquat !== 0 ? formaterMontant(Math.abs(reliquat)) : "0 F"}
-                </span>
-              </div>
-
-              {/* Reliquat positif — client reçoit de l'argent */}
-              {reliquat > 0 && (
-                <div className="space-y-2 pt-1 border-t border-green-200">
-                  <p className="text-xs text-muted-foreground">
-                    {comptant
-                      ? "Reliquat remboursé — pas d'avoir pour un client comptant."
-                      : "Comment restituer le reliquat ?"}
-                  </p>
-                  <div className={cn("flex gap-2", comptant && "hidden")}>
-                    {[
-                      { value: "remboursement", label: "Rembourser", icone: Wallet },
-                      { value: "avoir", label: "Avoir", icone: Gift },
-                    ].map(opt => {
-                      const Icone = opt.icone;
-                      return (
-                        <button key={opt.value}
-                          onClick={() => setModeReliquatPositif(opt.value as typeof modeReliquatPositif)}
-                          className={cn(
-                            "flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md border text-xs font-medium transition-all",
-                            modeReliquatPositif === opt.value
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-border hover:bg-muted"
-                          )}>
-                          <Icone className="h-3.5 w-3.5" />
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {modeReliquatPositif === "remboursement" && (
-                    <Select value={modeEncaissementReliquat}
-                      onValueChange={v => { if (v) setModeEncaissementReliquat(v); }}>
-                      <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="especes">Espèces</SelectItem>
-                        <SelectItem value="orange_money">Orange Money</SelectItem>
-                        <SelectItem value="moov_money">Moov Money</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-              )}
-
-              {/* Reliquat négatif — client paie la différence */}
-              {reliquat < 0 && (
-                <div className="space-y-2 pt-1 border-t border-orange-200">
-                  <p className="text-xs text-muted-foreground">
-                    Le client complète {formaterMontant(Math.abs(reliquat))}
-                  </p>
-                  <Select value={modeEncaissementComplement}
-                    onValueChange={v => { if (v) setModeEncaissementComplement(v); }}>
-                    <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="especes">Espèces</SelectItem>
-                      <SelectItem value="orange_money">Orange Money</SelectItem>
-                      <SelectItem value="moov_money">Moov Money</SelectItem>
-                      <SelectItem value="cheque">Chèque</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
             </div>
           )}
+
+          {/* Le bilan, et comment régler */}
+          <div className="rounded-lg bg-muted px-3 py-2.5 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Valeur rendue</span>
+              <span className="font-semibold">{formaterMontant(credit)}</span>
+            </div>
+            {mode === "remboursement" && (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  La dette du client s'éteint d'abord ; le reste lui est rendu, jamais plus que ce qu'il a versé.
+                </p>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Rendu en</span>
+                  <ChoixMoyen valeur={moyen} onChange={setMoyen} />
+                </div>
+              </>
+            )}
+            {mode === "avoir" && (
+              <p className="text-xs text-muted-foreground">
+                Un seul avoir pour tous les articles cochés, au crédit du client.
+              </p>
+            )}
+            {mode === "echange" && pris.length > 0 && (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Articles pris</span>
+                  <span className="font-semibold">{formaterMontant(montantPris)}</span>
+                </div>
+                <div className={cn("flex justify-between font-semibold border-t border-border pt-1.5",
+                  reliquat > 0 ? "text-green-700" : reliquat < 0 ? "text-orange-700" : "")}>
+                  <span>{reliquat > 0 ? "Reliquat au client" : reliquat < 0 ? "Le client paie" : "Échange soldé"}</span>
+                  <span>{formaterMontant(Math.abs(reliquat))}</span>
+                </div>
+                {reliquat > 0 && (
+                  <div className="flex items-center justify-between gap-2">
+                    {comptant ? (
+                      <span className="text-xs text-muted-foreground">Remboursé — pas d'avoir pour un client de passage.</span>
+                    ) : (
+                      <div className="flex gap-1">
+                        {(["remboursement", "avoir"] as const).map(m => (
+                          <button key={m} type="button" onClick={() => setModeReliquat(m)}
+                            className={cn("px-2.5 py-1 rounded-md border text-xs font-medium",
+                              modeReliquat === m ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background")}>
+                            {m === "remboursement" ? "Rembourser" : "En avoir"}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {(comptant || modeReliquat === "remboursement") && (
+                      <ChoixMoyen valeur={moyenReliquat} onChange={setMoyenReliquat} />
+                    )}
+                  </div>
+                )}
+                {reliquat < 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Payé en</span>
+                    <ChoixMoyen valeur={moyen} onChange={setMoyen} cheque />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
           <div className="flex gap-2">
             <Button variant="outline" onClick={onFermer} disabled={chargement} className="flex-1">
               Annuler
             </Button>
-            <Button
-              onClick={handleConfirmer}
-              disabled={
-                !articleRemplacement ||
-                quantiteRetourNum <= 0 ||
-                quantiteRemplacementNum <= 0 ||
-                chargement
-              }
-              className="flex-1"
-            >
-              {chargement
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : "Confirmer l'échange"
-              }
+            <Button onClick={confirmer} disabled={invalide || chargement} className="flex-1">
+              {chargement ? <Loader2 className="h-4 w-4 animate-spin" />
+                : mode === "remboursement" ? `Rembourser ${coches.length > 1 ? `${coches.length} articles` : ""}`
+                : mode === "avoir" ? "Créer l'avoir" : "Confirmer l'échange"}
             </Button>
           </div>
         </div>
@@ -711,4 +489,3 @@ export function ModalEchange({
     </Dialog>
   );
 }
-

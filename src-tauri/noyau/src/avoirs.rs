@@ -178,6 +178,8 @@ pub fn appliquer_avoir_vente(
             "UPDATE vente SET statut = ?1, modifie_le = ?2 WHERE id = ?3",
             rusqlite::params![statut, maintenant, vente_id],
         ).map_err(|e| e.to_string())?;
+        // D41 : un avoir qui laisse 5 F au plus solde la vente, ici.
+        crate::creances::solder_residu(&conn, &vente_id, &auteur_id, &maintenant)?;
 
         // Journal
         conn.execute(
@@ -647,6 +649,8 @@ pub fn appliquer_avoir_vente_sur_base(
             &parametres![statut, maintenant.clone(), vente_id.clone(), dossier.clone()],
         )
         .map_err(|e| e.0)?;
+        // D41 : un avoir qui laisse 5 F au plus solde la vente, ici.
+        crate::creances::solder_residu_sur(&mut tx, &vente_id, &auteur_id, &maintenant)?;
         let _ = tx.executer(
             "INSERT INTO journal
              (id, type_evenement, entite_type, entite_id, auteur_id,

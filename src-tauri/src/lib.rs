@@ -18,38 +18,43 @@ mod garde;
 #[cfg(test)]
 mod tests_multi_depot;
 
-use std::sync::Mutex;
+/// Le dossier de donnees de la fenetre : `poste.json` (son role, son
+/// empreinte). La fenetre n'y ouvre plus de base (lot E.13, 27/10/2026) ;
+/// un `gescom.db` deja present y reste, intact — c'est aussi la base par
+/// defaut du serveur de ce poste (`role_poste::dossier_donnees`).
+///
+/// En build de debogage, `GESCOM_DONNEES` le remplace : le banc d'ecran
+/// pilote la vraie fenetre monoposte sur un dossier jetable, sans jamais
+/// ouvrir celui du proprietaire (`%APPDATA%\ml.gescom.app`). Un
+/// executable livre ignore la variable : on ne redirige pas la base
+/// d'une boutique par l'environnement.
+pub(crate) fn dossier_donnees(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    #[cfg(debug_assertions)]
+    if let Some(d) = std::env::var_os("GESCOM_DONNEES").filter(|d| !d.is_empty()) {
+        return Ok(std::path::PathBuf::from(d));
+    }
+    app.path().app_data_dir().map_err(|e| format!("Répertoire de données introuvable : {e}"))
+}
+
 use tauri::Manager;
 use commandes::ventes::EtatApp;
 
 pub fn run() {
     // Avant TOUT le reste : Gescom s'installe, il ne se copie pas.
     // Placé ici et pas dans `setup` — une copie lancée depuis une clé
-    // USB doit s'arrêter sans avoir ouvert la moindre base.
+    // USB doit s'arrêter sans avoir rien touché.
     garde::exiger_installation();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .setup(|app| {
-            let data_dir = app.path().app_data_dir()
-                .expect("Impossible de trouver le répertoire de données");
-            std::fs::create_dir_all(&data_dir)
-                .expect("Création du répertoire de données");
-            let db_path = data_dir.join("gescom.db");
-
-            let conn = persistance::ouvrir_base(db_path.to_str().unwrap())
-                .expect("Impossible d'ouvrir la base de données");
-            persistance::initialiser_tables(&conn)
-                .expect("Impossible d'initialiser les tables");
-
-            if let Err(e) = gescom_noyau::seed::amorcer_si_vide(&conn) {
-                eprintln!("[seed] {e}");
-            }
-
-            app.manage(EtatApp { conn: Mutex::new(conn) });
-            Ok(())
-        })
+        // Aucune base : la fenêtre ne parle qu'au serveur (D22/D24
+        // révisés le 25/10/2026). Jusqu'au 27/10 elle ouvrait encore le
+        // `gescom.db` de son dossier, l'amorçait et le gardait ouvert
+        // sans que l'écran le lise jamais. Les façades `Connection`
+        // encore déclarées plus bas refusent (`EtatApp::sans_base`) ;
+        // les commandes locales (`pont.ts::LOCALES`) ne la lisaient pas.
+        .manage(EtatApp::sans_base())
         .invoke_handler(tauri::generate_handler![
             // ---- Ventes & clients ----
             commandes::ventes::lire_clients,
@@ -132,6 +137,9 @@ pub fn run() {
             reseau::lire_config_reseau,
             reseau::definir_config_reseau,
             reseau::tester_serveur,
+            reseau::demarrer_serveur_local,
+            // 27/10/2026 : « Rechercher le serveur » (diffusion UDP).
+            reseau::rechercher_serveurs,
             // ---- Modeles de documents (v2) ----
             // ---- Société & factures ----
             commandes::societe::lire_parametres_societe,

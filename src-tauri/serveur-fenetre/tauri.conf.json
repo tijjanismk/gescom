@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Gescom Serveur",
+  "version": "0.2.0",
+  "identifier": "ml.gescom.serveur",
+  "build": {
+    "frontendDist": "page"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Gescom Serveur",
+        "url": "index.html",
+        "width": 960,
+        "height": 780,
+        "minWidth": 420,
+        "minHeight": 480,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://*:40000 http://*:40001 http://*:40002 http://*:40003 http://*:40004 http://*:40005 http://*:40006 http://*:40007 http://*:40008 http://*:40009 http://*:40010 http://*:40011 http://*:40012 http://*:40013 http://*:40014 http://*:40015 http://*:40016 http://*:40017 http://*:40018 http://*:40019 http://*:40020 http://*:40021 http://*:40022 http://*:40023 http://*:40024 http://*:40025 http://*:40026 http://*:40027 http://*:40028 http://*:40029 http://*:40030 http://*:40031 http://*:40032 http://*:40033 http://*:40034 http://*:40035 http://*:40036 http://*:40037 http://*:40038 http://*:40039 http://*:40040 http://*:40041 http://*:40042 http://*:40043 http://*:40044 http://*:40045 http://*:40046 http://*:40047 http://*:40048 http://*:40049 http://*:40050 http://*:40051 http://*:40052 http://*:40053 http://*:40054 http://*:40055 http://*:40056 http://*:40057 http://*:40058 http://*:40059 http://*:40060 http://*:40061 http://*:40062 http://*:40063 http://*:40064 http://*:40065 http://*:40066 http://*:40067 http://*:40068 http://*:40069 http://*:40070 http://*:40071 http://*:40072 http://*:40073 http://*:40074 http://*:40075 http://*:40076 http://*:40077 http://*:40078 http://*:40079 http://*:40080 http://*:40081 http://*:40082 http://*:40083 http://*:40084 http://*:40085 http://*:40086 http://*:40087 http://*:40088 http://*:40089 http://*:40090 http://*:40091 http://*:40092 http://*:40093 http://*:40094 http://*:40095 http://*:40096 http://*:40097 http://*:40098 http://*:40099 http://*:40100"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "../icons/32x32.png",
+      "../icons/128x128.png",
+      "../icons/128x128@2x.png",
+      "../icons/icon.icns",
+      "../icons/icon.ico"
+    ]
+  }
+}

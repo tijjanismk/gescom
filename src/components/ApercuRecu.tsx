@@ -9,17 +9,25 @@
 // Pas de sélecteur de format ici : un reçu est un A5 — ou un A4 si la
 // boutique l'a réglé dans Paramètres → Documents (v3, A-2).
 
-import { useState, useEffect, useRef, useCallback } from "react";
+//
+// Le duplicata (26/10/2026) : comme ApercuPiece — l'aperçu montre l'état
+// annoncé par le serveur, le clic imprime d'après son verdict.
+
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
-import { Printer, Loader2, Eye, AlertTriangle } from "lucide-react";
+import { Printer, Loader2, Eye, AlertTriangle, Stamp } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { genererRecuHTML } from "@/lib/genererRecu";
 import type { DonneesRecu } from "@/lib/genererRecu";
-import { chargerHabillage } from "@/lib/impression";
+import { chargerHabillage, dateHeure, type Habillage } from "@/lib/impression";
+import {
+  lireEtatImpression, noterImpression, marque, proposerOriginal, refusImpression,
+  type EtatImpression, type ObjetImprime,
+} from "@/lib/duplicata";
 
 interface Props {
   /** `null` ferme l'aperçu. */
@@ -33,7 +41,9 @@ const LARGEUR_A5 = 559;
 const HAUTEUR_A5 = 794;
 
 export function ApercuRecu({ paiementId, cote, onFermer }: Props) {
-  const [html, setHtml] = useState("");
+  const [donnees, setDonnees] = useState<DonneesRecu | null>(null);
+  const [habillage, setHabillage] = useState<Habillage | null>(null);
+  const [etat, setEtat] = useState<EtatImpression | null>(null);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [impression, setImpression] = useState(false);
@@ -44,6 +54,8 @@ export function ApercuRecu({ paiementId, cote, onFermer }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const ouvert = paiementId !== null;
+  // Le reçu d'un règlement client ou fournisseur : deux tables, deux comptes.
+  const objet: ObjetImprime = cote === "client" ? "paiement" : "paiement_fournisseur";
 
   useEffect(() => {
     if (!ouvert) return;
@@ -51,16 +63,20 @@ export function ApercuRecu({ paiementId, cote, onFermer }: Props) {
 
     setChargement(true);
     setErreur(null);
+    setDonnees(null);
+    setEtat(null);
 
     Promise.all([
       invoke<DonneesRecu>("lire_donnees_recu", { paiementId, cote }),
       chargerHabillage("recu"),
+      // Illisible : pas de marque à l'aperçu ; le clic, lui, tranchera.
+      lireEtatImpression(objet, paiementId!).catch(() => null),
     ])
-      .then(([d, habillage]) => {
+      .then(([d, h, e]) => {
         if (annule) return;
         setNom(d.tiers?.nom ?? "");
-        setA4(habillage.reglage?.format === "a4");
-        setHtml(genererRecuHTML(d, habillage));
+        setA4(h.reglage?.format === "a4");
+        setDonnees(d); setHabillage(h); setEtat(e);
       })
       .catch(e => {
         if (!annule) setErreur(typeof e === "string" ? e : JSON.stringify(e));
@@ -77,12 +93,25 @@ export function ApercuRecu({ paiementId, cote, onFermer }: Props) {
     setHauteur(h && h > 50 ? h : HAUTEUR_A5);
   }, []);
 
-  async function handleImprimer() {
-    if (!html) return;
+  const html = useMemo(
+    () => (donnees && habillage ? genererRecuHTML(donnees, { ...habillage, duplicata: marque(etat) }) : ""),
+    [donnees, habillage, etat],
+  );
+
+  /** `original` : le bouton du patron — le reçu sort sans « DUPLICATA ». */
+  async function handleImprimer(original = false) {
+    if (!html || !donnees || !habillage || !paiementId) return;
     setImpression(true);
     try {
+      let verdict;
+      try {
+        verdict = await noterImpression(objet, paiementId, undefined, original);
+      } catch (e) {
+        await message(refusImpression(e), { title: "Impression", kind: "error" });
+        return;
+      }
       await invoke("imprimer_facture", {
-        html,
+        html: genererRecuHTML(donnees, { ...habillage, duplicata: marque(verdict) }),
         nomFichier: `recu_${nom || "reglement"}`
           .replace(/[\\/:*?"<>|]/g, "-") + ".html",
       });
@@ -106,6 +135,11 @@ export function ApercuRecu({ paiementId, cote, onFermer }: Props) {
             <Eye className="h-4 w-4" />
             Reçu de règlement
           </DialogTitle>
+          {etat?.duplicata && etat.original_le && (
+            <p className="text-xs text-muted-foreground">
+              Original imprimé le {dateHeure(etat.original_le)} — celui-ci sortira en duplicata.
+            </p>
+          )}
         </DialogHeader>
 
         <div className="flex-1 overflow-auto bg-muted/40 p-4">
@@ -140,7 +174,15 @@ export function ApercuRecu({ paiementId, cote, onFermer }: Props) {
           <Button variant="outline" onClick={onFermer} className="flex-1">
             Fermer
           </Button>
-          <Button onClick={handleImprimer}
+          {proposerOriginal(etat) && (
+            <Button variant="outline" onClick={() => handleImprimer(true)}
+              disabled={!html || impression || chargement}
+              title="Sort sans la mention DUPLICATA — noté dans l'Historique"
+              className="flex-1">
+              <Stamp className="h-4 w-4 mr-2" /> Réimprimer l'original
+            </Button>
+          )}
+          <Button onClick={() => handleImprimer()}
             disabled={!html || impression || chargement} className="flex-1">
             {impression
               ? <Loader2 className="h-4 w-4 animate-spin" />

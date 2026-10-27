@@ -74,7 +74,7 @@ const MOTS_HISTO = {
     tiers:   "Client",
     par:     "Encaissé par",
     reste:   "Reste dû après",
-    total:   "TOTAL DES RÈGLEMENTS AFFICHÉS",
+    total:   "TOTAL DES RÈGLEMENTS AFFICHÉS (HORS RETOURS)",
     solde:   "RESTE DÛ AUJOURD'HUI, TOUTES FACTURES",
     dette:   "la dette totale du client",
     vide:    "Aucun règlement sur cette période.",
@@ -269,9 +269,17 @@ export interface LigneHistorique {
   deja_annule: boolean;
 }
 
+/**
+ * Le « règlement » qu'écrit un retour sur une facture à crédit : la
+ * marchandise rendue éteint la dette, aucun argent n'entre. Il fait le
+ * reste dû, jamais un total encaissé.
+ */
+export const MODE_ETEINT_PAR_RETOUR = "retour";
+
 const MOYENS_RECU: Record<string, string> = {
   especes: "Espèces", orange_money: "Orange Money",
   moov_money: "Moov Money", cheque: "Chèque", avoir: "Avoir",
+  [MODE_ETEINT_PAR_RETOUR]: "Retour (dette éteinte)",
 };
 
 /**
@@ -297,7 +305,12 @@ export function genererHistoriqueReglementsHTML(
   const enteteBase64 = h.entete;
   const m = MOTS_HISTO[cote];
   const maintenant = new Date();
-  const totalPeriode = lignes.reduce((s, l) => s + l.montant, 0);
+  // La dette éteinte par un retour se montre à part : elle n'est pas de
+  // l'argent reçu (coeur::calcul::encaisse côté serveur).
+  const eteintPeriode = lignes
+    .filter(l => l.mode === MODE_ETEINT_PAR_RETOUR)
+    .reduce((s, l) => s + l.montant, 0);
+  const totalPeriode = lignes.reduce((s, l) => s + l.montant, 0) - eteintPeriode;
 
   const corps = lignes.map(l => `
     <tr${l.deja_annule ? ' class="barre"' : ""}>
@@ -379,6 +392,12 @@ ${lignes.length === 0 ? `
       <td class="d">${fmt(totalPeriode)}</td>
       <td></td>
     </tr>
+    ${eteintPeriode !== 0 ? `
+    <tr>
+      <td colspan="4">Dette éteinte par retour (aucun argent reçu)</td>
+      <td class="d">${fmt(eteintPeriode)}</td>
+      <td></td>
+    </tr>` : ""}
     ${totalDuTiers > 0 ? `
     <tr class="du">
       <td colspan="4">${m.solde}</td>

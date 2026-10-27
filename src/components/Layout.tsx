@@ -14,6 +14,7 @@ import type { UtilisateurConnecte } from "@/pages/PageLogin";
 import { PaletteCommandes } from "@/components/PaletteCommandes";
 import type { ActionPalette } from "@/lib/palette";
 import { ONGLETS_PARAMETRES } from "@/lib/onglets-parametres";
+import { chargerMenu, estCache, surChangementMenu } from "@/lib/menu";
 
 // Chaque entree dit DE QUOI elle a besoin.
 //
@@ -80,6 +81,17 @@ export function Layout({
   const [sidebarOuverte, setSidebarOuverte] = useState(true);
   const [activiteVue, setActiviteVue] = useState(0);
 
+  // D37 : ce que le menu du dossier cache (Parametres → Menu). Un
+  // affichage seulement ; relu a l'ouverture, redessine quand l'onglet
+  // le change. Un echec de lecture laisse tout visible.
+  const [revisionMenu, setRevisionMenu] = useState(0);
+  useEffect(() => {
+    chargerMenu().catch(e => console.error("Menu :", e));
+    return surChangementMenu(() => setRevisionMenu(n => n + 1));
+  }, []);
+  const visible = (n: { href: string; droit?: string }) =>
+    (!n.droit || peut(n.droit)) && !estCache(n.href);
+
   // Le temoin s'allume a la reception, puis s'eteint. Le laisser allume
   // en permanence le rendrait invisible au bout d'une heure.
   useEffect(() => {
@@ -109,7 +121,7 @@ export function Layout({
   }, []);
   const actionsGlobales = useMemo<ActionPalette[]>(() => {
     const nav: ActionPalette[] = NAV
-      .filter(n => !n.droit || peut(n.droit))
+      .filter(visible)
       .map(n => ({
         id: `aller:${n.href}`, libelle: n.nom, groupe: "Aller à",
         detail: n.href === pageActive ? "page actuelle" : undefined,
@@ -129,7 +141,7 @@ export function Layout({
     ];
     return [...nav, ...parametres, ...compte];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageActive, utilisateur]);
+  }, [pageActive, utilisateur, revisionMenu]);
 
   useEffect(() => {
     invoke<Depot[]>("lire_depots").then(liste => {
@@ -161,7 +173,7 @@ export function Layout({
   // l'afficher ajouterait une décision inutile au quotidien.
   const multiDepot = depots.length > 1;
 
-  const navigation = NAV.filter(n => !n.droit || peut(n.droit));
+  const navigation = NAV.filter(visible);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">

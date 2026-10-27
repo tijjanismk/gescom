@@ -112,9 +112,96 @@ pub fn credit_retour(prix_pratique: i64, quantite_retournee: f64) -> i64 {
     (prix_pratique as f64 * quantite_retournee).round() as i64
 }
 
+/// D36 — reprendre le suivi du stock d'un article exige un comptage
+/// pour CHAQUE magasin actif : sinon son stock repartirait de la somme
+/// de mouvements qu'on ne regardait plus — un chiffre faux. Rend les
+/// comptages dans l'ordre des magasins ; refuse un magasin oublie, un
+/// magasin inconnu, une quantite negative ou absurde.
+pub fn verifier_comptages(
+    depots_actifs: &[(String, String)],
+    comptages: &[(String, f64)],
+) -> Result<Vec<(String, f64)>, String> {
+    for (depot, q) in comptages {
+        if !depots_actifs.iter().any(|(id, _)| id == depot) {
+            return Err(format!("Magasin inconnu ou fermé pour le comptage : « {depot} »."));
+        }
+        if !q.is_finite() || *q < 0.0 {
+            return Err(format!("Quantité comptée invalide ({q}) : zéro ou plus."));
+        }
+    }
+    depots_actifs
+        .iter()
+        .map(|(id, nom)| {
+            comptages
+                .iter()
+                .find(|(d, _)| d == id)
+                .map(|(_, q)| (id.clone(), *q))
+                .ok_or_else(|| format!(
+                    "Reprendre le suivi du stock demande de compter chaque magasin : « {nom} » manque."
+                ))
+        })
+        .collect()
+}
+
+/// D36, lot D.11 — la colonne « Suivre le stock » de l'import CSV des
+/// articles. Vide : `None`, l'import decide (oui pour un article cree,
+/// inchange pour un article existant). Oui/non sous leurs formes
+/// courantes — dont VRAI/FAUX, ce qu'Excel francophone ecrit pour une
+/// case. Une valeur illisible est refusee, jamais devinee : un article
+/// qu'on croit suivi et qui ne l'est pas cache ses manques.
+pub fn lire_suivi_csv(valeur: &str) -> Result<Option<bool>, String> {
+    let v = valeur.trim().to_lowercase();
+    match v.as_str() {
+        "" => Ok(None),
+        "oui" | "o" | "1" | "vrai" => Ok(Some(true)),
+        "non" | "n" | "0" | "faux" => Ok(Some(false)),
+        _ => Err(format!(
+            "« Suivre le stock » attend oui ou non, pas « {} »",
+            valeur.trim()
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn la_colonne_suivre_le_stock_se_lit_sans_deviner() {
+        assert_eq!(lire_suivi_csv(""), Ok(None));
+        assert_eq!(lire_suivi_csv("  "), Ok(None));
+        for oui in ["oui", "OUI", " Oui ", "o", "1", "VRAI"] {
+            assert_eq!(lire_suivi_csv(oui), Ok(Some(true)), "{oui}");
+        }
+        for non in ["non", "NON", "n", "0", "FAUX"] {
+            assert_eq!(lire_suivi_csv(non), Ok(Some(false)), "{non}");
+        }
+        for illisible in ["peut-être", "2", "yes", "ouii", "-", "x"] {
+            let e = lire_suivi_csv(illisible).unwrap_err();
+            assert!(e.contains("oui ou non") && e.contains(illisible), "{e}");
+        }
+    }
+
+    fn magasins() -> Vec<(String, String)> {
+        vec![("d1".into(), "Boutique".into()), ("d2".into(), "Dépôt".into())]
+    }
+
+    #[test]
+    fn reprendre_le_suivi_compte_chaque_magasin() {
+        let c = verifier_comptages(&magasins(), &[("d2".into(), 3.0), ("d1".into(), 0.0)]).unwrap();
+        assert_eq!(c, vec![("d1".to_string(), 0.0), ("d2".to_string(), 3.0)]);
+        let e = verifier_comptages(&magasins(), &[("d1".into(), 5.0)]).unwrap_err();
+        assert!(e.contains("Dépôt"), "{e}");
+    }
+
+    #[test]
+    fn un_comptage_absurde_ou_d_un_autre_magasin_est_refuse() {
+        assert!(verifier_comptages(&magasins(), &[("d1".into(), -1.0), ("d2".into(), 1.0)]).is_err());
+        assert!(verifier_comptages(&magasins(), &[("d1".into(), f64::NAN), ("d2".into(), 1.0)]).is_err());
+        assert!(verifier_comptages(&magasins(), &[("d1".into(), 1.0), ("d2".into(), 1.0), ("x".into(), 1.0)])
+            .unwrap_err()
+            .contains("inconnu"));
+    }
 
     #[test]
     fn sens_des_mouvements_connus() {

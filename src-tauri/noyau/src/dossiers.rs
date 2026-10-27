@@ -122,6 +122,7 @@ pub const TABLES_CLOISONNEES: &[&str] = &[
     "cotisation",
     "echange",
     "rappel",
+    "impression",
 ];
 
 /// La cle d'un compteur, cloisonnee par dossier.
@@ -544,7 +545,8 @@ pub fn date_d_ecriture(commande: &str) -> Option<&'static [&'static str]> {
         | "changer_statut_cheque" | "convertir_commande_en_livraison_et_facture" | "convertir_piece"
         | "creer_facture_depuis_vente" | "dupliquer_piece" | "enregistrer_ajustement_inventaire" | "enregistrer_cheque"
         | "enregistrer_depense" | "enregistrer_entree_stock" | "enregistrer_livraison"
-        | "enregistrer_paiement" | "enregistrer_retour" | "enregistrer_retour_fournisseur"
+        | "enregistrer_paiement" | "enregistrer_retour" | "enregistrer_retour_groupe"
+        | "enregistrer_retour_fournisseur"
         | "enregistrer_retour_sans_facture" | "enregistrer_transfert" | "marquer_irrecouvrable"
         | "modifier_depense" | "modifier_facture_pos" | "regler_creance_exceptionnel"
         | "rembourser_avoir" | "solder_residus_creances"
@@ -713,6 +715,113 @@ pub fn verifier_date_sur(base: &mut Base, date: &str) -> Result<(), String> {
     dossier_accepte(&exercices, date)
 }
 
+// ---- Prevenir avant la fin des dates de travail (27/10/2026) ----
+
+/// Le dernier jour ou l'on ecrit encore, sans interruption depuis
+/// `aujourd_hui` : la fin de l'exercice du jour, ou celle des suivants
+/// s'ils sont deja ouverts a la suite — le patron qui a ouvert 2027 en
+/// decembre n'a plus rien a craindre du 31. `None` : aujourd'hui ne
+/// s'ecrit deja plus.
+///
+/// Juge par `dossier_accepte`, le meme juge que le serveur : l'avis
+/// annonce exactement le refus, sans recopier la regle. Pure.
+pub fn derniere_date_ecrivable(exercices: &[Exercice], aujourd_hui: &str) -> Option<String> {
+    dossier_accepte(exercices, aujourd_hui).ok()?;
+    let mut fin = exercice_pour_date(exercices, aujourd_hui)?.fin_effective().to_string();
+    // Chaque tour passe a un exercice qui finit plus tard : au plus un
+    // tour par exercice.
+    for _ in 0..exercices.len() {
+        let Some(lendemain) = crate::coeur::dates::jour(&fin)
+            .map(|j| (j + chrono::Duration::days(1)).format("%Y-%m-%d").to_string())
+        else {
+            break;
+        };
+        if dossier_accepte(exercices, &lendemain).is_err() {
+            break;
+        }
+        match exercice_pour_date(exercices, &lendemain) {
+            Some(e) => fin = e.fin_effective().to_string(),
+            None => break,
+        }
+    }
+    Some(fin)
+}
+
+/// L'avis de fin des dates de travail du dossier courant : jusqu'a
+/// quand on ecrit encore, combien de jours il reste, et ce que le
+/// tableau de bord doit en dire (`coeur::fin_exercice`). `aujourd_hui`
+/// est passe : le serveur donne son horloge, celle-la meme qui refusera.
+///
+/// Ne dit rien de qui le lit : l'ecran choisit entre « prolonger » (qui
+/// a `dossiers:gerer`) et « prevenir le patron » (les autres). N'ecrit
+/// rien.
+pub fn avis_fin_exercice_sur(base: &mut Base, aujourd_hui: &str) -> Result<serde_json::Value, String> {
+    use crate::coeur::fin_exercice;
+    let dossier = base.dossier().to_string();
+    let exercices = lire_les_exercices(base, &dossier)?;
+    let jour = aujourd_hui.get(..10).unwrap_or(aujourd_hui);
+    let fin = derniere_date_ecrivable(&exercices, jour);
+    let jours = match (&fin, crate::coeur::dates::jour(jour)) {
+        (Some(f), Some(j)) => fin_exercice::jours_restants(f, j),
+        _ => None,
+    };
+    Ok(serde_json::json!({
+        "aujourd_hui": jour,
+        "fin": fin,
+        "jours_restants": jours,
+        "avis": fin_exercice::avis(jours).code(),
+        "preavis_jours": fin_exercice::PREAVIS_JOURS,
+        // Le refus que le serveur opposerait aujourd'hui, mot pour mot.
+        "refus": dossier_accepte(&exercices, jour).err(),
+    }))
+}
+
+#[cfg(test)]
+mod tests_derniere_date_ecrivable {
+    use super::*;
+
+    fn ex(debut: &str, fin: &str, prolonge: Option<&str>, clos: bool) -> Exercice {
+        Exercice {
+            id: debut.into(),
+            dossier_id: DOSSIER_DEFAUT.into(),
+            date_debut: debut.into(),
+            date_fin: fin.into(),
+            prolonge_jusqu_au: prolonge.map(str::to_string),
+            clos,
+        }
+    }
+
+    #[test]
+    fn un_seul_exercice_finit_a_sa_fin_prolongation_comprise() {
+        let seul = [ex("2026-01-01", "2026-12-31", None, false)];
+        assert_eq!(derniere_date_ecrivable(&seul, "2026-10-27T09:30:00").as_deref(), Some("2026-12-31"));
+        assert_eq!(derniere_date_ecrivable(&seul, "2026-12-31").as_deref(), Some("2026-12-31"));
+        let prolonge = [ex("2026-01-01", "2026-12-31", Some("2027-03-31"), false)];
+        assert_eq!(derniere_date_ecrivable(&prolonge, "2026-10-27").as_deref(), Some("2027-03-31"));
+    }
+
+    #[test]
+    fn un_suivant_deja_ouvert_repousse_la_fin() {
+        let deux = [ex("2026-01-01", "2026-12-31", None, false), ex("2027-01-01", "2027-12-31", None, false)];
+        assert_eq!(derniere_date_ecrivable(&deux, "2026-12-20").as_deref(), Some("2027-12-31"));
+    }
+
+    #[test]
+    fn un_suivant_clos_ne_repousse_rien() {
+        let deux = [ex("2026-01-01", "2026-12-31", None, false), ex("2027-01-01", "2027-12-31", None, true)];
+        assert_eq!(derniere_date_ecrivable(&deux, "2026-12-20").as_deref(), Some("2026-12-31"));
+    }
+
+    #[test]
+    fn rien_quand_aujourd_hui_ne_s_ecrit_deja_plus() {
+        let seul = [ex("2026-01-01", "2026-12-31", None, false)];
+        assert_eq!(derniere_date_ecrivable(&seul, "2027-01-02"), None, "après la fin");
+        assert_eq!(derniere_date_ecrivable(&seul, "2025-12-31"), None, "avant le début");
+        assert_eq!(derniere_date_ecrivable(&[ex("2026-01-01", "2026-12-31", None, true)], "2026-10-27"), None, "clos");
+        assert_eq!(derniere_date_ecrivable(&[], "2026-10-27"), None, "aucun exercice");
+    }
+}
+
 /// Ouvre un exercice pour le dossier courant.
 ///
 /// Refuse un chevauchement avec un exercice existant : deux exercices
@@ -842,6 +951,18 @@ pub fn prolonger_exercice_sur(
             crate::coeur::dates::en_lettres(ex.fin_effective())
         ));
     }
+    // Deux ans, trois ans, oui ; une faute d'annee, non : une
+    // prolongation ne se raccourcit pas (`coeur::fin_exercice`).
+    if let Some(borne) = crate::coeur::fin_exercice::fin_au_plus_tard(&ex.date_fin) {
+        let borne = borne.format("%Y-%m-%d").to_string();
+        if jusqu_au > borne {
+            return Err(format!(
+                "Une prolongation va au plus {} ans après la fin prévue : jusqu'au {}. Vérifier l'année.",
+                crate::coeur::fin_exercice::DUREE_MAX_ANS,
+                crate::coeur::dates::en_lettres(&borne)
+            ));
+        }
+    }
     if let Some(suivant) = tous.iter().find(|e| e.date_debut > ex.date_debut) {
         if jusqu_au >= suivant.date_debut {
             return Err(format!(
@@ -869,13 +990,261 @@ pub fn prolonger_exercice_sur(
     tx.valider().map_err(|e| e.0)
 }
 
-/// Clot un exercice DU DOSSIER COURANT. On n'y ecrit plus ensuite, et
-/// on ne le rouvre pas : c'est ce que le comptable a arrete.
-pub fn clore_exercice_sur(base: &mut Base, exercice_id: String) -> Result<(), String> {
-    let (ex, _) = exercice_du_dossier(base, &exercice_id)?;
+/// Couper un exercice en plein milieu, comme dans Ciel (D38) : il
+/// s'arrete au `coupe_au`, le suivant commence le lendemain et va
+/// jusqu'a `suivant_au` (vide : un an, ou l'ancienne fin si elle va
+/// plus loin). Rend (coupe, debut du suivant, fin du suivant). Pure.
+///
+/// Ce qui ne change pas de nos regles : pas de trou (D21, le suivant
+/// commence le lendemain) ; un clos ne se touche pas ; on ne coupe que
+/// le DERNIER — avec un suivant deja ouvert, couper ferait un trou ou un
+/// chevauchement ; et le suivant va au moins jusqu'a l'ancienne fin :
+/// rien de ce qui s'ecrivait hier n'est refuse demain.
+pub fn juger_coupe(
+    ex: &Exercice,
+    tous: &[Exercice],
+    coupe_au: &str,
+    suivant_au: Option<&str>,
+) -> Result<(String, String, String), String> {
+    use crate::coeur::dates::{en_lettres, jour};
+    if ex.clos {
+        return Err("Cet exercice est clos : on ne le coupe plus.".to_string());
+    }
+    if let Some(apres) = tous.iter().find(|e| e.date_debut > ex.date_debut) {
+        return Err(format!(
+            "Un exercice suivant existe déjà (à partir du {}) : on ne coupe que le dernier.",
+            en_lettres(&apres.date_debut)
+        ));
+    }
+    let coupe = jour(coupe_au.trim()).ok_or_else(|| format!("Date illisible : « {} »", coupe_au.trim()))?;
+    let coupe_iso = coupe.format("%Y-%m-%d").to_string();
+    if coupe_iso.as_str() < ex.date_debut.as_str() || coupe_iso.as_str() >= ex.fin_effective() {
+        let veille = jour(ex.fin_effective())
+            .map(|f| (f - chrono::Duration::days(1)).format("%Y-%m-%d").to_string())
+            .unwrap_or_default();
+        return Err(format!(
+            "On coupe entre le {} et le {}, la veille de la fin.",
+            en_lettres(&ex.date_debut),
+            en_lettres(&veille)
+        ));
+    }
+    let lendemain = (coupe + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+    let un_an = coupe
+        .checked_add_months(chrono::Months::new(12))
+        .map(|d| d.format("%Y-%m-%d").to_string())
+        .unwrap_or_default();
+    let par_defaut = if un_an.as_str() >= ex.fin_effective() { un_an } else { ex.fin_effective().to_string() };
+    let voulu = suivant_au.map(str::trim).filter(|s| !s.is_empty()).unwrap_or(&par_defaut);
+    // Lisible, apres le debut, cinq ans au plus.
+    let (debut, fin) = dates_de_travail(Some(&lendemain), Some(voulu), &lendemain)?;
+    if fin.as_str() < ex.fin_effective() {
+        return Err(format!(
+            "Le nouvel exercice va au moins jusqu'au {} : ce qui s'écrivait jusque-là doit s'écrire encore.",
+            en_lettres(ex.fin_effective())
+        ));
+    }
+    Ok((coupe_iso, debut, fin))
+}
+
+/// Coupe le dernier exercice DU DOSSIER COURANT et ouvre le suivant
+/// le lendemain, dans une transaction (D38). Les ecritures ne bougent
+/// pas : aucune ne porte son exercice, elles s'y rangent par leur date.
+pub fn couper_exercice_sur(
+    base: &mut Base,
+    exercice_id: String,
+    coupe_au: String,
+    suivant_au: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (ex, tous) = exercice_du_dossier(base, &exercice_id)?;
+    let (coupe, debut, fin) = juger_coupe(&ex, &tous, &coupe_au, suivant_au.as_deref())?;
+    let suivant = uuid::Uuid::new_v4().to_string();
+    let now = crate::utils::maintenant_iso();
+    let dossier = base.dossier().to_string();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    // La prolongation s'efface de la ligne : la fin est desormais la
+    // coupe. Le journal garde l'ancienne fin.
+    tx.executer(
+        "UPDATE exercice SET date_fin = ?1, prolonge_jusqu_au = NULL, modifie_le = ?2
+         WHERE id = ?3 AND dossier_id = ?4",
+        &parametres![coupe.clone(), now.clone(), exercice_id.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
+    tx.executer(
+        "INSERT INTO exercice
+           (id, dossier_id, date_debut, date_fin, clos, cree_le, modifie_le)
+         VALUES (?1,?2,?3,?4,0,?5,?5)",
+        &parametres![suivant.clone(), dossier, debut.clone(), fin.clone(), now],
+    )
+    .map_err(|e| e.0)?;
+    noter_exercice(
+        &mut tx,
+        "exercice_coupe",
+        &exercice_id,
+        Some(serde_json::json!({ "au": ex.fin_effective() })),
+        serde_json::json!({ "au": coupe, "suivant": suivant }),
+    )?;
+    noter_exercice(&mut tx, "exercice_ouvert", &suivant, None, serde_json::json!({ "du": debut, "au": fin }))?;
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({
+        "coupe_au": coupe,
+        "suivant": { "id": suivant, "date_debut": debut, "date_fin": fin, "clos": false }
+    }))
+}
+
+#[cfg(test)]
+mod tests_coupe {
+    use super::*;
+
+    fn ex(debut: &str, fin: &str, prolonge: Option<&str>, clos: bool) -> Exercice {
+        Exercice {
+            id: debut.into(),
+            dossier_id: DOSSIER_DEFAUT.into(),
+            date_debut: debut.into(),
+            date_fin: fin.into(),
+            prolonge_jusqu_au: prolonge.map(str::to_string),
+            clos,
+        }
+    }
+
+    fn coupe(e: &Exercice, tous: &[Exercice], au: &str, suivant: Option<&str>) -> Result<(String, String, String), String> {
+        juger_coupe(e, tous, au, suivant)
+    }
+
+    #[test]
+    fn au_30_juin_le_suivant_va_un_an_par_defaut() {
+        let e = ex("2026-01-01", "2026-12-31", None, false);
+        assert_eq!(
+            coupe(&e, &[e.clone()], "2026-06-30", None).unwrap(),
+            ("2026-06-30".into(), "2026-07-01".into(), "2027-06-30".into())
+        );
+        assert_eq!(coupe(&e, &[e.clone()], "2026-06-30", Some("2028-06-30")).unwrap().2, "2028-06-30");
+    }
+
+    #[test]
+    fn le_suivant_couvre_au_moins_l_ancienne_fin() {
+        // Prolonge jusqu'en 2028 : un an apres la coupe ne suffit pas.
+        let e = ex("2026-01-01", "2026-12-31", Some("2028-03-31"), false);
+        assert_eq!(coupe(&e, &[e.clone()], "2026-06-30", None).unwrap().2, "2028-03-31");
+        assert_eq!(
+            coupe(&e, &[e.clone()], "2026-06-30", Some("2027-06-30")).unwrap_err(),
+            "Le nouvel exercice va au moins jusqu'au 31 mars 2028 : ce qui s'écrivait jusque-là doit s'écrire encore."
+        );
+    }
+
+    #[test]
+    fn la_coupe_tombe_dans_l_exercice() {
+        let e = ex("2026-01-01", "2026-12-31", None, false);
+        assert!(coupe(&e, &[e.clone()], "2026-01-01", None).is_ok(), "un exercice d'un jour");
+        assert!(coupe(&e, &[e.clone()], "2026-12-30", None).is_ok(), "la veille de la fin");
+        assert_eq!(
+            coupe(&e, &[e.clone()], "2026-12-31", None).unwrap_err(),
+            "On coupe entre le 1er janvier 2026 et le 30 décembre 2026, la veille de la fin."
+        );
+        assert!(coupe(&e, &[e.clone()], "2025-12-31", None).is_err());
+        assert!(coupe(&e, &[e.clone()], "30/06/2026", None).unwrap_err().contains("illisible"));
+    }
+
+    #[test]
+    fn ni_un_clos_ni_un_exercice_qui_a_deja_un_suivant() {
+        let clos = ex("2026-01-01", "2026-12-31", None, true);
+        assert!(coupe(&clos, &[clos.clone()], "2026-06-30", None).unwrap_err().contains("clos"));
+        let a = ex("2026-01-01", "2026-12-31", None, false);
+        let b = ex("2027-01-01", "2027-12-31", None, false);
+        assert!(coupe(&a, &[a.clone(), b], "2026-06-30", None).unwrap_err().contains("on ne coupe que le dernier"));
+    }
+
+    #[test]
+    fn le_suivant_reste_sous_cinq_ans() {
+        let e = ex("2026-01-01", "2026-12-31", None, false);
+        assert!(coupe(&e, &[e.clone()], "2026-06-30", Some("2062-06-30")).unwrap_err().contains("plus de 5 ans"));
+    }
+}
+
+/// Peut-on clore cet exercice `aujourd_hui` ? Pure (D38).
+///
+/// Seulement un exercice TERMINE : clore celui qu'on vit arretait toutes
+/// les ventes sur-le-champ, et sans remede — le suivant ne commence
+/// qu'apres sa fin. Pour s'arreter plus tot, on coupe, puis on clot la
+/// partie finie. Et dans l'ordre : un exercice ouvert entre deux clos
+/// n'a pas de sens.
+pub fn juger_cloture(ex: &Exercice, tous: &[Exercice], aujourd_hui: &str) -> Result<(), String> {
+    use crate::coeur::dates::en_lettres;
     if ex.clos {
         return Err("Cet exercice est déjà clos.".to_string());
     }
+    let jour = aujourd_hui.get(..10).unwrap_or(aujourd_hui);
+    if ex.fin_effective() >= jour {
+        return Err(format!(
+            "On ne clôt qu'un exercice terminé : celui-ci va jusqu'au {}. Pour l'arrêter avant, le couper, \
+             puis clore la partie terminée.",
+            en_lettres(ex.fin_effective())
+        ));
+    }
+    if let Some(avant) = tous.iter().filter(|e| !e.clos && e.date_debut < ex.date_debut).min_by(|a, b| a.date_debut.cmp(&b.date_debut)) {
+        return Err(format!(
+            "Clore d'abord l'exercice du {} au {} : on clôt dans l'ordre des dates.",
+            en_lettres(&avant.date_debut),
+            en_lettres(avant.fin_effective())
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests_cloture {
+    use super::*;
+
+    fn ex(debut: &str, fin: &str, clos: bool) -> Exercice {
+        Exercice {
+            id: debut.into(),
+            dossier_id: DOSSIER_DEFAUT.into(),
+            date_debut: debut.into(),
+            date_fin: fin.into(),
+            prolonge_jusqu_au: None,
+            clos,
+        }
+    }
+
+    #[test]
+    fn on_ne_clot_qu_un_exercice_termine() {
+        let e = ex("2026-01-01", "2026-12-31", false);
+        assert!(juger_cloture(&e, &[e.clone()], "2027-01-01T08:00:00").is_ok(), "le lendemain de la fin");
+        assert_eq!(
+            juger_cloture(&e, &[e.clone()], "2026-12-31").unwrap_err(),
+            "On ne clôt qu'un exercice terminé : celui-ci va jusqu'au 31 décembre 2026. Pour l'arrêter avant, \
+             le couper, puis clore la partie terminée."
+        );
+        assert!(juger_cloture(&e, &[e.clone()], "2026-10-27").is_err(), "en plein exercice");
+        let mut prolonge = e.clone();
+        prolonge.prolonge_jusqu_au = Some("2027-03-31".into());
+        assert!(juger_cloture(&prolonge, &[prolonge.clone()], "2027-02-01").is_err(), "la prolongation compte");
+    }
+
+    #[test]
+    fn on_clot_dans_l_ordre_et_jamais_deux_fois() {
+        let a = ex("2025-01-01", "2025-12-31", false);
+        let b = ex("2026-01-01", "2026-12-31", false);
+        let tous = [a.clone(), b.clone()];
+        assert!(juger_cloture(&b, &tous, "2027-01-05").unwrap_err().contains("Clore d'abord l'exercice du 1er janvier 2025"));
+        assert!(juger_cloture(&a, &tous, "2027-01-05").is_ok());
+        let a_clos = ex("2025-01-01", "2025-12-31", true);
+        assert!(juger_cloture(&b, &[a_clos.clone(), b.clone()], "2027-01-05").is_ok());
+        assert_eq!(juger_cloture(&a_clos, &[a_clos.clone()], "2027-01-05").unwrap_err(), "Cet exercice est déjà clos.");
+    }
+}
+
+/// Clot un exercice DU DOSSIER COURANT, a la date de l'horloge du
+/// serveur. On n'y ecrit plus ensuite, et on ne le rouvre pas : c'est ce
+/// que le comptable a arrete.
+pub fn clore_exercice_sur(base: &mut Base, exercice_id: String) -> Result<(), String> {
+    clore_exercice_au_sur(base, exercice_id, &crate::utils::maintenant_iso())
+}
+
+/// La meme, a une date donnee : la regle (`juger_cloture`) se joue sans
+/// attendre la fin de l'annee.
+pub fn clore_exercice_au_sur(base: &mut Base, exercice_id: String, aujourd_hui: &str) -> Result<(), String> {
+    let (ex, tous) = exercice_du_dossier(base, &exercice_id)?;
+    juger_cloture(&ex, &tous, aujourd_hui)?;
     let now = crate::utils::maintenant_iso();
     let dossier = base.dossier().to_string();
     let mut tx = base.transaction().map_err(|e| e.0)?;
@@ -927,6 +1296,18 @@ pub fn dates_de_travail(
     if f < d {
         return Err("La fin des dates de travail précède leur début.".to_string());
     }
+    // Plusieurs annees, oui ; une faute d'annee, non
+    // (`coeur::fin_exercice::DUREE_MAX_ANS`).
+    if let Some(borne) = crate::coeur::fin_exercice::fin_au_plus_tard(&d) {
+        if f >= borne.format("%Y-%m-%d").to_string() {
+            let derniere = (borne - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+            return Err(format!(
+                "Des dates de travail de plus de {} ans : la fin va au plus tard au {}. Vérifier l'année.",
+                crate::coeur::fin_exercice::DUREE_MAX_ANS,
+                crate::coeur::dates::en_lettres(&derniere)
+            ));
+        }
+    }
     Ok((d, f))
 }
 
@@ -950,6 +1331,17 @@ mod tests_dates_de_travail {
         );
         assert!(dates_de_travail(Some("2026-03-01"), Some("2026-02-01"), "2026-03-15").is_err());
         assert!(dates_de_travail(Some("mars"), None, "2026-03-15").unwrap_err().contains("illisible"));
+    }
+
+    #[test]
+    fn plusieurs_annees_passent_une_faute_d_annee_non() {
+        assert!(dates_de_travail(Some("2027-01-01"), Some("2029-12-31"), "2026-12-15").is_ok(), "trois ans");
+        assert!(dates_de_travail(Some("2027-01-01"), Some("2031-12-31"), "2026-12-15").is_ok(), "cinq ans pile");
+        assert_eq!(
+            dates_de_travail(Some("2027-01-01"), Some("2072-12-31"), "2026-12-15").unwrap_err(),
+            "Des dates de travail de plus de 5 ans : la fin va au plus tard au 31 décembre 2031. Vérifier l'année."
+        );
+        assert!(dates_de_travail(Some("2027-01-01"), Some("2032-01-01"), "2026-12-15").is_err(), "un jour de trop");
     }
 }
 

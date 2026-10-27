@@ -131,6 +131,12 @@ pub fn lire_reglages_sur(acces: &mut impl Acces) -> Result<serde_json::Value, St
     }))
 }
 
+/// Ce genre porte-t-il le duplicata (Paramètres → Documents) ? Lu par
+/// `impression` : c'est le serveur qui decide, pas l'ecran.
+pub fn duplicata_actif_sur(acces: &mut impl Acces, genre: &str) -> Result<bool, String> {
+    Ok(tous(acces)?.into_iter().any(|(g, r)| g == genre && r.duplicata))
+}
+
 /// Le filigrane : son reglage et son image (`null` sans image).
 /// Illisible : celui d'usine, qui n'imprime rien tant qu'on n'a posé ni
 /// image ni texte.

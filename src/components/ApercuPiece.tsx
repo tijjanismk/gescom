@@ -10,12 +10,16 @@
 // dès l'ouverture de l'aperçu : `sandbox` SANS `allow-scripts` le
 // neutralise. `allow-same-origin` reste nécessaire pour mesurer la
 // hauteur du contenu — il n'autorise aucun script à s'exécuter.
+//
+// Le duplicata (26/10/2026) : l'aperçu montre ce que le serveur annonce
+// (`lire_etat_impression`) ; au clic, la feuille est regénérée d'après le
+// verdict de `noter_impression` — c'est lui qui part à l'imprimante.
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { message } from "@tauri-apps/plugin-dialog";
 import {
-  Printer, Loader2, Eye, PackageCheck, AlertTriangle,
+  Printer, Loader2, Eye, PackageCheck, AlertTriangle, Stamp,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -23,8 +27,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { genererImpression } from "@/lib/genererPDF";
 import type { FormatImpression, DonneesPiece } from "@/lib/genererPDF";
-import { chargerHabillage, type Habillage } from "@/lib/impression";
+import { chargerHabillage, dateHeure, type Habillage } from "@/lib/impression";
 import { genreDePiece, type ReglagesDocuments } from "@/lib/documents";
+import {
+  lireEtatImpression, noterImpression, marque, proposerOriginal, refusImpression,
+  type EtatImpression,
+} from "@/lib/duplicata";
 
 interface ApercuPieceProps {
   /** `null` ferme l'aperçu. */
@@ -71,6 +79,13 @@ export function ApercuPiece({
   const [erreur, setErreur] = useState<string | null>(null);
   const [impression, setImpression] = useState(false);
   const [hauteur, setHauteur] = useState(HAUTEUR_DEFAUT.a4);
+  // Ce que le serveur annonce pour la prochaine feuille, et le format
+  // pour lequel il l'a dit (un rouleau est un ticket, qui a sa propre
+  // case) : en passant d'A4 au ticket, l'état d'A4 ne doit pas habiller
+  // le ticket le temps que la réponse arrive.
+  const [lu, setLu] = useState<{ format: FormatImpression; etat: EtatImpression | null } | null>(null);
+  const etatAJour = lu?.format === format;
+  const etat = etatAJour ? lu.etat : null;
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const ouvert = pieceId !== null;
@@ -104,11 +119,23 @@ export function ApercuPiece({
     return () => { annule = true; };
   }, [pieceId, ouvert]);
 
+  useEffect(() => {
+    if (!pieceId || !donnees) { setLu(null); return; }
+    let annule = false;
+    // Illisible : pas de marque à l'aperçu ; le clic, lui, tranchera.
+    lireEtatImpression("piece_commerciale", pieceId, format)
+      .then(e => { if (!annule) setLu({ format, etat: e }); })
+      .catch(() => { if (!annule) setLu({ format, etat: null }); });
+    return () => { annule = true; };
+  }, [pieceId, donnees, format]);
+
   // Un seul rendu : l'aperçu montre exactement ce qui part à
   // l'imprimante (la règle du 17/09 tient).
   const html = useMemo(
-    () => (donnees ? genererImpression(donnees, format, habillage ?? {}) : ""),
-    [donnees, format, habillage],
+    () => (donnees
+      ? genererImpression(donnees, format, { ...(habillage ?? {}), duplicata: marque(etat) })
+      : ""),
+    [donnees, format, habillage, etat],
   );
 
   const largeurPapier = LARGEUR_PAPIER[format];
@@ -123,12 +150,22 @@ export function ApercuPiece({
     setHauteur(h && h > 50 ? h : HAUTEUR_DEFAUT[format]);
   }, [format]);
 
-  async function handleImprimer() {
-    if (!html) return;
+  /** `original` : le bouton du patron — la feuille sort sans « DUPLICATA ». */
+  async function handleImprimer(original = false) {
+    if (!html || !donnees || !pieceId) return;
     setImpression(true);
     try {
+      let verdict;
+      try {
+        verdict = await noterImpression("piece_commerciale", pieceId, format, original);
+      } catch (e) {
+        await message(refusImpression(e), { title: "Impression", kind: "error" });
+        return;
+      }
+      // La feuille d'après le serveur, pas d'après l'aperçu : un autre
+      // poste a pu imprimer entre les deux.
       await invoke("imprimer_facture", {
-        html,
+        html: genererImpression(donnees, format, { ...(habillage ?? {}), duplicata: marque(verdict) }),
         nomFichier: `${(numero ?? "piece").replace(/[\\/:*?"<>|]/g, "-")}`
           + `${format === "bon_sortie" ? "-BS" : ""}.html`,
       });
@@ -182,6 +219,11 @@ export function ApercuPiece({
             </button>
           ))}
 
+          {etat?.duplicata && etat.original_le && (
+            <span className="ml-auto text-xs text-muted-foreground">
+              Original imprimé le {dateHeure(etat.original_le)} — celle-ci sortira en duplicata.
+            </span>
+          )}
         </div>
 
         <div className="flex-1 overflow-auto bg-muted/40 p-4">
@@ -222,8 +264,16 @@ export function ApercuPiece({
           <Button variant="outline" onClick={onFermer} className="flex-1">
             Fermer
           </Button>
-          <Button onClick={handleImprimer}
-            disabled={!html || impression || chargement}
+          {proposerOriginal(etat) && (
+            <Button variant="outline" onClick={() => handleImprimer(true)}
+              disabled={!html || impression || chargement || !etatAJour}
+              title="Sort sans la mention DUPLICATA — noté dans l'Historique"
+              className="flex-1">
+              <Stamp className="h-4 w-4 mr-2" /> Réimprimer l'original
+            </Button>
+          )}
+          <Button onClick={() => handleImprimer()}
+            disabled={!html || impression || chargement || !etatAJour}
             className="flex-1">
             {impression
               ? <Loader2 className="h-4 w-4 animate-spin" />

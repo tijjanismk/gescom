@@ -78,3 +78,37 @@ Sortant : `coeur::stock` (types de mouvement, `est_a_decouvert`),
 - [CONFIRMÉ] Codes internes : préfixe `20`, jamais attribué à un pays,
   donc sans collision possible
   ([coeur/codebarre.rs:18](../../src-tauri/noyau/src/coeur/codebarre.rs#L18)).
+
+## Articles sans suivi de stock (D36, 26/10/2026)
+
+`article.gere_en_stock = 0` : l'article se vend normalement, jamais à
+découvert (le drapeau `vente_a_decouvert` reste à 0 dans les deux
+versions de `creer_vente` et `valider_facture`), sort de l'écran Stock
+(`lire_stocks_pagines`), des alertes et de la valeur ; transfert et
+inventaire le refusent (`suivi_stock::exiger_suivi[_sur]`). Ses
+mouvements s'écrivent quand même. `suivi_stock::changer_suivi_stock_sur`
+(`parametres:modifier`, journal `suivi_stock_change`) : cesser rend ce
+qui sort du stock ; reprendre exige un comptage par magasin actif
+(`coeur::stock::verifier_comptages`) et pose les ajustements dans la même
+transaction. L'article est commun aux dossiers : la case vaut pour tous.
+
+À l'import CSV (27/10/2026, lot D.11) : colonne facultative « Suivre le
+stock » (oui/non), écrite EN DERNIER par l'export (`ENTETE`), lue par
+son nom seulement (`suivrelestock`, `suivrestock`, `gereenstock`).
+Règle `coeur::stock::lire_suivi_csv`, jugée avant toute écriture de la
+ligne (catégorie comprise). Un article **créé** : absente ou vide → suivi,
+« non » → `gere_en_stock = 0` et journal `suivi_stock_change`
+(`cree_par_import`), et — version `Base` — seulement avec
+`parametres:modifier` (le socle le juge et le passe en
+`peut_ne_pas_suivre` ; sinon la ligne est refusée). Un article
+**existant** : vide → inchangé ; une valeur égale passe ; une valeur qui
+changerait le suivi **refuse la ligne entière** (cesser ou reprendre
+passe par la case, avec sa permission, ses comptages et sa trace). Une
+valeur illisible refuse la ligne avec le message. Deux versions. Scénario
+`donnees_base::l_import_csv_pose_le_suivi_du_stock_sans_deviner`.
+
+À l'achat (27/10/2026, lot C.8) : il reste achetable comme les autres ;
+`Achats.tsx` et `ModalNouvellePiece.tsx` lisent `gere_en_stock` dans
+`lire_articles_avec_unites` (déjà rendu par les deux versions) et le
+marquent « stock non suivi » au lieu d'un stock à 0 qui ferait croire à
+une rupture. Scénario : `garde_fous_base::un_article_non_suivi_reste_achetable_et_la_lecture_des_achats_le_dit`.

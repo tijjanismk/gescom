@@ -48,6 +48,14 @@ interface ArticleAchat {
   unite_base: string;
   stock: number;
   unites: UniteVente[];
+  /** D36 : `false` = stock non suivi. Il s'achète comme les autres ; son
+   *  entrée s'écrit sans se voir dans l'écran Stock (C.8). */
+  gere_en_stock?: boolean;
+}
+
+/** D36 (C.8) : un article dont on ne suit pas le stock. */
+function nonSuivi(a: { gere_en_stock?: boolean }): boolean {
+  return a.gere_en_stock === false;
 }
 
 interface LignePanierAchat {
@@ -577,9 +585,15 @@ export function Achats() {
                       className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors">
                       <div className="flex items-center justify-between">
                         <span className="font-medium">{a.nom}</span>
-                        <span className="text-xs text-muted-foreground">
-                          Stock : {a.stock % 1 === 0 ? a.stock : a.stock.toFixed(2)} {a.unite_base}
-                        </span>
+                        {nonSuivi(a) ? (
+                          <span className="text-xs text-amber-700 dark:text-amber-400">
+                            stock non suivi
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            Stock : {a.stock % 1 === 0 ? a.stock : a.stock.toFixed(2)} {a.unite_base}
+                          </span>
+                        )}
                       </div>
                     </button>
                   ))}
@@ -603,13 +617,29 @@ export function Achats() {
             <div className="border border-border rounded-lg p-3 bg-muted/30 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="font-medium text-sm">{articleSelectionne.nom}</p>
-                <Badge variant="secondary" className="text-xs">
-                  Stock actuel : {articleSelectionne.stock % 1 === 0
-                    ? articleSelectionne.stock
-                    : articleSelectionne.stock.toFixed(2)
-                  } {articleSelectionne.unite_base}
-                </Badge>
+                {nonSuivi(articleSelectionne) ? (
+                  <Badge variant="outline" className="text-xs border-amber-500 text-amber-700 dark:text-amber-400">
+                    Stock non suivi
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary" className="text-xs">
+                    Stock actuel : {articleSelectionne.stock % 1 === 0
+                      ? articleSelectionne.stock
+                      : articleSelectionne.stock.toFixed(2)
+                    } {articleSelectionne.unite_base}
+                  </Badge>
+                )}
               </div>
+              {/* D36 (C.8) : il s'achète, se paie et se trace comme les
+                  autres ; seul son stock ne se suit pas. Le dire ici
+                  évite de le chercher en vain dans l'écran Stock. */}
+              {nonSuivi(articleSelectionne) && (
+                <p className="text-xs text-muted-foreground">
+                  Cet article ne suit pas son stock : l'achat s'enregistre
+                  (facture, paiement, historique), mais n'apparaîtra pas dans
+                  l'écran Stock. Pour le suivre : Paramètres → Articles.
+                </p>
+              )}
 
               {/* Toujours affiché : avec les conditionnements, masquer le
                   choix quand il n'y a qu'une unité faisait vendre un carton
@@ -657,8 +687,8 @@ export function Achats() {
                 </div>
               </div>
 
-              {/* Stock après entrée */}
-              {quantite && uniteSelectionnee && (
+              {/* Stock après entrée — sans objet pour un article non suivi */}
+              {quantite && uniteSelectionnee && !nonSuivi(articleSelectionne) && (
                 <p className="text-xs text-green-600">
                   Stock après : {(
                     articleSelectionne.stock +
@@ -731,7 +761,14 @@ export function Achats() {
                 <div key={ligne.id}
                   className="flex items-center justify-between py-2 px-3 rounded-md bg-muted/40 group">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{ligne.article.nom}</p>
+                    <p className="text-sm font-medium truncate">
+                      {ligne.article.nom}
+                      {nonSuivi(ligne.article) && (
+                        <span className="ml-1.5 text-[10px] font-normal text-amber-700 dark:text-amber-400">
+                          non suivi
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {ligne.quantite} {ligne.unite.libelle} ×{" "}
                       {formaterMontant(ligne.prix_achat)}

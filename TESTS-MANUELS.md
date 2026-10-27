@@ -25,17 +25,17 @@ passe par les yeux et par le réseau.
 | A1 | Lancer `Gescom-Serveur_x.y.z_x64-setup.exe` en administrateur | Assistant en français ; page « Configuration du serveur » avec base et port préremplis | ☐ |
 | A2 | Garder les valeurs, terminer | Pas d'erreur ; page finale nomme le journal, la configuration et `sc stop/start` | ☐ |
 | A3 | Ouvrir **Services** | *Gescom Serveur* : **En cours d'exécution**, démarrage **Automatique** | ☐ |
-| A4 | Menu Démarrer → Gescom → *Journal du serveur* | Le fichier s'ouvre ; dernière section « service démarré », puis une ligne `[INFO  ] Serveur démarré — … écoute http://0.0.0.0:7300, 210 commandes` ; adresse à saisir sur les caisses | ☐ |
+| A4 | Menu Démarrer → Gescom → *Journal du serveur* | Le fichier s'ouvre ; dernière section « service démarré », puis une ligne `[INFO  ] Serveur démarré — … écoute http://0.0.0.0:40000, 210 commandes` ; adresse à saisir sur les caisses | ☐ |
 | A4b | Depuis une caisse : mauvais mot de passe, puis une vente caisse fermée | Deux lignes `[REFUS ]` dans le journal, avec l'heure, la route, la commande et le message ; **aucun mot de passe** dans le fichier | ☐ |
-| A5 | Navigateur : `http://localhost:7300` | La console répond (postes, sauvegardes) | ☐ |
-| A6 | `sc stop GescomServeur` puis `http://localhost:7300` | Le service passe **Arrêté** en moins de 5 s ; la page ne répond plus ; le journal dit « Arrêt demandé » | ☐ |
+| A5 | Navigateur : `http://localhost:40000` | La console répond (postes, sauvegardes) | ☐ |
+| A6 | `sc stop GescomServeur` puis `http://localhost:40000` | Le service passe **Arrêté** en moins de 5 s ; la page ne répond plus ; le journal dit « Arrêt demandé » | ☐ |
 | A7 | `sc start GescomServeur` | Redémarre ; la console répond de nouveau | ☐ |
 | A8 | Gestionnaire des tâches → tuer `gescom-serveur.exe` | Il **revient tout seul** dans les 10 s (relance sur incident) | ☐ |
-| A9 | Redémarrer la machine **sans ouvrir de session** ; depuis une autre machine, `http://<ip>:7300/sante` | Répond : le service démarre avant toute session | ☐ |
-| A10 | Pare-feu : `outils\parefeu.ps1 -Etat` | Règle « Gescom serveur » PRÉSENTE, profils Domaine + Privé, port 7300 | ☐ |
+| A9 | Redémarrer la machine **sans ouvrir de session** ; depuis une autre machine, `http://<ip>:40000/sante` | Répond : le service démarre avant toute session | ☐ |
+| A10 | Pare-feu : `outils\parefeu.ps1 -Etat` | Règle « Gescom serveur » PRÉSENTE, profils Domaine + Privé, ports 40000-40100 | ☐ |
 | A11 | Panneau de configuration → Certificats (certlm) → Autorités racines / Éditeurs approuvés | « Gescom (auto-signe) » présent | ☐ |
 | A12 | Relancer le **même** installeur (mise à jour) | Pas de page de configuration (elle existe) ; le service est arrêté, remplacé, relancé ; `serveur.json` intact | ☐ |
-| A13 | Éditer `serveur.json` (port 7301), `sc stop` + `sc start` | Écoute sur 7301 (journal) ; remettre 7300 ensuite | ☐ |
+| A13 | Éditer `serveur.json` (port 40001), `sc stop` + `sc start` | Écoute sur 40001 (journal) ; hors de 40000-40100, un avertissement au journal ; remettre 40000 ensuite | ☐ |
 | A14 | Désinstaller (Programmes et fonctionnalités) | Service retiré, règle de pare-feu retirée ; `C:\ProgramData\Gescom` (base, journal, sauvegardes) **conservé** | ☐ |
 | A15 | Avec PostgreSQL : base `postgresql://…/gescom_essai` à l'installation | Le journal dit « PostgreSQL » ; amorçage si base neuve ; `sc stop/start` sans erreur | ☐ |
 | A16 | Mot de passe PostgreSQL faux dans `serveur.json` | Le service **s'arrête** avec un message clair dans le journal — il ne sert pas une base vide à la place | ☐ |
@@ -141,7 +141,8 @@ papier.
 |---|---|---|---|
 | I1 | Ouvrir avec un fond, vendre, dépense, clôturer en saisissant le vrai comptage | L'écart affiché est le bon ; Historique le garde | ☐ |
 | I2 | Ouvrir deux fois | Refus « session déjà ouverte » | ☐ |
-| I3 | Mode « caisse par utilisateur » (Paramètres → Ventes) | Chacun son tiroir ; l'un ne voit pas celui de l'autre | ☐ |
+| I3 | ~~Mode « caisse par utilisateur »~~ — retiré le 27/10/2026 (lot C.6) : aucun écran ne le propose | Un seul tiroir par dossier, quel que soit qui encaisse | ☐ |
+| I4 | Sur l'ordinateur qui garde la base, reculer l'heure de Windows d'une heure, puis vendre depuis une caisse | Refus « L'horloge de l'ordinateur qui garde la base recule… » ; les listes se lisent toujours. Remettre l'heure : la vente passe. Avancer l'heure d'un jour, vendre, la remettre : bloqué ; Paramètres → Horloge (patron) → « L'heure de Windows est juste » débloque, l'Historique le garde | ☐ |
 
 ## J. Sauvegarde et restauration
 
@@ -152,6 +153,25 @@ papier.
 | J3 | `sc stop GescomServeur`, puis `gescom-serveur.exe --restaurer <fichier J1>`, puis `sc start` | « Sauvegarde restaurée (sqlite\|postgresql) sur … », l'ancienne base gardée en `…avant-restauration-<date>` ; les données reviennent ; les caisses se reconnectent | ☐ |
 | J3b | `--restaurer` sur un fichier texte quelconque | « Restauration impossible : … », la base en place intacte | ☐ |
 | J4 | Abîmer volontairement le fichier SQLite, `sc start` | Le service **refuse** de démarrer : « BASE ABIMEE … restaurer » dans le journal | ☐ |
+
+## K. Gescom Serveur : la fenêtre, le port, la recherche (27/10/2026)
+
+*Le serveur installé en service (section A), une caisse sur une seconde
+machine. Fiche : `AI_CONTEXT/modules/serveur-fenetre.md`.*
+
+| # | Faire | Attendu | ☐ |
+|---|---|---|---|
+| K1 | Menu Démarrer → Gescom → **Gescom Serveur** | Une fenêtre « Gescom Serveur » montre la console (état, connexion) — la même page que `http://localhost:40000` | ☐ |
+| K2 | `sc stop GescomServeur`, attendre 20 s | La fenêtre passe à « Le serveur ne tourne pas », « Le service … est arrêté », boutons **Démarrer le service** et **Réessayer** | ☐ |
+| K3 | **Démarrer le service** | Windows demande l'accord administrateur ; accepté → la console revient seule ; refusé → « Accord administrateur refusé » | ☐ |
+| K4 | Console → se connecter (patron) → carte **Réseau** | Nom du poste, adresses IP (« donnée par la box » si DHCP, avec l'avertissement qui conseille le nom), port 40000, écoute « toutes les cartes », à taper : le NOM puis l'IP, pare-feu TCP et UDP « ouverte », recherche « en service » | ☐ |
+| K5 | Même carte, ouverte depuis une **caisse** (`http://<serveur>:40000/console`) | Lecture seule : « …seulement sur le poste du serveur lui-même » ; employé : « …Modifier les paramètres » | ☐ |
+| K6 | Sur la caisse : Paramètres → Réseau → **Rechercher le serveur** | En 2 s, le serveur apparaît par son nom ; un clic remplit l'adresse et la teste (« Serveur joignable ») | ☐ |
+| K7 | Sur le serveur, fenêtre → Réseau : port **40007**, Appliquer | L'avertissement compte les caisses connectées ; confirmé → « Le serveur redémarre… », la console se rouvre sur 40007 (5 s, jusqu'à une minute) ; `serveur.json` dit 40007, base et autres clés intactes ; Historique : « Port ou écoute du serveur changé » | ☐ |
+| K8 | Sur la caisse, après K7 | « Serveur injoignable » ; **Rechercher le serveur** le retrouve sur 40007 ; enregistré, la caisse revend | ☐ |
+| K9 | Fermer puis rouvrir la fenêtre Gescom Serveur | Elle s'ouvre directement sur 40007 (lu dans `serveur.json`) ; remettre 40000 ensuite (et retrouver la caisse) | ☐ |
+| K10 | Pare-feu : retirer la règle « Gescom serveur (recherche) », puis K6 | « Aucun serveur Gescom n'a répondu », avec les causes probables ; la saisie à la main marche | ☐ |
+| K11 | Poste monoposte (la fenêtre de caisse lance le serveur) : ouvrir la console → Réseau | État lisible, changement refusé : « le port est géré par Gescom sur ce poste » | ☐ |
 
 ---
 

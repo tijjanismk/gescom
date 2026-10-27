@@ -134,13 +134,14 @@ fn utilisateurs_postes_et_mode_de_caisse() {
     postes::reactiver_sur_base(&mut base, "p-caisse").unwrap();
     assert!(postes::lire_sur(&mut base, "p-caisse").unwrap().actif);
 
-    // Mode de caisse : refusé tant qu'une caisse est ouverte.
+    // Mode de caisse (lot C.6) : la caisse par utilisateur est retirée,
+    // refusée caisse ouverte comme fermée ; le tiroir unique se garde.
     assert!(!caisses::par_utilisateur_sur(&mut base));
     let sid = ouvrir_caisse(&mut base);
-    assert!(caisses::definir_par_utilisateur_sur(&mut base, true).unwrap_err().contains("Fermer toutes les caisses"));
+    assert!(caisses::definir_par_utilisateur_sur(&mut base, true).unwrap_err().starts_with("MODE_CAISSE_INDISPONIBLE"));
     gescom_noyau::caisse::fermer_session_caisse_sur(&mut base, sid, 0).unwrap();
-    caisses::definir_par_utilisateur_sur(&mut base, true).unwrap();
-    assert!(caisses::par_utilisateur_sur(&mut base));
+    assert!(caisses::definir_par_utilisateur_sur(&mut base, true).unwrap_err().starts_with("MODE_CAISSE_INDISPONIBLE"));
+    assert!(!caisses::par_utilisateur_sur(&mut base));
     caisses::definir_par_utilisateur_sur(&mut base, false).unwrap();
 }
 

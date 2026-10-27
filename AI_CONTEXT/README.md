@@ -30,6 +30,7 @@ de 5 à 8 k.
 | la v3 — ce qu'elle contient, dans quel ordre, ce qui est tranché | [PLAN-V3.md](PLAN-V3.md) |
 | le multi-société (v3, chantier D) | [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md) ; le code : [modules/dossiers.md](modules/dossiers.md) |
 | Gescom Équipe : personnel, paie, suivi client (chantiers F, G, H) | [PLAN-EQUIPE.md](PLAN-EQUIPE.md) ; le code : [modules/equipe.md](modules/equipe.md) |
+| le duplicata des pièces et des reçus (fini le 27/10/2026) | [PLAN-DUPLICATA.md](PLAN-DUPLICATA.md) ; le code : [modules/documents.md](modules/documents.md) |
 | le plan comptable, les affectations, les journaux (v3, chantier E) | [PLAN-V3.md](PLAN-V3.md) § 7 ; le code : [modules/comptabilite.md](modules/comptabilite.md) |
 
 Vue d'ensemble en une page : [ARCHITECTURE.md](ARCHITECTURE.md).

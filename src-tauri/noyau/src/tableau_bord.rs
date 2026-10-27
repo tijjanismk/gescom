@@ -16,6 +16,77 @@ const MOIS_COURTS: [&str; 12] = [
     "Juil", "Août", "Sep", "Oct", "Nov", "Déc",
 ];
 
+// Le chiffre d'affaires est NET des retours : les ventes de la periode
+// moins les retours dates dans la periode (`coeur::calcul::ca_net`),
+// l'echange mis a part (`RETOUR_HORS_CA`). Le retour se filtre comme la
+// vente qu'il rend : meme magasin, vente non annulee — une vente annulee
+// est deja sortie du chiffre, la deduire encore la compterait deux fois.
+
+/// La valeur des retours entre deux bornes (fin exclue, facultative),
+/// cote fenetre.
+fn retours_entre_conn(
+    conn: &rusqlite::Connection,
+    debut: &str,
+    fin: Option<&str>,
+    dep: &Option<String>,
+) -> i64 {
+    conn.query_row(
+        "SELECT CAST(COALESCE(SUM(rt.montant_credit), 0) AS INTEGER)
+         FROM retour rt
+         JOIN vente v ON v.id = rt.vente_id
+         WHERE rt.date_retour >= ?1
+           AND (?2 IS NULL OR rt.date_retour < ?2)
+           AND v.statut != 'annulee'
+           AND rt.mode_resolution <> ?4
+           AND (?3 IS NULL OR v.depot_id = ?3)",
+        rusqlite::params![debut, fin, dep, crate::coeur::calcul::RETOUR_HORS_CA],
+        |r| r.get(0),
+    ).unwrap_or(0)
+}
+
+/// Les retours d'une periode, par heure (`AAAA-MM-JJTHH`), cote fenetre.
+fn retours_par_heure_conn(
+    conn: &rusqlite::Connection,
+    debut: &str,
+    fin: &str,
+    dep: &Option<String>,
+) -> Vec<(String, i64)> {
+    let lire = || -> rusqlite::Result<Vec<(String, i64)>> {
+        let mut st = conn.prepare(
+            "SELECT SUBSTR(rt.date_retour, 1, 13),
+                    CAST(COALESCE(SUM(rt.montant_credit), 0) AS INTEGER)
+             FROM retour rt
+             JOIN vente v ON v.id = rt.vente_id
+             WHERE rt.date_retour >= ?1 AND rt.date_retour <= ?2
+               AND v.statut != 'annulee'
+               AND rt.mode_resolution <> ?4
+               AND (?3 IS NULL OR v.depot_id = ?3)
+             GROUP BY SUBSTR(rt.date_retour, 1, 13)",
+        )?;
+        let v = st
+            .query_map(rusqlite::params![debut, fin, dep, crate::coeur::calcul::RETOUR_HORS_CA], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(v)
+    };
+    lire().unwrap_or_default()
+}
+
+/// Un classement par chiffre NET : (ligne, brut, retours) -> la ligne
+/// avec son `ca` net, les dix premiers. Le tri se fait apres la
+/// deduction — trier sur le brut puis couper a dix ecarterait un client
+/// dont les retours font tomber un autre sous lui.
+/// Sert aussi aux tops des rapports (`rapports.rs`).
+pub(crate) fn classer_par_ca_net(mut lignes: Vec<(serde_json::Value, i64, i64)>, garder: usize) -> Vec<serde_json::Value> {
+    for (l, brut, retours) in lignes.iter_mut() {
+        l["ca"] = serde_json::json!(crate::coeur::calcul::ca_net(*brut, *retours));
+    }
+    lignes.sort_by(|a, b| b.0["ca"].as_i64().cmp(&a.0["ca"].as_i64()));
+    lignes.into_iter().take(garder).map(|(l, _, _)| l).collect()
+}
+
 pub fn lire_resume_dashboard(
     conn: &rusqlite::Connection,
     // Depot actif. None ou vide = tous les depots (vue consolidee).
@@ -52,6 +123,9 @@ pub fn lire_resume_dashboard(
         }
     };
     let fin_mois_prec = chrono::Local::now().format("%Y-%m-01T00:00:00").to_string();
+    let net = |brut: i64, debut: &str, fin: Option<&str>| {
+        crate::coeur::calcul::ca_net(brut, retours_entre_conn(conn, debut, fin, &dep))
+    };
 
     // CA jour
     let ca_jour: i64 = conn.query_row(
@@ -110,6 +184,12 @@ pub fn lire_resume_dashboard(
         rusqlite::params![debut_mois_prec, fin_mois_prec, dep],
         |r| r.get(0),
     ).unwrap_or(0);
+
+    // Nets des retours de chaque periode.
+    let ca_jour = net(ca_jour, &debut_jour, None);
+    let ca_semaine = net(ca_semaine, &debut_semaine, None);
+    let ca_mois = net(ca_mois, &debut_mois, None);
+    let ca_mois_precedent = net(ca_mois_precedent, &debut_mois_prec, Some(&fin_mois_prec));
 
     // Créances
     let (total_creances, nb_creances_ouvertes): (i64, i64) = conn.query_row(
@@ -310,6 +390,15 @@ pub fn lire_ventes_periode(
         }
     });
 
+    // Les retours de la periode, chacun dans la case de SON heure.
+    for (heure, retours) in retours_par_heure_conn(conn, &debut, &fin, &dep) {
+        if let Some(i) = case_de(p, &debut, &heure) {
+            if i < nb_cases {
+                cases[i].0 = crate::coeur::calcul::ca_net(cases[i].0, retours);
+            }
+        }
+    }
+
     // Libelles, et bornes d'affichage.
     let mut points: Vec<serde_json::Value> = Vec::new();
     let (de, a) = match p {
@@ -354,31 +443,35 @@ pub fn lire_top_clients(
 ) -> Result<Vec<serde_json::Value>, String> {
     let debut_mois = chrono::Local::now().format("%Y-%m-01T00:00:00").to_string();
 
+    // Les retours du mois, par client de la vente rendue ; le classement
+    // se fait sur le chiffre net (`classer_par_ca_net`).
     let mut stmt = conn.prepare(
         "SELECT c.nom, c.code,
                 CAST(COALESCE(SUM(
                     (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
                      FROM ligne_vente WHERE vente_id = v.id)
                 ), 0) AS INTEGER) as ca,
-                COUNT(v.id) as nb_ventes
+                COUNT(v.id) as nb_ventes,
+                CAST(COALESCE((SELECT SUM(rt.montant_credit) FROM retour rt
+                               JOIN vente vr ON vr.id = rt.vente_id
+                               WHERE vr.client_id = c.id AND rt.date_retour >= ?1
+                                 AND vr.statut != 'annulee'
+                                 AND rt.mode_resolution <> ?2), 0) AS INTEGER)
          FROM vente v
          JOIN client c ON c.id = v.client_id
          WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
            AND c.est_generique = 0
-         GROUP BY c.id
-         ORDER BY ca DESC
-         LIMIT 10"
+         GROUP BY c.id"
     ).map_err(|e| e.to_string())?;
 
-    let x = stmt.query_map(rusqlite::params![debut_mois], |row| {
-        Ok(serde_json::json!({
+    let x = stmt.query_map(rusqlite::params![debut_mois, crate::coeur::calcul::RETOUR_HORS_CA], |row| {
+        Ok((serde_json::json!({
             "nom":       row.get::<_,String>(0)?,
             "code":      row.get::<_,String>(1)?,
-            "ca":        row.get::<_,i64>(2)?,
             "nb_ventes": row.get::<_,i64>(3)?,
-        }))
+        }), row.get::<_,i64>(2)?, row.get::<_,i64>(4)?))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-    Ok(x)
+    Ok(classer_par_ca_net(x, 10))
 }
 
 pub fn lire_top_articles(
@@ -386,28 +479,36 @@ pub fn lire_top_articles(
 ) -> Result<Vec<serde_json::Value>, String> {
     let debut_mois = chrono::Local::now().format("%Y-%m-01T00:00:00").to_string();
 
+    // Les retours du mois, par article rendu : montant ET quantite.
     let mut stmt = conn.prepare(
         "SELECT a.nom, a.unite_base,
                 CAST(COALESCE(SUM(lv.quantite * lv.prix_pratique), 0) AS INTEGER) as ca,
-                COALESCE(SUM(lv.quantite), 0) as qte_vendue
+                COALESCE(SUM(lv.quantite), 0) as qte_vendue,
+                CAST(COALESCE((SELECT SUM(rt.montant_credit) FROM retour rt
+                               JOIN vente vr ON vr.id = rt.vente_id
+                               WHERE rt.article_id = a.id AND rt.date_retour >= ?1
+                                 AND vr.statut != 'annulee'
+                                 AND rt.mode_resolution <> ?2), 0) AS INTEGER),
+                CAST(COALESCE((SELECT SUM(rt.quantite) FROM retour rt
+                               JOIN vente vr ON vr.id = rt.vente_id
+                               WHERE rt.article_id = a.id AND rt.date_retour >= ?1
+                                 AND vr.statut != 'annulee'
+                                 AND rt.mode_resolution <> ?2), 0) AS REAL)
          FROM ligne_vente lv
          JOIN article a ON a.id = lv.article_id
          JOIN vente v ON v.id = lv.vente_id
          WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
-         GROUP BY a.id
-         ORDER BY ca DESC
-         LIMIT 10"
+         GROUP BY a.id"
     ).map_err(|e| e.to_string())?;
 
-    let x = stmt.query_map(rusqlite::params![debut_mois], |row| {
-        Ok(serde_json::json!({
+    let x = stmt.query_map(rusqlite::params![debut_mois, crate::coeur::calcul::RETOUR_HORS_CA], |row| {
+        Ok((serde_json::json!({
             "nom":        row.get::<_,String>(0)?,
             "unite":      row.get::<_,String>(1)?,
-            "ca":         row.get::<_,i64>(2)?,
-            "qte_vendue": row.get::<_,f64>(3)?,
-        }))
+            "qte_vendue": row.get::<_,f64>(3)? - row.get::<_,f64>(5)?,
+        }), row.get::<_,i64>(2)?, row.get::<_,i64>(4)?))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
-    Ok(x)
+    Ok(classer_par_ca_net(x, 10))
 }
 
 pub fn lire_ventes_a_decouvert(
@@ -487,7 +588,34 @@ fn somme(base: &mut Base, sql: &str, params: &[Valeur]) -> Result<i64, String> {
     Ok(base.lire_une(sql, params, |r| r.get::<i64>(0)).map_err(|e| e.0)?.unwrap_or(0))
 }
 
-/// Le chiffre d'affaires et le nombre de ventes entre deux bornes.
+/// La valeur des retours dates entre deux bornes (fin exclue,
+/// facultative), filtres comme la vente qu'ils rendent : meme magasin,
+/// vente non annulee ; l'echange a part (`RETOUR_HORS_CA`).
+fn retours_entre(
+    base: &mut Base,
+    dossier: &str,
+    debut: &str,
+    fin: Option<&str>,
+    dep: &Option<String>,
+) -> Result<i64, String> {
+    somme(
+        base,
+        "SELECT CAST(COALESCE(SUM(rt.montant_credit), 0) AS BIGINT)
+         FROM retour rt
+         JOIN vente v ON v.id = rt.vente_id
+         WHERE rt.date_retour >= ?1
+           AND (CAST(?2 AS TEXT) IS NULL OR rt.date_retour < ?2)
+           AND v.statut != 'annulee'
+           AND rt.mode_resolution <> ?5
+           AND (CAST(?3 AS TEXT) IS NULL OR v.depot_id = ?3)
+           AND rt.dossier_id = ?4",
+        &parametres![debut, fin, dep.clone(), dossier, crate::coeur::calcul::RETOUR_HORS_CA],
+    )
+}
+
+/// Le chiffre d'affaires NET et le nombre de ventes entre deux bornes :
+/// les ventes de la periode moins les retours dates dans la periode
+/// (`coeur::calcul::ca_net`).
 ///
 /// Une seule requete pour les quatre periodes du resume : la borne de
 /// fin est facultative, et `dep` a NULL veut dire tous les magasins.
@@ -498,7 +626,8 @@ fn ca_entre(
     fin: Option<&str>,
     dep: &Option<String>,
 ) -> Result<(i64, i64), String> {
-    Ok(base
+    let retours = retours_entre(base, dossier, debut, fin, dep)?;
+    let (brut, nb) = base
         .lire_une(
         "SELECT
             CAST(COALESCE(SUM(
@@ -516,7 +645,8 @@ fn ca_entre(
             |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?)),
         )
         .map_err(|e| e.0)?
-        .unwrap_or((0, 0)))
+        .unwrap_or((0, 0));
+    Ok((crate::coeur::calcul::ca_net(brut, retours), nb))
 }
 
 pub fn lire_resume_dashboard_sur(
@@ -769,8 +899,27 @@ pub fn lire_ventes_periode_sur(
                AND (CAST(?3 AS TEXT) IS NULL OR v.depot_id = ?3)
                AND v.dossier_id = ?4
              GROUP BY SUBSTR(v.date_vente, 1, 13)",
-            &parametres![per.debut.clone(), per.fin.clone(), dep, dossier],
+            &parametres![per.debut.clone(), per.fin.clone(), dep.clone(), dossier.clone()],
             |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?)),
+        )
+        .map_err(|e| e.0)?;
+
+    // Les retours de la periode, par heure du RETOUR : ils se deduisent
+    // de la case ou ils ont eu lieu, pas de celle de la vente rendue.
+    let retours: Vec<(String, i64)> = base
+        .lire_plusieurs(
+            "SELECT SUBSTR(rt.date_retour, 1, 13),
+                    CAST(COALESCE(SUM(rt.montant_credit), 0) AS BIGINT)
+             FROM retour rt
+             JOIN vente v ON v.id = rt.vente_id
+             WHERE rt.date_retour >= ?1 AND rt.date_retour <= ?2
+               AND v.statut != 'annulee'
+               AND rt.mode_resolution <> ?5
+               AND (CAST(?3 AS TEXT) IS NULL OR v.depot_id = ?3)
+               AND rt.dossier_id = ?4
+             GROUP BY SUBSTR(rt.date_retour, 1, 13)",
+            &parametres![per.debut.clone(), per.fin.clone(), dep, dossier, crate::coeur::calcul::RETOUR_HORS_CA],
+            |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?)),
         )
         .map_err(|e| e.0)?;
 
@@ -780,6 +929,13 @@ pub fn lire_ventes_periode_sur(
             if i < per.nb_cases {
                 cases[i].0 += montant;
                 cases[i].1 += nb;
+            }
+        }
+    }
+    for (heure, montant) in retours {
+        if let Some(i) = case_de(p, &per.debut, &heure) {
+            if i < per.nb_cases {
+                cases[i].0 = crate::coeur::calcul::ca_net(cases[i].0, montant);
             }
         }
     }
@@ -824,32 +980,43 @@ pub fn lire_top_clients_sur(base: &mut Base) -> Result<Vec<serde_json::Value>, S
     let dossier = base.dossier().to_string();
     let debut_mois = chrono::Local::now().format("%Y-%m-01T00:00:00").to_string();
 
-    base.lire_plusieurs(
-        "SELECT c.nom, c.code,
-                CAST(COALESCE(SUM(
-                    (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
-                     FROM ligne_vente WHERE vente_id = v.id)
-                ), 0) AS BIGINT) AS ca,
-                COUNT(v.id) AS nb_ventes
-         FROM vente v
-         JOIN client c ON c.id = v.client_id
-         WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
-           AND c.est_generique = 0
-           AND v.dossier_id = ?2
-         GROUP BY c.id, c.nom, c.code
-         ORDER BY ca DESC
-         LIMIT 10",
-        &parametres![debut_mois, dossier],
-        |r| {
-            Ok(serde_json::json!({
-                "nom":       r.get::<String>(0)?,
-                "code":      r.get::<String>(1)?,
-                "ca":        r.get::<i64>(2)?,
-                "nb_ventes": r.get::<i64>(3)?,
-            }))
-        },
-    )
-    .map_err(|e| e.0)
+    // Les retours du mois par client de la vente rendue, puis le
+    // classement sur le chiffre net (`classer_par_ca_net`).
+    let lignes = base
+        .lire_plusieurs(
+            "SELECT c.nom, c.code,
+                    CAST(COALESCE(SUM(
+                        (SELECT COALESCE(SUM(prix_pratique * quantite), 0)
+                         FROM ligne_vente WHERE vente_id = v.id)
+                    ), 0) AS BIGINT) AS ca,
+                    COUNT(v.id) AS nb_ventes,
+                    CAST(COALESCE((SELECT SUM(rt.montant_credit) FROM retour rt
+                                   JOIN vente vr ON vr.id = rt.vente_id
+                                   WHERE vr.client_id = c.id AND rt.date_retour >= ?1
+                                     AND vr.statut != 'annulee'
+                                     AND rt.mode_resolution <> ?3
+                                     AND rt.dossier_id = ?2), 0) AS BIGINT)
+             FROM vente v
+             JOIN client c ON c.id = v.client_id
+             WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
+               AND c.est_generique = 0
+               AND v.dossier_id = ?2
+             GROUP BY c.id, c.nom, c.code",
+            &parametres![debut_mois, dossier, crate::coeur::calcul::RETOUR_HORS_CA],
+            |r| {
+                Ok((
+                    serde_json::json!({
+                        "nom":       r.get::<String>(0)?,
+                        "code":      r.get::<String>(1)?,
+                        "nb_ventes": r.get::<i64>(3)?,
+                    }),
+                    r.get::<i64>(2)?,
+                    r.get::<i64>(4)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+    Ok(classer_par_ca_net(lignes, 10))
 }
 
 pub fn lire_top_articles_sur(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
@@ -857,30 +1024,46 @@ pub fn lire_top_articles_sur(base: &mut Base) -> Result<Vec<serde_json::Value>, 
     let debut_mois = chrono::Local::now().format("%Y-%m-01T00:00:00").to_string();
 
     // `article` n'est pas cloisonne (c'est une chose, pas une
-    // relation) ; ce sont les ventes qui le sont.
-    base.lire_plusieurs(
-        "SELECT a.nom, a.unite_base,
-                CAST(COALESCE(SUM(lv.quantite * lv.prix_pratique), 0) AS BIGINT) AS ca,
-                CAST(COALESCE(SUM(lv.quantite), 0) AS DOUBLE PRECISION) AS qte_vendue
-         FROM ligne_vente lv
-         JOIN article a ON a.id = lv.article_id
-         JOIN vente v ON v.id = lv.vente_id
-         WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
-           AND v.dossier_id = ?2
-         GROUP BY a.id, a.nom, a.unite_base
-         ORDER BY ca DESC
-         LIMIT 10",
-        &parametres![debut_mois, dossier],
-        |r| {
-            Ok(serde_json::json!({
-                "nom":        r.get::<String>(0)?,
-                "unite":      r.get::<String>(1)?,
-                "ca":         r.get::<i64>(2)?,
-                "qte_vendue": r.get::<f64>(3)?,
-            }))
-        },
-    )
-    .map_err(|e| e.0)
+    // relation) ; ce sont les ventes qui le sont. Les retours du mois
+    // se deduisent par article rendu : montant ET quantite.
+    let lignes = base
+        .lire_plusieurs(
+            "SELECT a.nom, a.unite_base,
+                    CAST(COALESCE(SUM(lv.quantite * lv.prix_pratique), 0) AS BIGINT) AS ca,
+                    CAST(COALESCE(SUM(lv.quantite), 0) AS DOUBLE PRECISION) AS qte_vendue,
+                    CAST(COALESCE((SELECT SUM(rt.montant_credit) FROM retour rt
+                                   JOIN vente vr ON vr.id = rt.vente_id
+                                   WHERE rt.article_id = a.id AND rt.date_retour >= ?1
+                                     AND vr.statut != 'annulee'
+                                     AND rt.mode_resolution <> ?3
+                                     AND rt.dossier_id = ?2), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(rt.quantite) FROM retour rt
+                                   JOIN vente vr ON vr.id = rt.vente_id
+                                   WHERE rt.article_id = a.id AND rt.date_retour >= ?1
+                                     AND vr.statut != 'annulee'
+                                     AND rt.mode_resolution <> ?3
+                                     AND rt.dossier_id = ?2), 0) AS DOUBLE PRECISION)
+             FROM ligne_vente lv
+             JOIN article a ON a.id = lv.article_id
+             JOIN vente v ON v.id = lv.vente_id
+             WHERE v.date_vente >= ?1 AND v.statut != 'annulee'
+               AND v.dossier_id = ?2
+             GROUP BY a.id, a.nom, a.unite_base",
+            &parametres![debut_mois, dossier, crate::coeur::calcul::RETOUR_HORS_CA],
+            |r| {
+                Ok((
+                    serde_json::json!({
+                        "nom":        r.get::<String>(0)?,
+                        "unite":      r.get::<String>(1)?,
+                        "qte_vendue": r.get::<f64>(3)? - r.get::<f64>(5)?,
+                    }),
+                    r.get::<i64>(2)?,
+                    r.get::<i64>(4)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+    Ok(classer_par_ca_net(lignes, 10))
 }
 
 pub fn lire_ventes_a_decouvert_sur(

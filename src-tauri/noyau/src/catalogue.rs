@@ -23,8 +23,10 @@ use serde_json::{json, Value};
 pub fn lire_clients(conn: &Connection) -> Result<Vec<Value>, String> {
     let mut stmt = conn
         .prepare(
+            // D35 : pas les fiches de passage — une par vente sans nom,
+            // elles noieraient la liste (le filtre « Passages » les lit).
             "SELECT id, code, nom, telephone FROM client
-             WHERE actif = 1 ORDER BY nom ASC",
+             WHERE actif = 1 AND statut <> 'passage' ORDER BY nom ASC",
         )
         .map_err(|e| e.to_string())?;
     let x = stmt
@@ -45,7 +47,11 @@ pub fn lire_clients(conn: &Connection) -> Result<Vec<Value>, String> {
 /// Le client de passage — celui des ventes au comptant (D40).
 pub fn lire_client_generique(conn: &Connection) -> Result<Value, String> {
     conn.query_row(
-        "SELECT id, code, nom FROM client WHERE est_generique = 1 LIMIT 1",
+        // D35 : le « Comptant », jamais une fiche de passage (generique
+        // elle aussi). Le plus ancien : c'est lui que l'amorcage a cree.
+        "SELECT id, code, nom FROM client
+         WHERE est_generique = 1 AND statut <> 'passage'
+         ORDER BY cree_le, id LIMIT 1",
         [],
         |row| {
             Ok(json!({
@@ -201,6 +207,16 @@ pub fn lire_articles_avec_unites(
             }
         },
     );
+    // D36 : la caisse doit savoir quels articles ne suivent pas leur
+    // stock — ni rupture, ni decouvert a annoncer pour eux.
+    let non_suivis: Vec<String> = conn
+        .prepare("SELECT id FROM article WHERE gere_en_stock = 0")
+        .and_then(|mut s| s.query_map([], |r| r.get::<_, String>(0)).map(|it| it.filter_map(|x| x.ok()).collect()))
+        .unwrap_or_default();
+    for a in articles.iter_mut() {
+        let suivi = !non_suivis.iter().any(|id| a["id"] == id.as_str());
+        a["gere_en_stock"] = json!(suivi);
+    }
     Ok(articles)
 }
 
@@ -222,8 +238,9 @@ use crate::parametres;
 pub fn lire_clients_sur(base: &mut Base) -> Result<Vec<Value>, String> {
     let dossier = base.dossier().to_string();
     base.lire_plusieurs(
+        // D35 : pas les fiches de passage (passage::lire_passages_sur).
         "SELECT id, code, nom, telephone FROM client
-         WHERE actif = 1 AND dossier_id = ?1 ORDER BY nom ASC",
+         WHERE actif = 1 AND statut <> 'passage' AND dossier_id = ?1 ORDER BY nom ASC",
         &parametres![dossier],
         |r| {
             Ok(json!({
@@ -240,8 +257,10 @@ pub fn lire_clients_sur(base: &mut Base) -> Result<Vec<Value>, String> {
 pub fn lire_client_generique_sur(base: &mut Base) -> Result<Value, String> {
     let dossier = base.dossier().to_string();
     base.lire_une(
+        // D35 : le « Comptant », jamais une fiche de passage.
         "SELECT id, code, nom FROM client
-         WHERE est_generique = 1 AND dossier_id = ?1 LIMIT 1",
+         WHERE est_generique = 1 AND statut <> 'passage' AND dossier_id = ?1
+         ORDER BY cree_le, id LIMIT 1",
         &parametres![dossier],
         |r| {
             Ok(json!({
@@ -397,6 +416,14 @@ pub fn lire_articles_avec_unites_sur(
                 unites.push(unite);
             }
         }
+    }
+    // D36 : voir la version `Connection`.
+    let non_suivis: Vec<String> = base
+        .lire_plusieurs("SELECT id FROM article WHERE gere_en_stock = 0", &[], |r| r.get::<String>(0))
+        .unwrap_or_default();
+    for a in articles.iter_mut() {
+        let suivi = !non_suivis.iter().any(|id| a["id"] == id.as_str());
+        a["gere_en_stock"] = json!(suivi);
     }
     Ok(articles)
 }

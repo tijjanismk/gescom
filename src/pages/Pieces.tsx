@@ -3,7 +3,7 @@ import { peut, peutUne } from "@/lib/droits";
 import { appeler as invoke } from "@/lib/pont";
 import {
   Plus, Printer, Loader2, Search, X, Wallet, PackageCheck, MoreHorizontal, Eye,
-  RotateCcw, ArrowLeftRight,
+  RotateCcw,
   ArrowRight, FileText, ClipboardList,
   Package, Truck, Receipt, Gift,
   ShoppingBag, CheckCircle2, Copy, Ban, Edit2, History,
@@ -22,15 +22,14 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { genererImpression, type FormatImpression } from "@/lib/genererPDF";
 import { chargerHabillage } from "@/lib/impression";
+import { noterImpression, marque, refusImpression } from "@/lib/duplicata";
 import { genreDePiece } from "@/lib/documents";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  ModalRemboursement, ModalAvoirConserve, ModalEchange,
-} from "@/components/ModalsRetour";
-import type { ArticleAchat, LigneVente, Vente } from "@/components/ModalsRetour";
+import { ModalRetour } from "@/components/ModalsRetour";
+import type { ArticleAchat, Vente } from "@/components/ModalsRetour";
 import {
   FiltresAvances, FILTRES_VIDES, type FiltresState,
 } from "@/components/FiltresAvances";
@@ -60,6 +59,49 @@ interface Piece {
   /** La vente derrière la facture est passée en irrécouvrable
    *  (Paramètres → Irrécouvrable) : on n'attend plus cet argent. */
   irrecouvrable?: boolean;
+  /** Ce que les retours ont fait de la facture (coeur::pieces::etat_retour).
+   *  `montant` = marchandise revenue, `rembourse` = argent sorti du tiroir. */
+  retour?: {
+    etat: "aucun" | "partiel" | "retourne" | "rembourse"; montant: number; rembourse: number;
+    /** Où est partie la valeur revenue (coeur::pieces::ventiler_retour). */
+    dette: number; avoir: number; echange: number;
+  };
+  /** L'argent vraiment encaissé : `total_paye` sans la dette éteinte par
+   *  un retour. `total_paye` la garde — elle fait le reste dû. */
+  encaisse?: number;
+}
+
+/** « Payé » à l'écran : l'argent entré, jamais une dette éteinte par un
+ *  retour. La liste fournisseur de la fenêtre n'a pas `encaisse`. */
+const encaisse = (p: Piece) => p.encaisse ?? p.total_paye ?? 0;
+const eteintParRetour = (p: Piece) => (p.total_paye ?? 0) - encaisse(p);
+
+// Un retour sur une facture a credit eteint la dette, et la facture
+// passe « Payé » sans un franc encaisse. Toute la marchandise revenue :
+// « Remboursée » ou « Retournée » PREND LA PLACE du statut, et la ligne
+// se grise. Une partie seulement : « Payé » reste, et le petit badge
+// « Retour partiel » s'ajoute dessous.
+const BADGE_RETOUR: Record<string, { label: string; classe: string }> = {
+  partiel:   { label: "Retour partiel", classe: "bg-amber-100 text-amber-900" },
+  retourne:  { label: "Retournée",      classe: "bg-slate-200 text-slate-700" },
+  rembourse: { label: "Remboursée",     classe: "bg-orange-100 text-orange-800" },
+};
+const toutRevenu = (p: Piece) =>
+  p.retour?.etat === "retourne" || p.retour?.etat === "rembourse";
+
+/** Où est partie la valeur revenue, une ligne par forme : un avoir n'est
+ *  pas de l'argent rendu, une dette annulée non plus. */
+function formesDuRetour(r: NonNullable<Piece["retour"]>): string[] {
+  return [
+    r.rembourse > 0 ? `${fmt(r.rembourse)} rendus en argent` : "",
+    r.avoir > 0 ? `${fmt(r.avoir)} en avoir` : "",
+    r.dette > 0 ? `${fmt(r.dette)} de dette annulée` : "",
+    r.echange > 0 ? `${fmt(r.echange)} échangés` : "",
+  ].filter(Boolean);
+}
+
+function detailRetour(r: NonNullable<Piece["retour"]>): string {
+  return [`${fmt(r.montant)} de marchandise revenue`, ...formesDuRetour(r)].join(" · ");
 }
 
 // Livraison : information de suivi, sans effet sur le stock ni la
@@ -95,7 +137,14 @@ const TYPES_PILLS_CLIENT = [
   { value: "bon_livraison",   label: "BL",         icone: Truck         },
   { value: "facture",         label: "Factures",   icone: Receipt       },
   { value: "avoir_client",    label: "Avoirs",     icone: Gift          },
+  // Pas un type : les factures qui ont eu un retour (FILTRE_RETOURS).
+  { value: "retours",         label: "Retours",    icone: RotateCcw     },
 ];
+
+/** La pastille « Retours » demande les factures au serveur, puis ne
+ *  garde que celles qui ont eu un retour. */
+const FILTRE_RETOURS = "retours";
+const aEuUnRetour = (p: Piece) => !!p.retour && p.retour.etat !== "aucun";
 
 const TYPES_PILLS_FOURNISSEUR = [
   { value: "tous",                     label: "Tout",       icone: FileText  },
@@ -431,8 +480,13 @@ function ModalEncaisser({
               <span>{fmt(piece.total_ttc)}</span>
             </div>
             <div className="flex justify-between text-green-700">
-              <span>Déjà payé</span><span>{fmt(piece.total_paye ?? 0)}</span>
+              <span>Déjà payé</span><span>{fmt(encaisse(piece))}</span>
             </div>
+            {eteintParRetour(piece) > 0 && (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Éteint par un retour</span><span>{fmt(eteintParRetour(piece))}</span>
+              </div>
+            )}
             <div className="flex justify-between font-bold border-t
                             border-border pt-1">
               <span>Reste dû</span><span>{fmt(piece.reste ?? 0)}</span>
@@ -487,7 +541,9 @@ interface LigneEdit {
   unite_vente_id: string;
   unite_libelle: string;
   quantite: number;
-  prix_unitaire: number;
+  /** `null` : prix d'achat d'une pièce fournisseur, masqué par le
+   *  serveur à qui n'a ni `achats:lire_prix` ni `achats:creer` (C.7). */
+  prix_unitaire: number | null;
   remise_pct: number;
   taux_tva: number;
 }
@@ -519,6 +575,11 @@ function ModalModifierPiece({
   // le refuse de toute facon). Une facture soldee ou validee aussi.
   const estUnBon = piece?.type_piece === "bon_livraison" || piece?.type_piece === "bon_reception";
   const editable = piece?.statut === "brouillon" || (piece?.statut === "emis" && !estUnBon);
+  // C.7 : les prix d'une pièce fournisseur arrivent masqués à qui ne
+  // peut pas les lire. Ses lignes se lisent, mais ne se renvoient pas :
+  // renvoyer un prix inconnu les réécrirait à faux.
+  const [prixMasques, setPrixMasques] = useState(false);
+  const lignesModifiables = editable && !prixMasques;
 
   useEffect(() => {
     if (ouvert && piece) {
@@ -527,10 +588,14 @@ function ModalModifierPiece({
       setDatePiece((piece.date_piece ?? "").slice(0, 10));
       setReference(piece.reference ?? "");
       setLignes([]);
+      setPrixMasques(false);
       if (piece.statut === "brouillon" || (piece.statut === "emis" && !estUnBon)) {
         setChargeLignes(true);
         invoke<LigneEdit[]>("lire_lignes_piece", { pieceId: piece.id })
-          .then(setLignes)
+          .then(ls => {
+            setLignes(ls);
+            setPrixMasques(ls.some(l => l.prix_unitaire == null));
+          })
           .catch(console.error)
           .finally(() => setChargeLignes(false));
       }
@@ -547,15 +612,16 @@ function ModalModifierPiece({
   }
 
   const totalEdit = lignes.reduce(
-    (s, l) => s + Math.round(l.prix_unitaire * l.quantite), 0);
+    (s, l) => s + Math.round((l.prix_unitaire ?? 0) * l.quantite), 0);
 
   async function handleSauvegarder() {
     if (!piece) return;
     setChargement(true);
     try {
       // lignes: null => le Rust ne touche pas aux lignes existantes.
-      // On n'envoie la liste que si on l'a chargee ET modifiee.
-      const lignesEnvoi = editable && lignes.length > 0
+      // On n'envoie la liste que si on l'a chargee ET modifiee — et
+      // jamais avec des prix masqués (C.7).
+      const lignesEnvoi = lignesModifiables && lignes.length > 0
         ? lignes
             .filter(l => l.quantite > 0)
             .map(l => ({
@@ -568,7 +634,7 @@ function ModalModifierPiece({
             }))
         : null;
 
-      if (editable && lignes.length > 0 && lignesEnvoi!.length === 0) {
+      if (lignesModifiables && lignes.length > 0 && lignesEnvoi!.length === 0) {
         await message(
           "Une pièce doit conserver au moins une ligne. " +
           "Pour tout retirer, annulez la pièce.",
@@ -690,21 +756,24 @@ function ModalModifierPiece({
                       <div className="flex-1 min-w-0">
                         <p className="text-sm truncate">{l.article_nom}</p>
                         <p className="text-xs text-muted-foreground">
-                          {fmt(l.prix_unitaire)} / {l.unite_libelle}
+                          {l.prix_unitaire == null ? "prix masqué" : fmt(l.prix_unitaire)} / {l.unite_libelle}
                         </p>
                       </div>
                       <Input type="number" min="0" step="any"
                         value={l.quantite}
+                        disabled={!lignesModifiables}
                         onChange={e => changerQuantite(i, e.target.value)}
                         className="h-8 w-24 text-sm text-right" />
                       <span className="w-28 text-right text-sm font-medium">
-                        {fmt(Math.round(l.prix_unitaire * l.quantite))}
+                        {l.prix_unitaire == null ? "—" : fmt(Math.round(l.prix_unitaire * l.quantite))}
                       </span>
-                      <button onClick={() => retirerLigne(i)}
-                        title="Retirer cette ligne"
-                        className="p-1 text-muted-foreground hover:text-destructive">
-                        <X className="h-4 w-4" />
-                      </button>
+                      {lignesModifiables && (
+                        <button onClick={() => retirerLigne(i)}
+                          title="Retirer cette ligne"
+                          className="p-1 text-muted-foreground hover:text-destructive">
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   ))}
                   {lignes.length === 0 && (
@@ -716,10 +785,11 @@ function ModalModifierPiece({
               )}
               <div className="flex justify-between mt-2 text-sm">
                 <span className="text-muted-foreground">
-                  Retirer une ligne non livrée puis valider — la pièce
-                  d'origine reste liée.
+                  {prixMasques
+                    ? "Les prix d'achat ne sont pas ouverts à votre compte : les lignes se lisent, la note et les dates se modifient."
+                    : "Retirer une ligne non livrée puis valider — la pièce d'origine reste liée."}
                 </span>
-                <strong>{fmt(totalEdit)}</strong>
+                <strong>{prixMasques ? "—" : fmt(totalEdit)}</strong>
               </div>
             </div>
           )}
@@ -791,15 +861,10 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
   const [bonSortieActif, setBonSortieActif] = useState(false);
 
   // Retours depuis Pièces : l'écran devient le point unique où l'on
-  // agit sur une facture. Les modals sont ceux de l'écran Retours,
-  // extraits dans components/ — pas une copie.
+  // agit sur une facture. La fenêtre est celle de l'écran Retours
+  // (components/ModalsRetour) — pas une copie.
   const [venteRetour, setVenteRetour] = useState<Vente | null>(null);
-  const [ligneRetour, setLigneRetour] = useState<LigneVente | null>(null);
-  const [modeRetour, setModeRetour] =
-    useState<"remboursement" | "avoir" | "echange" | null>(null);
   const [articlesRetour, setArticlesRetour] = useState<ArticleAchat[]>([]);
-  const [choixLigne, setChoixLigne] = useState<Vente | null>(null);
-  const [clientGeneriqueId, setClientGeneriqueId] = useState<string | null>(null);
   // Conversion d'un avoir en espèces : le client renonce à son crédit.
   const [avoirARembourser, setAvoirARembourser] = useState<Piece | null>(null);
   const [montantRembours, setMontantRembours] = useState("");
@@ -809,6 +874,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
   // Type effectif
   const filtreTypeEffectif = filtresAvances.type_piece !== "tous"
     ? filtresAvances.type_piece : filtreTypeRapide;
+  const surRetours = filtreTypeEffectif === FILTRE_RETOURS;
+  // Ce que le serveur filtre : « Retours » lui demande les factures.
+  const typeServeur = surRetours ? "facture" : filtreTypeEffectif;
+  // Le nombre sur la pastille « Retours », gardé depuis la dernière
+  // liste qui contenait les factures (Tout, Factures, Retours).
+  const [nbRetours, setNbRetours] = useState(0);
   // Le filtre « Commandes » cree une commande, « Factures » une facture :
   // le type n'est redemande que sur « Tout ». Un type qu'on ne cree pas
   // a la main (avoir fournisseur) retombe sur le choix.
@@ -830,7 +901,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
       let data: Piece[];
       if (onglet === "client") {
         data = await invoke<Piece[]>("lire_toutes_pieces_client", {
-          typeFiltre:        filtreTypeEffectif === "tous" ? null : filtreTypeEffectif,
+          typeFiltre:        typeServeur === "tous" ? null : typeServeur,
           statut:            filtresAvances.statut === "tous" ? null : filtresAvances.statut,
           recherche:         recherche || null,
           dateDebut:         filtresAvances.date_debut ? filtresAvances.date_debut + "T00:00:00" : null,
@@ -854,11 +925,14 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
         });
       }
       setPieces(data);
+      if (onglet === "client" && ["tous", "facture", FILTRE_RETOURS].includes(filtreTypeEffectif)) {
+        setNbRetours(data.filter(aEuUnRetour).length);
+      }
     } catch (e) {
       console.error("Erreur pièces :", e);
       setPieces([]);
     } finally { setChargement(false); }
-  }, [onglet, filtreTypeEffectif, filtresAvances, recherche]);
+  }, [onglet, filtreTypeEffectif, typeServeur, filtresAvances, recherche]);
 
   useEffect(() => {
     setFiltreTypeRapide("tous");
@@ -877,6 +951,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
     return diff >= 0 && diff <= n;
   };
   const piecesFiltrees = pieces.filter(p => {
+    if (surRetours && !aEuUnRetour(p)) return false;
     if (filtresAvances.echeance !== "toutes") {
       if (!p.date_echeance) return false;
       const close = ["paye", "annule", "transfere", "validee"].includes(p.statut);
@@ -987,9 +1062,6 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
     invoke<boolean>("lire_config_bon_sortie")
       .then(setBonSortieActif)
       .catch(() => setBonSortieActif(false));
-    invoke<{ id: string }>("lire_client_generique")
-      .then(c => setClientGeneriqueId(c?.id ?? null))
-      .catch(() => setClientGeneriqueId(null));
     invoke<boolean>("lire_config_suivi_livraison")
       .then(setSuiviLivraison)
       .catch(() => setSuiviLivraison(false));
@@ -1002,8 +1074,17 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
       // v3 (A-2) : l'habillage du genre de la pièce (Paramètres → Documents).
       const habillage = await chargerHabillage(genreDePiece(donnees.piece?.type_piece));
       const suffixe = format === "bon_sortie" ? "-BS" : "";
+      // Le duplicata : le serveur note l'impression et dit si c'en est
+      // un. Sans sa réponse, on n'imprime pas (lib/duplicata.ts).
+      let verdict;
+      try {
+        verdict = await noterImpression("piece_commerciale", p.id, format);
+      } catch (e) {
+        await message(refusImpression(e), { title: "Impression", kind: "error" });
+        return;
+      }
       await invoke("imprimer_piece", {
-        html: genererImpression(donnees, format, habillage),
+        html: genererImpression(donnees, format, { ...habillage, duplicata: marque(verdict) }),
         nomFichier: `${p.numero.replace(/\//g, "-")}${suffixe}.html`,
       });
     } catch (e) {
@@ -1012,14 +1093,11 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
   }
 
   /**
-   * Ouvre le choix de ligne pour un retour depuis une facture.
-   *
-   * Une facture porte plusieurs lignes ; le retour en vise UNE. On
-   * charge donc la vente et ses lignes, puis on demande laquelle.
+   * Ouvre la fenêtre de retour d'une facture : la vente et toutes ses
+   * lignes, à cocher (ce qui est déjà revenu est dit, et grisé s'il ne
+   * reste rien). Le mode se choisit dans la fenêtre.
    */
-  async function ouvrirRetour(
-    p: Piece, mode: "remboursement" | "avoir" | "echange",
-  ) {
+  async function ouvrirRetour(p: Piece) {
     try {
       const venteId = await invoke<string | null>("lire_vente_de_piece", {
         pieceId: p.id,
@@ -1032,28 +1110,25 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
         );
         return;
       }
+      // Lot D.12 : la vente se cherche par le numéro de SA facture, par la
+      // lecture paginée — plus seulement parmi les 50 dernières ventes.
       const [ventes, arts] = await Promise.all([
-        invoke<Vente[]>("lire_ventes_recentes"),
+        invoke<{ donnees: Vente[] }>("lire_ventes_recentes_paginee", {
+          page: 0, limite: 50, recherche: p.numero,
+          periode: null, dateDebut: null, dateFin: null,
+        }),
         invoke<ArticleAchat[]>("lire_articles_avec_unites"),
       ]);
-      const v = ventes.find(x => x.id === venteId);
+      const v = ventes.donnees.find(x => x.id === venteId);
       if (!v) {
         await message(
-          "Vente introuvable dans les ventes récentes. Passer par l'écran " +
-          "Retours pour une vente ancienne.",
+          `La vente de la facture ${p.numero} est introuvable.`,
           { title: "Retour impossible", kind: "warning" },
         );
         return;
       }
       setArticlesRetour(arts);
-      setModeRetour(mode);
-      // Une seule ligne : inutile de la faire choisir.
-      if (v.lignes.length === 1) {
-        setVenteRetour(v);
-        setLigneRetour(v.lignes[0]);
-      } else {
-        setChoixLigne(v);
-      }
+      setVenteRetour(v);
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
     }
@@ -1085,8 +1160,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
   }
 
   function fermerRetour() {
-    setVenteRetour(null); setLigneRetour(null);
-    setModeRetour(null); setChoixLigne(null);
+    setVenteRetour(null);
   }
 
   /**
@@ -1185,11 +1259,13 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
 
   const totalNet  = comptable.reduce((s, p) => s + p.total_net, 0);
   const totalTTC  = comptable.reduce((s, p) => s + p.total_ttc, 0);
+  // La marchandise revenue (au prix de la vente) : le pied la déduit.
+  const totalRevenu = comptable.reduce((s, p) => s + (p.retour?.montant ?? 0), 0);
   // Le pied de tableau additionne les IMPAYÉS : le crédit d'un avoir n'en
   // est pas un, il ne s'y ajoute pas.
   const estImpayable = (p: Piece) => p.type_piece.startsWith("facture");
   const totalPaye = comptable
-    .filter(estImpayable).reduce((s, p) => s + (p.total_paye ?? 0), 0);
+    .filter(estImpayable).reduce((s, p) => s + encaisse(p), 0);
   const totalReste = comptable
     .filter(estImpayable).reduce((s, p) => s + (p.reste ?? 0), 0);
   const nbAnnulees = piecesTri.filter(p => p.statut === "annule").length;
@@ -1260,6 +1336,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                     : "bg-background border-border text-muted-foreground hover:border-foreground"
                 }`}>
                 <Icone className="h-3 w-3" />{t.label}
+                {t.value === FILTRE_RETOURS && nbRetours > 0 && (
+                  <span className={`ml-0.5 rounded-full px-1.5 text-[10px] ${
+                    actif ? "bg-primary-foreground/20" : "bg-orange-100 text-orange-800"}`}>
+                    {nbRetours}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -1411,6 +1493,9 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                         // Toute la ligne en rouge : on n'attend plus cet
                         // argent, ça se voit sans lire le statut.
                         ? "bg-red-50 text-red-800 [&_.text-muted-foreground]:text-red-600/80"
+                        // Toute la marchandise est revenue : la vente
+                        // n'existe plus, la ligne s'efface sans disparaître.
+                        : toutRevenu(p) ? "bg-muted/40 text-muted-foreground"
                         : i % 2 === 1 ? "bg-muted/20" : "bg-background"
                     }`}>
 
@@ -1456,8 +1541,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                                         rounded-full text-xs font-medium
                                         ${p.irrecouvrable
                                           ? "bg-red-600 text-white"
-                                          : COULEURS_STATUT[p.statut] ?? "bg-gray-100 text-gray-600"}`}>
-                        {p.irrecouvrable ? "Irrécouvrable" : LABELS_STATUT[p.statut] ?? p.statut}
+                                          : toutRevenu(p) ? BADGE_RETOUR[p.retour!.etat].classe
+                                          : COULEURS_STATUT[p.statut] ?? "bg-gray-100 text-gray-600"}`}
+                        title={toutRevenu(p) ? detailRetour(p.retour!) : undefined}>
+                        {p.irrecouvrable ? "Irrécouvrable"
+                          : toutRevenu(p) ? BADGE_RETOUR[p.retour!.etat].label
+                          : LABELS_STATUT[p.statut] ?? p.statut}
                       </span>
                       {/* Second axe, sous le statut de paiement : c'est
                           leur croisement qui dit « payé non livré ». */}
@@ -1466,6 +1555,14 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                                           rounded-full text-xs font-medium
                                           ${badgeLivraison(p, onglet)!.classe}`}>
                           {badgeLivraison(p, onglet)!.label}
+                        </span>
+                      )}
+                      {p.retour?.etat === "partiel" && (
+                        <span title={detailRetour(p.retour)}
+                          className={`inline-flex items-center px-2 py-0.5 mt-1
+                                      rounded-full text-xs font-medium
+                                      ${BADGE_RETOUR.partiel.classe}`}>
+                          {BADGE_RETOUR.partiel.label}
                         </span>
                       )}
                     </td>
@@ -1481,11 +1578,17 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                           −{fmt(p.remise_montant)}
                         </p>
                       )}
+                      {p.retour && p.retour.montant > 0 && formesDuRetour(p.retour).map(f => (
+                        <p key={f} className="text-xs text-muted-foreground font-normal"
+                          title={detailRetour(p.retour!)}>
+                          −{f}
+                        </p>
+                      ))}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap
                                    text-sm text-green-700">
-                      {estFacture(p) && p.total_paye > 0
-                        ? fmt(p.total_paye) : "—"}
+                      {estFacture(p) && encaisse(p) > 0
+                        ? fmt(encaisse(p)) : "—"}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap text-sm">
                       {/* Le reste d'un avoir est un CRÉDIT (à consommer, à
@@ -1625,25 +1728,12 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                             {p.type_piece === "facture" && (
                               <>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => ouvrirRetour(p, "remboursement")}>
+                                {/* Une entrée : la fenêtre coche les
+                                    articles et choisit rembourser, avoir
+                                    (pas pour un passant, D40) ou échange. */}
+                                <DropdownMenuItem onClick={() => ouvrirRetour(p)}>
                                   <RotateCcw className="h-3.5 w-3.5 mr-2" />
-                                  Retour — rembourser
-                                </DropdownMenuItem>
-                                {/* Pas d'avoir au comptant (D40) : le
-                                    crédit partirait sur le pot commun
-                                    `client0000`, inutilisable. */}
-                                {p.tiers_id !== clientGeneriqueId && (
-                                  <DropdownMenuItem
-                                    onClick={() => ouvrirRetour(p, "avoir")}>
-                                    <Gift className="h-3.5 w-3.5 mr-2" />
-                                    Retour — avoir
-                                  </DropdownMenuItem>
-                                )}
-                                <DropdownMenuItem
-                                  onClick={() => ouvrirRetour(p, "echange")}>
-                                  <ArrowLeftRight className="h-3.5 w-3.5 mr-2" />
-                                  Échanger un article
+                                  Retour ou échange…
                                 </DropdownMenuItem>
                               </>
                             )}
@@ -1787,7 +1877,16 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                   )}
                 </td>
                 <td className="px-3 py-2.5 text-right font-bold text-sm">
-                  {fmt(totalTTC)}
+                  {/* Le vrai chiffre : ce qui est revenu ne compte plus
+                      comme une vente. Chaque facture garde son montant,
+                      le total le déduit, et le dit. */}
+                  {fmt(totalTTC - totalRevenu)}
+                  {totalRevenu > 0 && (
+                    <p className="text-xs font-normal text-muted-foreground"
+                      title={`Total des pièces : ${fmt(totalTTC)}`}>
+                      dont −{fmt(totalRevenu)} revenus
+                    </p>
+                  )}
                 </td>
                 <td className="px-3 py-2.5 text-right font-bold text-sm text-green-700">
                   {totalPaye > 0 ? fmt(totalPaye) : "—"}
@@ -1905,55 +2004,11 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
         </DialogContent>
       </Dialog>
 
-      {/* Choix de la ligne : une facture en porte plusieurs, le retour
-          en vise une seule. Sauté quand il n'y en a qu'une. */}
-      <Dialog open={!!choixLigne} onOpenChange={o => !o && fermerRetour()}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Quel article retourner ?</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-1.5 pt-2">
-            {choixLigne?.lignes.map(l => (
-              <button key={l.id}
-                onClick={() => {
-                  setVenteRetour(choixLigne);
-                  setLigneRetour(l);
-                  setChoixLigne(null);
-                }}
-                className="w-full text-left px-3 py-2 rounded-md border
-                           border-border hover:bg-accent transition-colors">
-                <p className="text-sm font-medium">{l.article_nom}</p>
-                <p className="text-xs text-muted-foreground">
-                  {l.quantite} {l.unite_libelle} · {fmt(l.montant)}
-                </p>
-              </button>
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <ModalRemboursement
-        ouvert={modeRetour === "remboursement" && !!ligneRetour}
+      <ModalRetour
+        ouvert={!!venteRetour}
         vente={venteRetour}
-        ligne={ligneRetour}
-        onFermer={fermerRetour}
-        onConfirmer={() => { fermerRetour(); charger(); }}
-      />
-
-      <ModalAvoirConserve
-        ouvert={modeRetour === "avoir" && !!ligneRetour}
-        vente={venteRetour}
-        ligne={ligneRetour}
-        onFermer={fermerRetour}
-        onConfirmer={() => { fermerRetour(); charger(); }}
-      />
-
-      <ModalEchange
-        ouvert={modeRetour === "echange" && !!ligneRetour}
-        vente={venteRetour}
-        ligne={ligneRetour}
+        modeInitial="remboursement"
         articles={articlesRetour}
-        comptant={venteRetour?.client_id === clientGeneriqueId}
         bonSortieActif={bonSortieActif}
         onFermer={fermerRetour}
         onConfirmer={() => { fermerRetour(); charger(); }}
