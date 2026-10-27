@@ -2329,3 +2329,36 @@ ferme elle-même. Vaut pour tout ce qui passe par `imprimer_facture` :
 pièces A4/A5, facture + bon de sortie, bon de sortie seul, ticket, bon
 d'échange. **Vérifié par le propriétaire** dans la vraie fenêtre : elle
 se ferme toute seule, avec la facture et avec le bon de sortie.
+
+## 26/10/2026 (nuit) — retourner plusieurs articles en un geste
+
+Demande du propriétaire : « si on doit cliquer à chaque article, et les
+échanges aussi ». Plan écrit et accepté (tout d'un coup), après ses trois
+raisons de vouloir « Remboursée » dans Pièces — **pas deux fois**, **le
+vrai chiffre d'affaires**, **le crédit du client** (pas « surveiller la
+caisse »).
+
+**Une fenêtre de retour** (`ModalRetour`) : tous les articles de la
+vente, une case et une quantité chacun (ce qui reste, l'article tout
+revenu grisé), rembourser / avoir / échange, et en échange les articles
+pris (plusieurs). Pièces n'a plus qu'une entrée « Retour ou échange… » ;
+l'écran Retours, trois boutons par vente. Les trois anciennes fenêtres
+(un article, un mode) sont parties.
+
+**Le serveur** : `enregistrer_retour_groupe`, né sur `Base` (D22 — la
+fenêtre ne parle plus qu'au serveur, comme D36/D37). L'ancien retour
+d'un article est devenu un cas de la même fonction (`retourner_une_ligne`,
+dans la transaction de l'appelant). Tout ou rien ; une seule pièce AVC
+par geste ; l'échange réglé une fois, reliquat en avoir réparti au
+prorata ; **le plafond de remboursement se juge sur le geste** (trouvé en
+écrivant : chaque article sous le plafond aurait laissé passer un total
+au-dessus) ; une ligne d'une autre vente est refusée (l'ancien retour ne
+vérifiait pas que la ligne était de la vente).
+
+**La liste dit où est partie la valeur** : « 2 200 F en avoir »,
+« rendus en argent », « dette annulée », « échangés » (le « rendus » de
+la capture était faux pour un avoir) ; un avoir de retour **rendu ensuite
+en espèces** fait passer la facture « Remboursée » ; le pied de Pièces
+déduit la marchandise revenue et le dit. **Pas touché, signalé** : le
+tableau de bord et les rapports ne déduisent aucun retour de leur
+chiffre d'affaires.

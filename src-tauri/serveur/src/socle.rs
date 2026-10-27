@@ -1882,6 +1882,19 @@ pub fn registre() -> Registre {
             arg(&p, "modeEncaissementReliquat", "mode_encaissement_reliquat")?,
         )
     });
+    // Plusieurs articles d'une vente en un geste (retour groupe).
+    r.sur_base("enregistrer_retour_groupe", Some("retours:creer"), true, |c, p| {
+        retours::enregistrer_retour_groupe_sur_base(
+            c.base,
+            arg(&p, "venteId", "vente_id")?,
+            arg(&p, "articles", "articles")?,
+            arg(&p, "modeResolution", "mode_resolution")?,
+            arg(&p, "modeEncaissement", "mode_encaissement")?,
+            arg::<Option<Vec<retours::ArticlePris>>>(&p, "pris", "pris")?.unwrap_or_default(),
+            arg(&p, "modeReliquatPositif", "mode_reliquat_positif")?,
+            arg(&p, "modeEncaissementReliquat", "mode_encaissement_reliquat")?,
+        )
+    });
     r.sur_base("lire_avoirs_ouverts_tous", None, false, |c, _p| {
         let v = retours::lire_avoirs_ouverts_tous_sur_base(c.base)?;
         serde_json::to_value(v).map_err(|e| e.to_string())

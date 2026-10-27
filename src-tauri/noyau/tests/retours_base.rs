@@ -348,10 +348,47 @@ fn la_liste_des_pieces_dit_ce_que_les_retours_ont_fait() {
     let l = ligne_de_la_liste(&mut base, &piece);
     assert_eq!((l["total_paye"].as_i64(), l["encaisse"].as_i64(), l["reste"].as_i64()),
         (Some(3 * prix), Some(0), Some(0)), "{l}");
+    assert_eq!((l["retour"]["dette"].as_i64(), l["retour"]["avoir"].as_i64()), (Some(3 * prix), Some(0)),
+        "toute la valeur a éteint la dette");
+
+    // Payee par un client ordinaire, rendue en avoir : « retournee », la
+    // valeur est en avoir. Puis l'avoir rendu en especes : « remboursee ».
+    let depot = depot_defaut(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let client = client_reel(&mut base);
+    let v = argent::creer_vente_sur_base(
+        &mut base, client, depot.clone(), "comptant".into(),
+        vec![ligne_vente(&sucre, &depot, 2.0)], None, Some(2 * sucre.3), None, None,
+    )
+    .unwrap();
+    let vente_id = v["vente_id"].as_str().unwrap().to_string();
+    let ligne_id: String = base
+        .lire_une("SELECT id FROM ligne_vente WHERE vente_id = ?1", &parametres![vente_id.clone()], |r| r.get::<String>(0))
+        .unwrap()
+        .unwrap();
+    let piece = facturer(&mut base, &vente_id);
+    let r = retours::enregistrer_retour_sur_base(
+        &mut base, vente_id, ligne_id, 2.0, "avoir_conserve".into(), None, None, None, None, None, None,
+    )
+    .unwrap();
+    let r_liste = retour_dans_la_liste(&mut base, &piece);
+    assert_eq!((r_liste["etat"].as_str(), r_liste["avoir"].as_i64(), r_liste["rembourse"].as_i64()),
+        (Some("retourne"), Some(2 * sucre.3), Some(0)), "{r_liste}");
+    let avc: String = base
+        .lire_une("SELECT id FROM piece_commerciale WHERE numero = ?1",
+            &parametres![r["numero_avoir"].as_str().unwrap().to_string()], |l| l.get::<String>(0))
+        .unwrap()
+        .unwrap();
+    gescom_noyau::avoirs::rembourser_avoir_sur_base(&mut base, avc, 2 * sucre.3, "especes".into(), None)
+        .expect("l'avoir se rend en espèces");
+    let r_liste = retour_dans_la_liste(&mut base, &piece);
+    assert_eq!((r_liste["etat"].as_str(), r_liste["avoir"].as_i64(), r_liste["rembourse"].as_i64()),
+        (Some("rembourse"), Some(0), Some(2 * sucre.3)), "l'avoir rendu en argent : {r_liste}");
 
     // Payee comptant, tout rendu en especes : « remboursee ».
     let (vente_id, ligne_id, prix) = vendre(&mut base, 2.0, true);
     let piece = facturer(&mut base, &vente_id);
+    let sorties_avant = sorties(&mut base, "remboursement");
     retours::enregistrer_retour_sur_base(
         &mut base, vente_id, ligne_id, 2.0, "remboursement".into(),
         Some("especes".into()), None, None, None, None, None,
@@ -359,7 +396,7 @@ fn la_liste_des_pieces_dit_ce_que_les_retours_ont_fait() {
     .unwrap();
     let r = retour_dans_la_liste(&mut base, &piece);
     assert_eq!((r["etat"].as_str(), r["rembourse"].as_i64()), (Some("rembourse"), Some(2 * prix)), "{r}");
-    assert_eq!(sorties(&mut base, "remboursement"), 2 * prix, "l'argent est sorti du tiroir");
+    assert_eq!(sorties(&mut base, "remboursement") - sorties_avant, 2 * prix, "l'argent est sorti du tiroir");
     // Payee comptant : tout l'argent est vraiment entre (puis rendu).
     assert_eq!(ligne_de_la_liste(&mut base, &piece)["encaisse"], 2 * prix);
 }

@@ -194,7 +194,9 @@ pub fn lire_toutes_pieces_client(
             "retour":           retours_de_liste(
                                   row.get::<_,i64>(21).unwrap_or(0),
                                   row.get::<_,i64>(22).unwrap_or(0),
-                                  row.get::<_,i64>(23).unwrap_or(0)),
+                                  row.get::<_,i64>(23).unwrap_or(0),
+                                  row.get::<_,i64>(24).unwrap_or(0),
+                                  row.get::<_,i64>(25).unwrap_or(0)),
             "encaisse":         encaisse_de_liste(total_paye, row.get::<_,i64>(24).unwrap_or(0)),
         }))
     }).map_err(|e| e.to_string())?
@@ -2390,7 +2392,9 @@ fn ligne_de_liste(r: &crate::base::Ligne<'_>) -> crate::base::Resultat<serde_jso
         "retour":           retours_de_liste(
                               r.get::<i64>(21).unwrap_or(0),
                               r.get::<i64>(22).unwrap_or(0),
-                              r.get::<i64>(23).unwrap_or(0)),
+                              r.get::<i64>(23).unwrap_or(0),
+                              r.get::<i64>(24).unwrap_or(0),
+                              r.get::<i64>(25).unwrap_or(0)),
         "encaisse":         encaisse_de_liste(total_paye, r.get::<i64>(24).unwrap_or(0)),
     }))
 }
@@ -2421,26 +2425,45 @@ const COLONNES_CALCULEES: &str = "
     CASE WHEN EXISTS (SELECT 1 FROM vente v WHERE v.piece_id = pc.id AND v.statut = 'irrecouvrable') THEN 1 ELSE 0 END";
 
 /// Suit `COLONNES_CALCULEES` dans les deux listes (base) et la liste
-/// client de la fenetre : 21 credit des retours, 22 argent sorti du
-/// tiroir pour eux (le mode « remboursement » d'une facture a credit
-/// n'en sort pas), 23 total de la vente derriere la piece — ce que lit
-/// `coeur::pieces::etat_retour` —, 24 dette eteinte par les retours. Zero partout sur une piece sans vente
-/// (fournisseur, devis).
+/// client de la fenetre. Ce que lisent `coeur::pieces::etat_retour` et
+/// `ventiler_retour` :
+///   21 credit des retours ;
+///   22 argent sorti du tiroir pour eux — remboursement, reliquat
+///      d'echange, et l'avoir de ces retours rembourse ensuite en
+///      especes (sa sortie porte la piece AVC). Le mode « remboursement »
+///      d'une facture a credit n'en sort pas ;
+///   23 total de la vente derriere la piece ;
+///   24 dette eteinte par les retours (paiements `mode = 'retour'`) ;
+///   25 ce qui reste en avoir au client (les lignes `avoir` de ces
+///      pieces AVC, sauf la part remboursee, deja comptee en 22).
+/// Zero partout sur une piece sans vente (fournisseur, devis).
 const RETOURS_SQL: &str = "
     CAST(COALESCE((SELECT SUM(rt.montant_credit) FROM retour rt
                    JOIN vente ve ON ve.id = rt.vente_id
                    WHERE ve.piece_id = pc.id), 0) AS BIGINT),
     CAST(COALESCE((SELECT SUM(mc.montant) FROM mouvement_caisse mc
-                   JOIN retour rt ON rt.id = mc.operation_id
-                   JOIN vente ve ON ve.id = rt.vente_id
-                   WHERE ve.piece_id = pc.id
-                     AND mc.motif IN ('remboursement', 'remboursement_reliquat')), 0) AS BIGINT),
+                   WHERE mc.sens = 'sortie'
+                     AND ((mc.motif IN ('remboursement', 'remboursement_reliquat')
+                           AND mc.operation_id IN (SELECT rt.id FROM retour rt
+                                                   JOIN vente ve ON ve.id = rt.vente_id
+                                                   WHERE ve.piece_id = pc.id))
+                       OR (mc.motif = 'remboursement'
+                           AND mc.operation_id IN (SELECT av.piece_id FROM avoir av
+                                                   JOIN retour rt ON rt.id = av.retour_id
+                                                   JOIN vente ve ON ve.id = rt.vente_id
+                                                   WHERE ve.piece_id = pc.id)))), 0) AS BIGINT),
     CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite) FROM ligne_vente lv
                    JOIN vente ve ON ve.id = lv.vente_id
                    WHERE ve.piece_id = pc.id), 0) AS BIGINT),
     CAST(COALESCE((SELECT SUM(pa.montant) FROM paiement pa
                    JOIN vente ve ON ve.id = pa.vente_id
-                   WHERE ve.piece_id = pc.id AND pa.mode = 'retour'), 0) AS BIGINT)";
+                   WHERE ve.piece_id = pc.id AND pa.mode = 'retour'), 0) AS BIGINT),
+    CAST(COALESCE((SELECT SUM(a.montant) FROM avoir a
+                   WHERE a.statut <> 'rembourse'
+                     AND a.piece_id IN (SELECT av.piece_id FROM avoir av
+                                        JOIN retour rt ON rt.id = av.retour_id
+                                        JOIN vente ve ON ve.id = rt.vente_id
+                                        WHERE ve.piece_id = pc.id)), 0) AS BIGINT)";
 
 /// L'argent vraiment encaisse sur la piece : `total_paye` moins la part
 /// de la dette eteinte par un retour (paiement `mode = 'retour'`, 24).
@@ -2450,12 +2473,17 @@ fn encaisse_de_liste(total_paye: i64, eteint_par_retour: i64) -> i64 {
     total_paye - eteint_par_retour
 }
 
-/// Les deux champs de retour d'une ligne de liste, lus en 21..23.
-fn retours_de_liste(retourne: i64, rembourse: i64, vendu: i64) -> serde_json::Value {
+/// Le champ `retour` d'une ligne de liste, lu en 21..25 : l'etat, et ou
+/// est partie la valeur revenue (dette, argent, avoir, echange).
+fn retours_de_liste(retourne: i64, argent: i64, vendu: i64, dette: i64, avoir: i64) -> serde_json::Value {
+    let v = crate::coeur::pieces::ventiler_retour(retourne, dette, argent, avoir);
     serde_json::json!({
-        "etat":      crate::coeur::pieces::etat_retour(vendu, retourne, rembourse),
+        "etat":      crate::coeur::pieces::etat_retour(vendu, retourne, argent),
         "montant":   retourne,
-        "rembourse": rembourse,
+        "rembourse": argent,
+        "dette":     v.dette,
+        "avoir":     v.avoir,
+        "echange":   v.echange,
     })
 }
 

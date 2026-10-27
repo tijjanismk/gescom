@@ -13,7 +13,7 @@ Deux étages à ne pas confondre :
 
 | Fichier | l. | Monté dans | Ce qu'il appelle |
 |---|---|---|---|
-| [ModalsRetour.tsx](../../src/components/ModalsRetour.tsx) | 691 | Pieces, Retours | `enregistrer_retour` — 3 modales : remboursement, échange, avoir conservé |
+| [ModalsRetour.tsx](../../src/components/ModalsRetour.tsx) | 491 | Pieces, Retours | `enregistrer_retour_groupe` — `ModalRetour` : les articles de la vente à cocher (déjà revenu dit, grisé s'il ne reste rien), rembourser / avoir / échange (articles pris), bilan rendu par le serveur, bon d'échange |
 | [OngletChantiers.tsx](../../src/components/OngletChantiers.tsx) | 795 | Parametres | TVA, dettes, irrécouvrable, avoirs expirés — exporte **4** onglets |
 | [ModalNouvellePiece.tsx](../../src/components/ModalNouvellePiece.tsx) | 652 | Pieces | création de pièce |
 | [ParametresSociete.tsx](../../src/components/ParametresSociete.tsx) | 464 | Parametres | identité, logo, en-tête, pied, signatures |

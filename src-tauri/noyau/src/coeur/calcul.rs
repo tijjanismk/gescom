@@ -263,6 +263,48 @@ pub fn repartir_retour(a_rendre: i64, plafond_especes: i64, plafond_total: i64) 
     (especes, attribuable - especes, a_rendre.max(0) - attribuable)
 }
 
+/// `total` reparti au prorata des `poids`, au franc pres : la derniere
+/// part prend le reste, la somme vaut toujours `total`. Sans poids (ou
+/// tous nuls), parts egales.
+///
+/// Sert a l'avoir d'un echange de plusieurs articles : le reliquat se
+/// porte sur la piece AVC article par article, chacun pour sa part.
+pub fn repartir_au_prorata(total: i64, poids: &[i64]) -> Vec<i64> {
+    if poids.is_empty() {
+        return Vec::new();
+    }
+    let somme: i64 = poids.iter().map(|p| p.max(&0)).sum();
+    let n = poids.len();
+    let mut parts = Vec::with_capacity(n);
+    let mut deja = 0;
+    for (i, p) in poids.iter().enumerate() {
+        let part = if i + 1 == n {
+            total - deja
+        } else if somme > 0 {
+            ((total as f64) * (*p.max(&0) as f64) / (somme as f64)).round() as i64
+        } else {
+            total / n as i64
+        };
+        deja += part;
+        parts.push(part);
+    }
+    parts
+}
+
+#[cfg(test)]
+mod tests_prorata {
+    use super::repartir_au_prorata;
+
+    #[test]
+    fn la_somme_tombe_juste_et_la_derniere_prend_le_reste() {
+        assert_eq!(repartir_au_prorata(1_000, &[1, 1, 1]), vec![333, 333, 334]);
+        assert_eq!(repartir_au_prorata(3_000, &[4_000, 2_000]), vec![2_000, 1_000]);
+        assert_eq!(repartir_au_prorata(500, &[0, 0]), vec![250, 250]);
+        assert_eq!(repartir_au_prorata(7, &[]), Vec::<i64>::new());
+        assert_eq!(repartir_au_prorata(7, &[10]), vec![7]);
+    }
+}
+
 #[cfg(test)]
 mod tests_retour {
     use super::*;

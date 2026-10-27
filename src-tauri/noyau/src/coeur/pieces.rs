@@ -267,9 +267,94 @@ pub fn etat_retour(vendu: i64, retourne: i64, rembourse: i64) -> &'static str {
     }
 }
 
+/// Ou est partie la valeur revenue sur une facture — la question du
+/// commercant (« il a un avoir ? on lui a rendu l'argent ? »), et la
+/// seule qui distingue un avoir d'un remboursement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct Ventilation {
+    /// La dette du client, eteinte par le retour (facture a credit).
+    pub dette: i64,
+    /// L'argent sorti du tiroir (remboursement, reliquat d'echange,
+    /// avoir rembourse ensuite en especes).
+    pub argent: i64,
+    /// Ce qui reste en avoir au client (ouvert ou deja consomme).
+    pub avoir: i64,
+    /// Ce qui est reparti en marchandise (echange).
+    pub echange: i64,
+}
+
+/// `retourne` = credit de tous les retours ; les trois autres sont lus
+/// en base. L'echange est le reste : ni dette, ni argent, ni avoir, la
+/// valeur est repartie en marchandise. Jamais negatif.
+pub fn ventiler_retour(retourne: i64, dette: i64, argent: i64, avoir: i64) -> Ventilation {
+    let (dette, argent, avoir) = (dette.max(0), argent.max(0), avoir.max(0));
+    Ventilation { dette, argent, avoir, echange: (retourne - dette - argent - avoir).max(0) }
+}
+
+/// Le geste d'un retour de plusieurs articles se juge avant d'ecrire :
+/// au moins un article, chacun une fois (deux fois la meme ligne
+/// tromperait la garde « pas plus que vendu » qui lit ligne par ligne),
+/// un mode connu, et en echange au moins un article pris — un echange
+/// sans rien en face est un remboursement qui ne dit pas son nom.
+pub fn verifier_retour_groupe(lignes: &[&str], mode: &str, nb_pris: usize) -> Result<(), String> {
+    if lignes.is_empty() {
+        return Err("Cocher au moins un article à retourner.".to_string());
+    }
+    let mut vues = std::collections::HashSet::new();
+    if !lignes.iter().all(|l| vues.insert(*l)) {
+        return Err("Un même article est coché deux fois : une seule ligne par article.".to_string());
+    }
+    match mode {
+        "remboursement" | "avoir_conserve" if nb_pris > 0 => {
+            Err("Des articles pris en échange, mais le retour n'est pas un échange.".to_string())
+        }
+        "remboursement" | "avoir_conserve" => Ok(()),
+        "echange" if nb_pris == 0 => {
+            Err("Échange : ajouter au moins un article que le client prend.".to_string())
+        }
+        "echange" => Ok(()),
+        autre => Err(format!("Mode de retour inconnu : {autre}")),
+    }
+}
+
 // =====================================================================
 //  TESTS
 // =====================================================================
+
+#[cfg(test)]
+mod tests_retour_groupe {
+    use super::verifier_retour_groupe;
+
+    #[test]
+    fn un_geste_se_juge_avant_d_ecrire() {
+        assert!(verifier_retour_groupe(&["a", "b"], "remboursement", 0).is_ok());
+        assert!(verifier_retour_groupe(&["a"], "echange", 2).is_ok());
+        assert!(verifier_retour_groupe(&[], "remboursement", 0).unwrap_err().contains("Cocher"));
+        assert!(verifier_retour_groupe(&["a", "a"], "avoir_conserve", 0).unwrap_err().contains("deux fois"));
+        assert!(verifier_retour_groupe(&["a"], "echange", 0).unwrap_err().contains("prend"));
+        assert!(verifier_retour_groupe(&["a"], "remboursement", 1).is_err());
+        assert!(verifier_retour_groupe(&["a"], "cadeau", 0).unwrap_err().contains("inconnu"));
+    }
+}
+
+#[cfg(test)]
+mod tests_ventilation {
+    use super::*;
+
+    #[test]
+    fn chaque_franc_revenu_dit_ou_il_est_parti() {
+        // A credit, rien verse : toute la valeur eteint la dette.
+        assert_eq!(ventiler_retour(5_000, 5_000, 0, 0),
+            Ventilation { dette: 5_000, argent: 0, avoir: 0, echange: 0 });
+        // Paye, rendu en avoir.
+        assert_eq!(ventiler_retour(2_200, 0, 0, 2_200).avoir, 2_200);
+        // Echange de 10 000 contre 7 000 : 3 000 rendus, 7 000 echanges.
+        assert_eq!(ventiler_retour(10_000, 0, 3_000, 0),
+            Ventilation { dette: 0, argent: 3_000, avoir: 0, echange: 7_000 });
+        // Un echange plus cher (complement paye) : rien de negatif.
+        assert_eq!(ventiler_retour(4_000, 0, 0, 0).echange, 4_000);
+    }
+}
 
 #[cfg(test)]
 mod tests_retours {

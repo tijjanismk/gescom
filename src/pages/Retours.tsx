@@ -8,17 +8,15 @@ import { RetourFournisseur } from "@/components/RetourFournisseur";
 import { peutUne } from "@/lib/droits";
 import { RetourSansFacture } from "@/components/RetourSansFacture";
 import {
-  ModalRemboursement, ModalAvoirConserve, ModalEchange,
-  formaterMontant, formaterDate,
+  ModalRetour, formaterMontant, formaterDate, restantDe,
 } from "@/components/ModalsRetour";
 import type {
-  ArticleAchat, LigneVente, Vente, Avoir,
+  ArticleAchat, ModeRetour, Vente, Avoir,
 } from "@/components/ModalsRetour";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { message } from "@tauri-apps/plugin-dialog";
 import { cn } from "@/lib/utils";
 
 // =====================================================================
@@ -41,31 +39,24 @@ export function Retours() {
   const [chargement, setChargement] = useState(true);
   const [onglet, setOnglet] = useState<"retours" | "avoirs" | "fournisseur">("retours");
   const [venteExpandee, setVenteExpandee] = useState<string | null>(null);
-  // D40 — le client de passage ne peut pas recevoir d'avoir.
-  const [clientGeneriqueId, setClientGeneriqueId] = useState<string | null>(null);
   const [bonSortieActif, setBonSortieActif] = useState(false);
 
-  // Modals
+  // La fenêtre de retour : une vente, un mode de départ.
   const [venteSelectionnee, setVenteSelectionnee] = useState<Vente | null>(null);
-  const [ligneSelectionnee, setLigneSelectionnee] = useState<LigneVente | null>(null);
-  const [modalRemboursement, setModalRemboursement] = useState(false);
-  const [modalAvoir, setModalAvoir] = useState(false);
-  const [modalEchange, setModalEchange] = useState(false);
+  const [modeDepart, setModeDepart] = useState<ModeRetour>("remboursement");
 
   async function charger() {
     setChargement(true);
     try {
-      const [v, a, arts, gen, bs] = await Promise.all([
+      const [v, a, arts, bs] = await Promise.all([
         invoke<Vente[]>("lire_ventes_recentes"),
         invoke<Avoir[]>("lire_avoirs_ouverts_tous"),
         invoke<ArticleAchat[]>("lire_articles_avec_unites"),
-        invoke<{ id: string }>("lire_client_generique"),
         invoke<boolean>("lire_config_bon_sortie").catch(() => false),
       ]);
       setVentes(v);
       setAvoirs(a);
       setArticles(arts);
-      setClientGeneriqueId(gen?.id ?? null);
       setBonSortieActif(bs);
     } catch (e) {
       console.error("Erreur chargement retours :", e);
@@ -76,29 +67,15 @@ export function Retours() {
 
   useEffect(() => { charger(); }, []);
 
-  // Un avoir au comptant part sur le client generique, commun a tous
-  // les clients de passage : il serait inutilisable (D40).
-  const estComptant = (vente: Vente) =>
-    clientGeneriqueId !== null && vente.client_id === clientGeneriqueId;
-
-  function ouvrirModal(
-    vente: Vente,
-    ligne: LigneVente,
-    mode: "remboursement" | "avoir" | "echange"
-  ) {
+  function ouvrirRetour(vente: Vente, mode: ModeRetour) {
+    setModeDepart(mode);
     setVenteSelectionnee(vente);
-    setLigneSelectionnee(ligne);
-    if (mode === "remboursement") setModalRemboursement(true);
-    else if (mode === "avoir") setModalAvoir(true);
-    else setModalEchange(true);
   }
 
+  // La fenêtre a déjà dit ce qui s'est passé (à rendre, avoir, dette).
   async function handleApresOperation() {
-    setModalRemboursement(false);
-    setModalAvoir(false);
-    setModalEchange(false);
+    setVenteSelectionnee(null);
     await charger();
-    await message("Opération enregistrée", { title: "Succès", kind: "info" });
   }
 
   const ventesFiltrees = ventes.filter(v =>
@@ -221,44 +198,58 @@ export function Retours() {
 
                   {venteExpandee === vente.id && (
                     <div className="border-t border-border bg-muted/20 px-4 py-3">
-                      <p className="text-xs font-medium text-muted-foreground mb-3">
-                        Choisir un article et le type de retour
-                      </p>
-                      <div className="space-y-2">
-                        {vente.lignes.map(ligne => (
-                          <div key={ligne.id}
-                            className="flex items-center justify-between py-2 px-3 rounded-md bg-card border border-border">
-                            <div>
-                              <p className="text-sm font-medium">{ligne.article_nom}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {ligne.quantite} {ligne.unite_libelle} ×{" "}
-                                {formaterMontant(ligne.prix_pratique)}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Button size="sm" variant="outline"
-                                onClick={() => ouvrirModal(vente, ligne, "remboursement")}
-                                className="h-7 text-xs px-2">
-                                <Wallet className="h-3 w-3 mr-1" />
-                                Rembourser
-                              </Button>
-                              <Button size="sm" variant="outline"
-                                onClick={() => ouvrirModal(vente, ligne, "echange")}
-                                className="h-7 text-xs px-2">
-                                <ArrowLeftRight className="h-3 w-3 mr-1" />
-                                Échanger
-                              </Button>
-                              {!estComptant(vente) && (
-                                <Button size="sm" variant="outline"
-                                  onClick={() => ouvrirModal(vente, ligne, "avoir")}
-                                  className="h-7 text-xs px-2">
-                                  <Gift className="h-3 w-3 mr-1" />
-                                  Avoir
-                                </Button>
+                      {/* Le geste porte sur la vente : la fenêtre coche les
+                          articles (un ou plusieurs) et règle en une fois. */}
+                      <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Articles de la vente
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <Button size="sm" variant="outline"
+                            onClick={() => ouvrirRetour(vente, "remboursement")}
+                            className="h-7 text-xs px-2">
+                            <Wallet className="h-3 w-3 mr-1" />
+                            Rembourser
+                          </Button>
+                          <Button size="sm" variant="outline"
+                            onClick={() => ouvrirRetour(vente, "echange")}
+                            className="h-7 text-xs px-2">
+                            <ArrowLeftRight className="h-3 w-3 mr-1" />
+                            Échanger
+                          </Button>
+                          {/* Pas d'avoir pour un client de passage (D40). */}
+                          {!vente.client_generique && (
+                            <Button size="sm" variant="outline"
+                              onClick={() => ouvrirRetour(vente, "avoir")}
+                              className="h-7 text-xs px-2">
+                              <Gift className="h-3 w-3 mr-1" />
+                              Avoir
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        {vente.lignes.map(ligne => {
+                          const reste = restantDe(ligne);
+                          return (
+                            <div key={ligne.id}
+                              className={cn("flex items-center justify-between py-2 px-3 rounded-md bg-card border border-border",
+                                reste <= 0 && "opacity-50")}>
+                              <div>
+                                <p className="text-sm font-medium">{ligne.article_nom}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {ligne.quantite} {ligne.unite_libelle} ×{" "}
+                                  {formaterMontant(ligne.prix_pratique)}
+                                </p>
+                              </div>
+                              {(ligne.deja_retourne ?? 0) > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  {reste <= 0 ? "tout est revenu" : `déjà revenu ${ligne.deja_retourne}`}
+                                </span>
                               )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -298,31 +289,13 @@ export function Retours() {
         </div>
       )}
 
-      {/* Modals */}
-      <ModalRemboursement
-        ouvert={modalRemboursement}
+      <ModalRetour
+        ouvert={!!venteSelectionnee}
         vente={venteSelectionnee}
-        ligne={ligneSelectionnee}
-        onFermer={() => setModalRemboursement(false)}
-        onConfirmer={handleApresOperation}
-      />
-
-      <ModalAvoirConserve
-        ouvert={modalAvoir}
-        vente={venteSelectionnee}
-        ligne={ligneSelectionnee}
-        onFermer={() => setModalAvoir(false)}
-        onConfirmer={handleApresOperation}
-      />
-
-      <ModalEchange
-        ouvert={modalEchange}
-        comptant={venteSelectionnee ? estComptant(venteSelectionnee) : false}
-        bonSortieActif={bonSortieActif}
-        vente={venteSelectionnee}
-        ligne={ligneSelectionnee}
+        modeInitial={modeDepart}
         articles={articles}
-        onFermer={() => setModalEchange(false)}
+        bonSortieActif={bonSortieActif}
+        onFermer={() => setVenteSelectionnee(null)}
         onConfirmer={handleApresOperation}
       />
     </div>

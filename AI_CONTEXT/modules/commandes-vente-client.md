@@ -43,6 +43,28 @@ argent en espèces ou en avoir selon le mode, la part payée avec un
 avoir **toujours en avoir**. La réponse porte `part_especes`,
 `part_avoir`, `numero_avoir`.
 
+**Le retour groupé (26/10/2026)** — `enregistrer_retour_groupe`
+(`retours:creer`, **né sur `Base`**, D22) : plusieurs lignes d'une vente
+en un geste, `articles: [{ligne_vente_id, quantite}]`, mode
+`remboursement` | `avoir_conserve` | `echange`, et en échange
+`pris: [{article_id, unite_vente_id, quantite}]`. Tout ou rien, une
+transaction. Le geste se juge d'abord (`coeur::pieces::verifier_retour_groupe` :
+au moins un article, chacun une fois, mode connu, échange avec au moins
+un article pris). Chaque article passe par `retourner_une_ligne` (la même
+que `enregistrer_retour`, qui n'en est plus qu'un cas) : les gardes
+« pas plus que vendu » et « jamais plus que versé » s'additionnent d'un
+article à l'autre parce que chacun lit les écritures des précédents.
+**Une seule pièce AVC** par geste (`AvoirDuRetour` : une ligne `avoir`
+par retour, même `piece_id`, une ligne de pièce par article, la note au
+total). L'échange se règle **une fois** (`remplacer_et_regler`) : les
+articles pris sortent du magasin de la vente (D43), le reliquat va en
+argent dans la limite du versé ou en avoir réparti au prorata
+(`coeur::calcul::repartir_au_prorata`), le complément entre en caisse.
+Le plafond de remboursement (C-3) se juge sur le total du geste. Une
+ligne d'une autre vente est refusée (« introuvable »).
+`lire_ventes_recentes` rend `client_generique` et, par ligne,
+`deja_retourne`. Scénarios : `retours_groupe_base.rs` (6).
+
 **avoirs.rs** — `lire_avoirs_client`, `total_avoirs_client`,
 `rembourser_avoir`, `chercher_article_par_code_barre`,
 `lire_config_scanner`, `sauvegarder_config_scanner`,
@@ -69,7 +91,7 @@ Scénario : `journal_rapports_base::un_cheque_suit_son_cycle_et_un_rejet_rouvre_
 | [FicheClient.tsx](../../src/pages/FicheClient.tsx) | créances, règlements, `annuler_reglement`, avoirs |
 | [Relances.tsx](../../src/pages/Relances.tsx) | les 4 commandes de relances |
 | [Cheques.tsx](../../src/pages/Cheques.tsx) | les 3 de chèques |
-| [Retours.tsx](../../src/pages/Retours.tsx) + [ModalsRetour.tsx](../../src/components/ModalsRetour.tsx) | `enregistrer_retour` |
+| [Retours.tsx](../../src/pages/Retours.tsx), [Pieces.tsx](../../src/pages/Pieces.tsx) + [ModalsRetour.tsx](../../src/components/ModalsRetour.tsx) (`ModalRetour`) | `enregistrer_retour_groupe`, `lire_ventes_recentes` |
 
 Sortant : `coeur::calcul` (montants, statuts, répartition, effet caisse),
 `utils::exiger_session_caisse`, `commandes::pieces_pos`

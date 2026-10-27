@@ -729,13 +729,16 @@ export function genererFactureEtBonHTML(
 //  Bon d'échange — A5, SANS AUCUN MONTANT
 // =====================================================================
 
+export interface ArticleEchange { article_nom: string; unite_libelle: string; quantite: number }
+
 export interface DonneesEchange {
   numero_vente: string;
   date: string;
   client_nom: string;
   client_telephone?: string | null;
-  rendu: { article_nom: string; unite_libelle: string; quantite: number };
-  remis: { article_nom: string; unite_libelle: string; quantite: number };
+  /** Un article, ou plusieurs (retour groupé). */
+  rendu: ArticleEchange | ArticleEchange[];
+  remis: ArticleEchange | ArticleEchange[];
   societe: any;
   note?: string | null;
 }
@@ -764,14 +767,17 @@ export function genererBonEchangeHTML(
   const logoBase64 = h.logo;
   const q = (n: number) => (n % 1 === 0 ? n : n.toFixed(2));
 
+  // Un bloc par sens, une ligne par article : le magasinier lit d'un
+  // coup tout ce qui rentre, puis tout ce qui sort.
   const bloc = (
     titre: string, sens: string, couleur: string,
-    a: { article_nom: string; unite_libelle: string; quantite: number },
+    a: ArticleEchange | ArticleEchange[],
   ) => `
     <div class="bloc" style="border-left:5px solid ${couleur}">
       <div class="bloc-t" style="color:${couleur}">${sens} ${titre}</div>
-      <div class="bloc-a">${a.article_nom}</div>
-      <div class="bloc-q">${q(a.quantite)} <span>${a.unite_libelle}</span></div>
+      ${(Array.isArray(a) ? a : [a]).map(x => `
+        <div class="bloc-a">${esc(x.article_nom)}</div>
+        <div class="bloc-q">${q(x.quantite)} <span>${esc(x.unite_libelle)}</span></div>`).join("")}
     </div>`;
 
   return `<!DOCTYPE html>

@@ -5,7 +5,7 @@ Le récit daté de chaque avancée vit dans [JOURNAL.md](JOURNAL.md), les
 décisions dans [DECISIONS.md](DECISIONS.md), le multi-société dans
 [PLAN-MULTISOCIETE.md](PLAN-MULTISOCIETE.md).
 
-Dernière mise à jour : **26 octobre 2026.** Branche `rh` poussée à
+Dernière mise à jour : **27 octobre 2026.** Branche `rh` poussée à
 `b1ef4db` (GitHub tijjanismk/gescom), `main` reste à `ec741e4` (la fusion
 de rh d'avant ces lots). Faits les 25 et 26/10, chacun décidé avant le
 code : le **banc d'écran Windows** (monoposte dans la vraie fenêtre,
@@ -13,15 +13,27 @@ multiposte sur `gescom_test`, `outils/banc/README.md`) ; **la v3 en
 monoposte comme en multiposte** (D22/D24 révisés : la fenêtre lance son
 serveur, le rôle du poste se demande) ; **D35** les clients de passage ;
 **D37** le menu réglable ; **D36** les articles sans suivi de stock.
-Puis, d'après son essai à la main : tuiles de Relances, code de passage
-retiré de l'impression, texte imprimé à 11 pt (A4), retours dans Pièces.
-**Pas encore commité** : la lecture de `poste.json` avec BOM (fenêtre,
-Équipe, `role_poste.rs`, non testée à la demande du propriétaire),
-`outils/banc/donnees-essai.mjs` (le jeu d'essai posé par le serveur) et
-ces quatre retours.
-**Reste** : la colonne « suivre le stock » à l'import CSV (D36) ; voir
-ALERTES « Trouvé le 25-26/10 ». Le propriétaire teste à la main sur une
-base d'essai (JOURNAL, 26/10, dernière section).
+Puis, d'après son essai à la main : tuiles de Relances, le code de
+passage à la place de « Client de passage » sur le papier, texte imprimé
+à 11 pt (A4), cadre client, fenêtre d'impression qui se ferme seule,
+retours dans Pièces — **commités** (5 commits, `8fc7dbd`…`6e7ba23`, sur
+`rh`, **pas poussés**).
+
+Le 26/10, un lot commité :
+
+- le **retour de plusieurs articles en un geste** (JOURNAL 26/10
+  « nuit ») — SQLite (`retours_groupe_base` 6/6, `retours_base` 12/12,
+  suite complète 703/703), PostgreSQL et compte limité (avec
+  `pieces_base` 20/20) ; **l'essai du propriétaire sur la fenêtre de
+  retour reste à faire** ;
+
+**Ensuite** : le **duplicata** — [PLAN-DUPLICATA.md](PLAN-DUPLICATA.md).
+
+**Reste** : le tableau de bord et les rapports ne déduisent aucun retour
+de leur chiffre d'affaires ; Relances, la fiche client et l'« Acompte
+reçu » imprimé comptent encore la dette éteinte par un retour comme un
+paiement ; la colonne « suivre le stock » à l'import CSV (D36) ; voir
+ALERTES « Trouvé le 25-26/10 ».
 
 Avant : **25 septembre 2026 — Gescom Équipe est fini
 (F, G, H)** : personnel, jours travaillés, avances, fiche de paie,
@@ -321,6 +333,7 @@ serveur sur une base jetable + l'écran Vite), captures à l'appui.
 | D37 | **Le menu se règle par dossier** (26/10, demande du propriétaire : le petit commerçant n'a que faire de Relances, Historique, Chèques…) : Paramètres → Menu, une case par entrée, « Boutique simple » / « Complet » ; Tableau de bord, Ventes, Caisse, Paramètres toujours visibles (`coeur::menu`, refus serveur) ; un affichage seulement — données, règles, traces inchangées ; par dossier (`config_app`, `menu_caches:<dossier>`), patron seul, journal `menu_modifie` ; menu et Ctrl K suivent | `coeur::menu` 4 tests ; `menu_base` 5/5 SQLite, PostgreSQL, compte limité ; banc `k1` 22/22 |
 | D36 | **Un article peut ne pas suivre son stock** (26/10, demande du propriétaire : sachets, recharge, services, vrac) : la colonne `article.gere_en_stock` existait sans écran — case « Suivre le stock » (Articles) ; non suivi : vendu normalement, jamais à découvert (deux versions de `creer_vente` et `valider_facture`), hors de l'écran Stock (« Non suivis » le nomme), transfert et inventaire refusés, mouvements écrits quand même ; cesser dit ce qui sort du stock, reprendre exige un comptage par magasin (`coeur::stock::verifier_comptages`, `suivi_stock.rs`, journal `suivi_stock_change`). En route : la liste des clients ignore une réponse périmée (deux recherches croisées effaçaient le bon résultat) | `coeur::stock` +2 ; `suivi_stock_base` 5/5 SQLite, PostgreSQL, compte limité ; workspace Rust 690/690 ; noyau PostgreSQL 646/647 (le même test de langue) ; `tsc` propre ; banc SQLite et multiposte 34/34 + 3/3 (`j1` 13/13 trois fois après le correctif), monoposte 7/7 (`p7`) |
 | — | **Retours de l'essai à la main** (26/10, choix écrits puis acceptés) : Relances prend les tuiles du tableau de bord (`KpiCard`, `GRILLE`) et son tri dit « Ancienneté » au lieu de « jours » ; **jamais « Client de passage » sur le papier**, le code `PAS-…` à sa place (`passage::tiers_a_imprimer` : facture, reçu, bon d'échange) ; le **texte imprimé passe à 11 pt en A4, 10 pt en A5** (il sortait à ~8 pt) en multipliant chaque taille dans `documentHTML` (`agrandirTexte` ; un `zoom` CSS faisait sortir une page de trop) ; le cadre client grandit, un nom très long passe à la ligne ; **la fenêtre d'impression se ferme seule** après « Imprimer » (le document change son titre, la fenêtre Tauri l'écoute — `window.close()` était refusé par WebView2 ; vérifié par le propriétaire, facture et bon de sortie) ; **Pièces dit ce que les retours ont fait** — « Remboursée » / « Retournée » à la place du statut (ligne grisée), « Retour partiel » en second badge, pastille « Retours » avec leur nombre, « −X F rendus », « Payé » = l'argent vraiment encaissé (`encaisse`, sans la dette éteinte par un retour), jugé sur l'argent sorti du tiroir (`coeur::pieces::etat_retour`, colonnes 21..23 des listes client) | `coeur::pieces` +2 ; `retours_base` +1 (12/12), `passage_base` (code non imprimé, puis imprimé une fois promu) ; `retours_base`, `passage_base`, `pieces_base` verts sur SQLite, PostgreSQL et compte limité ; workspace Rust 693/693 ; `tsc` propre ; facture A4/A5, reçu, relevé rendus dans Chrome à la largeur du papier |
+| — | **Retourner plusieurs articles en un geste** (26/10, plan accepté) : une fenêtre de retour à cases (`ModalRetour`, Pièces et Retours) — ce qui est déjà revenu dit, rembourser / avoir / échange de plusieurs articles ; serveur `enregistrer_retour_groupe` né sur `Base` (D22), tout ou rien, une pièce AVC par geste, échange réglé une fois, plafond jugé sur le geste ; Pièces dit où est partie la valeur (argent, avoir, dette annulée, échangé), l'avoir rendu ensuite en espèces passe la facture « Remboursée », le pied déduit les retours | `coeur` +3 (`verifier_retour_groupe`, `ventiler_retour`, `repartir_au_prorata`) ; `retours_groupe_base` 6/6 (stock, caisse, avoir ; refus sans trace ; plafond ; détecteur), `retours_base` 12/12 ; workspace Rust 703/703 (SQLite) ; `tsc` propre ; PostgreSQL et essai à la main **pas encore faits** |
 | C-2 | **Les droits valent par dossier** (23/09, décision C2) : `utilisateur_dossier` ; `acces_dossiers::role_dans` (pure) — superadmin partout ; des lignes = exactement ces dossiers et ces rôles (le frère, patron global, n'entre que chez lui) ; aucune ligne = comme avant (accès total partout, sinon le dossier d'origine). `sessions::etat_sur` rend le rôle **du dossier** et révoque si le dossier est retiré ; la connexion ne liste que les dossiers ouverts (403 « Aucun dossier ne vous est ouvert » / « Ce dossier ne vous est pas ouvert ») ; `choisir_dossier` rend rôle et permissions, `PageLogin` les prend. **Précision** : qui a des lignes perd `utilisateurs:gerer`, `postes:gerer`, `sauvegarde:lancer`, `parametres:modifier` (communs à tous les dossiers — sinon il se créerait un compte qui voit tout) ; `renommer_dossier` exige d'entrer dans le dossier ; un dossier créé est donné à son créateur restreint. Commandes `lire/definir_dossiers_utilisateur` (`utilisateurs:gerer`), journal `droits_dossiers_modifies`. Paramètres → Utilisateurs → **Dossiers** (bouton avec plusieurs dossiers, patron compris) | 3 unitaires ; `acces_dossiers_base.rs` (4, SQLite et PostgreSQL : le frère et la comptable, session révoquée au retrait, on ne s'enferme pas dehors, le créateur entre) ; route `le_frere_n_ouvre_que_sa_quincaillerie_et_la_comptable_choisit` ; banc `c2-droits-dossiers.mjs` (13) ; banc complet d'une base neuve **224** ; noyau 524 (hors `installation`), serveur 16 |
 
 ## v3 — plan posé le 21/09/2026, le code n'a pas commencé

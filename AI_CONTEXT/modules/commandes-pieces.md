@@ -93,6 +93,15 @@ pastille **Retours** (avec leur nombre) demande les factures au serveur
 et ne garde que celles qui ont eu un retour. La liste fournisseur `Base`
 porte les colonnes (0).
 
+**Où est partie la valeur** (colonne 25 : ce qui reste en avoir sur les
+pièces AVC de ces retours, hors part remboursée) : `retour` porte aussi
+`dette`, `avoir`, `echange` (`coeur::pieces::ventiler_retour`, l'échange
+étant le reste). L'argent (22) compte aussi l'avoir de ces retours rendu
+ensuite en espèces : la facture passe alors « Remboursée ». Pièces les
+écrit sous le total (« 2 200 F en avoir », « 19 400 F rendus en
+argent »…) et le pied déduit la marchandise revenue (« dont −X F
+revenus »), chaque facture gardant son montant émis.
+
 **`encaisse`** (colonne 24 : la dette éteinte par les retours,
 paiements `mode = 'retour'`) = `total_paye` − cette part : l'argent
 vraiment entré. « Payé » à l'écran et son total le lisent ;
