@@ -8,6 +8,7 @@ pub mod dates;
 pub mod tiers;
 pub mod saisie;
 pub mod documents;
+pub mod impression;
 pub mod historique;
 pub mod lecture;
 pub mod plafonds;

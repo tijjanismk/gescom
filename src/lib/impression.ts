@@ -20,6 +20,25 @@ export interface Habillage {
   reglage?: ReglageGenre | null;
   coordonnees?: Coordonnee[] | null;
   filigrane?: FiligraneDoc | null;
+  /**
+   * Le duplicata (26/10/2026) : posé par l'APPELANT d'après le verdict du
+   * serveur (`lire_etat_impression` pour l'aperçu, `noter_impression` au
+   * clic) — jamais deviné ici. `null` : un original.
+   */
+  duplicata?: { originalLe: string } | null;
+}
+
+/** « 26/10/2026 à 14:32 ». */
+export function dateHeure(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("fr-ML", { day: "2-digit", month: "2-digit", year: "numeric" })
+    + " à " + d.toLocaleTimeString("fr-ML", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** La mention nette du duplicata : le filigrane, pâle, peut disparaître
+ *  à la photocopie ; elle, non. */
+export function libelleDuplicata(originalLe: string): string {
+  return `DUPLICATA — original imprimé le ${dateHeure(originalLe)}`;
 }
 
 export const COORDONNEES_HISTORIQUES: Coordonnee[] = [
@@ -312,6 +331,21 @@ export function blocFiligrane(h: Habillage, papier: Papier): string {
            transform:rotate(-30deg);${effet}">${esc(t)}</div></div>`;
 }
 
+/**
+ * « DUPLICATA » en travers de chaque page, par-dessus le filigrane de la
+ * société (qui reste). Taille et intensité fixes : ce n'est pas un
+ * réglage de goût, c'est une marque qui doit se lire sans masquer les
+ * montants — 15 %, comme le haut de la fourchette d'un filigrane.
+ */
+function blocDuplicata(h: Habillage, papier: Papier): string {
+  if (!h.duplicata) return "";
+  const mot = "DUPLICATA";
+  const police = (PAPIER[papier].l * 0.75) / (0.62 * mot.length);
+  return `<div class="cadre-filigrane cadre-duplicata"><div class="doc-duplicata-texte"
+    style="font:bold ${police.toFixed(1)}mm Arial,sans-serif;white-space:nowrap;color:#000;
+           transform:rotate(-30deg);opacity:0.15">${mot}</div></div>`;
+}
+
 /** Le document complet : la page, ses bandeaux répétés, son contenu. */
 export function documentHTML(h: Habillage, p: PageDoc): string {
   const { h: hauteur } = PAPIER[p.papier];
@@ -357,6 +391,9 @@ export function documentHTML(h: Habillage, p: PageDoc): string {
                        mix-blend-mode:multiply;
                        display:flex; align-items:center; justify-content:center;
                        overflow:hidden; pointer-events:none; }
+    .cadre-duplicata { z-index:4; }
+    .doc-duplicata { border:1.5px solid #000; padding:3px 6px; margin-bottom:3mm;
+                     text-align:center; font-weight:bold; font-size:11px; letter-spacing:0.5px; }
     .cadre-pied-texte { margin:0 ${p.marge}; padding:5px 0 4mm; text-align:center;
                         border-top:1px solid #ddd; }
     .cadre-pied-texte.sur-image { border-top:0; padding:0 0 2px; }
@@ -371,11 +408,14 @@ export function documentHTML(h: Habillage, p: PageDoc): string {
 </head>
 <body>
   ${blocFiligrane(h, p.papier)}
+  ${blocDuplicata(h, p.papier)}
   ${pied ? `<div class="cadre-bas">${pied}</div>` : ""}
   <table class="cadre">
     <thead><tr><td>${enTete}</td></tr></thead>
     <tfoot><tr><td>${reserveBas}</td></tr></tfoot>
-    <tbody><tr><td class="cadre-corps">${p.contenu}</td></tr></tbody>
+    <tbody><tr><td class="cadre-corps">${h.duplicata
+      ? `<div class="doc-duplicata">${esc(libelleDuplicata(h.duplicata.originalLe))}</div>`
+      : ""}${p.contenu}</td></tr></tbody>
   </table>
   ${p.script ?? ""}
 </body>

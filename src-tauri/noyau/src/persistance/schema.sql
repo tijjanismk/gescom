@@ -726,6 +726,24 @@ CREATE TABLE IF NOT EXISTS anomalie_vue (
     vue_le      TEXT NOT NULL
 );
 
+-- Chaque impression d'une piece ou d'un recu (le duplicata, 26/10/2026) :
+-- la premiere est l'original, les suivantes des duplicatas, quel que
+-- soit le poste. `objet_type` reprend les noms du journal
+-- (`piece_commerciale`, `paiement`, `paiement_fournisseur`). `rang`
+-- ordonne (l'horloge Windows tique par 15 ms). `original` = 1 pour la
+-- premiere ET pour l'original reimprime par le patron (trace au journal).
+CREATE TABLE IF NOT EXISTS impression (
+    id           TEXT PRIMARY KEY,
+    dossier_id   TEXT NOT NULL,
+    objet_type   TEXT NOT NULL,
+    objet_id     TEXT NOT NULL,
+    rang         INTEGER NOT NULL,
+    original     INTEGER NOT NULL DEFAULT 0,
+    imprime_le   TEXT NOT NULL,
+    auteur_id    TEXT,
+    poste_id     TEXT
+);
+
 
 -- =====================================================================
 --  INDEX
@@ -752,6 +770,7 @@ CREATE INDEX IF NOT EXISTS idx_echange_client       ON echange(client_id);
 CREATE INDEX IF NOT EXISTS idx_rappel_client        ON rappel(client_id);
 CREATE INDEX IF NOT EXISTS idx_rappel_pour          ON rappel(pour_utilisateur_id, fait);
 CREATE INDEX IF NOT EXISTS idx_relance_vente        ON relance_creance(vente_id);
+CREATE INDEX IF NOT EXISTS idx_impression_objet     ON impression(objet_type, objet_id);
 
 -- =====================================================================
 --  CHÈQUES REÇUS — une promesse, pas de l'argent (cf. cheques.rs)

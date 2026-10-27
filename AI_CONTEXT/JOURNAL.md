@@ -2362,3 +2362,110 @@ en espèces** fait passer la facture « Remboursée » ; le pied de Pièces
 déduit la marchandise revenue et le dit. **Pas touché, signalé** : le
 tableau de bord et les rapports ne déduisent aucun retour de leur
 chiffre d'affaires.
+
+## 26/10/2026 (nuit, suite) — le duplicata, côté serveur
+
+Demande du propriétaire : des duplicatas optionnels en filigrane sur ses
+pièces. Choix du propriétaire et plan dans
+[PLAN-DUPLICATA.md](PLAN-DUPLICATA.md) ; plan en cinq lignes accepté,
+« commence par la table impression et noter_impression ». Fait : le
+premier lot, **noyau et serveur**. Rien à l'écran encore.
+
+**Le serveur compte les impressions** (comme D27 : l'écran ne protège
+rien). Table `impression` cloisonnée (`TABLES_CLOISONNEES` : colonne,
+index, politique RLS du compte limité), dans `schema.sql` — les deux
+chemins d'amorçage la lisent. La première impression d'une pièce ou d'un
+reçu est l'original, les suivantes des duplicatas, quel que soit le
+poste ou la personne. Trois commandes nées sur `Base` :
+`lire_etat_impression` (l'aperçu, n'écrit rien), `noter_impression` (au
+clic, fait foi), `reimprimer_original` (permission
+`pieces:reimprimer_original`, le patron ; journal `original_reimprime`).
+
+**Écarts au plan, choisis en écrivant** : `objet_type` (les noms du
+journal, pour que l'Historique retrouve client et pièce) au lieu de
+`genre`, déjà pris par « facture, devis… » ; `rang` et `poste_id` en
+plus ; l'original du patron en commande à part, pour que la permission
+se juge au registre comme partout ; un brouillon ne se compte pas ; la
+lecture d'état s'ajoute, sans elle l'aperçu ne pourrait pas montrer le
+duplicata avant d'imprimer.
+
+**Preuves** : `tests/impression_base.rs`, 8 scénarios (original puis
+duplicata, autre poste et autre personne, original du patron tracé et
+lu dans l'Historique, droit réservé au patron, brouillon, objet inconnu
+ou introuvable, autre dossier, détecteur) — verts sur SQLite,
+PostgreSQL et PostgreSQL sous compte limité ; `--workspace` SQLite vert
+(715). **Reste** : la case par genre, le rendu (filigrane + mention), les
+quatre chemins d'impression et le bouton du patron, la vérification dans
+Chrome.
+
+## 27/10/2026 — le duplicata : la case par genre, le rendu ; une relecture
+
+**La case** (« enchaîne sur la case par genre ») : `ReglageGenre::duplicata`,
+non par défaut (optionnel : une mise à jour ne change pas le papier),
+refusée sur relevé et bulletin. Le serveur la lit : il déduit le genre
+(`genre_imprime` : pièce → `genre_de_piece`, rouleau → ticket, reçu),
+d'où un `format` facultatif sur les trois commandes. Case décochée :
+l'impression se compte quand même — cochée plus tard, la feuille déjà
+sortie reste l'original — et l'original du patron est refusé (rien à
+rattraper). Case « Duplicata » dans Paramètres → Documents.
+
+**Le rendu** : `Habillage.duplicata = { originalLe }`, posé par
+l'appelant d'après le serveur. « DUPLICATA » en travers de chaque page
+(15 %, par-dessus le filigrane de la société) et un cadre net en haut du
+corps ; le ticket, deux lignes sans filigrane. Vu dans le navigateur
+(générateur chargé depuis Vite) : facture A4 sur une page, reçu A5 à
+600 px sur 794, ticket lisible, original sans aucune marque.
+
+**Relecture demandée par le propriétaire** (« ce qu'on n'a pas pensé, les
+erreurs de logique ») : une **erreur à moi**, corrigée — une facture ou
+un avoir *fournisseur* passait pour une facture et serait sorti en
+« DUPLICATA » ; ce n'est pas notre pièce (`hors_compte`). Le reste est
+consigné dans [ALERTES.md](ALERTES.md) § 27/10 : le **1er janvier 2027**
+(exercices finissant le 31/12, aucun avertissement, seul le patron
+prolonge), l'**horloge qui recule**, **Smart App Control** chez le
+client, la **CSP** confirmée sans l'adresse du serveur.
+
+**Preuves** : `impression_base.rs` 10/10 (+ case décochée, ticket) sur
+SQLite, PostgreSQL et compte limité ; `documents_base` 14/14 sur
+PostgreSQL ; unitaires du noyau 235 ; `--workspace` SQLite 719 (lancé
+avant le correctif fournisseur, rejoué depuis sur les fichiers touchés) ;
+`tsc` propre.
+
+## 27/10/2026 (suite) — le duplicata à l'écran : chemins d'impression, bouton du patron
+
+« Attaque le lot 4. » Une aide, [lib/duplicata.ts](../src/lib/duplicata.ts),
+pour les quatre chemins : l'aperçu **lit** (`lire_etat_impression`), le
+clic **note** (`noter_impression`) et la feuille est **regénérée d'après
+cette réponse** — un autre poste a pu imprimer entre-temps. Le serveur ne
+répond pas : **on n'imprime pas**, une feuille sans marque serait un
+original de plus. `ApercuPiece` (et le ticket du POS, qui passe par lui),
+`ApercuRecu` (paiement client ou fournisseur), `Pieces.tsx` et
+`FicheClient.tsx` (impressions directes). Bouton « Réimprimer l'original »
+dans les deux aperçus, pour qui a `pieces:reimprimer_original`, quand la
+prochaine feuille serait un duplicata ; l'aperçu dit « original imprimé
+le … — celle-ci sortira en duplicata ». Le bon de sortie ne se compte pas.
+
+**Trouvé en essayant** : passer d'A4 au ticket montrait un instant la
+marque et le bouton d'A4. L'état est maintenant rattaché au format pour
+lequel il a été lu, et les boutons sont grisés tant qu'il n'est pas
+arrivé. (Une partie de l'éclair venait du rechargement à chaud de React,
+qui gardait l'ancien composant : mesuré à 0 faux sur 217 après
+rechargement complet.)
+
+**Preuves** : `tsc` propre ; serveur construit et lancé sur une base
+jetable, appelé par HTTP avec les paramètres de l'écran — 14/14 ;
+l'écran dans le navigateur contre ce serveur (aperçu, avertissement,
+bouton, ticket). **Puis l'essai du propriétaire dans la vraie fenêtre**
+(banc `monoposte -Neuf`, vraie boîte d'impression Windows) : original
+sans marque, duplicata marqué, original du patron sans marque et tracé
+dans l'Historique, ticket sans marque — conforme. Non rapportés :
+l'impression annulée, le reçu à l'écran. **À savoir** : un serveur d'avant ce
+lot répond « commande inconnue » et l'écran refuse alors d'imprimer — le
+serveur se met à jour avec la fenêtre.
+
+**Une perte, de mon fait** : pour cet essai, `lancer.ps1 monoposte -Neuf`
+a supprimé `outils/banc/.travail/monoposte` — la base d'essai que le
+propriétaire remplissait à la main depuis le 26/10, et ses sauvegardes
+(sans corbeille, pas de cliché lisible sans droits d'administrateur).
+L'en-tête d'ETAPES disait de ne pas l'effacer ; il n'avait pas été lu
+avant de lancer le banc. Consigné dans ALERTES § 27/10.

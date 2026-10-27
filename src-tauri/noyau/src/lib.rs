@@ -12,6 +12,7 @@
 pub mod utils;
 pub mod auteur;
 pub mod documents;
+pub mod impression;
 pub mod historique;
 pub mod plafonds;
 pub mod coeur;

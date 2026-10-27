@@ -364,6 +364,39 @@ pub fn registre() -> Registre {
         gescom_noyau::historique::marquer_anomalie_vue_sur(c.base, &id)
     });
 
+    // ---- Le duplicata (26/10/2026) : le serveur compte les impressions ----
+    //
+    // Imprimer est ouvert a qui voit la piece ; noter une impression ne
+    // change aucun ecran, d'ou `ecrit = false`. L'original reimprime,
+    // lui, a sa permission (le patron) et va au journal. Le poste vient
+    // de la session, jamais du JSON.
+    r.sur_base("lire_etat_impression", None, false, |c, p| {
+        gescom_noyau::impression::lire_etat_impression_sur(
+            c.base,
+            arg(&p, "objetType", "objet_type")?,
+            arg(&p, "objetId", "objet_id")?,
+            arg(&p, "format", "format")?,
+        )
+    });
+    r.sur_base("noter_impression", None, false, |c, p| {
+        gescom_noyau::impression::noter_impression_sur(
+            c.base,
+            arg(&p, "objetType", "objet_type")?,
+            arg(&p, "objetId", "objet_id")?,
+            arg(&p, "format", "format")?,
+            Some(c.appelant.poste_id.clone()),
+        )
+    });
+    r.sur_base("reimprimer_original", Some("pieces:reimprimer_original"), true, |c, p| {
+        gescom_noyau::impression::reimprimer_original_sur(
+            c.base,
+            arg(&p, "objetType", "objet_type")?,
+            arg(&p, "objetId", "objet_id")?,
+            arg(&p, "format", "format")?,
+            Some(c.appelant.poste_id.clone()),
+        )
+    });
+
     r.sur_base("enregistrer_coordonnees_documents", Some("parametres:modifier"), true, |c, p| {
         let choix: Vec<String> = arg(&p, "coordonnees", "coordonnees")?;
         serde_json::to_value(gescom_noyau::documents::enregistrer_coordonnees_sur(c.base, choix)?)

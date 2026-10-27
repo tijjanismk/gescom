@@ -22,7 +22,7 @@ import {
   type Genre, type ReglageGenre, type ReglagesDocuments, type Choix,
   type Coordonnee, type FormatDocument, type FiligraneDoc,
   LIBELLES_GENRE, PORTEE_GENRE, LIBELLES_FORMAT, LIBELLES_COORDONNEE, FILIGRANE_BORNES,
-  SIGNATURES_MAX, lireReglagesDocuments, choisirImage, contenuBase64,
+  SIGNATURES_MAX, GENRES_DUPLICATA, lireReglagesDocuments, choisirImage, contenuBase64,
 } from "@/lib/documents";
 import { documentExemple } from "@/lib/exemples-documents";
 import type { FormatImpression } from "@/lib/genererPDF";
@@ -403,11 +403,14 @@ export function OngletDocuments() {
   }
 
   // L'exemple se redessine à chaque case cochée : on voit l'effet
-  // AVANT d'enregistrer. Même générateur que l'impression.
+  // AVANT d'enregistrer. Même générateur que l'impression. Duplicata
+  // coché : l'exemple montre la feuille RÉIMPRIMÉE (la première sort
+  // sans marque).
   const apercu = useMemo(() => {
     if (!reglages || !brouillon) return "";
     return documentExemple(genre, brouillon.format as FormatImpression, {
       logo, entete, pied, reglage: brouillon, coordonnees: reglages.coordonnees, filigrane,
+      duplicata: brouillon.duplicata ? { originalLe: new Date().toISOString() } : null,
     }, societe).replace(/<script>[\s\S]*?<\/script>/g, "");
   }, [genre, brouillon, reglages, logo, entete, pied, societe, filigrane]);
 
@@ -598,6 +601,13 @@ export function OngletDocuments() {
                 aide={filigrane.image || filigrane.texte?.trim()
                   ? "Le filigrane réglé plus haut, au milieu de chaque page."
                   : "Aucun filigrane n'est posé pour l'instant (voir plus haut)."} />
+            )}
+            {GENRES_DUPLICATA.includes(genre) && (
+              <Case coche={brouillon.duplicata === true} onChange={b => changer("duplicata", b)}
+                etiquette="Duplicata"
+                aide={estTicket
+                  ? "Un ticket réimprimé porte la mention « DUPLICATA », avec la date de l'original."
+                  : "Après la première impression, la feuille porte « DUPLICATA » en travers et la date de l'original. Seul le patron peut ressortir l'original."} />
             )}
           </div>
 

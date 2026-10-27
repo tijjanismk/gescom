@@ -25,6 +25,7 @@ pub const TYPES: &[(&str, &str)] = &[
     ("piece_convertie", "Pièce convertie"),
     ("piece_dupliquee", "Pièce dupliquée"),
     ("piece_annulee", "Pièce annulée"),
+    ("original_reimprime", "Original réimprimé"),
     ("facture_annulee_par_avoir", "Facture annulée par avoir"),
     ("commande_livree_facturee", "Commande livrée et facturée"),
     ("livraison_enregistree", "Livraison enregistrée"),

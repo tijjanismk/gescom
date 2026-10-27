@@ -36,6 +36,13 @@ vient avec `acces_total` (patron, superadmin), ou se donne à la main
 par le sur-mesure. `avoirs:gerer` (le comptable) applique et rembourse
 les avoirs existants ; il n'en crée pas.
 
+## `pieces:reimprimer_original` (26/10/2026, le duplicata)
+
+Une pièce n'a qu'un original : toute impression après la première sort
+en duplicata. Ressortir l'original (`reimprimer_original`) est réservé
+au patron, comme `avoirs:accorder` : aucun rôle livré, `acces_total` ou
+à la main. Chaque usage va au journal (`original_reimprime`).
+
 ## `dossiers:gerer` (19/09/2026, v3)
 
 Créer un dossier, ouvrir, prolonger ou clore un exercice. Comme

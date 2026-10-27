@@ -55,6 +55,38 @@ semblent vivantes.
   `ipc.localhost` (`pw.mjs::boitesMuettes`) ; lancer `lancer.ps1` avec
   sa sortie redirigée vers un fichier, jamais dans un tube.
 
+## Trouvé le 27/10/2026 en relisant, pas encore fait
+
+- **Le 1er janvier 2027, plus aucune vente.** Chaque dossier amorcé en
+  2026 a un exercice qui finit le 31/12/2026 (`amorcage::cloisonnement`) ;
+  après, toute écriture datée est refusée (D21). Le message dit quoi
+  faire, mais seul `dossiers:gerer` (le patron) peut prolonger, et
+  **aucun écran ne prévient avant** (rien au tableau de bord). Un
+  caissier seul le 2 janvier au matin ne peut pas vendre.
+- **Une horloge qui recule.** Pile du BIOS morte, coupure : le PC repart
+  à une date passée. Rien ne compare l'heure du serveur à la dernière
+  écriture : ventes datées d'hier dans l'exercice (caisse faussée), ou
+  refusées hors exercice. Aucune garde.
+- **Smart App Control chez le client.** La fenêtre n'est pas signée et le
+  serveur l'est par un certificat auto-signé : SmartScreen se contourne,
+  Smart App Control (Windows 11 neuf) bloque sans recours sauf à le
+  désactiver. Ce poste de développement en souffre déjà (4551).
+- **CSP confirmée** : `connect-src 'self' ipc: http://ipc.localhost`,
+  alors que `pont.ts` fait `fetch` vers l'adresse du serveur. Si la CSP
+  s'applique au build livré, la fenêtre ne parle plus à personne. À
+  essayer sur un build release avant toute livraison (voir plus bas).
+- **Duplicata, les limites assumées** : une impression annulée ou
+  « enregistrée en PDF » consomme l'original (le bouton du patron
+  rattrape) ; une facture POS retouchée (note, échéance) après sa
+  première impression sort en duplicata avec un texte qui diffère de
+  l'original.
+- **Le banc `monoposte -Neuf` efface la base d'essai à la main.**
+  `lancer.ps1 monoposte -Neuf` et `.travail/essai-manuel.ps1` suppriment
+  tout `outils/banc/.travail/monoposte` — sauvegardes comprises, sans
+  corbeille — et c'est aussi là que le propriétaire essaie à la main. Ce
+  qui a effacé, le 27/10, sa base d'essai du 26/10. À séparer : l'essai à
+  la main dans son propre dossier.
+
 ## Ce que la revue du 23/09/2026 a corrigé (branche `correctif/revue-v2`)
 
 Trois règles, qui valent pour tout ce qui s'écrit ensuite :

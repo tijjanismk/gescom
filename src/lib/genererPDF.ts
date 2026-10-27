@@ -8,7 +8,7 @@
 
 import {
   type Habillage, type PageDoc, blocSociete, mention, documentHTML,
-  blocSignatures, blocMontantLettres, choisir, esc, pourGenre,
+  blocSignatures, blocMontantLettres, choisir, dateHeure, esc, pourGenre,
 } from "@/lib/impression";
 import type { ReglagesDocuments } from "@/lib/documents";
 
@@ -465,6 +465,11 @@ export function genererTicketThermique(
   ${societe.telephone ? `<div style="text-align:center;font-size:10px">Tél: ${societe.telephone}</div>` : ""}
   <div style="border-top:1px solid #000;margin:4px 0"></div>
   <div style="text-align:center;font-weight:bold">${titre}</div>
+  ${h.duplicata
+    // Pas de filigrane sur un rouleau : la mention seule, bien visible.
+    ? `<div style="text-align:center;font-weight:bold;margin:2px 0">*** DUPLICATA ***</div>
+       <div style="text-align:center;font-size:10px">Original du ${dateHeure(h.duplicata.originalLe)}</div>`
+    : ""}
   <div style="display:flex;justify-content:space-between">
     <span>N° ${piece.numero}</span>
     <span>${fmtDateHeure(piece.date_piece)}</span>

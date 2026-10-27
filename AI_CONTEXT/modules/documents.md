@@ -26,6 +26,46 @@ supprimées par migration idempotente, deux chemins).
 l'aperçu et l'impression (règle du 17/09). **Le réglage est en base** :
 le serveur le distribue à toutes les caisses.
 
+## Le duplicata (26/10/2026, en cours — [PLAN-DUPLICATA.md](../PLAN-DUPLICATA.md))
+
+**Le serveur compte les impressions** ; l'écran ne décide pas si une
+feuille est un original. Fait : le noyau, le serveur, la case par genre
+(`ReglageGenre::duplicata`, non par défaut, `GENRES_DUPLICATA` : pas sur
+relevé ni bulletin), le rendu (`Habillage.duplicata = { originalLe }` :
+filigrane « DUPLICATA » + cadre en haut du corps dans `documentHTML`,
+deux lignes sur le ticket), les chemins d'impression
+([lib/duplicata.ts](../../src/lib/duplicata.ts) : `ApercuPiece` — donc
+le ticket du POS —, `ApercuRecu`, `Pieces.tsx`, `FicheClient.tsx`) et le
+bouton « Réimprimer l'original ». **Règle de l'écran** : l'aperçu lit,
+le clic note, la feuille est regénérée d'après la réponse du clic ; sans
+réponse, on n'imprime pas. Ne se comptent pas : un brouillon, une facture ou un
+avoir fournisseur (`coeur::impression::hors_compte`).
+
+Toutes les commandes prennent `format` (facultatif) : le serveur en
+déduit le genre dont la case décide (`genre_imprime` : rouleau →
+ticket). La réponse dit `genre` et `actif` ; `duplicata` n'est vrai que
+case cochée. Case décochée, l'impression se compte quand même.
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Règle | [coeur/impression.rs](../../src-tauri/noyau/src/coeur/impression.rs) | `Objet` (`piece_commerciale`, `paiement`, `paiement_fournisseur` — les noms du journal), `compte` (un brouillon ne compte pas), `verdict` |
+| Stockage | [impression.rs](../../src-tauri/noyau/src/impression.rs) | table `impression` (cloisonnée : rang, original, imprime_le, auteur_id, poste_id) |
+| Commandes | [serveur/src/socle.rs](../../src-tauri/serveur/src/socle.rs) | 3, nées sur `Base` |
+
+- `lire_etat_impression(objetType, objetId, format?)` → `{ genre, actif, compte, impressions,
+  duplicata, original_le }` : ce que l'**aperçu** montre ; n'écrit rien.
+- `noter_impression(objetType, objetId, format?)` → `{ genre, actif, compte, duplicata,
+  original_le, rang }` : appelé **au moment d'imprimer**, fait foi (un
+  autre poste a pu imprimer entre l'aperçu et le clic). Ouvert à tout
+  connecté, `ecrit = false` (aucun écran à rafraîchir). Le poste vient
+  de la session.
+- `reimprimer_original(objetType, objetId, format?)` — permission
+  `pieces:reimprimer_original` (le patron) ; journal
+  `original_reimprime` si l'objet avait déjà été imprimé. Refusé sur un
+  brouillon.
+- Le ticket est un **format** de la pièce : il partage son original.
+  Le bon de sortie n'est pas la facture : ne pas le noter.
+
 ## Les genres et leur type de pièce
 
 `facture` (facture, acompte, avoirs, côté client et fournisseur),

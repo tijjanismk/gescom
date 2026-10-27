@@ -22,6 +22,7 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { genererImpression, type FormatImpression } from "@/lib/genererPDF";
 import { chargerHabillage } from "@/lib/impression";
+import { noterImpression, marque, refusImpression } from "@/lib/duplicata";
 import { genreDePiece } from "@/lib/documents";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -1057,8 +1058,17 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
       // v3 (A-2) : l'habillage du genre de la pièce (Paramètres → Documents).
       const habillage = await chargerHabillage(genreDePiece(donnees.piece?.type_piece));
       const suffixe = format === "bon_sortie" ? "-BS" : "";
+      // Le duplicata : le serveur note l'impression et dit si c'en est
+      // un. Sans sa réponse, on n'imprime pas (lib/duplicata.ts).
+      let verdict;
+      try {
+        verdict = await noterImpression("piece_commerciale", p.id, format);
+      } catch (e) {
+        await message(refusImpression(e), { title: "Impression", kind: "error" });
+        return;
+      }
       await invoke("imprimer_piece", {
-        html: genererImpression(donnees, format, habillage),
+        html: genererImpression(donnees, format, { ...habillage, duplicata: marque(verdict) }),
         nomFichier: `${p.numero.replace(/\//g, "-")}${suffixe}.html`,
       });
     } catch (e) {

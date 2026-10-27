@@ -122,6 +122,7 @@ pub const TABLES_CLOISONNEES: &[&str] = &[
     "cotisation",
     "echange",
     "rappel",
+    "impression",
 ];
 
 /// La cle d'un compteur, cloisonnee par dossier.
