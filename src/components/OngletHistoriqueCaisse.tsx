@@ -3,6 +3,13 @@
 // L'écart de clôture est la seule mesure qui confronte le logiciel au
 // monde réel. Un écart isolé ne dit rien — c'est la SUITE des écarts
 // qui parle. Cet écran existe pour lire cette suite.
+//
+// Lisibilité (28/10/2026, d'après l'essai du propriétaire) : des blocs
+// OPAQUES — le halo pêche de la page passait à travers et donnait du
+// « jaune sur jaune » ; pas de pictogramme devant les chiffres, le mot
+// suffit (comme les tuiles du tableau de bord) ; des couleurs de texte à
+// 4,5:1 au moins sur blanc (vert 700, rouge 700, orange 800 — l'orange
+// 500 faisait 2,8:1).
 
 import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
@@ -10,8 +17,7 @@ import { peut } from "@/lib/droits";
 
 const peutTout = (...p: string[]) => p.every(peut);
 import {
-  History as HistoryIcon, Loader2, RefreshCw, ChevronDown, ChevronRight,
-  TrendingDown, TrendingUp, CheckCircle2, AlertTriangle,
+  Loader2, RefreshCw, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -111,20 +117,20 @@ export function OngletHistoriqueCaisse() {
 
   if (chargement && sessions.length === 0) {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
+      <div className="relative z-[1] flex items-center gap-2 text-sm text-muted-foreground py-8">
         <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    // `relative z-[1]` : la page Caisse peint ses halos par-dessus tout ce
+    // qui n'est pas positionne — c'etait le « jaune sur jaune ».
+    <div className="space-y-6 relative z-[1]">
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <HistoryIcon className="h-5 w-5" /> Historique de caisse
-          </h2>
+          <h2 className="text-lg font-semibold">Historique de caisse</h2>
           <p className="text-xs text-muted-foreground">
             L'écart confronte ce que dit le logiciel à ce qu'il y a dans
             le tiroir. C'est la seule mesure qui vienne du monde réel.
@@ -145,7 +151,7 @@ export function OngletHistoriqueCaisse() {
 
       {/* ── Diagnostic ── */}
       {rapport && rapport.nb_clotures > 0 && (
-        <Card>
+        <Card className="bg-card">
           <CardContent className="pt-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <div>
@@ -153,33 +159,28 @@ export function OngletHistoriqueCaisse() {
                 <p className="text-xl font-bold">{rapport.nb_clotures}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3 text-green-600" /> Justes
-                </p>
+                <p className="text-xs text-muted-foreground">Justes</p>
                 <p className="text-xl font-bold text-green-700">{rapport.nuls}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <TrendingDown className="h-3 w-3 text-red-600" /> Manques
-                </p>
-                <p className="text-xl font-bold text-red-600">{rapport.manques}</p>
+                <p className="text-xs text-muted-foreground">Manques</p>
+                <p className="text-xl font-bold text-red-700">{rapport.manques}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <TrendingUp className="h-3 w-3 text-orange-500" /> Excédents
-                </p>
-                <p className="text-xl font-bold text-orange-500">{rapport.excedents}</p>
+                <p className="text-xs text-muted-foreground">Excédents</p>
+                <p className="text-xl font-bold text-orange-800">{rapport.excedents}</p>
               </div>
             </div>
 
-            <div className={`flex gap-3 p-3 rounded-lg text-sm ${
-              rapport.nuls === rapport.nb_clotures
-                ? "bg-green-50 text-green-900"
-                : "bg-orange-50 text-orange-900"
-            }`}>
+            {/* Le diagnostic : texte foncé sur fond blanc, la couleur
+                seulement au bord et sur le pictogramme d'alerte. */}
+            <div className={`flex gap-3 p-3 rounded-md text-sm bg-background text-foreground
+                             border border-border border-l-4 ${
+              rapport.nuls === rapport.nb_clotures ? "border-l-green-600" : "border-l-orange-600"
+            }`} role="status">
               {rapport.nuls === rapport.nb_clotures
-                ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
-                : <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />}
+                ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-green-700" aria-hidden="true" />
+                : <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-orange-700" aria-hidden="true" />}
               <p>{rapport.diagnostic}</p>
             </div>
 
@@ -187,11 +188,11 @@ export function OngletHistoriqueCaisse() {
               <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs
                               text-muted-foreground">
                 <span>Cumul sur la période : <strong className={
-                  rapport.cumul < 0 ? "text-red-600" : "text-orange-500"
+                  rapport.cumul < 0 ? "text-red-700" : "text-orange-800"
                 }>{fmt(rapport.cumul)}</strong></span>
                 <span>Moyenne par clôture : <strong>{fmt(rapport.moyenne)}</strong></span>
                 {rapport.pire_manque < 0 && (
-                  <span>Pire manque : <strong className="text-red-600">
+                  <span>Pire manque : <strong className="text-red-700">
                     {fmt(rapport.pire_manque)}</strong></span>
                 )}
               </div>
@@ -206,7 +207,7 @@ export function OngletHistoriqueCaisse() {
           Aucune session enregistrée.
         </p>
       ) : (
-        <div className="border border-border rounded-lg divide-y divide-border">
+        <div className="border border-border rounded-lg divide-y divide-border bg-card">
           {sessions.map(s => {
             const est = ouverte === s.id;
             const ec = s.ecart;
@@ -252,7 +253,7 @@ export function OngletHistoriqueCaisse() {
                     <p className={`text-sm font-semibold ${
                       ec === null ? "text-muted-foreground"
                       : ec === 0 ? "text-green-700"
-                      : ec < 0 ? "text-red-600" : "text-orange-500"
+                      : ec < 0 ? "text-red-700" : "text-orange-800"
                     }`}>
                       {ec === null ? "—" : ec === 0 ? "0 F" : fmt(ec)}
                     </p>
@@ -290,7 +291,7 @@ export function OngletHistoriqueCaisse() {
                                 {fmtMoyen(m.moyen)}
                               </td>
                               <td className={`py-1.5 w-28 text-right font-medium ${
-                                m.sens === "entree" ? "text-green-700" : "text-red-600"
+                                m.sens === "entree" ? "text-green-700" : "text-red-700"
                               }`}>
                                 {m.sens === "entree" ? "+" : "−"} {fmt(m.montant)}
                               </td>
