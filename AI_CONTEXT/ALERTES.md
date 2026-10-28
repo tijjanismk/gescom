@@ -107,13 +107,12 @@ la plage 40000–40100).
   prix d'achat).
 - Le reçu d'une vente **sans** pièce lit la fiche cliente d'aujourd'hui
   (pas de nom figé).
-- **Paie, questions ouvertes (D41)** — des décisions, pas des défauts :
-  l'avance et le salaire « hors caisse » (D31/D32 révisés) quand l'argent
-  sort pourtant du tiroir (manquant à la clôture, sortie comptée deux
-  fois en comptabilité) ; aucun maximum de retenue d'avance par mois (le
-  net peut tomber à 0) ; l'avance datée du jour de la saisie ; la
-  commission sur des ventes à crédit jamais payées ; le barème progressif
-  (ITS) promis par D33 et absent du code. Le banc `f2-personnel` a changé
+- ~~**Paie, questions de D41**~~ **tranchées et codées le 28/10 (D42)** :
+  case « pris dans le tiroir », l'avance étalée et datée, la commission
+  sur l'encaissé, l'ITS à la main. **Restent** : l'étalement compte par
+  paie (un journalier à la quinzaine rembourse deux fois par mois) ; une
+  vente annulée après une commission déjà versée ne se reprend pas (comme
+  avant) ; les écrans d'Équipe jamais vus dans la vraie fenêtre. Le banc `f2-personnel` a changé
   (« Confirmer le retour ») ; les écrans d'Équipe n'ont pas été vus.
 - **D40, limites assumées** : un service relancé trop souvent dans la
   journée attend 30 puis 60 s (la règle de relance de D12) ; le raccourci

@@ -107,6 +107,34 @@ fn vendre_id(base: &mut Base, quantite: f64) -> (i64, String) {
     ((sucre.3 as f64 * quantite).round() as i64, v["vente_id"].as_str().unwrap().to_string())
 }
 
+/// Une vente comptant, payee en especes (caisse ouverte), datee avec son
+/// paiement du `jour` : la commission se calcule sur l'encaisse (D42).
+fn vendre_paye_le(base: &mut Base, quantite: f64, jour: &str) -> i64 {
+    let depot = depot_defaut(base);
+    let sucre = article_unite(base, "Sucre");
+    let client = client_reel(base);
+    let montant = (sucre.3 as f64 * quantite).round() as i64;
+    let v = argent::creer_vente_sur_base(
+        base, client, depot.clone(), "comptant".into(),
+        vec![ParamsLigneInput {
+            article_id: sucre.0.clone(), unite_vente_id: sucre.1.clone(), depot_source_id: depot,
+            source_approvisionnement: "stock".into(), quantite, facteur: sucre.2,
+            prix_reference: sucre.3, prix_pratique: sucre.3, taux_tva: None, a_decouvert: None,
+        }],
+        None, Some(montant), Some("especes".into()), None,
+    )
+    .expect("vente comptant");
+    let vente = v["vente_id"].as_str().unwrap().to_string();
+    dater(base, "vente", "date_vente", &vente, jour);
+    let dossier = base.dossier().to_string();
+    base.executer(
+        "UPDATE paiement SET date_paiement = ?1 WHERE vente_id = ?2 AND dossier_id = ?3",
+        &parametres![format!("{jour}T10:00:00"), vente, dossier],
+    )
+    .unwrap();
+    montant
+}
+
 fn marquer(base: &mut Base, employe: &str, du: i64, n: i64, etat: &str) {
     for d in du..du + n {
         presences::marquer_sur(base, employe.into(), jour(d), Some(etat.into())).unwrap();
@@ -134,22 +162,22 @@ fn les_trois_personnes_de_f2() {
     for j in 1..=22 {
         presences::marquer_sur(&mut base, e.moussa.clone(), le(j), Some("present".into())).unwrap();
     }
-    // Fanta signe deux ventes ; l'admin une, qui ne compte pas pour elle.
+    ouvrir_caisse(&mut base);
+    // Fanta signe deux ventes payees, et une a credit jamais payee (D42 :
+    // elle ne commissionne pas) ; l'admin une, qui ne compte pas pour elle.
     let ventes_fanta = {
         let _g = auteur::poser(&e.compte_fanta);
-        let (a, va) = vendre_id(&mut base, 10.0);
-        let (b, vb) = vendre_id(&mut base, 5.0);
-        dater(&mut base, "vente", "date_vente", &va, &le(5));
-        dater(&mut base, "vente", "date_vente", &vb, &le(12));
+        let a = vendre_paye_le(&mut base, 10.0, &le(5));
+        let b = vendre_paye_le(&mut base, 5.0, &le(12));
+        let (_, credit) = vendre_id(&mut base, 4.0);
+        dater(&mut base, "vente", "date_vente", &credit, &le(14));
         a + b
     };
     {
         let admin = admin(&mut base);
         let _g = auteur::poser(&admin);
-        let (_, v) = vendre_id(&mut base, 7.0);
-        dater(&mut base, "vente", "date_vente", &v, &le(6));
+        vendre_paye_le(&mut base, 7.0, &le(6));
     }
-    ouvrir_caisse(&mut base);
     let avance = avances::donner_sur(&mut base, e.awa.clone(), 10_000, None, None).unwrap()["id"].as_str().unwrap().to_string();
     dater(&mut base, "avance", "date_avance", &avance, &le(15));
 
@@ -165,10 +193,10 @@ fn les_trois_personnes_de_f2() {
     assert_eq!(moussa["net"], 55_000);
     assert_eq!(ligne(&moussa, "jours")[0]["libelle"], "22 jours × 2 500 F");
 
-    // Fanta : le fixe + 3 % de SES ventes signées.
+    // Fanta : le fixe + 3 % de l'argent reçu sur SES ventes (D42).
     let fanta = paie::preparer_sur(&mut base, e.fanta.clone(), du.clone(), au.clone(), false).unwrap();
     let commission = ligne(&fanta, "commission")[0];
-    assert_eq!(commission["prix"], ventes_fanta, "la commission se mesure sur les ventes signées par son compte");
+    assert_eq!(commission["prix"], ventes_fanta, "la commission se mesure sur l'encaissé de son compte, pas le crédit impayé");
     assert_eq!(commission["montant"], ((ventes_fanta as f64) * 0.03).round() as i64);
     assert_eq!(fanta["brut"], 25_000 + ((ventes_fanta as f64) * 0.03).round() as i64);
 

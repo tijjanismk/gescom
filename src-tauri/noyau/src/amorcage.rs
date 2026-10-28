@@ -268,6 +268,8 @@ fn colonnes_roles(base: &mut Base) {
         // (point 4) et l'avance nee d'un trop-verse (point 6).
         "ALTER TABLE fiche_paie ADD COLUMN conditions TEXT",
         "ALTER TABLE avance ADD COLUMN trop_verse_fiche_id TEXT",
+        // D42 : l'avance etalee (vide = tout sur la prochaine paie).
+        "ALTER TABLE avance ADD COLUMN mensualite INTEGER",
         "CREATE TABLE IF NOT EXISTS utilisateur_permission (
             utilisateur_id TEXT NOT NULL REFERENCES utilisateur(id),
             permission     TEXT NOT NULL,

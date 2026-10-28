@@ -242,12 +242,13 @@ fn avances_a_retenir(base: &mut impl Acces, employe_id: &str, au: &str, remplace
         "SELECT a.id, a.date_avance,
                 CAST(a.montant - a.retenu + COALESCE((SELECT SUM(-lp.montant) FROM ligne_paie lp
                      WHERE lp.dossier_id = a.dossier_id AND lp.fiche_id = ?4
-                       AND lp.genre = 'avance' AND lp.source = a.id), 0) AS BIGINT)
+                       AND lp.genre = 'avance' AND lp.source = a.id), 0) AS BIGINT),
+                a.mensualite
          FROM avance a
          WHERE a.dossier_id = ?1 AND a.employe_id = ?2 AND a.statut = 'ouverte'
            AND SUBSTR(a.date_avance, 1, 10) <= ?3",
         &parametres![dossier, employe_id, au, remplace],
-        |r| Ok(AvanceARetenir { id: r.get(0)?, date: r.get(1)?, reste: r.get(2)? }),
+        |r| Ok(AvanceARetenir { id: r.get(0)?, date: r.get(1)?, reste: r.get(2)?, mensualite: r.get(3)? }),
     )
     .map_err(|e| e.0)
 }
@@ -261,6 +262,8 @@ fn conditions_actuelles(base: &mut impl Acces, p: &Personne) -> Result<Condition
         utilisateur_id: p.utilisateur_id.clone(),
         // D33 : les cotisations ne touchent que les personnes declarees.
         cotisations: if p.declare { cotisations_sur(base)? } else { Vec::new() },
+        // D42 : une fiche nouvelle commissionne l'argent recu.
+        commission_sur_encaisse: true,
     })
 }
 
@@ -300,6 +303,26 @@ fn periode(base: &mut impl Acces, e: &Entete, p: &Personne, c: &Conditions) -> R
     }
     let (presents, demis, absents) = marques(base, &e.employe_id, &debut, &fin)?;
     let (ventes, retours) = match (&c.remuneration.commission_pct, &c.utilisateur_id) {
+        (Some(_), Some(u)) if c.commission_sur_encaisse => {
+            // D42 : l'argent recu dans la periode sur ses ventes, moins ce
+            // qui a ete rendu. Les ventes deja commissionnees sur le vendu
+            // (fiches d'avant D42) ne comptent pas a leur reglement ; leurs
+            // retours se deduisent comme avant, pour leur valeur entiere.
+            let autres = departs_des_autres(base, u, &e.employe_id)?;
+            let debut_compte = regles::debut_du_compte(p.entree.as_deref(), p.depart.as_deref(), &autres);
+            let deja = vendu_jusqu_au(base, &e.employe_id)?;
+            let nouvelles_du = match (&debut_compte, deja.as_deref().map(lendemain).transpose()?) {
+                (Some(a), Some(b)) => Some(if *a > b { a.clone() } else { b }),
+                (a, b) => a.clone().or(b),
+            };
+            let (recu, eteint) = encaisse(base, u, &debut, &fin, nouvelles_du.as_deref(), p.depart.as_deref())?;
+            let rendus = retours_signes(base, u, &debut, &fin, nouvelles_du.as_deref(), p.depart.as_deref())?;
+            let anciens = match &deja {
+                Some(d) => retours_signes(base, u, &debut, &fin, debut_compte.as_deref(), Some(d.as_str()))?,
+                None => 0,
+            };
+            (Some(recu), rendus.saturating_sub(eteint).max(0).saturating_add(anciens))
+        }
         (Some(_), Some(u)) => {
             // Le compte ne compte pour elle que depuis son entree, ou
             // depuis le depart de qui l'avait avant elle (point 1).
@@ -323,7 +346,68 @@ fn periode(base: &mut impl Acces, e: &Entete, p: &Personne, c: &Conditions) -> R
         absents,
         ventes,
         retours,
+        sur_encaisse: c.commission_sur_encaisse,
     })
+}
+
+/// Le lendemain d'un jour `AAAA-MM-JJ…`.
+fn lendemain(jour: &str) -> Result<String, String> {
+    let d = crate::coeur::dates::jour(jour).ok_or_else(|| format!("Date illisible : « {jour} »."))?;
+    Ok((d + chrono::Duration::days(1)).format("%Y-%m-%d").to_string())
+}
+
+/// Le dernier jour deja commissionne sur le vendu pour cette personne :
+/// la fin de sa derniere fiche validee (ou remplacee) qui portait une
+/// commission calculee avant D42. `None` : aucune.
+fn vendu_jusqu_au(base: &mut impl Acces, employe_id: &str) -> Result<Option<String>, String> {
+    let dossier = base.dossier().to_string();
+    let fiches = base
+        .lire_plusieurs(
+            "SELECT f.au, f.conditions,
+                    (SELECT CAST(COUNT(*) AS BIGINT) FROM ligne_paie lp
+                      WHERE lp.fiche_id = f.id AND lp.dossier_id = f.dossier_id AND lp.genre = ?3)
+             FROM fiche_paie f
+             WHERE f.dossier_id = ?1 AND f.employe_id = ?2 AND f.statut IN ('validee', 'remplacee')",
+            &parametres![dossier, employe_id, regles::COMMISSION],
+            |r| Ok((r.get::<String>(0)?, r.get::<Option<String>>(1)?, r.get::<i64>(2)?)),
+        )
+        .map_err(|e| e.0)?;
+    Ok(fiches
+        .into_iter()
+        .filter(|(_, conditions, lignes)| match conditions.as_deref().and_then(|c| serde_json::from_str::<Conditions>(c).ok()) {
+            Some(c) => c.remuneration.commission_pct.is_some() && !c.commission_sur_encaisse,
+            None => *lignes > 0,
+        })
+        .map(|(au, ..)| au)
+        .max())
+}
+
+/// L'argent recu entre deux jours sur les ventes de ce compte faites
+/// pendant l'emploi (`vendu_du..vendu_au`), et la dette eteinte par un
+/// retour (mode `retour` : rien n'a ete encaisse). Un cheque rejete ou un
+/// reglement annule s'ecrit en negatif : il se deduit de lui-meme.
+fn encaisse(
+    base: &mut impl Acces,
+    utilisateur_id: &str,
+    du: &str,
+    au: &str,
+    vendu_du: Option<&str>,
+    vendu_au: Option<&str>,
+) -> Result<(i64, i64), String> {
+    let dossier = base.dossier().to_string();
+    base.lire_une(
+        "SELECT CAST(COALESCE(SUM(CASE WHEN pa.mode <> 'retour' THEN pa.montant ELSE 0 END), 0) AS BIGINT),
+                CAST(COALESCE(SUM(CASE WHEN pa.mode = 'retour' THEN pa.montant ELSE 0 END), 0) AS BIGINT)
+         FROM paiement pa JOIN vente v ON v.id = pa.vente_id AND v.dossier_id = pa.dossier_id
+         WHERE pa.dossier_id = ?1 AND v.auteur_id = ?2 AND v.statut != 'annulee'
+           AND SUBSTR(pa.date_paiement, 1, 10) >= ?3 AND SUBSTR(pa.date_paiement, 1, 10) <= ?4
+           AND (CAST(?5 AS TEXT) IS NULL OR SUBSTR(v.date_vente, 1, 10) >= ?5)
+           AND (CAST(?6 AS TEXT) IS NULL OR SUBSTR(v.date_vente, 1, 10) <= ?6)",
+        &parametres![dossier, utilisateur_id, du, au, vendu_du.map(str::to_string), vendu_au.map(str::to_string)],
+        |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?)),
+    )
+    .map_err(|e| e.0)
+    .map(|v| v.unwrap_or((0, 0)))
 }
 
 /// Calcule une fiche depuis la base : ce que la personne gagne sur ses
@@ -987,11 +1071,27 @@ pub fn lister_sur(base: &mut Base, du: String, au: String) -> Result<serde_json:
 //  G-3 : payer (D31) — des versements, hors caisse (24/09)
 // =====================================================================
 
-/// Verse tout ou partie de ce qui reste du sur une fiche validee.
-/// Plusieurs versements possibles ; pas plus que ce qui reste du.
+/// Le motif du mouvement de caisse d'un salaire pris dans le tiroir.
+pub const MOTIF_CAISSE: &str = "salaire";
+
+/// Verse tout ou partie de ce qui reste du sur une fiche validee, hors
+/// caisse. Plusieurs versements possibles ; pas plus que ce qui reste du.
 /// **Hors caisse** (decision du proprietaire, 24/09) : la paie ne passe
 /// pas par le tiroir du jour, le moyen dit d'ou vient l'argent.
 pub fn verser_sur(base: &mut Base, fiche_id: String, montant: i64, moyen: Option<String>) -> Result<serde_json::Value, String> {
+    verser_avec_sur(base, fiche_id, montant, moyen, false)
+}
+
+/// Verse sur une fiche validee. `du_tiroir` (D42) : l'argent sort de la
+/// caisse ouverte du dossier, en especes — la sortie s'ecrit dans la
+/// meme transaction, fermee rien n'est ecrit (`CAISSE_FERMEE`).
+pub fn verser_avec_sur(
+    base: &mut Base,
+    fiche_id: String,
+    montant: i64,
+    moyen: Option<String>,
+    du_tiroir: bool,
+) -> Result<serde_json::Value, String> {
     let f = lire_sur(base, &fiche_id)?;
     match f["statut"].as_str() {
         Some("validee") => {}
@@ -1009,15 +1109,31 @@ pub fn verser_sur(base: &mut Base, fiche_id: String, montant: i64, moyen: Option
     regles::verifier_versement(montant, f["reste"].as_i64().unwrap_or(0), &nom)?;
     let moyen = moyen.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).unwrap_or_else(|| "especes".into());
     crate::coeur::saisie::verifier_mode_encaissement(&moyen)?;
+    crate::coeur::avances::verifier_tiroir(&moyen, du_tiroir)?;
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
     let dossier = base.dossier().to_string();
     let now = crate::utils::maintenant_iso();
     let id = uuid::Uuid::new_v4().to_string();
     let mut tx = base.transaction().map_err(|e| e.0)?;
+    // La caisse d'abord : fermee, rien ne s'ecrit (regle 4).
+    let mouvement = if du_tiroir {
+        Some(crate::caisses::mouvement_especes_sur(
+            &mut tx,
+            "sortie",
+            montant,
+            MOTIF_CAISSE,
+            &format!("Salaire {numero} — {nom}"),
+            &id,
+            &auteur,
+            &now,
+        )?)
+    } else {
+        None
+    };
     tx.executer(
         "INSERT INTO versement_paie (id, dossier_id, fiche_id, montant, moyen, date_versement, mouvement_caisse_id, cree_par, cree_le)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?6)",
-        &parametres![id.clone(), dossier, fiche_id.clone(), montant, moyen.clone(), now, auteur.clone()],
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?6)",
+        &parametres![id.clone(), dossier, fiche_id.clone(), montant, moyen.clone(), now, mouvement, auteur.clone()],
     )
     .map_err(|e| e.0)?;
     // Deux versements en meme temps ne paient pas plus que ce qui reste.
@@ -1026,7 +1142,14 @@ pub fn verser_sur(base: &mut Base, fiche_id: String, montant: i64, moyen: Option
     if regles::reste_a_verser(net, verse, repris) < 0 {
         return Err("Un autre versement vient d'être fait sur cette fiche : relire avant de verser.".to_string());
     }
-    noter(&mut tx, "paie_versee", "fiche_paie", &fiche_id, &auteur, serde_json::json!({ "nom": nom, "numero": numero, "montant": montant, "moyen": moyen }))?;
+    noter(
+        &mut tx,
+        "paie_versee",
+        "fiche_paie",
+        &fiche_id,
+        &auteur,
+        serde_json::json!({ "nom": nom, "numero": numero, "montant": montant, "moyen": moyen, "du_tiroir": du_tiroir }),
+    )?;
     tx.valider().map_err(|e| e.0)?;
     lire_sur(base, &fiche_id)
 }
@@ -1035,7 +1158,7 @@ pub fn verser_sur(base: &mut Base, fiche_id: String, montant: i64, moyen: Option
 fn versements(base: &mut Base, fiche_id: &str) -> Result<Vec<serde_json::Value>, String> {
     let dossier = base.dossier().to_string();
     base.lire_plusieurs(
-        "SELECT v.id, v.montant, v.moyen, v.date_versement, u.nom
+        "SELECT v.id, v.montant, v.moyen, v.date_versement, u.nom, v.mouvement_caisse_id
          FROM versement_paie v LEFT JOIN utilisateur u ON u.id = v.cree_par
          WHERE v.fiche_id = ?1 AND v.dossier_id = ?2 ORDER BY v.date_versement",
         &parametres![fiche_id, dossier],
@@ -1046,6 +1169,7 @@ fn versements(base: &mut Base, fiche_id: &str) -> Result<Vec<serde_json::Value>,
                 "moyen": r.get::<String>(2)?,
                 "date": r.get::<String>(3)?,
                 "par": r.get::<Option<String>>(4)?,
+                "du_tiroir": r.get::<Option<String>>(5)?.is_some(),
             }))
         },
     )

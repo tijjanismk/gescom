@@ -17,7 +17,7 @@ use gescom_noyau::base::Base;
 use gescom_noyau::coeur::lecture;
 use gescom_noyau::historique::{self, Filtre};
 use gescom_noyau::personnel::{self, Fiche};
-use gescom_noyau::{auteur, auth, avances, paie, parametres, presences, retours};
+use gescom_noyau::{auteur, auth, avances, creances, paie, parametres, presences, retours};
 use serde_json::{json, Value};
 
 const SEPT: (&str, &str) = ("2026-09-01", "2026-09-30");
@@ -102,6 +102,18 @@ fn vendre_le(base: &mut Base, compte: &str, quantite: f64, jour: &str) -> (i64, 
         .unwrap()
         .unwrap();
     ((sucre.3 as f64 * quantite).round() as i64, vente, ligne)
+}
+
+/// Le client paie la vente en especes, le `jour` (caisse ouverte) : la
+/// commission suit l'encaisse (D42).
+fn payer_le(base: &mut Base, vente: &str, montant: i64, jour: &str) {
+    creances::regler_creance_sur_base(base, vente.into(), montant, "especes".into(), None).expect("reglement");
+    let dossier = base.dossier().to_string();
+    base.executer(
+        "UPDATE paiement SET date_paiement = ?1 WHERE vente_id = ?2 AND dossier_id = ?3 AND mode = 'especes'",
+        &parametres![format!("{jour}T10:00:00"), vente, dossier],
+    )
+    .unwrap();
 }
 
 /// Un retour de `quantite` kg, date du `jour` ; rend son id.
@@ -206,13 +218,16 @@ fn point_1_moussa_marque_jusqu_au_20_ne_part_pas_le_15_sans_qu_on_efface_et_touc
 #[test]
 fn point_1_un_compte_repris_ne_commissionne_pas_deux_fois() {
     let mut base = base_avec_demo();
+    ouvrir_caisse(&mut base);
     let u = compte(&mut base, "Vendeuse");
     let fanta = creer(&mut base, json!({ "nom": "Fanta", "fonction": "vendeuse", "commission_pct": 3.0, "utilisateur_id": u }));
-    let (m1, ..) = vendre_le(&mut base, &u, 10.0, &sept(10));
+    let (m1, v1, _) = vendre_le(&mut base, &u, 10.0, &sept(10));
+    payer_le(&mut base, &v1, m1, &sept(10));
     personnel::faire_partir_sur(&mut base, fanta.clone(), Some(sept(15)), None).unwrap();
     // Kadia reprend le compte, sans date d'entrée (facultative, D30).
     let kadia = creer(&mut base, json!({ "nom": "Kadia", "fonction": "vendeuse", "commission_pct": 3.0, "utilisateur_id": u }));
-    let (m2, ..) = vendre_le(&mut base, &u, 5.0, &sept(20));
+    let (m2, v2, _) = vendre_le(&mut base, &u, 5.0, &sept(20));
+    payer_le(&mut base, &v2, m2, &sept(20));
 
     let f = preparer(&mut base, &fanta, SEPT, false);
     let k = preparer(&mut base, &kadia, SEPT, false);
@@ -487,6 +502,7 @@ fn point_7_la_commission_deduit_les_retours_a_leur_date_sauf_l_echange() {
     let aminata = creer(&mut base, json!({ "nom": "Aminata", "fonction": "vendeuse", "commission_pct": 3.0, "utilisateur_id": u }));
     let prix = article_unite(&mut base, "Sucre").3;
     let (m, vente, ligne) = vendre_le(&mut base, &u, 10.0, &sept(10));
+    payer_le(&mut base, &vente, m, &sept(10));
     rendre_le(&mut base, &vente, &ligne, 2.0, &sept(20));
     // Un échange ne rend pas la vente (RETOUR_HORS_CA) : il ne se déduit pas.
     let echange = rendre_le(&mut base, &vente, &ligne, 1.0, &sept(25));

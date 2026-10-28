@@ -177,12 +177,20 @@ pub fn registre() -> Registre {
     r.sur_base("donner_avance", Some("personnel:avancer"), true, |c, p| {
         // Le refus ne chiffre le plafond qu'a qui le voit (point 3).
         let voit = voit_la_paie(c);
-        gescom_noyau::avances::donner_selon_droits_sur(
+        // D42 : la date, l'etalement, l'argent pris dans le tiroir.
+        let du_tiroir: Option<bool> = arg(&p, "duTiroir", "du_tiroir")?;
+        let saisie = gescom_noyau::avances::Saisie {
+            moyen: arg(&p, "moyen", "moyen")?,
+            motif: arg(&p, "motif", "motif")?,
+            date: arg(&p, "date", "date")?,
+            mensualite: arg(&p, "mensualite", "mensualite")?,
+            du_tiroir: du_tiroir.unwrap_or(false),
+        };
+        gescom_noyau::avances::donner_avance_sur(
             c.base,
             arg(&p, "employeId", "employe_id")?,
             arg(&p, "montant", "montant")?,
-            arg(&p, "moyen", "moyen")?,
-            arg(&p, "motif", "motif")?,
+            saisie,
             voit,
         )
     });
@@ -234,9 +242,16 @@ pub fn registre() -> Registre {
     r.sur_base("rectifier_fiche_paie", Some("paie:valider"), true, |c, p| {
         gescom_noyau::paie::rectifier_sur(c.base, arg(&p, "ficheId", "fiche_id")?)
     });
-    // G-3 : payer (une sortie de caisse par versement) et le bulletin.
+    // G-3 : payer, hors caisse (24/09) ou pris dans le tiroir (D42).
     r.sur_base("verser_paie", Some("paie:valider"), true, |c, p| {
-        gescom_noyau::paie::verser_sur(c.base, arg(&p, "ficheId", "fiche_id")?, arg(&p, "montant", "montant")?, arg(&p, "moyen", "moyen")?)
+        let du_tiroir: Option<bool> = arg(&p, "duTiroir", "du_tiroir")?;
+        gescom_noyau::paie::verser_avec_sur(
+            c.base,
+            arg(&p, "ficheId", "fiche_id")?,
+            arg(&p, "montant", "montant")?,
+            arg(&p, "moyen", "moyen")?,
+            du_tiroir.unwrap_or(false),
+        )
     });
     // G-4 (D33) : les cotisations du dossier, vides par defaut.
     r.sur_base("lire_cotisations", None, false, |c, _| {

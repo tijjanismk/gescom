@@ -70,12 +70,14 @@ pub struct Ligne {
 }
 
 /// Une avance a retenir : son identifiant, sa date, ce qui peut encore
-/// en etre retenu.
+/// en etre retenu, et ce qu'une paie en retient au plus (D42 : l'accord
+/// passe avec l'employe ; vide = tout).
 #[derive(Debug, Clone)]
 pub struct AvanceARetenir {
     pub id: String,
     pub date: String,
     pub reste: i64,
+    pub mensualite: Option<i64>,
 }
 
 /// Ce que la base sait de la periode, deja borne aux jours d'emploi.
@@ -91,12 +93,17 @@ pub struct Periode {
     pub presents: i64,
     pub demis: i64,
     pub absents: i64,
-    /// Les ventes signees par son compte pendant son emploi ; `None` :
-    /// pas de compte lie.
+    /// Les ventes signees par son compte pendant son emploi — ou, sur
+    /// l'encaisse (D42), l'argent recu sur elles dans la periode ;
+    /// `None` : pas de compte lie.
     pub ventes: Option<i64>,
     /// Les retours de la periode sur ces ventes, a la date du retour,
-    /// l'echange mis a part (comme le chiffre d'affaires, lot B).
+    /// l'echange mis a part (comme le chiffre d'affaires, lot B) — sur
+    /// l'encaisse, ce qui a ete rendu (argent ou avoir), pas la dette
+    /// eteinte.
     pub retours: i64,
+    /// D42 : la commission se calcule sur l'argent recu, pas sur le vendu.
+    pub sur_encaisse: bool,
 }
 
 /// Ce qui a servi au calcul d'une fiche, fige sur elle (revue du 28/10,
@@ -115,6 +122,11 @@ pub struct Conditions {
     /// Les cotisations appliquees (vide si non declaree).
     #[serde(default)]
     pub cotisations: Vec<Cotisation>,
+    /// D42 : la commission sur l'encaisse. Absent d'une fiche figee
+    /// avant D42 : elle a ete calculee sur le vendu, et sa rectificative
+    /// aussi — une vente ne se commissionne pas deux fois.
+    #[serde(default)]
+    pub commission_sur_encaisse: bool,
 }
 
 /// `num / den` au franc le plus proche, la moitie s'eloignant de zero
@@ -321,6 +333,30 @@ pub fn gains_calcules(r: &Remuneration, p: &Periode, prorata: bool) -> Vec<Ligne
     }
     if let Some(c) = r.commission_pct {
         match p.ventes {
+            Some(v) if p.sur_encaisse => {
+                let net = v.saturating_sub(p.retours);
+                let assiette = net.max(0);
+                let montant = arrondi(assiette as i128 * millioniemes(c) as i128, 1_000_000);
+                let libelle = if p.retours == 0 {
+                    format!("{} % de {} encaissés sur ses ventes", pct_dit(c), francs(v))
+                } else if net >= 0 {
+                    format!(
+                        "{} % de {} encaissés sur ses ventes ({} reçus moins {} rendus)",
+                        pct_dit(c),
+                        francs(net),
+                        francs(v),
+                        francs(p.retours)
+                    )
+                } else {
+                    format!(
+                        "{} % de l'encaissé : {} rendus pour {} reçus, pas de commission",
+                        pct_dit(c),
+                        francs(p.retours),
+                        francs(v)
+                    )
+                };
+                l.push(calculee(COMMISSION, libelle, None, Some(assiette), montant));
+            }
             Some(v) => {
                 let net = v - p.retours;
                 let assiette = net.max(0);
@@ -397,8 +433,9 @@ pub fn ligne_saisie(genre: &str, libelle: &str, quantite: Option<f64>, prix: Opt
     }
 }
 
-/// Retient les avances sur ce qui reste, les plus anciennes d'abord.
-/// Rend les lignes et ce qui se reporte.
+/// Retient les avances sur ce qui reste, les plus anciennes d'abord,
+/// chacune au plus de sa mensualite (D42). Rend les lignes et ce qui se
+/// reporte.
 pub fn retenir_avances(disponible: i64, avances: &[AvanceARetenir]) -> (Vec<Ligne>, i64) {
     let mut avances: Vec<&AvanceARetenir> = avances.iter().filter(|a| a.reste > 0).collect();
     avances.sort_by(|a, b| a.date.cmp(&b.date).then(a.id.cmp(&b.id)));
@@ -406,13 +443,22 @@ pub fn retenir_avances(disponible: i64, avances: &[AvanceARetenir]) -> (Vec<Lign
     let mut lignes = Vec::new();
     let mut reporte: i64 = 0;
     for a in avances {
-        let pris = a.reste.min(reste_dispo);
+        let accord = a.mensualite.filter(|m| *m > 0).unwrap_or(a.reste);
+        let pris = a.reste.min(reste_dispo).min(accord);
         reste_dispo -= pris;
         reporte = reporte.saturating_add(a.reste - pris);
         if pris == 0 {
             continue;
         }
-        let libelle = if pris < a.reste {
+        let libelle = if pris < a.reste && accord < a.reste {
+            format!(
+                "Avance du {} ({} ; {} par paie ; {} reportés)",
+                date_dite(&a.date),
+                francs(a.reste),
+                francs(accord),
+                francs(a.reste - pris)
+            )
+        } else if pris < a.reste {
             format!("Avance du {} ({} ; {} reportés)", date_dite(&a.date), francs(a.reste), francs(a.reste - pris))
         } else {
             format!("Avance du {}", date_dite(&a.date))
@@ -674,7 +720,7 @@ mod tests {
 
     /// Un mois de `n` jours, `e` d'emploi, et des marques.
     fn mois(n: i64, e: i64, presents: i64, demis: i64, absents: i64) -> Periode {
-        Periode { jours_du_mois: n, jours_emploi: e, presents, demis, absents, ventes: None, retours: 0 }
+        Periode { jours_du_mois: n, jours_emploi: e, presents, demis, absents, ventes: None, retours: 0, sur_encaisse: false }
     }
 
     #[test]
@@ -741,6 +787,23 @@ mod tests {
         // Jamais plus que le salaire, jamais moins que zéro.
         let l = gains_calcules(&r(Some(60_000), None, None), &mois(30, 30, 0, 0, 30), true);
         assert_eq!(l[0].montant, 0);
+    }
+
+    #[test]
+    fn la_commission_sur_l_encaisse_dit_ce_qui_est_recu_et_rendu() {
+        // D42 : 50 000 F recus, 5 000 F rendus.
+        let p = Periode { ventes: Some(50_000), retours: 5_000, sur_encaisse: true, ..mois(30, 30, 0, 0, 0) };
+        let l = gains_calcules(&r(None, None, Some(3.0)), &p, false);
+        assert_eq!(l[0].montant, 1_350);
+        assert_eq!(l[0].libelle, "3 % de 45 000 F encaissés sur ses ventes (50 000 F reçus moins 5 000 F rendus)");
+        let p = Periode { ventes: Some(0), sur_encaisse: true, ..mois(30, 30, 0, 0, 0) };
+        let l = gains_calcules(&r(None, None, Some(3.0)), &p, false);
+        assert_eq!((l[0].montant, l[0].libelle.as_str()), (0, "3 % de 0 F encaissés sur ses ventes"));
+        let p = Periode { ventes: Some(2_000), retours: 5_000, sur_encaisse: true, ..mois(30, 30, 0, 0, 0) };
+        let l = gains_calcules(&r(None, None, Some(3.0)), &p, false);
+        assert_eq!(l[0].montant, 0, "jamais négative");
+        // Le taux se relit sur la ligne d'une ancienne fiche.
+        assert_eq!(conditions_depuis_lignes(&l, None).unwrap().remuneration.commission_pct, Some(3.0));
     }
 
     #[test]
@@ -823,8 +886,8 @@ mod tests {
     #[test]
     fn les_avances_se_retiennent_les_plus_anciennes_d_abord_et_le_reste_se_reporte() {
         let av = vec![
-            AvanceARetenir { id: "b".into(), date: "2026-09-20".into(), reste: 30_000 },
-            AvanceARetenir { id: "a".into(), date: "2026-09-05".into(), reste: 10_000 },
+            AvanceARetenir { id: "b".into(), date: "2026-09-20".into(), reste: 30_000, mensualite: None },
+            AvanceARetenir { id: "a".into(), date: "2026-09-05".into(), reste: 10_000, mensualite: None },
         ];
         let (l, reporte) = retenir_avances(25_000, &av);
         assert_eq!(l.len(), 2);
@@ -838,13 +901,30 @@ mod tests {
     }
 
     #[test]
+    fn une_avance_etalee_ne_retient_que_sa_mensualite() {
+        // D42 : 30 000 F a rembourser 10 000 F par paie, 60 000 F de net.
+        let av = vec![AvanceARetenir { id: "a".into(), date: "2026-09-05".into(), reste: 30_000, mensualite: Some(10_000) }];
+        let (l, reporte) = retenir_avances(60_000, &av);
+        assert_eq!(l[0].montant, -10_000);
+        assert_eq!(l[0].libelle, "Avance du 05/09/2026 (30 000 F ; 10 000 F par paie ; 20 000 F reportés)");
+        assert_eq!(reporte, 20_000);
+        // Le net plus petit que la mensualite : le net borne toujours.
+        let (l, reporte) = retenir_avances(4_000, &av);
+        assert_eq!((l[0].montant, reporte), (-4_000, 26_000));
+        // La derniere paie : il ne reste que 5 000 F, ils partent tous.
+        let fin = vec![AvanceARetenir { id: "a".into(), date: "2026-09-05".into(), reste: 5_000, mensualite: Some(10_000) }];
+        let (l, reporte) = retenir_avances(60_000, &fin);
+        assert_eq!((l[0].montant, l[0].libelle.as_str(), reporte), (-5_000, "Avance du 05/09/2026", 0));
+    }
+
+    #[test]
     fn la_fiche_entiere() {
         let p = mois(30, 30, 0, 0, 0);
         let saisies = vec![
             ligne_saisie(RETENUE, "Casse", None, None, Some(2_000)).unwrap(),
             ligne_saisie(PRIME, "Fin d'année", None, None, Some(5_000)).unwrap(),
         ];
-        let av = vec![AvanceARetenir { id: "a".into(), date: "2026-09-05".into(), reste: 10_000 }];
+        let av = vec![AvanceARetenir { id: "a".into(), date: "2026-09-05".into(), reste: 10_000, mensualite: None }];
         let (l, reporte) = calculer(&r(Some(60_000), None, None), &p, false, &saisies, &av, &[]).unwrap();
         let genres: Vec<&str> = l.iter().map(|x| x.genre.as_str()).collect();
         assert_eq!(genres, vec![BASE, PRIME, RETENUE, AVANCE], "gains, puis retenues, puis avances");

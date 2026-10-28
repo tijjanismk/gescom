@@ -104,7 +104,8 @@ const AVANCES_LIRE: &[&str] = &["personnel:avancer", "paie:preparer", "paie:vali
 /// Les montants que le journal garde d'un geste de paie (fiche validee,
 /// versement, avance, cotisation) : traçabilite au journal, masques a la
 /// lecture pour qui ne voit pas la paie (revue du 28/10, point 9).
-const MONTANTS_PAIE: &[&str] = &["montant", "brut", "retenues", "net", "taux", "plafond", "reste", "en_cours", "trop_verse"];
+const MONTANTS_PAIE: &[&str] =
+    &["montant", "brut", "retenues", "net", "taux", "plafond", "reste", "en_cours", "trop_verse", "mensualite"];
 
 /// L'appelant voit-il ce que gagne une personne ? `paie:preparer` ou
 /// `paie:valider` — la meme regle que pour lire les montants de la

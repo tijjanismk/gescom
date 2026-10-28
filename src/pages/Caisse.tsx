@@ -242,6 +242,14 @@ function ModalDepense({
                 <option key={c.value} value={c.value}>{c.label}</option>
               ))}
             </select>
+            {/* D42 : le personnel d'Équipe se paie depuis Équipe, case
+                « pris dans le tiroir » — sinon le salaire compte deux fois. */}
+            {categorie === "salaire" && (
+              <p className="mt-1 text-xs text-amber-700" role="note">
+                Pour la main-d'œuvre d'un jour (porteur, déchargeur). Le personnel suivi dans Gescom Équipe se paie
+                depuis Équipe, case « pris dans le tiroir » : saisi ici aussi, son salaire serait compté deux fois.
+              </p>
+            )}
           </div>
           <div>
             <Label>Moyen</Label>

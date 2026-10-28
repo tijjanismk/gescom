@@ -7,23 +7,33 @@
 //! qui n'est pas retenu est « en cours » ; la fiche de paie le retient
 //! (G-2, colonne `retenu`). Annuler une avance (une erreur de saisie) se
 //! fait seulement si rien n'en a ete retenu.
+//!
+//! D42 : quand l'argent est **pris dans le tiroir**, la sortie de caisse
+//! s'ecrit avec l'avance (caisse ouverte exigee) ; l'avance peut etre
+//! datee d'un jour passe et s'etaler (« X F par paie »).
 
 use crate::base::Base;
 use crate::coeur::avances as regles;
 use crate::parametres;
 
+/// Le motif des mouvements de caisse d'une avance prise dans le tiroir.
+pub const MOTIF_CAISSE: &str = "avance_salaire";
+/// Le motif de l'argent qui revient au tiroir quand on l'annule.
+pub const MOTIF_CAISSE_ANNULEE: &str = "avance_salaire_annulee";
+
 struct Personne {
     nom: String,
     statut: String,
     plafond: Option<i64>,
+    entree: Option<String>,
 }
 
 fn personne(base: &mut Base, employe_id: &str) -> Result<Personne, String> {
     let dossier = base.dossier().to_string();
     base.lire_une(
-        "SELECT nom, statut, avance_max FROM employe WHERE id = ?1 AND dossier_id = ?2",
+        "SELECT nom, statut, avance_max, date_entree FROM employe WHERE id = ?1 AND dossier_id = ?2",
         &parametres![employe_id, dossier],
-        |r| Ok(Personne { nom: r.get(0)?, statut: r.get(1)?, plafond: r.get(2)? }),
+        |r| Ok(Personne { nom: r.get(0)?, statut: r.get(1)?, plafond: r.get(2)?, entree: r.get(3)? }),
     )
     .map_err(|e| e.0)?
     .ok_or_else(|| "Fiche introuvable.".to_string())
@@ -69,6 +79,21 @@ fn noter(
         .map_err(|e| e.0)
 }
 
+/// Ce qu'on dit d'une avance en la donnant, outre la personne et le
+/// montant. Vide : especes, aujourd'hui, hors caisse, tout retenu sur la
+/// prochaine paie — la regle d'avant D42.
+#[derive(Debug, Clone, Default)]
+pub struct Saisie {
+    pub moyen: Option<String>,
+    pub motif: Option<String>,
+    /// Le jour ou l'avance a ete donnee (`AAAA-MM-JJ`) ; vide : aujourd'hui.
+    pub date: Option<String>,
+    /// Ce qu'une paie en retient au plus ; vide : tout.
+    pub mensualite: Option<i64>,
+    /// L'argent sort du tiroir : la sortie de caisse s'ecrit avec elle.
+    pub du_tiroir: bool,
+}
+
 /// Donne une avance, rattachee a la personne, hors caisse — comme qui
 /// voit la paie (les tests).
 pub fn donner_sur(
@@ -81,7 +106,8 @@ pub fn donner_sur(
     donner_selon_droits_sur(base, employe_id, montant, moyen, motif, true)
 }
 
-/// Donne une avance. `voit_la_paie` : l'appelant lit-il le plafond
+/// Donne une avance hors caisse, aujourd'hui, retenue en entier.
+/// `voit_la_paie` : l'appelant lit-il le plafond
 /// (`coeur::lecture::voit_la_paie`) ? Sans, le refus ne le chiffre pas
 /// (revue du 28/10, point 3).
 pub fn donner_selon_droits_sur(
@@ -92,45 +118,122 @@ pub fn donner_selon_droits_sur(
     motif: Option<String>,
     voit_la_paie: bool,
 ) -> Result<serde_json::Value, String> {
+    donner_avance_sur(base, employe_id, montant, Saisie { moyen, motif, ..Saisie::default() }, voit_la_paie)
+}
+
+/// Donne une avance (D32, D42). Prise dans le tiroir, la sortie de
+/// caisse s'ecrit dans la meme transaction, sur la caisse ouverte du
+/// dossier — fermee, rien n'est ecrit (`CAISSE_FERMEE`).
+pub fn donner_avance_sur(
+    base: &mut Base,
+    employe_id: String,
+    montant: i64,
+    s: Saisie,
+    voit_la_paie: bool,
+) -> Result<serde_json::Value, String> {
     let p = personne(base, &employe_id)?;
     if p.statut != "actif" {
         return Err(format!("{} est partie : pas d'avance.", p.nom));
     }
-    let moyen = moyen.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).unwrap_or_else(|| "especes".into());
+    let moyen = s.moyen.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).unwrap_or_else(|| "especes".into());
     crate::coeur::saisie::verifier_mode_encaissement(&moyen)?;
+    regles::verifier_tiroir(&moyen, s.du_tiroir)?;
     let en_cours = en_cours_sur(base, &employe_id)?;
     regles::verifier(montant, en_cours, p.plafond, &p.nom, voit_la_paie)?;
+    let mensualite = regles::verifier_mensualite(s.mensualite, montant)?;
+    let jour = regles::verifier_date(s.date.as_deref(), chrono::Local::now().date_naive(), p.entree.as_deref(), s.du_tiroir)?;
+    crate::dossiers::verifier_date_sur(base, &jour)?;
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
     let dossier = base.dossier().to_string();
     let now = crate::utils::maintenant_iso();
-    let motif = motif.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
+    // Aujourd'hui : l'instant, comme avant ; un jour passe : ce jour.
+    let date_avance = if now.starts_with(&jour) { now.clone() } else { jour.clone() };
+    let motif = s.motif.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
     let id = uuid::Uuid::new_v4().to_string();
     let mut tx = base.transaction().map_err(|e| e.0)?;
+    // La caisse d'abord : fermee, rien ne s'ecrit (regle 4).
+    let mouvement = if s.du_tiroir {
+        Some(crate::caisses::mouvement_especes_sur(
+            &mut tx,
+            "sortie",
+            montant,
+            MOTIF_CAISSE,
+            &format!("Avance sur salaire — {}", p.nom),
+            &id,
+            &auteur,
+            &now,
+        )?)
+    } else {
+        None
+    };
     tx.executer(
         "INSERT INTO avance
            (id, dossier_id, employe_id, montant, retenu, moyen, motif, date_avance, statut,
-            mouvement_caisse_id, cree_par, cree_le)
-         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, 'ouverte', NULL, ?8, ?7)",
-        &parametres![id.clone(), dossier, employe_id.clone(), montant, moyen.clone(), motif.clone(), now.clone(), auteur.clone()],
+            mouvement_caisse_id, cree_par, cree_le, mensualite)
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, 'ouverte', ?8, ?9, ?10, ?11)",
+        &parametres![
+            id.clone(),
+            dossier,
+            employe_id.clone(),
+            montant,
+            moyen.clone(),
+            motif.clone(),
+            date_avance.clone(),
+            mouvement.clone(),
+            auteur.clone(),
+            now.clone(),
+            mensualite
+        ],
     )
     .map_err(|e| e.0)?;
-    noter(&mut tx, "avance_donnee", &id, &auteur, serde_json::json!({ "nom": p.nom, "montant": montant, "moyen": moyen }))?;
+    noter(
+        &mut tx,
+        "avance_donnee",
+        &id,
+        &auteur,
+        serde_json::json!({
+            "nom": p.nom, "montant": montant, "moyen": moyen, "date_avance": jour,
+            "mensualite": mensualite, "du_tiroir": s.du_tiroir,
+        }),
+    )?;
     tx.valider().map_err(|e| e.0)?;
     Ok(serde_json::json!({
         "id": id, "employe_id": employe_id, "nom": p.nom, "montant": montant,
-        "en_cours": en_cours.saturating_add(montant), "date_avance": now,
+        "en_cours": en_cours.saturating_add(montant), "date_avance": date_avance,
+        "mensualite": mensualite, "du_tiroir": s.du_tiroir,
+        "avertissement": deja_payee(base, &employe_id, &jour)?,
     }))
 }
 
+/// Une avance datee d'une periode dont la paie est deja validee : elle
+/// sera retenue sur la suivante (D42) — l'ecran le dit.
+fn deja_payee(base: &mut Base, employe_id: &str, jour: &str) -> Result<Option<String>, String> {
+    let dossier = base.dossier().to_string();
+    let numero: Option<String> = base
+        .lire_une(
+            "SELECT numero FROM fiche_paie
+             WHERE dossier_id = ?1 AND employe_id = ?2 AND statut = 'validee'
+               AND du <= ?3 AND au >= ?3
+             ORDER BY valide_le DESC",
+            &parametres![dossier, employe_id, jour],
+            |r| r.get::<Option<String>>(0),
+        )
+        .map_err(|e| e.0)?
+        .flatten();
+    Ok(numero.map(|n| format!("La paie de cette période ({n}) est déjà validée : l'avance sera retenue sur la suivante.")))
+}
+
 /// Annule une avance donnee par erreur : elle ne se retiendra pas.
-/// Refuse si une fiche de paie en a deja retenu une partie.
+/// Refuse si une fiche de paie en a deja retenu une partie. Prise dans le
+/// tiroir, l'argent y revient : une entree dans la caisse ouverte
+/// (D42 ; fermee, rien n'est annule).
 pub fn annuler_sur(base: &mut Base, avance_id: String, motif: Option<String>) -> Result<serde_json::Value, String> {
     let dossier = base.dossier().to_string();
-    let (employe_id, montant, retenu, statut): (String, i64, i64, String) = base
+    let (employe_id, montant, retenu, statut, du_tiroir): (String, i64, i64, String, bool) = base
         .lire_une(
-            "SELECT employe_id, montant, retenu, statut FROM avance WHERE id = ?1 AND dossier_id = ?2",
+            "SELECT employe_id, montant, retenu, statut, mouvement_caisse_id FROM avance WHERE id = ?1 AND dossier_id = ?2",
             &parametres![avance_id.clone(), dossier.clone()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get::<Option<String>>(4)?.is_some())),
         )
         .map_err(|e| e.0)?
         .ok_or_else(|| "Avance introuvable.".to_string())?;
@@ -145,14 +248,38 @@ pub fn annuler_sur(base: &mut Base, avance_id: String, motif: Option<String>) ->
     let now = crate::utils::maintenant_iso();
     let motif = motif.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
     let mut tx = base.transaction().map_err(|e| e.0)?;
-    tx.executer(
-        "UPDATE avance SET statut = 'annulee', annule_le = ?1 WHERE id = ?2 AND dossier_id = ?3",
-        &parametres![now, avance_id.clone(), dossier],
-    )
-    .map_err(|e| e.0)?;
-    noter(&mut tx, "avance_annulee", &avance_id, &auteur, serde_json::json!({ "nom": p.nom, "montant": montant, "motif": motif }))?;
+    if du_tiroir {
+        crate::caisses::mouvement_especes_sur(
+            &mut tx,
+            "entree",
+            montant,
+            MOTIF_CAISSE_ANNULEE,
+            &format!("Avance annulée, l'argent revient — {}", p.nom),
+            &avance_id,
+            &auteur,
+            &now,
+        )?;
+    }
+    // `statut = 'ouverte'` : deux annulations en meme temps ne rendent
+    // pas deux fois l'argent au tiroir.
+    let n = tx
+        .executer(
+            "UPDATE avance SET statut = 'annulee', annule_le = ?1 WHERE id = ?2 AND dossier_id = ?3 AND statut = 'ouverte' AND retenu = 0",
+            &parametres![now, avance_id.clone(), dossier],
+        )
+        .map_err(|e| e.0)?;
+    if n == 0 {
+        return Err("Cette avance vient de changer : relire avant d'annuler.".to_string());
+    }
+    noter(
+        &mut tx,
+        "avance_annulee",
+        &avance_id,
+        &auteur,
+        serde_json::json!({ "nom": p.nom, "montant": montant, "motif": motif, "du_tiroir": du_tiroir }),
+    )?;
     tx.valider().map_err(|e| e.0)?;
-    Ok(serde_json::json!({ "id": avance_id, "nom": p.nom, "montant": montant }))
+    Ok(serde_json::json!({ "id": avance_id, "nom": p.nom, "montant": montant, "du_tiroir": du_tiroir }))
 }
 
 /// Les avances du dossier courant (d'une personne, ou de toutes), les
@@ -160,7 +287,8 @@ pub fn annuler_sur(base: &mut Base, avance_id: String, motif: Option<String>) ->
 pub fn lister_sur(base: &mut Base, employe_id: Option<String>, en_cours_seulement: bool) -> Result<Vec<serde_json::Value>, String> {
     let dossier = base.dossier().to_string();
     base.lire_plusieurs(
-        "SELECT a.id, a.employe_id, e.nom, a.montant, a.retenu, a.moyen, a.motif, a.date_avance, a.statut, f.numero
+        "SELECT a.id, a.employe_id, e.nom, a.montant, a.retenu, a.moyen, a.motif, a.date_avance, a.statut, f.numero,
+                a.mensualite, a.mouvement_caisse_id
          FROM avance a JOIN employe e ON e.id = a.employe_id AND e.dossier_id = a.dossier_id
          LEFT JOIN fiche_paie f ON f.id = a.trop_verse_fiche_id AND f.dossier_id = a.dossier_id
          WHERE a.dossier_id = ?1
@@ -185,6 +313,9 @@ pub fn lister_sur(base: &mut Base, employe_id: Option<String>, en_cours_seulemen
                 // Revue du 28/10, point 6 : une avance nee d'un trop-verse
                 // dit sur quelle fiche (la rectificative qui l'a cree).
                 "trop_verse_numero": r.get::<Option<String>>(9)?,
+                // D42 : l'accord de retenue, et l'argent pris au tiroir.
+                "mensualite": r.get::<Option<i64>>(10)?,
+                "du_tiroir": r.get::<Option<String>>(11)?.is_some(),
             }))
         },
     )

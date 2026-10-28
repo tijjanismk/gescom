@@ -2628,3 +2628,60 @@ trop-versé repris → octobre 52 000 F, CA de septembre 60 000 F) — sur
 SQLite, PostgreSQL et compte limité ; les tests de la paie existants
 ajustés aux nouvelles règles ; noyau + serveur SQLite 837/837 ;
 `tsc` propre. **Écrans d'Équipe pas vus.**
+
+## 28/10/2026 (suite) — la paie commitée, les trois installeurs construits
+
+Commit `5fd5c82` sur `rh` (la paie, D41), à la demande du propriétaire ;
+rien de poussé. Puis les trois installeurs, depuis ce commit, sans rien
+installer :
+
+| installeur | où | taille |
+|---|---|---|
+| caisse | `src-tauri\target\release\bundle\nsis\Gescom_1.12.0_x64-setup.exe` | 213,5 Mo (dont WebView2 hors ligne 205 Mo) |
+| Gescom Équipe | `src-tauri\target\release\bundle\nsis\Gescom Equipe_0.1.0_x64-setup.exe` | 2,5 Mo |
+| serveur | `dist\Gescom-Serveur_0.2.0_x64-setup.exe` | 4,2 Mo, signé et horodaté (service + fenêtre signés aussi) |
+
+Ordre suivi : `preparer_serveur.ps1`, `npm run tauri build`,
+`npm run equipe:build`, `construire_installeur_serveur.ps1` (après le
+client : `vite build` vide `dist\`). **Deux ralentissements** : Microsoft
+avait publié un nouveau WebView2, que Tauri retélécharge (la copie du
+23/10 n'est pas reprise) — le téléchargement s'est figé sur une coupure
+d'Internet, et une liaison figée ne repart pas : arrêter `tauri build` et
+relancer ; et 0,3 Go de mémoire libre (Chrome, un Playwright d'un autre
+projet) a fait traîner `vite build`. Disque : 4,2 Go libres après coup ;
+`%LOCALAPPDATA%\tauri\x64` garde sept WebView2 (~1,6 Go), un seul sert.
+**Pas essayé** : aucune installation, la fenêtre Gescom Serveur, l'accord
+administrateur (TESTS-MANUELS, section K), les écrans d'Équipe.
+
+Le propriétaire a ensuite tranché les cinq questions de D41, chacune dans
+le sens proposé — **D42** : case « pris dans le tiroir » ; l'avance
+étalée à la saisie et datée dans le passé (31 jours au plus) ; la
+commission sur l'encaissé ; l'ITS saisi à la main.
+
+## 28/10/2026 (fin) — D42 codée
+
+Plan en cinq lots et huit choix de détail, acceptés tels quels. **Le
+tiroir** : `caisses::mouvement_especes_sur`, appelée dans la transaction
+de l'avance ou du versement avant toute autre écriture — caisse fermée,
+rien ne s'écrit. Une avance du tiroir est d'aujourd'hui ; annulée,
+l'argent revient au tiroir (caisse ouverte exigée). Le journal comptable
+CA ne lit que les dépenses : rien n'est compté deux fois. **L'avance** :
+`Saisie` (date, mensualité, tiroir) ; la date suit la règle des ventes
+(31 jours), jamais avant l'entrée ; la retenue s'arrête à la mensualité,
+par paie. **La commission** : l'argent reçu dans la période sur les
+ventes du compte faites pendant l'emploi, moins les retours non-échange
+diminués de la dette qu'ils éteignent ; la bascule lit la dernière fiche
+« sur le vendu » (`vendu_jusqu_au`). Trois anciens tests commissionnaient
+des ventes à crédit jamais payées : leurs ventes sont maintenant payées,
+ce qu'ils prouvent reste vrai.
+
+**Incident** : la suite complète en debug a rempli le disque (0 octet,
+`LNK1180`, `no space on device`). `target\debug\incremental` supprimé
+(6,7 Go rendus), suite relancée avec `CARGO_INCREMENTAL=0 -j 2` : 2,75 Go
+libres au plus bas. Le serveur de l'essai à la main ne tournait pas.
+
+**Preuves** : workspace SQLite 877/877 ; PostgreSQL `gescom_test` (huit
+séries de la paie, des avances, du personnel, des journaux et de
+l'Historique), compte limité (cinq) ; `tsc` propre. **Pas vu** : les
+écrans d'Équipe et l'avertissement de la caisse dans la vraie fenêtre ;
+les installeurs du jour ne contiennent pas D42.

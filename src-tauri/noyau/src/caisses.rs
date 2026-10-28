@@ -134,6 +134,36 @@ pub fn exiger_dans_tx(
     exiger_sur(tx, utilisateur_id)
 }
 
+/// Ecrit un mouvement d'especes dans la caisse ouverte du dossier, et
+/// rend son identifiant. Refuse `CAISSE_FERMEE` si aucune n'est ouverte
+/// — a appeler DANS la transaction du geste, avant ses autres ecritures
+/// (D42 : l'avance et le salaire pris dans le tiroir).
+#[allow(clippy::too_many_arguments)]
+pub fn mouvement_especes_sur(
+    acces: &mut impl Acces,
+    sens: &str,
+    montant: i64,
+    motif: &str,
+    libelle: &str,
+    operation_id: &str,
+    auteur: &str,
+    maintenant: &str,
+) -> Result<String, String> {
+    let session = exiger_sur(acces, None)?;
+    let dossier = acces.dossier().to_string();
+    let id = uuid::Uuid::new_v4().to_string();
+    acces
+        .executer(
+            "INSERT INTO mouvement_caisse
+             (id, session_id, sens, moyen, montant, motif, libelle,
+              operation_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
+             VALUES (?1, ?2, ?3, 'especes', ?4, ?5, ?6, ?7, ?8, ?8, ?9, 'app', ?10)",
+            &parametres![id.clone(), session, sens, montant, motif, libelle, operation_id, maintenant, auteur, dossier],
+        )
+        .map_err(|e| e.0)?;
+    Ok(id)
+}
+
 /// Choisir le mode de caisse, sur l'un ou l'autre moteur. Meme regle
 /// que `definir_par_utilisateur` : `true` refuse, `false` remet `'0'`.
 pub fn definir_par_utilisateur_sur(base: &mut impl Acces, actif: bool) -> Result<(), String> {

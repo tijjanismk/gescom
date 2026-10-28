@@ -427,6 +427,7 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D42 | **le tiroir, l'avance, la commission** (les questions de D41) : case « pris dans le tiroir » qui écrit la sortie de caisse, sinon hors caisse ; l'avance s'étale à la saisie (tout, ou X F par mois) et se date dans le passé (31 jours au plus) ; la commission sur l'**encaissé**, moins l'argent rendu ; l'ITS saisi à la main, pas de barème — **pas encore codé** |
 | D41 | **la paie suit l'emploi et fige ses conditions** : seulement les jours d'emploi de la période ; prorata en entiers sur les jours du mois, un jour non marqué compte présent ; salaire au mois sur un mois civil ; la rectificative reprend les conditions figées de la fiche ; jours figés après validation ; trop-versé → avance ; commission nette des retours ; montants masqués partout sans droit de paie ; « 15.000 » = 15 000 F |
 | D40 | **la fenêtre « Gescom Serveur »** (la coque de D25) et son panneau **Réseau** — port 40000–40100 et écoute changés par le patron, depuis le poste du serveur seulement, appliqués par le serveur lui-même — et la **recherche automatique** des caisses (UDP 40000, rien de la boutique) |
 | D39 | **le serveur écoute de 40000 à 40100** (40000 par défaut, 7300 abandonné) : la CSP des deux fenêtres énumère ces ports et rien d'autre ; sur le poste qui garde la base, si 40000 est pris, le serveur local prend le suivant libre et `poste.json` le retient ; installeur et pare-feu suivent la plage |
@@ -1159,4 +1160,68 @@ l'Historique ; et « 15.000 » tapé à l'écran faisait 15 F.
 et l'avance hors caisse (D31/D32 révisés) quand l'argent sort du tiroir ;
 un maximum de retenue d'avance par mois ; l'avance datée du jour de la
 saisie ; la commission sur des ventes à crédit jamais payées ; un barème
-progressif (ITS) que D33 promet et que le code n'a pas.
+progressif (ITS) que D33 promet et que le code n'a pas. **Tranchées le
+28/10/2026 : D42.**
+
+## D42 — Le tiroir, l'avance étalée et datée, la commission sur l'encaissé (28/10/2026)
+
+**Le besoin** : les cinq questions que D41 laissait ouvertes. Le
+propriétaire les a tranchées le 28/10/2026, chacune dans le sens proposé.
+
+**Retenu** :
+
+1. **« Pris dans le tiroir »** (précise D31/D32 sans les renverser) : une
+   avance ou un versement de salaire en espèces porte une case « pris dans
+   le tiroir ». Cochée, la sortie de caisse s'écrit dans la même
+   transaction (`mouvement_caisse_id`, colonne qui existait déjà), sur la
+   caisse ouverte du dossier — fermée, refus `CAISSE_FERMEE` avant
+   d'écrire (règle 4). Non cochée, hors caisse comme depuis le 24/09
+   (Orange Money, Moov, virement, espèces du patron). La dépense de caisse
+   « Salaire / main d'œuvre » ne sert plus pour le personnel suivi dans
+   Équipe : le salaire serait compté deux fois (compte 661, paie et
+   dépense).
+2. **L'avance s'étale à la saisie** : « tout sur la prochaine paie » (par
+   défaut, la règle d'avant) ou « X F par mois » — l'accord passé avec
+   l'employé, écrit et imprimé. La fiche retient au plus la mensualité, et
+   jamais plus que le net (le reste se reporte, comme avant). Pas de
+   plafond de dossier.
+3. **L'avance a une date choisie, bornée** : aujourd'hui par défaut ; une
+   date passée est permise, jamais future, jamais avant l'entrée, au plus
+   31 jours en arrière. Si la paie de cette période est déjà validée,
+   l'écran dit qu'elle sera retenue sur la suivante. L'Historique garde le
+   jour de la saisie.
+4. **La commission se calcule sur l'encaissé** (remplace D41 point 7) :
+   elle suit l'argent reçu sur les ventes du vendeur — une vente comptant
+   compte le jour même, une vente à crédit au fil des règlements, dans la
+   période où ils arrivent — moins l'argent rendu sur ses ventes, à la
+   date du retour. Une dette éteinte par un retour ne compte pas : rien
+   n'avait été encaissé.
+5. **L'ITS se saisit à la main** : pas de barème ; le comptable le porte en
+   retenue sur la fiche. D33 est corrigé : une cotisation est un taux,
+   plafonné ou non — « ou un barème » n'existe pas. À revoir quand un
+   comptable le demande, avec une source officielle à jour.
+
+**Les risques nommés** : la commission sur l'encaissé ne paie rien au
+vendeur pour un règlement arrivé après son départ (l'écran le dit) ; à la
+bascule, une vente à crédit déjà commissionnée sur le vendu (fiche validée
+avant D42) ne doit pas l'être une seconde fois à son règlement — la règle
+de la fiche est figée dans ses conditions (D41 point 4).
+
+**Mise en œuvre** (28/10/2026, plan accepté avec ses huit choix de
+détail) : `avances::donner_avance_sur` (`Saisie` : moyen, motif, date,
+mensualité, `du_tiroir`) ; `paie::verser_avec_sur` ;
+`caisses::mouvement_especes_sur` écrit la sortie (motifs
+`avance_salaire`, `salaire`) ou le retour au tiroir à l'annulation
+(`avance_salaire_annulee`, caisse ouverte exigée) ; règles pures
+`coeur::avances::{verifier_tiroir, verifier_mensualite, verifier_date}`
+(31 jours, la règle des ventes ; prise dans le tiroir = aujourd'hui) ;
+colonne `avance.mensualite` ; `retenir_avances` borne chaque avance à sa
+mensualité — **par paie** (un journalier payé à la quinzaine rembourse
+donc deux fois par mois) ; la commission : `Conditions.commission_sur_encaisse`
+(absent = vendu), `paie::encaisse` et `vendu_jusqu_au` (la bascule). Le
+journal comptable CA ne lit que `motif = 'depense'` : l'argent du tiroir
+n'y est pas compté deux fois. Écrans : Avances (date, case, « retenir par
+morceaux »), versement, avertissement sur la dépense « Salaire » de la
+caisse, note au départ d'un vendeur, texte ITS dans Cotisations. Tests :
+`paie_tiroir_base` 8, `commission_encaisse_base` 5 ; `paie_base` et
+`paie_corrections_base` passés sur des ventes payées.

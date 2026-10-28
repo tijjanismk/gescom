@@ -44,7 +44,8 @@ pub fn dire(r: &Remuneration) -> String {
     }
     if let Some(c) = r.commission_pct {
         let c = if c.fract() == 0.0 { format!("{c:.0}") } else { format!("{c}").replace('.', ",") };
-        parts.push(format!("{c} % des ventes"));
+        // D42 : la commission suit l'argent recu.
+        parts.push(format!("{c} % des ventes encaissées"));
     }
     if r.a_la_tache {
         parts.push("à la tâche".to_string());
@@ -119,7 +120,7 @@ mod tests {
     #[test]
     fn les_modes_s_ajoutent_et_se_disent() {
         let r = Remuneration { salaire_mensuel: Some(60_000), commission_pct: Some(2.5), ..Default::default() };
-        assert_eq!(dire(&r), "60 000 F par mois + 2,5 % des ventes");
+        assert_eq!(dire(&r), "60 000 F par mois + 2,5 % des ventes encaissées");
         let j = Remuneration { tarif_journalier: Some(2_500), a_la_tache: true, ..Default::default() };
         assert_eq!(dire(&j), "2 500 F par jour + à la tâche");
     }

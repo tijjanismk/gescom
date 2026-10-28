@@ -24,7 +24,7 @@ interface FichePaie {
   statut: "brouillon" | "validee" | "remplacee"; numero: string | null; brut: number; retenues: number; net: number;
   reporte: number; rectifie_numero: string | null; remplacee_par: string | null; valide_le: string | null;
   valide_par_nom: string | null; lignes?: LignePaie[];
-  verse: number; reste: number; versements?: { id: string; montant: number; moyen: string; date: string; par: string | null }[];
+  verse: number; reste: number; versements?: { id: string; montant: number; moyen: string; date: string; par: string | null; du_tiroir?: boolean }[];
   /** Versé en trop sur la fiche et repris en avance sur la suivante (revue du 28/10). */
   trop_verse: number;
 }
@@ -71,6 +71,9 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
   const [montant, setMontant] = useState("");
   const [aVerser, setAVerser] = useState("");
   const [moyen, setMoyen] = useState("especes");
+  // D42 : le salaire pris dans le tiroir sort de la caisse ouverte.
+  const [tiroir, setTiroir] = useState(false);
+  const duTiroir = tiroir && moyen === "especes";
   const [bulletin, setBulletin] = useState(false);
   const prepare = peut("paie:preparer");
   const valide = peut("paie:valider");
@@ -155,7 +158,8 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
           )}
           {(fiche.versements ?? []).map(v => (
             <p key={v.id} className="text-xs text-muted-foreground" data-testid="versement">
-              {f(v.montant)} le {jj(v.date)} · {MOYENS.find(m => m[0] === v.moyen)?.[1] ?? v.moyen}{v.par ? ` · par ${v.par}` : ""}
+              {f(v.montant)} le {jj(v.date)} · {MOYENS.find(m => m[0] === v.moyen)?.[1] ?? v.moyen}
+              {v.du_tiroir ? " · pris dans le tiroir" : ""}{v.par ? ` · par ${v.par}` : ""}
             </p>
           ))}
           {fiche.statut === "validee" && valide && fiche.reste > 0 && (
@@ -168,16 +172,24 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
                   className="h-9 px-2 text-sm border border-border rounded-md bg-background">
                   {MOYENS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select></label>
+              <label className={`flex items-center gap-2 text-sm h-9 ${moyen === "especes" ? "" : "text-muted-foreground"}`}>
+                <input type="checkbox" checked={duTiroir} disabled={moyen !== "especes"} onChange={e => setTiroir(e.target.checked)}
+                  aria-label="Pris dans le tiroir" /> Pris dans le tiroir
+              </label>
               <Button size="sm" disabled={enCours}
                 onClick={async () => {
                   const m = aVerser.trim() ? parseMontant(aVerser) : fiche.reste;
-                  const r = await faire("verser_paie", { ficheId: fiche.id, montant: m, moyen },
-                    r => `${f(m)} versés à ${r.nom}.${r.reste > 0 ? ` Reste ${f(r.reste)}.` : " Fiche payée."}`);
-                  if (r) setAVerser("");
+                  const r = await faire("verser_paie", { ficheId: fiche.id, montant: m, moyen, duTiroir },
+                    r => `${f(m)} versés à ${r.nom}${duTiroir ? ", sortis de la caisse" : ""}.${r.reste > 0 ? ` Reste ${f(r.reste)}.` : " Fiche payée."}`);
+                  if (r) { setAVerser(""); setTiroir(false); }
                 }}>
                 <Banknote className="h-4 w-4 mr-1" /> Verser
               </Button>
-              <p className="text-xs text-muted-foreground w-full">Vide : tout ce qui reste. La paie ne passe pas par la caisse du jour.</p>
+              <p className="text-xs text-muted-foreground w-full">
+                Vide : tout ce qui reste. {duTiroir
+                  ? "L'argent sort du tiroir : la caisse doit être ouverte, la sortie s'y écrit avec le versement."
+                  : "Hors caisse : pris dans le tiroir ? Cocher la case, sinon il manquera à la clôture."}
+              </p>
             </div>
           )}
         </div>

@@ -56,7 +56,7 @@ fn trois_personnes_trois_facons_d_etre_payees() {
     assert_eq!(a["contrat_ecrit"], false, "sans contrat : permis");
     assert_eq!(a["modes"], json!(["au mois"]));
     let f = personnel::lire_sur(&mut base, &fanta).unwrap();
-    assert_eq!(f["remuneration_dite"], "25 000 F par mois + 2 % des ventes");
+    assert_eq!(f["remuneration_dite"], "25 000 F par mois + 2 % des ventes encaissées");
     assert_eq!(f["utilisateur_id"], compte.as_str());
     assert_eq!(f["utilisateur_nom"], "Fanta");
     assert_eq!(f["contrat_date"], "2026-01-15");

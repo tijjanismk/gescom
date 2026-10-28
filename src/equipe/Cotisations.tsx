@@ -51,9 +51,14 @@ export function Cotisations() {
   return (
     <div className="space-y-4 max-w-3xl">
       <p className="text-sm text-muted-foreground">
-        Les cotisations (INPS, AMO, ITS…) ne s'appliquent qu'aux personnes <strong>déclarées</strong>, et seulement
+        Les cotisations (INPS, AMO…) ne s'appliquent qu'aux personnes <strong>déclarées</strong>, et seulement
         une fois saisies ici. Tant qu'il n'y en a aucune, aucune n'est retenue : le comptable les remplit, avec les
         taux en vigueur. Un changement ne touche pas les fiches déjà validées.
+      </p>
+      {/* D42 : pas de barème progressif — un taux faux est pire qu'aucun. */}
+      <p className="text-xs text-muted-foreground" data-testid="its-a-la-main">
+        Une cotisation est un taux, plafonné ou non. L'ITS, qui suit un barème par tranches et la situation de
+        famille, ne se calcule pas ici : le comptable le porte sur la fiche, en retenue (« ITS du mois »).
       </p>
       {avis && <p className={`text-sm ${avis.erreur ? "text-red-600" : "text-emerald-700"}`} role="status">{avis.texte}</p>}
       {!liste ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (

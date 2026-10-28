@@ -381,6 +381,12 @@ function Fiches() {
                   Confirmer le départ
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setDepart(null)}>Annuler</Button>
+                {/* D42 : la commission suit l'argent reçu, pendant l'emploi. */}
+                {e.modes.some(m => m.includes("commission")) && (
+                  <p className="text-xs text-amber-700 w-full">
+                    Commission sur l'encaissé : ce que ses clients paieront après son départ ne lui rapportera rien.
+                  </p>
+                )}
               </div>
             )}
             {edition !== "nouveau" && edition?.id === e.id && (

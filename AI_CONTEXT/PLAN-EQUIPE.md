@@ -120,14 +120,16 @@ avance est un réglage (par personne ou par rôle, comme C-3).
 ### D33 — Les cotisations : facultatives, jamais devinées
 
 Pas de barème en dur. Pour les personnes **déclarées**, les
-cotisations (INPS part salariale et patronale, AMO, ITS…) sont des
+cotisations (INPS part salariale et patronale, AMO…) sont des
 **lignes de réglage** du dossier : un libellé, une base (brut, ou
-plafonné), un taux ou un barème, qui les paie (salarié / employeur),
-son compte. **Vides par défaut** : tant que le comptable ne les a pas
-remplies, aucune n'est retenue — un taux faux sur un bulletin est pire
-qu'aucun. Un modèle « Mali » pourra être proposé, sourcé et daté, à
-valider par le comptable avant d'être appliqué ; il n'est jamais actif
-d'office.
+plafonné), un taux, qui les paie (salarié / employeur), son compte.
+**Vides par défaut** : tant que le comptable ne les a pas remplies,
+aucune n'est retenue — un taux faux sur un bulletin est pire qu'aucun.
+Un modèle « Mali » pourra être proposé, sourcé et daté, à valider par
+le comptable avant d'être appliqué ; il n'est jamais actif d'office.
+**Corrigé le 28/10/2026 (D42)** : il n'y a pas de barème. L'ITS, qui va
+par tranches et selon la famille, se saisit à la main sur la fiche, en
+retenue, par le comptable.
 
 ### D34 — Le suivi client s'appuie sur la fiche client de Gescom
 

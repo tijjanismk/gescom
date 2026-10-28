@@ -596,7 +596,10 @@ CREATE TABLE IF NOT EXISTS avance (
     -- Revue du 28/10 (point 6, D32) : une avance nee d'un trop-verse,
     -- creee a la validation d'une rectificative ; la fiche qui l'a dit
     -- (moyen `trop_verse`, rien ne sort de la tresorerie).
-    trop_verse_fiche_id  TEXT
+    trop_verse_fiche_id  TEXT,
+    -- D42 : ce qu'une paie en retient au plus (l'accord passe avec
+    -- l'employe) ; vide = tout sur la prochaine paie.
+    mensualite           INTEGER
 );
 
 -- La fiche de paie (PLAN-EQUIPE, G-2 — D31) : un papier qu'on remet,
