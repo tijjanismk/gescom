@@ -76,7 +76,32 @@ pub fn valider(nom: &str, fonction: &str, r: &Remuneration) -> Result<(String, S
     if r.commission_pct.is_some_and(|c| !c.is_finite() || c <= 0.0 || c > 100.0) {
         return Err("La commission est un pourcentage entre 0 et 100.".to_string());
     }
+    if let Some(m) = r.salaire_mensuel {
+        crate::coeur::saisie::borner_montant(m, "le salaire au mois")?;
+    }
+    if let Some(j) = r.tarif_journalier {
+        crate::coeur::saisie::borner_montant(j, "le tarif du jour")?;
+    }
     Ok((nom, fonction))
+}
+
+/// Ce qu'une modification ecrit de la remuneration (revue du 28/10,
+/// point 3). Qui gere le personnel sans preparer ni valider la paie ne
+/// voit pas les montants : l'ecran les lui rend vides, et les ecrire
+/// effacerait le salaire. Sans ces droits, la remuneration et le
+/// plafond d'avance **restent ceux de la fiche**, quoi qu'arrive dans
+/// la saisie — l'ecran ne protege rien (D27). Rend (remuneration,
+/// plafond d'avance) a ecrire.
+pub fn remuneration_a_ecrire(
+    voit_la_paie: bool,
+    avant: (&Remuneration, Option<i64>),
+    saisie: (&Remuneration, Option<i64>),
+) -> (Remuneration, Option<i64>) {
+    if voit_la_paie {
+        (saisie.0.clone(), saisie.1)
+    } else {
+        (avant.0.clone(), avant.1)
+    }
 }
 
 #[cfg(test)]
@@ -108,5 +133,17 @@ mod tests {
         assert!(valider("Awa", "vendeuse", &z).is_err());
         let c = Remuneration { commission_pct: Some(150.0), ..Default::default() };
         assert!(valider("Awa", "vendeuse", &c).unwrap_err().contains("0 et 100"));
+        let enorme = Remuneration { salaire_mensuel: Some(i64::MAX), ..Default::default() };
+        assert!(valider("Awa", "vendeuse", &enorme).unwrap_err().contains("trop grand"));
+    }
+
+    #[test]
+    fn sans_les_droits_de_la_paie_les_montants_restent() {
+        let avant = Remuneration { salaire_mensuel: Some(60_000), commission_pct: Some(2.0), ..Default::default() };
+        // L'ecran de qui ne voit pas les montants les renvoie vides.
+        let vide = Remuneration::default();
+        assert_eq!(remuneration_a_ecrire(false, (&avant, Some(15_000)), (&vide, None)), (avant.clone(), Some(15_000)));
+        // Qui voit la paie les change, ou les retire.
+        assert_eq!(remuneration_a_ecrire(true, (&avant, Some(15_000)), (&vide, None)), (vide.clone(), None));
     }
 }

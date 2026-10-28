@@ -427,6 +427,7 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D41 | **la paie suit l'emploi et fige ses conditions** : seulement les jours d'emploi de la période ; prorata en entiers sur les jours du mois, un jour non marqué compte présent ; salaire au mois sur un mois civil ; la rectificative reprend les conditions figées de la fiche ; jours figés après validation ; trop-versé → avance ; commission nette des retours ; montants masqués partout sans droit de paie ; « 15.000 » = 15 000 F |
 | D40 | **la fenêtre « Gescom Serveur »** (la coque de D25) et son panneau **Réseau** — port 40000–40100 et écoute changés par le patron, depuis le poste du serveur seulement, appliqués par le serveur lui-même — et la **recherche automatique** des caisses (UDP 40000, rien de la boutique) |
 | D39 | **le serveur écoute de 40000 à 40100** (40000 par défaut, 7300 abandonné) : la CSP des deux fenêtres énumère ces ports et rien d'autre ; sur le poste qui garde la base, si 40000 est pris, le serveur local prend le suivant libre et `poste.json` le retient ; installeur et pare-feu suivent la plage |
 | D38 | **des exercices comme dans Ciel** : dates libres (juillet → juin se donne), plusieurs années (**5 au plus**), et le dernier exercice ouvert **se coupe** en plein milieu — le suivant s'ouvre le lendemain, au moins jusqu'à l'ancienne fin ; on ne **clôt** qu'un exercice **terminé**, dans l'ordre ; D21 tient (pas de trou, refus hors dates) |
@@ -1113,3 +1114,49 @@ qu'elles retrouvent le serveur — l'écran le dit avant, avec le nombre de
 postes connectés et « Rechercher le serveur ». **Pas vu en vrai** : la
 fenêtre, l'accord administrateur, la relance par Windows, la diffusion
 entre deux machines (TESTS-MANUELS, section K).
+
+## D41 — La paie suit l'emploi et fige ses conditions (28/10/2026)
+
+**Le constat** (relecture demandée par le propriétaire, 10 défauts
+confirmés par des tests) : la paie ignorait les dates d'entrée et de
+départ, comptait le prorata sur les jours *marqués*, laissait un
+gestionnaire sans droit de paie effacer un salaire, reprenait le salaire
+d'aujourd'hui dans une rectificative, perdait les jours marqués après une
+validation, oubliait le trop-versé, commissionnait une vente rendue,
+payait un salaire entier sur une quinzaine, montrait les montants dans
+l'Historique ; et « 15.000 » tapé à l'écran faisait 15 F.
+
+**Retenu** (quatre choix du propriétaire, les autres évidents) :
+
+1. **L'emploi borne tout** : « à préparer » = employé au moins un jour de
+   la période ; préparer hors de l'emploi est refusé ; le calcul se borne
+   aux jours d'emploi, avec ou sans prorata ; un départ ne se date pas
+   avant des jours déjà marqués ; un compte de vente repris ne commissionne
+   le nouveau qu'à partir du lendemain du départ de l'ancien ; un retour
+   après interruption devient la nouvelle entrée.
+2. **Prorata** (choix : *un jour non marqué compte présent*) : salaire ×
+   (jours d'emploi − absences − ½ par demi-journée) ÷ jours du mois, **en
+   entiers** — plus aucun flottant sur l'argent de la paie.
+3. **Le salaire au mois se paie sur un mois civil** ; une autre période
+   est refusée (un journalier, lui, se paie à la quinzaine).
+4. **La fiche fige ses conditions** (`fiche_paie.conditions` : salaire,
+   tarif, commission, déclaré, cotisations) ; la rectificative les reprend
+   (D31 : « ne change pas si on corrige un tarif le mois suivant ») ; une
+   fiche plus ancienne se relit sur ses lignes.
+5. **Valider avant la fin du mois est permis, puis les jours sont figés**
+   (choix) : marquer un jour d'une fiche validée est refusé, sauf pendant
+   une rectificative en brouillon.
+6. **Le trop-versé devient une avance** (choix), créée dans la validation
+   de la rectificative et retenue d'office (D32 ; `avance.trop_verse_fiche_id`).
+7. **La commission se calcule nette des retours** (choix), à leur date ;
+   l'échange ne se déduit pas (comme le CA, lot B) ; jamais négative.
+8. **Sans droit de paie**, la modification d'une fiche du personnel garde
+   la rémunération ; les réponses et l'Historique masquent les montants.
+9. **« 15.000 », « 15 000 », « 15,000 » valent 15 000 F** (`lib/montant.ts`,
+   `MoneyInput`) ; le serveur borne les saisies (10⁹ F, 100 000 unités).
+
+**Questions laissées ouvertes** (des décisions, pas des défauts) : la paie
+et l'avance hors caisse (D31/D32 révisés) quand l'argent sort du tiroir ;
+un maximum de retenue d'avance par mois ; l'avance datée du jour de la
+saisie ; la commission sur des ventes à crédit jamais payées ; un barème
+progressif (ITS) que D33 promet et que le code n'a pas.

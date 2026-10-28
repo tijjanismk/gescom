@@ -41,6 +41,14 @@ pub struct Filtre {
     pub page: i64,
     #[serde(default)]
     pub par_page: i64,
+    /// Vrai pour qui ne voit pas la paie (revue du 28/10, point 9) : la
+    /// recherche ne fouille pas le detail des gestes de paie (fiche,
+    /// avance, cotisation), dont les montants lui sont masques — chercher
+    /// « 60000 » trouverait la fiche sans la montrer. Pose par le serveur
+    /// (`coeur::lecture`, `Neutre` sur `avecPaie`), jamais par le filtre
+    /// de l'ecran (`skip`).
+    #[serde(skip)]
+    pub sans_paie: bool,
 }
 
 /// La table du journal, avec ce qu'elle designe resolu. `?1` est le
@@ -121,7 +129,9 @@ WHERE (CAST(?2 AS TEXT) IS NULL OR SUBSTR(r.date_evenement, 1, 10) >= ?2)
   AND (CAST(?9 AS TEXT) IS NULL OR LOWER(
          COALESCE(r.tiers_nom, '') || ' ' || COALESCE(r.piece_numero, '') || ' ' ||
          COALESCE(r.article_nom, '') || ' ' || COALESCE(r.auteur_nom, '') || ' ' ||
-         COALESCE(r.nouveau_valeur, '') || ' ' || COALESCE(r.ancien_valeur, '')
+         CASE WHEN CAST(?11 AS BIGINT) = 0 OR r.entite_type NOT IN ('fiche_paie', 'avance', 'cotisation')
+              THEN COALESCE(r.nouveau_valeur, '') || ' ' || COALESCE(r.ancien_valeur, '')
+              ELSE '' END
        ) LIKE LOWER(?9))
   AND (CAST(?10 AS BIGINT) = 0 OR (r.type_evenement = 'anomalie' AND r.vue_le IS NULL))";
 
@@ -148,7 +158,8 @@ pub fn lire_historique_sur(acces: &mut impl Acces, f: Filtre) -> Result<serde_js
         vide(&f.piece_id),
         vide(&f.article_id),
         recherche,
-        f.a_verifier as i64
+        f.a_verifier as i64,
+        f.sans_paie as i64
     ];
 
     let total: i64 = acces
@@ -173,7 +184,7 @@ pub fn lire_historique_sur(acces: &mut impl Acces, f: Filtre) -> Result<serde_js
                         r.ancien_valeur, r.nouveau_valeur, r.vue_le, r.vue_par_nom
                  FROM r {FILTRES}
                  ORDER BY r.date_evenement DESC, r.id DESC
-                 LIMIT ?11 OFFSET ?12"
+                 LIMIT ?12 OFFSET ?13"
             ),
             &avec_page,
             |r| {

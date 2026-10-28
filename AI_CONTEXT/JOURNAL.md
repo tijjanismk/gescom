@@ -2599,3 +2599,32 @@ une fois par une panne réseau, repris là où il était), relu et rejoué.
 serveur 13 + routes 18 ; `gescom-serveur-fenetre` 2 ; `plage_de_ports` 3
 (la CSP de la nouvelle fenêtre et sa copie de la plage) ; noyau 291 ;
 `tsc` propre. **Pas vu en vrai** — section K de TESTS-MANUELS.
+
+## 28/10/2026 — D41, la paie relue et corrigée
+
+Le propriétaire, avant de construire les installeurs : « la paie aussi,
+mais vérifie-la pour d'éventuelles erreurs de logique ». Relecture par un
+agent qui n'avait pas écrit le code, chaque doute rejoué par un test
+jetable : **10 défauts confirmés**. Les plus lourds en argent : un départ
+le 15 payé le mois entier (et sa dernière fiche impossible à faire à
+l'écran) ; un prorata compté sur les jours *marqués* (une entrée au 15
+payée entière, deux absences marquées → 0 F) ; un gestionnaire sans droit
+de paie qui efface un salaire en changeant un téléphone ; une
+rectificative qui reprend le salaire d'aujourd'hui (5 000 F de prime
+oubliée → 20 000 F à verser). Et « 15.000 » tapé à l'écran faisait 15 F.
+
+Quatre choix tranchés par le propriétaire, tous dans le sens proposé : un
+jour non marqué compte présent ; valider avant la fin du mois est permis,
+puis les jours sont figés ; le trop-versé devient une avance ; la
+commission se calcule nette des retours. Le reste suit (D41). Corrigé
+par un second agent, puis rejoué ici. Les questions de principe (paie
+hors caisse, maximum de retenue, avance datée du jour, commission sur
+crédit impayé, barème ITS) restent ouvertes dans D41.
+
+**Preuves** : `paie_corrections_base` 17 — chaque exemple de la relecture
+au franc près (Bakary 30 000 F, Issa 21 935 F en octobre, Moussa
+37 500 F, Awa 37 500 F, deux absences 56 000 F, rectificative 5 000 F,
+trop-versé repris → octobre 52 000 F, CA de septembre 60 000 F) — sur
+SQLite, PostgreSQL et compte limité ; les tests de la paie existants
+ajustés aux nouvelles règles ; noyau + serveur SQLite 837/837 ;
+`tsc` propre. **Écrans d'Équipe pas vus.**

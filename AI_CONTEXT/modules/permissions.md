@@ -122,6 +122,15 @@ Avec une seule caisse partagée par dossier, la session ouverte et les
 mouvements du jour restent lisibles par tous les caissiers :
 `caisse:lire_autres` porte sur l'historique des sessions.
 
+**La paie (revue du 28/10)** : `Neutre` prend une liste (« sans aucune
+de ces permissions ») ; `MasqueElements` masque des clés dans les seuls
+éléments d'un tableau que désigne une fonction (l'Historique : les
+lignes de paie, pas les paiements clients). `voit_la_paie(a)` =
+`paie:preparer` ou `paie:valider` : la règle de lecture, reprise par
+le serveur pour les écritures qui ne doivent pas toucher ce que
+l'appelant ne voit pas (`modifier_employe`, le refus de `donner_avance`).
+Détail : [equipe.md](equipe.md).
+
 ## Des plafonds, pas seulement des portes (23/09/2026, v3 C-3)
 
 Trois plafonds par **rôle** (`role.remise_max_pct`, `remboursement_max`,

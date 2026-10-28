@@ -2,7 +2,9 @@
 //!
 //! Une grille du mois : present, absent, demi-journee. Un jour non
 //! marque n'est ni present ni absent — il n'est pas su. La paie d'un
-//! journalier lit le compte (G-2).
+//! journalier lit le compte (G-2) ; le salaire au mois au prorata, lui,
+//! compte un jour non marque comme present (choix du proprietaire,
+//! 28/10) : seules les absences et les demi-journees retirent.
 
 use chrono::{Datelike, NaiveDate};
 
@@ -23,6 +25,41 @@ pub fn jours_travailles<'a>(etats: impl IntoIterator<Item = &'a str>) -> f64 {
     // La somme d'une liste vide de f64 vaut -0.0 (element neutre de
     // Rust) : l'ecran affichait « -0 ». `+ 0.0` le ramene a zero.
     etats.into_iter().filter_map(valeur).sum::<f64>() + 0.0
+}
+
+/// (presents, demi-journees, absences) d'une liste d'etats, en jours
+/// entiers : la paie compte en demi-journees, jamais en flottant.
+pub fn compter<'a>(etats: impl IntoIterator<Item = &'a str>) -> (i64, i64, i64) {
+    etats.into_iter().fold((0, 0, 0), |(p, d, a), e| match e {
+        "present" => (p + 1, d, a),
+        "demi" => (p, d + 1, a),
+        "absent" => (p, d, a + 1),
+        _ => (p, d, a),
+    })
+}
+
+/// Un jour couvert par une fiche de paie validee ne se marque plus
+/// (revue du 28/10, point 5, choix du proprietaire : on peut valider
+/// avant la fin du mois, ensuite les jours de la periode sont figes).
+pub fn refus_jour_fige(nom: &str, numero: &str) -> String {
+    format!("{nom} : ce jour est sur la fiche {numero} déjà validée : faire une rectificative de cette fiche pour le changer.")
+}
+
+/// Peut-on enregistrer un depart a cette date ? Pas si des jours sont
+/// marques apres (revue du 28/10, point 1) : ils seraient payes a qui
+/// est deja parti, ou perdus sans qu'on le sache. `apres` : les jours
+/// marques apres `depart`, dans l'ordre.
+pub fn verifier_depart(nom: &str, depart: &str, apres: &[String]) -> Result<(), String> {
+    let Some(dernier) = apres.last() else { return Ok(()) };
+    let liste: Vec<String> = apres.iter().take(3).map(|j| crate::coeur::paie::date_dite(j)).collect();
+    let suite = if apres.len() > 3 { "…" } else { "" };
+    Err(format!(
+        "{nom} a des jours marqués après le {} ({}{suite}) : les effacer d'abord dans Personnel → Jours travaillés, \
+         ou choisir un départ le {} ou après.",
+        crate::coeur::paie::date_dite(depart),
+        liste.join(", "),
+        crate::coeur::paie::date_dite(dernier)
+    ))
 }
 
 /// Les jours d'un mois `AAAA-MM`, en `AAAA-MM-JJ`.
@@ -62,6 +99,22 @@ mod tests {
         assert_eq!(jours_travailles(["present", "demi", "absent", "present", "inconnu"]), 2.5);
         let rien = jours_travailles([]);
         assert!(rien == 0.0 && rien.is_sign_positive(), "pas de « -0 » à l'écran");
+    }
+
+    #[test]
+    fn la_paie_compte_en_jours_entiers() {
+        assert_eq!(compter(["present", "demi", "absent", "present", "inconnu"]), (2, 1, 1));
+        assert_eq!(compter([]), (0, 0, 0));
+    }
+
+    #[test]
+    fn un_depart_avant_des_jours_marques_se_refuse_en_disant_quoi_faire() {
+        assert!(verifier_depart("Moussa", "2026-09-15", &[]).is_ok());
+        let apres: Vec<String> = (16..=20).map(|j| format!("2026-09-{j}")).collect();
+        let e = verifier_depart("Moussa", "2026-09-15", &apres).unwrap_err();
+        assert!(e.starts_with("Moussa a des jours marqués après le 15/09/2026 (16/09/2026, 17/09/2026, 18/09/2026…)"), "{e}");
+        assert!(e.contains("les effacer d'abord") && e.contains("un départ le 20/09/2026 ou après"), "{e}");
+        assert!(refus_jour_fige("Moussa", "PAIE-2026-00003").contains("sur la fiche PAIE-2026-00003 déjà validée : faire une rectificative"));
     }
 
     #[test]

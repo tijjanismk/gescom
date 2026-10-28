@@ -13,6 +13,7 @@ import { peut } from "@/lib/droits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 
 interface LignePaie {
   id: string; genre: string; libelle: string; quantite: number | null; prix: number | null;
@@ -24,8 +25,13 @@ interface FichePaie {
   reporte: number; rectifie_numero: string | null; remplacee_par: string | null; valide_le: string | null;
   valide_par_nom: string | null; lignes?: LignePaie[];
   verse: number; reste: number; versements?: { id: string; montant: number; moyen: string; date: string; par: string | null }[];
+  /** Versé en trop sur la fiche et repris en avance sur la suivante (revue du 28/10). */
+  trop_verse: number;
 }
-interface Mois { fiches: FichePaie[]; a_preparer: { employe_id: string; nom: string; fonction: string; au_mois: boolean }[] }
+interface Mois {
+  fiches: FichePaie[];
+  a_preparer: { employe_id: string; nom: string; fonction: string; au_mois: boolean; date_entree: string | null; date_depart: string | null }[];
+}
 
 const f = (n: number) => `${n.toLocaleString("fr-FR")} F`;
 const jj = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
@@ -41,9 +47,15 @@ function bornes(mois: string): [string, string] {
 function Statut({ fiche }: { fiche: FichePaie }) {
   if (fiche.statut === "brouillon") return <Badge variant="outline">brouillon</Badge>;
   if (fiche.statut === "remplacee") return <Badge variant="outline" className="line-through">{fiche.numero}</Badge>;
+  // Un reste négatif n'est pas « payée » : c'est un versé en trop que
+  // personne ne reprend (revue du 28/10). Repris en avance, la fiche est
+  // payée et le dit.
   return <>
     <Badge variant="secondary">{fiche.numero}</Badge>
-    {fiche.reste <= 0 ? <Badge className="bg-emerald-600">payée</Badge> : fiche.verse > 0 ? <Badge variant="outline">reste {f(fiche.reste)}</Badge> : null}
+    {fiche.reste < 0 ? <Badge className="bg-amber-600">versé en trop {f(-fiche.reste)}</Badge>
+      : fiche.reste === 0 ? <Badge className="bg-emerald-600">payée</Badge>
+      : fiche.verse > 0 ? <Badge variant="outline">reste {f(fiche.reste)}</Badge> : null}
+    {fiche.trop_verse > 0 && <Badge variant="outline" className="border-amber-600 text-amber-700">{f(fiche.trop_verse)} repris en avance</Badge>}
   </>;
 }
 
@@ -84,7 +96,9 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
 
   if (!fiche) return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />;
   const brouillon = fiche.statut === "brouillon";
-  const nombre = (s: string) => Number(s.replace(/\s/g, "").replace(",", "."));
+  // Une quantité peut avoir une virgule (2,5 heures) ; un montant, non :
+  // « 15.000 » vaut 15 000 F (MoneyInput, lib/montant.ts).
+  const quantiteLue = (s: string) => Number(s.replace(/\s/g, "").replace(",", "."));
 
   return (
     <div className="border border-border rounded-lg p-4 space-y-3" data-testid="fiche-paie">
@@ -134,6 +148,11 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
               : fiche.reste < 0 ? <> · <span className="text-amber-700">versé en trop : {f(-fiche.reste)}</span></>
               : <> · <span className="text-emerald-700">payée</span></>)}
           </p>
+          {fiche.trop_verse > 0 && (
+            <p className="text-xs text-amber-700" data-testid="trop-verse">
+              {f(fiche.trop_verse)} versés en trop sur cette période : repris en avance, ils seront retenus sur la prochaine fiche.
+            </p>
+          )}
           {(fiche.versements ?? []).map(v => (
             <p key={v.id} className="text-xs text-muted-foreground" data-testid="versement">
               {f(v.montant)} le {jj(v.date)} · {MOYENS.find(m => m[0] === v.moyen)?.[1] ?? v.moyen}{v.par ? ` · par ${v.par}` : ""}
@@ -142,8 +161,8 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
           {fiche.statut === "validee" && valide && fiche.reste > 0 && (
             <div className="flex gap-2 items-end flex-wrap">
               <label className="text-xs text-muted-foreground flex flex-col gap-1">Montant
-                <Input value={aVerser} onChange={e => setAVerser(e.target.value)} aria-label="Montant à verser"
-                  placeholder={String(fiche.reste)} inputMode="numeric" className="h-9 w-32" /></label>
+                <MoneyInput value={aVerser} onChange={setAVerser} aria-label="Montant à verser"
+                  placeholder={fiche.reste.toLocaleString("fr-FR")} className="h-9 w-32" /></label>
               <label className="text-xs text-muted-foreground flex flex-col gap-1">Par
                 <select value={moyen} onChange={e => setMoyen(e.target.value)} aria-label="Versé par"
                   className="h-9 px-2 text-sm border border-border rounded-md bg-background">
@@ -151,7 +170,7 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
                 </select></label>
               <Button size="sm" disabled={enCours}
                 onClick={async () => {
-                  const m = aVerser.trim() ? nombre(aVerser) : fiche.reste;
+                  const m = aVerser.trim() ? parseMontant(aVerser) : fiche.reste;
                   const r = await faire("verser_paie", { ficheId: fiche.id, montant: m, moyen },
                     r => `${f(m)} versés à ${r.nom}.${r.reste > 0 ? ` Reste ${f(r.reste)}.` : " Fiche payée."}`);
                   if (r) setAVerser("");
@@ -191,18 +210,18 @@ function Detail({ id, fermer, ouvrir, changee, dire }: {
             <label className="text-xs text-muted-foreground flex flex-col gap-1">Combien
               <Input value={quantite} onChange={e => setQuantite(e.target.value)} aria-label="Quantité" inputMode="decimal" className="h-9 w-20" /></label>
             <label className="text-xs text-muted-foreground flex flex-col gap-1">Prix de chacune
-              <Input value={prix} onChange={e => setPrix(e.target.value)} aria-label="Prix unitaire" inputMode="numeric" className="h-9 w-28" /></label>
+              <MoneyInput value={prix} onChange={setPrix} aria-label="Prix unitaire" className="h-9 w-28" /></label>
           </>) : (
             <label className="text-xs text-muted-foreground flex flex-col gap-1">Montant
-              <Input value={montant} onChange={e => setMontant(e.target.value)} aria-label="Montant de la ligne" inputMode="numeric" className="h-9 w-28" /></label>
+              <MoneyInput value={montant} onChange={setMontant} aria-label="Montant de la ligne" className="h-9 w-28" /></label>
           )}
           <Button size="sm" variant="outline" disabled={enCours}
             onClick={async () => {
               const r = await faire("ajouter_ligne_paie", {
                 ficheId: fiche.id, genre, libelle,
-                quantite: genre === "tache" && quantite.trim() ? nombre(quantite) : null,
-                prix: genre === "tache" && prix.trim() ? nombre(prix) : null,
-                montant: genre !== "tache" && montant.trim() ? nombre(montant) : null,
+                quantite: genre === "tache" && quantite.trim() ? quantiteLue(quantite) : null,
+                prix: genre === "tache" && prix.trim() ? parseMontant(prix) : null,
+                montant: genre !== "tache" && montant.trim() ? parseMontant(montant) : null,
               });
               if (r) { setLibelle(""); setQuantite(""); setPrix(""); setMontant(""); }
             }}>
@@ -308,7 +327,12 @@ export function FichesPaie() {
             <h3 className="px-4 py-2 text-sm font-semibold">À préparer</h3>
             {donnees.a_preparer.map(p => (
               <div key={p.employe_id} className="flex items-center gap-3 px-4 py-2 text-sm">
-                <div className="flex-1">{p.nom} <span className="text-muted-foreground">({p.fonction})</span></div>
+                <div className="flex-1">
+                  {p.nom} <span className="text-muted-foreground">({p.fonction})</span>
+                  {/* Revue du 28/10 : la paie se borne aux jours d'emploi du mois. */}
+                  {p.date_entree && p.date_entree > du && <span className="text-xs text-muted-foreground"> · entrée le {jj(p.date_entree)}</span>}
+                  {p.date_depart && p.date_depart <= au && <span className="text-xs text-muted-foreground"> · partie le {jj(p.date_depart)}</span>}
+                </div>
                 {p.au_mois && (
                   <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <input type="checkbox" checked={!!prorata[p.employe_id]} aria-label={`Au prorata pour ${p.nom}`}

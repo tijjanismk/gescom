@@ -18,6 +18,8 @@ interface Grille {
     employe_id: string; nom: string; fonction: string;
     date_entree: string | null; date_depart: string | null;
     etats: Record<string, string>; jours_travailles: number;
+    /** Ses fiches de paie validées qui touchent le mois : leurs jours sont figés. */
+    fiches_validees?: { du: string; au: string; numero: string | null }[];
   }[];
 }
 
@@ -49,7 +51,12 @@ export function JoursTravailles() {
     setEnCours(true);
     setAvis(null);
     try {
-      await action();
+      const r = await action() as { figes?: { nom: string; numero: string }[] } | null;
+      // « Tous présents » ne touche pas qui a déjà ce jour sur une fiche
+      // de paie validée (revue du 28/10) : on le dit.
+      if (r?.figes?.length) {
+        setAvis(`Pas marqué(s), ce jour est déjà sur une fiche de paie validée : ${r.figes.map(x => `${x.nom} (${x.numero})`).join(", ")}.`);
+      }
       await charger();
     } catch (e) {
       setAvis(String(e));
@@ -62,6 +69,10 @@ export function JoursTravailles() {
 
   const hors = (p: Grille["personnes"][number], j: string) =>
     j > g.aujourd_hui || (p.date_entree !== null && j < p.date_entree) || (p.date_depart !== null && j > p.date_depart);
+  // Un jour payé par une fiche validée ne se change plus : une
+  // rectificative de la fiche le rouvre (le serveur le refuse aussi).
+  const fige = (p: Grille["personnes"][number], j: string) =>
+    (p.fiches_validees ?? []).find(f => f.du <= j && j <= f.au);
   const weekend = (j: string) => [0, 6].includes(new Date(j + "T12:00:00").getDay());
 
   return (
@@ -105,13 +116,14 @@ export function JoursTravailles() {
                   </td>
                   {g.jours.map(j => {
                     const etat = p.etats[j] ?? "";
-                    const interdit = hors(p, j);
+                    const paye = fige(p, j);
+                    const interdit = hors(p, j) || !!paye;
                     return (
                       <td key={j} className={`px-0.5 py-1 text-center ${weekend(j) ? "bg-muted/40" : ""}`}>
                         <button
                           disabled={!gere || interdit || enCours}
                           aria-label={`${p.nom} le ${j}`}
-                          title={interdit ? "Hors de ses dates" : undefined}
+                          title={paye ? `Sur la fiche ${paye.numero ?? ""} validée : faire une rectificative pour le changer` : interdit ? "Hors de ses dates" : undefined}
                           onClick={() => faire(() => invoke("marquer_presence", { employeId: p.employe_id, jour: j, etat: SUIVANT[etat] }))}
                           className={`w-6 h-6 rounded text-[11px] font-semibold ${etat ? COULEUR[etat] : "border border-border"} ${interdit ? "opacity-30" : ""}`}>
                           {MARQUE[etat] ?? ""}

@@ -34,7 +34,7 @@ Deux étages à ne pas confondre :
 | [ModalChangerMdp.tsx](../../src/components/ModalChangerMdp.tsx) | 136 | App.tsx | `changer_mot_de_passe` |
 | [ModalOuvrirCaisse.tsx](../../src/components/ModalOuvrirCaisse.tsx) | 105 | Caisse | exporte `estCaisseFermee` — **le détecteur de `CAISSE_FERMEE`** |
 | [SelectUnite.tsx](../../src/components/SelectUnite.tsx) | 83 | Ventes, Achats, Parametres | choix d'unité de vente |
-| [MoneyInput.tsx](../../src/components/MoneyInput.tsx) | 69 | 10 fichiers | saisie de montant ; exporte `parseMontant` |
+| [MoneyInput.tsx](../../src/components/MoneyInput.tsx) | 72 | 15 fichiers | saisie de montant ; exporte `parseMontant`. Lecture par `lib/montant.ts` (28/10) : « 15.000 », « 15 000 », « 15,000 » valent 15 000 F (le franc CFA n'a pas de centimes) ; `aria-label`, `id` transmis. Équipe : avance, versement, prime / retenue / prix d'une tâche, salaire, tarif, plafond d'avance, plafond de cotisation |
 | [Pagination.tsx](../../src/components/Pagination.tsx) | 74 | Clients, Fournisseurs, Stock | contrôles de page |
 | [SelecteurProfil.tsx](../../src/components/SelecteurProfil.tsx) | 110 | **aucun** | mort, cf. [ALERTES.md](../ALERTES.md) |
 

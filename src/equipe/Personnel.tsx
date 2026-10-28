@@ -12,6 +12,8 @@ import { peut } from "@/lib/droits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { MoneyInput } from "@/components/MoneyInput";
+import { lireMontant } from "@/lib/montant";
 import { JoursTravailles } from "./JoursTravailles";
 
 export interface Employe {
@@ -40,6 +42,8 @@ export interface Employe {
   date_depart: string | null;
   motif_depart: string | null;
   note: string | null;
+  /** Ce que dit un départ (avance en cours, fiche à rectifier). */
+  avertissements?: string[];
 }
 
 interface Saisie {
@@ -77,7 +81,9 @@ function depuis(e: Employe): Saisie {
   };
 }
 
-const nombre = (s: string) => {
+// Un pourcentage garde sa virgule (2,5 %) ; un montant, non : « 15.000 »
+// vaut 15 000 F (lib/montant.ts).
+const pourcentage = (s: string) => {
   const n = Number(s.replace(/\s/g, "").replace(",", "."));
   return s.trim() === "" || !isFinite(n) ? null : n;
 };
@@ -85,26 +91,30 @@ const nombre = (s: string) => {
 function versFiche(s: Saisie) {
   return {
     nom: s.nom, fonction: s.fonction,
-    salaire_mensuel: s.auMois ? nombre(s.salaire) : null,
-    tarif_journalier: s.aLaJournee ? nombre(s.tarif) : null,
-    commission_pct: s.aLaCommission ? nombre(s.commission) : null,
+    salaire_mensuel: s.auMois ? lireMontant(s.salaire) : null,
+    tarif_journalier: s.aLaJournee ? lireMontant(s.tarif) : null,
+    commission_pct: s.aLaCommission ? pourcentage(s.commission) : null,
     a_la_tache: s.aLaTache,
     telephone: s.telephone || null, date_entree: s.dateEntree || null, piece_identite: s.piece || null,
     contrat_ecrit: s.contrat, contrat_date: s.contrat ? s.contratDate || null : null,
     declare: s.declare, numero_inps: s.inps || null,
     utilisateur_id: s.utilisateurId || null, depot_id: s.depotId || null, note: s.note || null,
-    avance_max: nombre(s.avanceMax),
+    avance_max: lireMontant(s.avanceMax),
   };
 }
 
 const champ = "h-9 px-2 text-sm border border-border rounded-md bg-background w-full";
 
-function Formulaire({ initial, voitMontants, onEnregistrer, onAnnuler }: {
+function Formulaire({ initial, voitMontants, modification, onEnregistrer, onAnnuler }: {
   initial: Saisie;
   voitMontants: boolean;
+  /** Une fiche existante : sans les droits de la paie, sa rémunération
+   * ne se change pas (le serveur la garde, revue du 28/10). */
+  modification?: boolean;
   onEnregistrer: (s: Saisie) => Promise<void>;
   onAnnuler: () => void;
 }) {
+  const remunerationFigee = !!modification && !voitMontants;
   const [s, setS] = useState(initial);
   const [plus, setPlus] = useState(false);
   const [enCours, setEnCours] = useState(false);
@@ -120,13 +130,16 @@ function Formulaire({ initial, voitMontants, onEnregistrer, onAnnuler }: {
   const mode = (cle: "auMois" | "aLaJournee" | "aLaCommission", libelle: string, valeur: "salaire" | "tarif" | "commission", unite: string) => (
     <div className="flex items-center gap-2">
       <label className="flex items-center gap-2 text-sm w-40">
-        <input type="checkbox" checked={s[cle]} onChange={e => maj({ [cle]: e.target.checked } as Partial<Saisie>)} />
+        <input type="checkbox" checked={s[cle]} disabled={remunerationFigee} onChange={e => maj({ [cle]: e.target.checked } as Partial<Saisie>)} />
         {libelle}
       </label>
       {s[cle] && voitMontants && (
         <>
-          <Input value={s[valeur]} onChange={e => maj({ [valeur]: e.target.value } as Partial<Saisie>)}
-            aria-label={libelle} inputMode="decimal" className="h-8 w-32" />
+          {valeur === "commission"
+            ? <Input value={s[valeur]} onChange={e => maj({ [valeur]: e.target.value } as Partial<Saisie>)}
+                aria-label={libelle} inputMode="decimal" className="h-8 w-32" />
+            : <MoneyInput value={s[valeur]} onChange={v => maj({ [valeur]: v } as Partial<Saisie>)}
+                aria-label={libelle} className="h-8 w-32" />}
           <span className="text-xs text-muted-foreground">{unite}</span>
         </>
       )}
@@ -153,7 +166,7 @@ function Formulaire({ initial, voitMontants, onEnregistrer, onAnnuler }: {
         {mode("aLaJournee", "À la journée", "tarif", "F par jour travaillé")}
         {mode("aLaCommission", "À la commission", "commission", "% des ventes de son compte")}
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={s.aLaTache} onChange={e => maj({ aLaTache: e.target.checked })} />
+          <input type="checkbox" checked={s.aLaTache} disabled={remunerationFigee} onChange={e => maj({ aLaTache: e.target.checked })} />
           À la tâche (des lignes sur la fiche de paie)
         </label>
         {!s.auMois && !s.aLaJournee && !s.aLaCommission && !s.aLaTache && (
@@ -199,8 +212,8 @@ function Formulaire({ initial, voitMontants, onEnregistrer, onAnnuler }: {
           </div>
           {voitMontants && (
             <label className="text-xs text-muted-foreground flex flex-col gap-1">Plafond de ses avances en cours
-              <Input value={s.avanceMax} onChange={e => maj({ avanceMax: e.target.value })} aria-label="Plafond d'avance"
-                placeholder="vide : pas de plafond" inputMode="numeric" className="h-9" /></label>
+              <MoneyInput value={s.avanceMax} onChange={v => maj({ avanceMax: v })} aria-label="Plafond d'avance"
+                placeholder="vide : pas de plafond" className="h-9" /></label>
           )}
           <label className="text-xs text-muted-foreground flex flex-col gap-1 sm:col-span-2">Note
             <Input value={s.note} onChange={e => maj({ note: e.target.value })} aria-label="Note" className="h-9" /></label>
@@ -240,6 +253,7 @@ function Fiches() {
   const [avecPartis, setAvecPartis] = useState(false);
   const [edition, setEdition] = useState<Employe | "nouveau" | null>(null);
   const [depart, setDepart] = useState<{ id: string; date: string; motif: string } | null>(null);
+  const [retour, setRetour] = useState<{ id: string; date: string } | null>(null);
   const [avis, setAvis] = useState<{ texte: string; erreur?: boolean } | null>(null);
   const gere = peut("personnel:gerer");
   const voitMontants = peut("paie:preparer") || peut("paie:valider");
@@ -253,13 +267,16 @@ function Fiches() {
   }, [avecPartis]);
   useEffect(() => { charger(); }, [charger]);
 
-  async function agir(fn: () => Promise<{ nom: string }>, texte: (nom: string) => string) {
+  async function agir(fn: () => Promise<{ nom: string; avertissements?: string[] }>, texte: (nom: string) => string) {
     setAvis(null);
     try {
       const r = await fn();
-      setAvis({ texte: texte(r.nom) });
+      // Un départ prévient (avance en cours, fiche à rectifier) sans refuser.
+      const plus = (r.avertissements ?? []).join(" ");
+      setAvis({ texte: plus ? `${texte(r.nom)} ${plus}` : texte(r.nom) });
       setEdition(null);
       setDepart(null);
+      setRetour(null);
       await charger();
     } catch (e) {
       setAvis({ texte: String(e), erreur: true });
@@ -267,14 +284,9 @@ function Fiches() {
   }
 
   const enregistrer = async (s: Saisie) => {
+    // Qui gère sans voir les montants les reçoit masqués : le serveur
+    // garde ceux de la fiche quoi que l'écran envoie (revue du 28/10).
     const fiche = versFiche(s);
-    // Qui gère sans voir les montants ne les efface pas en enregistrant.
-    if (!voitMontants && edition && edition !== "nouveau") {
-      fiche.salaire_mensuel = s.auMois ? edition.salaire_mensuel : null;
-      fiche.tarif_journalier = s.aLaJournee ? edition.tarif_journalier : null;
-      fiche.commission_pct = s.aLaCommission ? edition.commission_pct : null;
-      fiche.avance_max = edition.avance_max;
-    }
     await agir(
       () => edition === "nouveau"
         ? invoke<Employe>("creer_employe", { fiche })
@@ -335,11 +347,27 @@ function Fiches() {
               )}
               {gere && e.statut === "partie" && (
                 <Button size="sm" variant="ghost" aria-label={`Retour de ${e.nom}`}
-                  onClick={() => agir(() => invoke<Employe>("faire_revenir_employe", { employeId: e.id }), n => `${n} est de retour.`)}>
+                  onClick={() => { setRetour({ id: e.id, date: new Date().toISOString().slice(0, 10) }); setDepart(null); setEdition(null); }}>
                   <UserCheck className="h-4 w-4 mr-1" /> Revient
                 </Button>
               )}
             </div>
+            {retour?.id === e.id && (
+              <div className="flex items-center gap-2 px-4 pb-3 text-sm flex-wrap">
+                <span className="text-muted-foreground">Revient le</span>
+                <input type="date" value={retour.date} onChange={x => setRetour({ ...retour, date: x.target.value })}
+                  aria-label="Date de retour" className="h-8 px-2 border border-border rounded-md bg-background" />
+                <Button size="sm"
+                  onClick={() => agir(() => invoke<Employe>("faire_revenir_employe", { employeId: e.id, date: retour.date }),
+                    n => `${n} est de retour.`)}>
+                  Confirmer le retour
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setRetour(null)}>Annuler</Button>
+                <p className="text-xs text-muted-foreground w-full">
+                  Après une absence, la date de retour devient sa date d'entrée : les mois d'absence ne se paient pas.
+                </p>
+              </div>
+            )}
             {depart?.id === e.id && (
               <div className="flex items-center gap-2 px-4 pb-3 text-sm flex-wrap">
                 <span className="text-muted-foreground">Part le</span>
@@ -357,7 +385,7 @@ function Fiches() {
             )}
             {edition !== "nouveau" && edition?.id === e.id && (
               <div className="px-4 pb-4">
-                <Formulaire initial={depuis(e)} voitMontants={voitMontants} onEnregistrer={enregistrer} onAnnuler={() => setEdition(null)} />
+                <Formulaire initial={depuis(e)} voitMontants={voitMontants} modification onEnregistrer={enregistrer} onAnnuler={() => setEdition(null)} />
               </div>
             )}
           </div>

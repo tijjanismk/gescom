@@ -132,8 +132,11 @@ pub fn registre() -> Registre {
     r.sur_base("creer_employe", Some("personnel:gerer"), true, |c, p| {
         gescom_noyau::personnel::creer_sur(c.base, arg(&p, "fiche", "fiche")?)
     });
+    // Revue du 28/10, point 3 : qui gere sans voir la paie ne reecrit
+    // pas la remuneration (son ecran la recoit masquee).
     r.sur_base("modifier_employe", Some("personnel:gerer"), true, |c, p| {
-        gescom_noyau::personnel::modifier_sur(c.base, arg(&p, "employeId", "employe_id")?, arg(&p, "fiche", "fiche")?)
+        let voit = voit_la_paie(c);
+        gescom_noyau::personnel::modifier_selon_droits_sur(c.base, arg(&p, "employeId", "employe_id")?, arg(&p, "fiche", "fiche")?, voit)
     });
     r.sur_base("faire_partir_employe", Some("personnel:gerer"), true, |c, p| {
         gescom_noyau::personnel::faire_partir_sur(
@@ -144,7 +147,7 @@ pub fn registre() -> Registre {
         )
     });
     r.sur_base("faire_revenir_employe", Some("personnel:gerer"), true, |c, p| {
-        gescom_noyau::personnel::faire_revenir_sur(c.base, arg(&p, "employeId", "employe_id")?)
+        gescom_noyau::personnel::faire_revenir_sur(c.base, arg(&p, "employeId", "employe_id")?, arg(&p, "date", "date")?)
     });
     // F-3 : les jours travailles.
     r.sur_base("lire_presences_mois", None, false, |c, p| {
@@ -172,12 +175,15 @@ pub fn registre() -> Registre {
         .map_err(|e| e.to_string())
     });
     r.sur_base("donner_avance", Some("personnel:avancer"), true, |c, p| {
-        gescom_noyau::avances::donner_sur(
+        // Le refus ne chiffre le plafond qu'a qui le voit (point 3).
+        let voit = voit_la_paie(c);
+        gescom_noyau::avances::donner_selon_droits_sur(
             c.base,
             arg(&p, "employeId", "employe_id")?,
             arg(&p, "montant", "montant")?,
             arg(&p, "moyen", "moyen")?,
             arg(&p, "motif", "motif")?,
+            voit,
         )
     });
     r.sur_base("annuler_avance", Some("personnel:avancer"), true, |c, p| {
@@ -367,9 +373,14 @@ pub fn registre() -> Registre {
     });
     // ---- v3, B-1 : l'Historique. La premiere lecture filtree (C1). ----
     r.sur_base("lire_historique", Some("journal:lire"), false, |c, p| {
+        // Revue du 28/10, point 9 : `avecPaie` est pose a faux par
+        // `coeur::lecture` pour qui ne voit pas la paie — au niveau des
+        // parametres, jamais dans le filtre de l'ecran.
+        let avec_paie = p.get("avecPaie").and_then(Value::as_bool).unwrap_or(true);
         let brut = p.get("filtre").cloned().unwrap_or(p);
-        let filtre: gescom_noyau::historique::Filtre = serde_json::from_value(brut)
+        let mut filtre: gescom_noyau::historique::Filtre = serde_json::from_value(brut)
             .map_err(|e| format!("Filtre illisible : {e}"))?;
+        filtre.sans_paie = !avec_paie;
         gescom_noyau::historique::lire_historique_sur(c.base, filtre)
     });
     r.sur_base("lire_filtres_historique", Some("journal:lire"), false, |c, _| {
@@ -2064,6 +2075,14 @@ fn entier(p: &Value, cle: &str) -> Option<i64> {
 /// changerait rien au comportement.
 fn option_texte(p: &Value, cle: &str) -> Option<String> {
     p.get(cle).and_then(Value::as_str).map(str::to_string)
+}
+
+/// L'appelant voit-il ce que gagne une personne (`paie:preparer` ou
+/// `paie:valider`) ? Lu en base a chaque appel, comme toutes les
+/// permissions ; la regle est celle de la lecture (`coeur::lecture`).
+fn voit_la_paie(c: &mut gescom_noyau::registre::ContexteBase) -> bool {
+    let perms = gescom_noyau::portes::permissions_de_sur(c.base, &c.appelant.utilisateur_id, &c.appelant.role);
+    gescom_noyau::coeur::lecture::voit_la_paie(|p| perms.contains(p))
 }
 
 /// Lit un parametre, quel que soit son type.

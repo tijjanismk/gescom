@@ -10,6 +10,7 @@ import { appeler as invoke } from "@/lib/pont";
 import { peut } from "@/lib/droits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 
 interface Cotisation { id: string; libelle: string; qui: "salarie" | "employeur"; taux: number; plafond: number | null; compte: string | null }
 
@@ -43,7 +44,9 @@ export function Cotisations() {
       setEnCours(false);
     }
   }
-  const nombre = (s: string) => Number(s.replace(/\s/g, "").replace(",", "."));
+  // Un taux garde sa virgule (3,6 %) ; un plafond est un montant :
+  // « 80.000 » vaut 80 000 F (MoneyInput, lib/montant.ts).
+  const taux = (s: string) => Number(s.replace(/\s/g, "").replace(",", "."));
 
   return (
     <div className="space-y-4 max-w-3xl">
@@ -93,14 +96,14 @@ export function Cotisations() {
           <label className="text-xs text-muted-foreground flex flex-col gap-1">Taux %
             <Input value={edite.taux} onChange={e => setEdite({ ...edite, taux: e.target.value })} aria-label="Taux" inputMode="decimal" className="h-9 w-20" /></label>
           <label className="text-xs text-muted-foreground flex flex-col gap-1">Plafond (facultatif)
-            <Input value={edite.plafond} onChange={e => setEdite({ ...edite, plafond: e.target.value })} aria-label="Plafond" inputMode="numeric" className="h-9 w-28" /></label>
+            <MoneyInput value={edite.plafond} onChange={v => setEdite({ ...edite, plafond: v })} aria-label="Plafond" placeholder="" className="h-9 w-28" /></label>
           <label className="text-xs text-muted-foreground flex flex-col gap-1">Compte (facultatif)
             <Input value={edite.compte} onChange={e => setEdite({ ...edite, compte: e.target.value })} aria-label="Compte de l'organisme"
               placeholder="431" className="h-9 w-24" /></label>
           <Button size="sm" disabled={enCours} onClick={() => faire("enregistrer_cotisation", {
             cotisation: {
-              id: edite.id, libelle: edite.libelle, qui: edite.qui, taux: edite.taux.trim() ? nombre(edite.taux) : 0,
-              plafond: edite.plafond.trim() ? nombre(edite.plafond) : null, compte: edite.compte.trim() || null,
+              id: edite.id, libelle: edite.libelle, qui: edite.qui, taux: edite.taux.trim() ? taux(edite.taux) : 0,
+              plafond: edite.plafond.trim() ? parseMontant(edite.plafond) : null, compte: edite.compte.trim() || null,
             },
           }, `${edite.libelle.trim()} enregistrée. Les brouillons se recalculent pour la prendre.`)}>Enregistrer</Button>
           <Button size="sm" variant="ghost" onClick={() => setEdite(null)}>Annuler</Button>

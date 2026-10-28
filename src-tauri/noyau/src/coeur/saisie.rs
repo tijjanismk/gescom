@@ -44,6 +44,62 @@ pub fn verifier_montant(montant: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// Le plus grand montant qu'une saisie de la paie accepte (salaire,
+/// tarif, prime, retenue, prix d'une tache, avance, versement, plafond) :
+/// un milliard de francs. Aucune boutique n'en paie autant en une ligne ;
+/// la borne existe pour qu'une valeur tapee de travers (ou envoyee sans
+/// l'ecran) ne fasse pas deborder une somme — le serveur de debogage
+/// paniquait et la base devenait « indisponible » (revue du 28/10).
+pub const MONTANT_MAX: i64 = 1_000_000_000;
+
+/// La plus grande quantite d'une ligne a la tache.
+pub const QUANTITE_MAX: f64 = 100_000.0;
+
+/// Un montant saisi : pas au-dela de `MONTANT_MAX`. `quoi` le nomme
+/// dans le refus (« la prime », « l'avance »…).
+pub fn borner_montant(montant: i64, quoi: &str) -> Result<(), String> {
+    if montant > MONTANT_MAX {
+        return Err(format!(
+            "Montant trop grand pour {quoi} : au plus {} F par saisie. Vérifier le nombre de zéros.",
+            francs_bruts(MONTANT_MAX)
+        ));
+    }
+    Ok(())
+}
+
+/// Une quantite saisie : finie, positive, pas au-dela de `QUANTITE_MAX`.
+pub fn borner_quantite(quantite: f64) -> Result<(), String> {
+    if !quantite.is_finite() || quantite <= 0.0 {
+        return Err("La quantité doit être plus grande que zéro.".to_string());
+    }
+    if quantite > QUANTITE_MAX {
+        return Err(format!("Quantité trop grande : au plus {} par ligne.", francs_bruts(QUANTITE_MAX as i64)));
+    }
+    Ok(())
+}
+
+/// Une somme de montants, verifiee : un depassement est refuse au lieu
+/// de faire paniquer le serveur (et de bloquer la base).
+pub fn somme(montants: impl IntoIterator<Item = i64>) -> Result<i64, String> {
+    montants
+        .into_iter()
+        .try_fold(0i64, |acc, m| acc.checked_add(m))
+        .ok_or_else(|| "Montants hors limites : la somme dépasse ce que Gescom sait compter.".to_string())
+}
+
+/// « 1 000 000 000 », sans le « F ».
+fn francs_bruts(n: i64) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Une ligne de vente, d'achat ou de piece. Le sens du stock est porte
 /// par le GESTE (vente, retour, reception), jamais par le signe de la
 /// quantite : une quantite negative ferait d'une vente un retour qui ne
@@ -156,6 +212,26 @@ mod tests {
         assert!(verifier_ligne(1.0, 0.0, 800).is_err());
         assert!(verifier_ligne(1.0, -1.0, 800).is_err());
         assert!(verifier_ligne(1.0, 1.0, -1).is_err());
+    }
+
+    #[test]
+    fn un_montant_ou_une_quantite_enorme_est_refuse() {
+        assert!(borner_montant(MONTANT_MAX, "la prime").is_ok());
+        let e = borner_montant(MONTANT_MAX + 1, "la prime").unwrap_err();
+        assert_eq!(e, "Montant trop grand pour la prime : au plus 1 000 000 000 F par saisie. Vérifier le nombre de zéros.");
+        assert!(borner_montant(i64::MAX, "l'avance").is_err());
+        assert!(borner_quantite(3.0).is_ok());
+        assert!(borner_quantite(QUANTITE_MAX + 1.0).is_err());
+        assert!(borner_quantite(f64::INFINITY).is_err());
+        assert!(borner_quantite(0.0).is_err());
+    }
+
+    #[test]
+    fn une_somme_qui_deborde_est_refusee_sans_paniquer() {
+        assert_eq!(somme([1, 2, 3]), Ok(6));
+        assert_eq!(somme([]), Ok(0));
+        assert_eq!(somme([-5, 2]), Ok(-3));
+        assert!(somme([i64::MAX, 1]).unwrap_err().contains("hors limites"));
     }
 
     #[test]

@@ -275,6 +275,8 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
             a_verifier: true,
             page: 1,
             par_page: 10,
+            // Revue du 28/10 : la recherche sans le detail de la paie.
+            sans_paie: true,
         },
     );
     historique::anomalies_a_verifier_sur(&mut base).expect("compteur");

@@ -592,7 +592,11 @@ CREATE TABLE IF NOT EXISTS avance (
     mouvement_caisse_id  TEXT,
     cree_par             TEXT,
     cree_le              TEXT NOT NULL,
-    annule_le            TEXT
+    annule_le            TEXT,
+    -- Revue du 28/10 (point 6, D32) : une avance nee d'un trop-verse,
+    -- creee a la validation d'une rectificative ; la fiche qui l'a dit
+    -- (moyen `trop_verse`, rien ne sort de la tresorerie).
+    trop_verse_fiche_id  TEXT
 );
 
 -- La fiche de paie (PLAN-EQUIPE, G-2 — D31) : un papier qu'on remet,
@@ -621,7 +625,12 @@ CREATE TABLE IF NOT EXISTS fiche_paie (
     cree_le      TEXT NOT NULL,
     modifie_le   TEXT NOT NULL,
     valide_par   TEXT,
-    valide_le    TEXT
+    valide_le    TEXT,
+    -- Revue du 28/10 (point 4, D31) : ce qui a servi au calcul (salaire,
+    -- tarif, taux de commission, compte, declaration, cotisations), en
+    -- JSON, fige a la validation ; une rectificative le reprend. Vide
+    -- sur une fiche d'avant : elle se relit sur ses lignes.
+    conditions   TEXT
 );
 
 -- Les lignes d'une fiche : `montant` signe (gain +, retenue -) ;

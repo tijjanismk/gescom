@@ -60,6 +60,7 @@ pub const TYPES: &[(&str, &str)] = &[
     ("employe_revenu", "Retour dans le personnel"),
     ("avance_donnee", "Avance sur salaire"),
     ("avance_annulee", "Avance annulée"),
+    ("avance_trop_verse", "Versé en trop, repris en avance"),
     ("paie_preparee", "Fiche de paie préparée"),
     ("paie_supprimee", "Brouillon de paie jeté"),
     ("paie_validee", "Fiche de paie validée"),

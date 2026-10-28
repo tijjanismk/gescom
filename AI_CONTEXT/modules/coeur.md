@@ -128,6 +128,12 @@ Ce que le serveur refuse d'une saisie, quel que soit l'écran.
   et finis, prix ≥ 0 (0 = cadeau, accepté). Le sens du stock est porté
   par le geste, jamais par le signe.
 - `verifier_remise_pct(f64)` — 0 à 100.
+- (28/10, revue de la paie) `MONTANT_MAX` (1 000 000 000 F),
+  `QUANTITE_MAX` (100 000), `borner_montant(m, quoi)`,
+  `borner_quantite(q)`, `somme(montants) -> Result` (addition vérifiée :
+  un dépassement est un refus, pas une panique qui empoisonnait la base
+  du serveur de débogage). Appelés par la paie, les avances, la fiche
+  du personnel, les cotisations.
 
 Appelé par `creer_vente*`, `regler_creance*` (donc `enregistrer_paiement*`),
 `regler_dette_fournisseur*`, `enregistrer_achat*`, `creer_piece*`,

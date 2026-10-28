@@ -23,6 +23,37 @@ fn annee() -> String {
     chrono::Local::now().format("%Y").to_string()
 }
 
+/// Un mois civil entier `(1er, dernier jour)`, `decalage` mois apres
+/// le mois courant. Revue du 28/10 (point 8) : une personne au mois se
+/// paie sur un mois civil entier, plus sur « les trente derniers jours ».
+fn mois(decalage: i32) -> (String, String) {
+    use chrono::{Datelike, Months};
+    let premier = chrono::Local::now().date_naive().with_day(1).unwrap();
+    let d = if decalage >= 0 {
+        premier.checked_add_months(Months::new(decalage as u32)).unwrap()
+    } else {
+        premier.checked_sub_months(Months::new((-decalage) as u32)).unwrap()
+    };
+    let fin = d.checked_add_months(Months::new(1)).unwrap().pred_opt().unwrap();
+    (d.format("%Y-%m-%d").to_string(), fin.format("%Y-%m-%d").to_string())
+}
+
+/// Les jours d'un mois civil.
+fn jours_du(du: &str) -> i64 {
+    gescom_noyau::coeur::paie::jours_du_mois_de(du).unwrap()
+}
+
+/// Antidate une vente ou une avance dans le mois voulu (les gestes se
+/// datent du jour ; la paie du mois dernier les lit dans sa periode).
+fn dater(base: &mut Base, table: &str, colonne: &str, id: &str, jour: &str) {
+    let dossier = base.dossier().to_string();
+    base.executer(
+        &format!("UPDATE {table} SET {colonne} = ?1 WHERE id = ?2 AND dossier_id = ?3"),
+        &parametres![format!("{jour}T10:00:00"), id, dossier],
+    )
+    .unwrap();
+}
+
 fn creer(base: &mut Base, v: Value) -> String {
     let f: Fiche = serde_json::from_value(v).unwrap();
     personnel::creer_sur(base, f).unwrap()["id"].as_str().unwrap().to_string()
@@ -55,10 +86,15 @@ fn equipe(base: &mut Base) -> Equipe {
 
 /// Une vente a credit (pas de caisse) ; rend son montant.
 fn vendre(base: &mut Base, quantite: f64) -> i64 {
+    vendre_id(base, quantite).0
+}
+
+/// Une vente a credit ; rend son montant et son id.
+fn vendre_id(base: &mut Base, quantite: f64) -> (i64, String) {
     let depot = depot_defaut(base);
     let sucre = article_unite(base, "Sucre");
     let client = client_reel(base);
-    argent::creer_vente_sur_base(
+    let v = argent::creer_vente_sur_base(
         base, client, depot.clone(), "credit".into(),
         vec![ParamsLigneInput {
             article_id: sucre.0.clone(), unite_vente_id: sucre.1.clone(), depot_source_id: depot,
@@ -68,7 +104,7 @@ fn vendre(base: &mut Base, quantite: f64) -> i64 {
         None, None, None, None,
     )
     .expect("vente");
-    (sucre.3 as f64 * quantite).round() as i64
+    ((sucre.3 as f64 * quantite).round() as i64, v["vente_id"].as_str().unwrap().to_string())
 }
 
 fn marquer(base: &mut Base, employe: &str, du: i64, n: i64, etat: &str) {
@@ -90,20 +126,32 @@ fn retenu(base: &mut Base, avance_id: &str) -> i64 {
 fn les_trois_personnes_de_f2() {
     let mut base = base_avec_demo();
     let e = equipe(&mut base);
-    let (du, au) = (jour(-30), jour(0));
-    marquer(&mut base, &e.moussa, -30, 22, "present");
+    // Le mois dernier, entier (revue du 28/10, point 8) : tous ses jours
+    // sont passés ; ventes et avance y sont datées.
+    let (du, au) = mois(-1);
+    let n = jours_du(&du);
+    let le = |j: i64| format!("{}{:02}", &du[..8], j);
+    for j in 1..=22 {
+        presences::marquer_sur(&mut base, e.moussa.clone(), le(j), Some("present".into())).unwrap();
+    }
     // Fanta signe deux ventes ; l'admin une, qui ne compte pas pour elle.
     let ventes_fanta = {
         let _g = auteur::poser(&e.compte_fanta);
-        vendre(&mut base, 10.0) + vendre(&mut base, 5.0)
+        let (a, va) = vendre_id(&mut base, 10.0);
+        let (b, vb) = vendre_id(&mut base, 5.0);
+        dater(&mut base, "vente", "date_vente", &va, &le(5));
+        dater(&mut base, "vente", "date_vente", &vb, &le(12));
+        a + b
     };
     {
         let admin = admin(&mut base);
         let _g = auteur::poser(&admin);
-        vendre(&mut base, 7.0);
+        let (_, v) = vendre_id(&mut base, 7.0);
+        dater(&mut base, "vente", "date_vente", &v, &le(6));
     }
     ouvrir_caisse(&mut base);
     let avance = avances::donner_sur(&mut base, e.awa.clone(), 10_000, None, None).unwrap()["id"].as_str().unwrap().to_string();
+    dater(&mut base, "avance", "date_avance", &avance, &le(15));
 
     // Awa : le mois, moins l'avance.
     let awa = paie::preparer_sur(&mut base, e.awa.clone(), du.clone(), au.clone(), false).unwrap();
@@ -128,11 +176,19 @@ fn les_trois_personnes_de_f2() {
     paie::ajouter_ligne_sur(&mut base, awa["id"].as_str().unwrap().into(), "prime".into(), "Fin de mois".into(), None, None, Some(5_000)).unwrap();
     let awa = paie::ajouter_ligne_sur(&mut base, awa["id"].as_str().unwrap().into(), "retenue".into(), "Casse d'un carton".into(), None, None, Some(2_000)).unwrap();
     assert_eq!(awa["net"], 53_000, "60 000 + 5 000 - 2 000 - 10 000");
-    marquer(&mut base, &e.awa, -30, 20, "present");
-    marquer(&mut base, &e.awa, -10, 2, "absent");
+    for j in 1..=20 {
+        presences::marquer_sur(&mut base, e.awa.clone(), le(j), Some("present".into())).unwrap();
+    }
+    for j in 21..=22 {
+        presences::marquer_sur(&mut base, e.awa.clone(), le(j), Some("absent".into())).unwrap();
+    }
     let awa_id = awa["id"].as_str().unwrap().to_string();
     let awa = paie::recalculer_sur(&mut base, awa_id.clone(), Some(true)).unwrap();
-    assert_eq!(ligne(&awa, "base")[0]["montant"], 54_545, "60 000 × 20 / 22");
+    // Revue du 28/10 (point 2, choix du propriétaire) : un jour non marqué
+    // compte comme présent — 60 000 × (n − 2) / n, en entiers. Avant :
+    // « 20 / 22 jours marqués » (54 545 F), qui ne payait pas les jours
+    // que personne n'avait cochés.
+    assert_eq!(ligne(&awa, "base")[0]["montant"], (60_000 * 2 * (n - 2) + n) / (2 * n), "60 000 × (n − 2) / n");
     assert_eq!(ligne(&awa, "prime").len(), 1, "les saisies restent");
 
     // Validée : un numéro, l'avance retenue, plus rien ne change.
@@ -151,7 +207,7 @@ fn les_trois_personnes_de_f2() {
     assert_eq!(paie::lire_sur(&mut base, &awa_id).unwrap()["net"], net, "corriger son salaire ne réécrit pas ce qu'elle a touché");
 
     // Pas deux fiches pour la même période.
-    let e2 = paie::preparer_sur(&mut base, e.awa.clone(), jour(-3), jour(0), false).unwrap_err();
+    let e2 = paie::preparer_sur(&mut base, e.awa.clone(), du.clone(), au.clone(), false).unwrap_err();
     assert!(e2.contains("Awa a déjà une fiche") && e2.contains("PAIE-"), "{e2}");
 
     // La liste : trois fiches, personne à préparer.
@@ -187,7 +243,8 @@ fn on_ne_valide_que_ce_qui_est_a_jour() {
     assert_eq!(f["net"], 18_000);
     assert!(paie::valider_sur(&mut base, id.clone()).is_ok());
     // Un brouillon se jette, une période invalide se refuse.
-    let b = paie::preparer_sur(&mut base, e.awa.clone(), jour(-10), jour(0), false).unwrap();
+    let (du, au) = mois(0);
+    let b = paie::preparer_sur(&mut base, e.awa.clone(), du, au, false).unwrap();
     paie::supprimer_sur(&mut base, b["id"].as_str().unwrap().into()).unwrap();
     assert!(paie::lire_sur(&mut base, b["id"].as_str().unwrap()).is_err());
     assert!(paie::preparer_sur(&mut base, e.awa.clone(), jour(0), jour(-1), false).is_err());
@@ -221,7 +278,8 @@ fn la_rectificative_remplace_sans_reecrire() {
     let e = equipe(&mut base);
     ouvrir_caisse(&mut base);
     let a = avances::donner_sur(&mut base, e.awa.clone(), 10_000, None, None).unwrap()["id"].as_str().unwrap().to_string();
-    let f = paie::preparer_sur(&mut base, e.awa.clone(), jour(-30), jour(0), false).unwrap();
+    let (du, au) = mois(0);
+    let f = paie::preparer_sur(&mut base, e.awa.clone(), du.clone(), au.clone(), false).unwrap();
     let id = f["id"].as_str().unwrap().to_string();
     paie::ajouter_ligne_sur(&mut base, id.clone(), "prime".into(), "Fin de mois".into(), None, None, Some(5_000)).unwrap();
     assert!(paie::rectifier_sur(&mut base, id.clone()).unwrap_err().contains("brouillon"));
@@ -248,7 +306,7 @@ fn la_rectificative_remplace_sans_reecrire() {
     assert_eq!(retenu(&mut base, &a), 10_000, "l'avance n'est pas retenue deux fois");
     assert!(paie::rectifier_sur(&mut base, id).unwrap_err().contains("remplacée"));
     // On peut repréparer ? Non : la rectificative couvre la période.
-    assert!(paie::preparer_sur(&mut base, e.awa.clone(), jour(-5), jour(0), false).is_err());
+    assert!(paie::preparer_sur(&mut base, e.awa.clone(), du, au, false).unwrap_err().contains("déjà une fiche"));
 }
 
 /// G-3 : deux versements, le reste dû ; hors caisse (décision du 24/09).
@@ -256,7 +314,8 @@ fn la_rectificative_remplace_sans_reecrire() {
 fn payer_en_deux_fois_hors_caisse() {
     let mut base = base_avec_demo();
     let e = equipe(&mut base);
-    let f = paie::preparer_sur(&mut base, e.awa.clone(), jour(-30), jour(0), false).unwrap();
+    let (du, au) = mois(0);
+    let f = paie::preparer_sur(&mut base, e.awa.clone(), du, au, false).unwrap();
     let id = f["id"].as_str().unwrap().to_string();
     assert!(paie::verser_sur(&mut base, id.clone(), 10_000, None).unwrap_err().contains("brouillon"));
     paie::valider_sur(&mut base, id.clone()).unwrap();
@@ -285,6 +344,8 @@ fn payer_en_deux_fois_hors_caisse() {
     assert_eq!((r["verse"].as_i64(), r["reste"].as_i64()), (Some(60_000), Some(5_000)));
     assert!(paie::verser_sur(&mut base, id, 5_000, None).unwrap_err().contains("remplacée par"));
     paie::verser_sur(&mut base, rid.clone(), 5_000, None).unwrap();
+    // Un montant énorme se refuse, sans faire paniquer le serveur (point 11).
+    assert!(paie::verser_sur(&mut base, rid.clone(), i64::MAX, None).unwrap_err().contains("trop grand"));
 
     // Le bulletin : la fiche, ses versements, la personne, la société.
     let b = paie::donnees_bulletin_sur(&mut base, rid).unwrap();
@@ -310,7 +371,8 @@ fn les_cotisations_ne_touchent_que_les_declares() {
     let e = equipe(&mut base);
     let fanta_declaree = creer(&mut base, json!({ "nom": "Kadia", "fonction": "comptable", "salaire_mensuel": 100000, "declare": true, "numero_inps": "998877" }));
     assert!(paie::cotisations_sur(&mut base).unwrap().is_empty(), "vides par défaut");
-    let f = paie::preparer_sur(&mut base, fanta_declaree.clone(), jour(-30), jour(0), false).unwrap();
+    let (du, au) = mois(0);
+    let f = paie::preparer_sur(&mut base, fanta_declaree.clone(), du.clone(), au.clone(), false).unwrap();
     assert_eq!(f["net"], 100_000, "rien de réglé : rien de retenu");
     paie::supprimer_sur(&mut base, f["id"].as_str().unwrap().into()).unwrap();
 
@@ -322,14 +384,14 @@ fn les_cotisations_ne_touchent_que_les_declares() {
     assert!(paie::enregistrer_cotisation_sur(&mut base, cotisation("X", "salarie", 5.0, None, Some("661"))).unwrap_err().contains("43 ou 44"));
     assert_eq!(paie::cotisations_sur(&mut base).unwrap().len(), 3);
 
-    let k = paie::preparer_sur(&mut base, fanta_declaree.clone(), jour(-30), jour(0), false).unwrap();
+    let k = paie::preparer_sur(&mut base, fanta_declaree.clone(), du.clone(), au.clone(), false).unwrap();
     // 100 000 − 3 600 (INPS) − 5 000 (ITS) ; la part patronale (16,4 % de 80 000, plafonné) hors du net.
     assert_eq!((k["brut"].as_i64(), k["retenues"].as_i64(), k["net"].as_i64()), (Some(100_000), Some(8_600), Some(91_400)));
     let charges: Vec<&Value> = k["lignes"].as_array().unwrap().iter().filter(|l| l["genre"] == "charge_patronale").collect();
     assert_eq!(charges.len(), 1);
     assert_eq!(charges[0]["montant"], 13_120);
     // Awa n'est pas déclarée : rien.
-    let a = paie::preparer_sur(&mut base, e.awa.clone(), jour(-30), jour(0), false).unwrap();
+    let a = paie::preparer_sur(&mut base, e.awa.clone(), du, au, false).unwrap();
     assert_eq!(a["net"], 60_000);
     assert!(a["lignes"].as_array().unwrap().iter().all(|l| l["genre"] != "cotisation" && l["genre"] != "charge_patronale"));
 
@@ -364,7 +426,8 @@ fn le_journal_de_paie_est_equilibre() {
     // Une avance donnée par erreur puis annulée : aller et retour dans PA.
     let erreur = avances::donner_sur(&mut base, e.moussa.clone(), 3_000, None, None).unwrap();
     avances::annuler_sur(&mut base, erreur["id"].as_str().unwrap().into(), None).unwrap();
-    let f = paie::preparer_sur(&mut base, e.awa.clone(), jour(-30), jour(0), false).unwrap();
+    let (mdu, mau) = mois(0);
+    let f = paie::preparer_sur(&mut base, e.awa.clone(), mdu.clone(), mau.clone(), false).unwrap();
     let fid = f["id"].as_str().unwrap().to_string();
     paie::ajouter_ligne_sur(&mut base, fid.clone(), "retenue".into(), "Casse".into(), None, None, Some(2_000)).unwrap();
     paie::valider_sur(&mut base, fid.clone()).unwrap();
@@ -375,7 +438,7 @@ fn le_journal_de_paie_est_equilibre() {
     paie::ajouter_ligne_sur(&mut base, rid.clone(), "prime".into(), "Oubliée".into(), None, None, Some(5_000)).unwrap();
     paie::valider_sur(&mut base, rid.clone()).unwrap();
     paie::verser_sur(&mut base, rid.clone(), 10_000, Some("orange_money".into())).unwrap();
-    let k = paie::preparer_sur(&mut base, kadia, jour(-30), jour(0), false).unwrap();
+    let k = paie::preparer_sur(&mut base, kadia, mdu, mau, false).unwrap();
     paie::valider_sur(&mut base, k["id"].as_str().unwrap().into()).unwrap();
 
     let (du, au) = (jour(-1), jour(1));
@@ -407,13 +470,16 @@ fn le_journal_de_paie_est_equilibre() {
     assert!(tout.iter().any(|e| e.journal == "PA"));
     let sans = journaux_comptables::ecritures_sur(&mut base, &du, &au, None, false).unwrap();
     assert!(sans.iter().all(|e| e.journal != "PA"));
-    // Sans le droit de préparer la paie, le serveur neutralise.
+    // Sans le droit de lire la paie, le serveur neutralise. La lire, c'est
+    // la préparer ou la valider (revue du 28/10, point 3).
     let mut params = json!({ "du": du, "au": au });
     lecture::neutraliser("lire_journaux_comptables", |p| p == "rapports:lire", &mut params);
     assert_eq!(params["avecPaie"], false);
-    let mut params = json!({ "du": du });
-    lecture::neutraliser("lire_journaux_comptables", |p| p == "paie:preparer", &mut params);
-    assert!(params["avecPaie"].is_null());
+    for p in ["paie:preparer", "paie:valider"] {
+        let mut params = json!({ "du": du });
+        lecture::neutraliser("lire_journaux_comptables", |x| x == p, &mut params);
+        assert!(params["avecPaie"].is_null(), "{p}");
+    }
 }
 
 /// Rapports -> CA mensuel : le coût des salaires du mois à côté du CA,
@@ -426,7 +492,7 @@ fn le_ca_mensuel_montre_les_salaires() {
     let kadia = creer(&mut base, json!({ "nom": "Kadia", "fonction": "comptable", "salaire_mensuel": 100000, "declare": true }));
     paie::enregistrer_cotisation_sur(&mut base, cotisation("INPS employeur", "employeur", 16.4, None, None)).unwrap();
     let ventes = { let _g = auteur::poser(&e.compte_fanta); vendre(&mut base, 10.0) };
-    let (du, au) = (jour(-30), jour(0));
+    let (du, au) = mois(0);
     for p in [&e.awa, &kadia] {
         let f = paie::preparer_sur(&mut base, p.clone(), du.clone(), au.clone(), false).unwrap();
         paie::valider_sur(&mut base, f["id"].as_str().unwrap().into()).unwrap();
@@ -452,16 +518,17 @@ fn le_ca_mensuel_montre_les_salaires() {
 fn chaque_dossier_sa_paie_et_ses_numeros() {
     let mut base = base_avec_demo();
     let e = equipe(&mut base);
-    let f = paie::preparer_sur(&mut base, e.awa.clone(), jour(-30), jour(0), false).unwrap();
+    let (du, au) = mois(0);
+    let f = paie::preparer_sur(&mut base, e.awa.clone(), du.clone(), au.clone(), false).unwrap();
     paie::valider_sur(&mut base, f["id"].as_str().unwrap().into()).unwrap();
     let b = dossiers::creer_dossier_sur(&mut base, "B".into(), "Boutique B".into(), None, None).unwrap()["id"].as_str().unwrap().to_string();
     base.choisir_dossier(&b).unwrap();
     assert!(paie::lire_sur(&mut base, f["id"].as_str().unwrap()).is_err());
-    assert!(paie::preparer_sur(&mut base, e.awa.clone(), jour(-30), jour(0), false).unwrap_err().contains("introuvable"));
+    assert!(paie::preparer_sur(&mut base, e.awa.clone(), du.clone(), au.clone(), false).unwrap_err().contains("introuvable"));
     let l = paie::lister_sur(&mut base, jour(-30), jour(0)).unwrap();
     assert!(l["fiches"].as_array().unwrap().is_empty());
     let issa = creer(&mut base, json!({ "nom": "Issa", "fonction": "gardien", "salaire_mensuel": 40000 }));
-    let g = paie::preparer_sur(&mut base, issa, jour(-30), jour(0), false).unwrap();
+    let g = paie::preparer_sur(&mut base, issa, du, au, false).unwrap();
     let g = paie::valider_sur(&mut base, g["id"].as_str().unwrap().into()).unwrap();
     // Chaque dossier numerote ses fiches, et un second dossier prefixe
     // ses numeros de son code (22/10, comme toute piece).
@@ -496,8 +563,9 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
         vendre(&mut base, 2.0);
     }
     avances::donner_sur(&mut base, e.awa.clone(), 1_000, None, None).unwrap();
+    let (du, au) = mois(0);
     for p in [&e.awa, &e.moussa, &e.fanta] {
-        let f = paie::preparer_sur(&mut base, p.clone(), jour(-3), jour(0), true).unwrap();
+        let f = paie::preparer_sur(&mut base, p.clone(), du.clone(), au.clone(), true).unwrap();
         let id = f["id"].as_str().unwrap().to_string();
         let f = paie::ajouter_ligne_sur(&mut base, id.clone(), "prime".into(), "x".into(), None, None, Some(100)).unwrap();
         let prime = ligne(&f, "prime")[0]["id"].as_str().unwrap().to_string();
@@ -510,9 +578,10 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
         paie::valider_sur(&mut base, rid.clone()).unwrap();
         paie::donnees_bulletin_sur(&mut base, rid).unwrap();
     }
-    let b = paie::preparer_sur(&mut base, e.awa.clone(), jour(1), jour(2), false).unwrap();
+    let (sdu, sau) = mois(1);
+    let b = paie::preparer_sur(&mut base, e.awa.clone(), sdu, sau, false).unwrap();
     paie::supprimer_sur(&mut base, b["id"].as_str().unwrap().into()).unwrap();
-    paie::lister_sur(&mut base, jour(-3), jour(0)).unwrap();
+    paie::lister_sur(&mut base, du, au).unwrap();
     gescom_noyau::journaux_comptables::ecritures_sur(&mut base, &jour(-3), &jour(3), Some("PA"), true).unwrap();
     paie::retirer_cotisation_sur(&mut base, c.id).unwrap();
 }

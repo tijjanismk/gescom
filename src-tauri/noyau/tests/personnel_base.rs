@@ -116,13 +116,17 @@ fn un_depart_ne_supprime_rien_et_un_retour_reprend_la_fiche() {
     assert_eq!(tous.len(), 3);
     assert_eq!(tous.last().unwrap()["nom"], "Moussa", "les partis après les actifs");
     assert!(personnel::faire_partir_sur(&mut base, moussa.clone(), None, None).unwrap_err().contains("déjà partie"));
-    personnel::faire_revenir_sur(&mut base, moussa.clone()).unwrap();
+    // Il revient le lendemain de son départ : rien n'est interrompu, son
+    // entrée ne bouge pas (un départ saisi par erreur se défait). Un
+    // retour après une vraie absence : paie_corrections_base.rs.
+    let r = personnel::faire_revenir_sur(&mut base, moussa.clone(), Some("2026-09-21".into())).unwrap();
+    assert_eq!((r["statut"].as_str(), r["date_entree"].as_str()), (Some("actif"), None));
     assert_eq!(personnel::lister_sur(&mut base, false).unwrap().len(), 3);
 
     // Fanta part ; son compte passe à une nouvelle ; Fanta ne peut revenir avec lui.
     personnel::faire_partir_sur(&mut base, fanta.clone(), None, None).unwrap();
     personnel::creer_sur(&mut base, fiche(json!({ "nom": "Kadia", "fonction": "vendeuse", "utilisateur_id": compte }))).unwrap();
-    assert!(personnel::faire_revenir_sur(&mut base, fanta).unwrap_err().contains("Kadia"));
+    assert!(personnel::faire_revenir_sur(&mut base, fanta, None).unwrap_err().contains("Kadia"));
 }
 
 #[test]
@@ -173,5 +177,5 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
     personnel::lister_sur(&mut base, true).unwrap();
     personnel::modifier_sur(&mut base, awa.clone(), fiche(json!({ "nom": "Awa", "fonction": "x" }))).unwrap();
     personnel::faire_partir_sur(&mut base, awa.clone(), None, None).unwrap();
-    personnel::faire_revenir_sur(&mut base, awa).unwrap();
+    personnel::faire_revenir_sur(&mut base, awa, None).unwrap();
 }

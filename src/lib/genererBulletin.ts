@@ -27,6 +27,8 @@ export interface DonneesBulletin {
   reporte: number;
   verse: number;
   reste: number;
+  /** Versé en trop sur la période, repris en avance sur la paie suivante. */
+  trop_verse?: number;
   rectifie_numero?: string | null;
   remplacee_par?: string | null;
   valide_le?: string | null;
@@ -139,6 +141,7 @@ export function genererBulletinHTML(d: DonneesBulletin, h: Habillage = {}): stri
           <td class="m">${d.reste === 0 ? f(d.verse) : f(Math.abs(d.reste))}</td></tr>
       </tbody>
     </table>` : ""}
+    ${(d.trop_verse ?? 0) > 0 ? `<div class="note">${f(d.trop_verse ?? 0)} versés en trop sur cette période : repris en avance, retenus sur la paie suivante.</div>` : ""}
 
     ${blocSignatures(r ? r.signatures : [{ libelle: "L'employé" }, { libelle: "Pour la société" }])}`;
 

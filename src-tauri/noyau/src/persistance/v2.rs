@@ -303,6 +303,9 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         // Equipe, G-1 : le plafond des avances (employe ne en F-2).
         "ALTER TABLE employe ADD COLUMN avance_max INTEGER",
         "ALTER TABLE avance ADD COLUMN annule_le TEXT",
+        // Revue de la paie (28/10) : conditions figees, trop-verse.
+        "ALTER TABLE fiche_paie ADD COLUMN conditions TEXT",
+        "ALTER TABLE avance ADD COLUMN trop_verse_fiche_id TEXT",
         // Equipe, H-2 (D34) : un prospect est un client sans vente encore.
         "ALTER TABLE client ADD COLUMN statut TEXT NOT NULL DEFAULT 'client'",
         "ALTER TABLE client ADD COLUMN origine_prospect TEXT",

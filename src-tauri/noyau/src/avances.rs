@@ -69,13 +69,28 @@ fn noter(
         .map_err(|e| e.0)
 }
 
-/// Donne une avance, rattachee a la personne, hors caisse.
+/// Donne une avance, rattachee a la personne, hors caisse — comme qui
+/// voit la paie (les tests).
 pub fn donner_sur(
     base: &mut Base,
     employe_id: String,
     montant: i64,
     moyen: Option<String>,
     motif: Option<String>,
+) -> Result<serde_json::Value, String> {
+    donner_selon_droits_sur(base, employe_id, montant, moyen, motif, true)
+}
+
+/// Donne une avance. `voit_la_paie` : l'appelant lit-il le plafond
+/// (`coeur::lecture::voit_la_paie`) ? Sans, le refus ne le chiffre pas
+/// (revue du 28/10, point 3).
+pub fn donner_selon_droits_sur(
+    base: &mut Base,
+    employe_id: String,
+    montant: i64,
+    moyen: Option<String>,
+    motif: Option<String>,
+    voit_la_paie: bool,
 ) -> Result<serde_json::Value, String> {
     let p = personne(base, &employe_id)?;
     if p.statut != "actif" {
@@ -84,7 +99,7 @@ pub fn donner_sur(
     let moyen = moyen.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).unwrap_or_else(|| "especes".into());
     crate::coeur::saisie::verifier_mode_encaissement(&moyen)?;
     let en_cours = en_cours_sur(base, &employe_id)?;
-    regles::verifier(montant, en_cours, p.plafond, &p.nom)?;
+    regles::verifier(montant, en_cours, p.plafond, &p.nom, voit_la_paie)?;
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
     let dossier = base.dossier().to_string();
     let now = crate::utils::maintenant_iso();
@@ -103,7 +118,7 @@ pub fn donner_sur(
     tx.valider().map_err(|e| e.0)?;
     Ok(serde_json::json!({
         "id": id, "employe_id": employe_id, "nom": p.nom, "montant": montant,
-        "en_cours": en_cours + montant, "date_avance": now,
+        "en_cours": en_cours.saturating_add(montant), "date_avance": now,
     }))
 }
 
@@ -145,8 +160,9 @@ pub fn annuler_sur(base: &mut Base, avance_id: String, motif: Option<String>) ->
 pub fn lister_sur(base: &mut Base, employe_id: Option<String>, en_cours_seulement: bool) -> Result<Vec<serde_json::Value>, String> {
     let dossier = base.dossier().to_string();
     base.lire_plusieurs(
-        "SELECT a.id, a.employe_id, e.nom, a.montant, a.retenu, a.moyen, a.motif, a.date_avance, a.statut
+        "SELECT a.id, a.employe_id, e.nom, a.montant, a.retenu, a.moyen, a.motif, a.date_avance, a.statut, f.numero
          FROM avance a JOIN employe e ON e.id = a.employe_id AND e.dossier_id = a.dossier_id
+         LEFT JOIN fiche_paie f ON f.id = a.trop_verse_fiche_id AND f.dossier_id = a.dossier_id
          WHERE a.dossier_id = ?1
            AND (CAST(?2 AS TEXT) IS NULL OR a.employe_id = ?2)
            AND (CAST(?3 AS BIGINT) = 0 OR (a.statut = 'ouverte' AND a.montant > a.retenu))
@@ -166,6 +182,9 @@ pub fn lister_sur(base: &mut Base, employe_id: Option<String>, en_cours_seulemen
                 "motif": r.get::<Option<String>>(6)?,
                 "date_avance": r.get::<String>(7)?,
                 "statut": r.get::<String>(8)?,
+                // Revue du 28/10, point 6 : une avance nee d'un trop-verse
+                // dit sur quelle fiche (la rectificative qui l'a cree).
+                "trop_verse_numero": r.get::<Option<String>>(9)?,
             }))
         },
     )

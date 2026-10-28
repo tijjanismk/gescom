@@ -424,15 +424,16 @@ fn paie(base: &mut Base, p: &Periode, a: &HashMap<String, String>) -> Result<Vec
         )
         .map_err(|e| e.0)?;
     for (id, date, montant, moyen, nom) in avances {
-        v.extend(simple(
-            "PA",
-            &date,
-            piece_courte("AV", &id),
-            format!("Avance {} — {nom}", regles::libelle_mode(&moyen)),
-            &a["paie:avances"],
-            &a[cle_tresorerie(&moyen)],
-            montant,
-        ));
+        // Un trop-verse repris en avance (revue du 28/10, point 6) :
+        // l'argent est sorti avec les versements, rien ne sort de la
+        // tresorerie — la dette passe des remunerations dues (422, en
+        // debit apres la rectificative) aux avances (421).
+        let (contrepartie, libelle) = if moyen == crate::coeur::paie::MOYEN_TROP_VERSE {
+            (&a["paie:remunerations_dues"], format!("Versé en trop, repris en avance — {nom}"))
+        } else {
+            (&a[cle_tresorerie(&moyen)], format!("Avance {} — {nom}", regles::libelle_mode(&moyen)))
+        };
+        v.extend(simple("PA", &date, piece_courte("AV", &id), libelle, &a["paie:avances"], contrepartie, montant));
     }
     // Une avance annulee : l'ecriture inverse, le jour de l'annulation.
     let annulees = base
@@ -446,7 +447,12 @@ fn paie(base: &mut Base, p: &Periode, a: &HashMap<String, String>) -> Result<Vec
         )
         .map_err(|e| e.0)?;
     for (id, date, montant, moyen, nom) in annulees {
-        v.extend(simple("PA", &date, piece_courte("AV", &id), format!("Avance annulée — {nom}"), &a[cle_tresorerie(&moyen)], &a["paie:avances"], montant));
+        let contrepartie = if moyen == crate::coeur::paie::MOYEN_TROP_VERSE {
+            &a["paie:remunerations_dues"]
+        } else {
+            &a[cle_tresorerie(&moyen)]
+        };
+        v.extend(simple("PA", &date, piece_courte("AV", &id), format!("Avance annulée — {nom}"), contrepartie, &a["paie:avances"], montant));
     }
     v.sort_by(|x, y| x.date.cmp(&y.date));
     Ok(v)

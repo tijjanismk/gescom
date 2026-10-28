@@ -12,15 +12,22 @@ import { peut } from "@/lib/droits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { FichesPaie } from "./FichesPaie";
 import { Cotisations } from "./Cotisations";
 
 interface Avance {
   id: string; employe_id: string; nom: string; montant: number; retenu: number; reste: number;
   moyen: string; motif: string | null; date_avance: string; statut: "ouverte" | "annulee";
+  trop_verse_numero: string | null;
 }
 
 const MOYENS: [string, string][] = [["especes", "Espèces"], ["orange_money", "Orange Money"], ["moov_money", "Moov Money"]];
+// Une avance née d'un trop-versé (revue du 28/10) : rien n'est sorti
+// de la trésorerie, elle se retient sur la paie suivante.
+const moyenDit = (a: Avance) => a.moyen === "trop_verse"
+  ? `versé en trop${a.trop_verse_numero ? ` sur ${a.trop_verse_numero}` : ""}, repris en avance`
+  : MOYENS.find(m => m[0] === a.moyen)?.[1] ?? a.moyen;
 const f = (n: number) => `${n.toLocaleString("fr-FR")} F`;
 
 function Avances() {
@@ -82,8 +89,7 @@ function Avances() {
                 {personnes.map(p => <option key={p.id} value={p.id}>{p.nom} ({p.fonction})</option>)}
               </select></label>
             <label className="text-xs text-muted-foreground flex flex-col gap-1">Montant
-              <Input value={montant} onChange={e => setMontant(e.target.value)} aria-label="Montant de l'avance"
-                inputMode="numeric" className="h-9 w-32" /></label>
+              <MoneyInput value={montant} onChange={setMontant} aria-label="Montant de l'avance" className="h-9 w-32" /></label>
             <label className="text-xs text-muted-foreground flex flex-col gap-1">Donnée en
               <select value={moyen} onChange={e => setMoyen(e.target.value)} aria-label="Donnée en"
                 className="h-9 px-2 text-sm border border-border rounded-md bg-background">
@@ -93,7 +99,7 @@ function Avances() {
               <Input value={motif} onChange={e => setMotif(e.target.value)} aria-label="Motif de l'avance" className="h-9" /></label>
             <Button size="sm" disabled={enCours || !qui || !montant.trim()}
               onClick={() => faire(
-                () => invoke("donner_avance", { employeId: qui, montant: Number(montant.replace(/\s/g, "")), moyen, motif: motif || null }),
+                () => invoke("donner_avance", { employeId: qui, montant: parseMontant(montant), moyen, motif: motif || null }),
                 (nom, m) => `Avance de ${f(m)} à ${nom} notée. Elle se retiendra sur sa prochaine paie.`,
               ).then(() => { setMontant(""); setMotif(""); })}>
               <HandCoins className="h-4 w-4 mr-1" /> Donner l'avance
@@ -127,7 +133,7 @@ function Avances() {
               <div className="flex-1">
                 <div className="font-medium">{a.nom} — {f(a.montant)}</div>
                 <div className="text-xs text-muted-foreground">
-                  le {a.date_avance.slice(0, 10).split("-").reverse().join("/")} · {MOYENS.find(m => m[0] === a.moyen)?.[1] ?? a.moyen}
+                  le {a.date_avance.slice(0, 10).split("-").reverse().join("/")} · {moyenDit(a)}
                   {a.motif ? ` · ${a.motif}` : ""}
                   {a.retenu > 0 ? ` · ${f(a.retenu)} déjà retenus` : ""}
                 </div>
