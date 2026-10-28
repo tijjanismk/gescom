@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { avecHomonymeConfirme } from "@/lib/homonyme";
 import { peut } from "@/lib/droits";
 import {
   Truck, Plus, Search, X, Loader2,
   FileText, Banknote, ChevronDown, ChevronRight,
-  CheckCircle2, Printer,
+  CheckCircle2, Printer, FileSpreadsheet,
 } from "lucide-react";
+import { ImportExportFournisseurs } from "@/components/ImportExportFournisseurs";
 import {
   genererReleveHTML, genererReleveGlobalHTML,
   type DonneesReleve, type DonneesReleveGlobal,
@@ -73,12 +75,14 @@ function ModalNouveauFournisseur({
     if (!nom.trim()) return;
     setChargement(true);
     try {
-      await invoke("creer_fournisseur", {
+      const res = await avecHomonymeConfirme(forcer => invoke("creer_fournisseur", {
         nom: nom.trim(),
         telephone: telephone.trim() || null,
         adresse: adresse.trim() || null,
         estVoisin,
-      });
+        forcer,
+      }));
+      if (res === null) return;
       setNom(""); setTelephone(""); setAdresse(""); setEstVoisin(false);
       onCree();
     } catch (e) {
@@ -245,6 +249,8 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
   const [recherche, setRecherche] = useState("");
   const [avecDettesSeulement, setAvecDettesSeulement] = useState(false);
   const [modalNouv, setModalNouv] = useState(false);
+  // D44 : l'import / export CSV.
+  const [modalCsv, setModalCsv] = useState(false);
   const [modalRegler, setModalRegler] = useState(false);
   const [fournisseurActif, setFournisseurActif] = useState<Fournisseur | null>(null);
   useActionsPalette("fournisseurs", [
@@ -353,11 +359,21 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
               État des dettes
             </Button>
           )}
+          <Button size="sm" variant="outline" onClick={() => setModalCsv(true)}>
+            <FileSpreadsheet className="h-4 w-4 mr-1" /> Import / export
+          </Button>
           <Button size="sm" onClick={() => setModalNouv(true)}>
             <Plus className="h-4 w-4 mr-1" /> Nouveau
           </Button>
         </div>
       </div>
+
+      <Dialog open={modalCsv} onOpenChange={setModalCsv}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-auto">
+          <DialogHeader><DialogTitle>Fournisseurs — import / export</DialogTitle></DialogHeader>
+          <ImportExportFournisseurs onImporte={() => charger(page)} />
+        </DialogContent>
+      </Dialog>
 
       {/* Résumé dettes */}
       {totalDettes > 0 && (

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { useFondHabituel } from "@/lib/reglagesDossier";
 import {
   Wallet, RefreshCw, Loader2,
   // `History` entre en collision avec window.History, une classe
@@ -103,6 +104,8 @@ function ModalOuvertureSession({
 }) {
   const [fondOuverture, setFondOuverture] = useState("");
   const [chargement, setChargement] = useState(false);
+  // D43 : le fond habituel du dossier, proposé.
+  useFondHabituel(ouvert, setFondOuverture);
 
   async function handleOuvrir() {
     setChargement(true);

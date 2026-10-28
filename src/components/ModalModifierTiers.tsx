@@ -9,6 +9,7 @@
 
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { avecHomonymeConfirme } from "@/lib/homonyme";
 import { message } from "@tauri-apps/plugin-dialog";
 import { Loader2, Pencil } from "lucide-react";
 import {
@@ -69,15 +70,23 @@ export function ModalModifierTiers({ tiers, cote, onFermer, onModifie }: Props) 
           nif: nif.trim() || null,
         });
       } else {
-        await invoke("modifier_fournisseur", {
-          fournisseurId: tiers.id,
-          nom: nom.trim(),
-          telephone: telephone.trim() || null,
-          adresse: adresse.trim() || null,
-          nif: nif.trim() || null,
-          email: email.trim() || null,
-          estVoisin: estVoisin,
+        // D44 : `modifier_fournisseur` rend null ; le renoncement se
+        // lit donc a part.
+        let renonce = true;
+        await avecHomonymeConfirme(async forcer => {
+          await invoke("modifier_fournisseur", {
+            fournisseurId: tiers.id,
+            nom: nom.trim(),
+            telephone: telephone.trim() || null,
+            adresse: adresse.trim() || null,
+            nif: nif.trim() || null,
+            email: email.trim() || null,
+            estVoisin: estVoisin,
+            forcer,
+          });
+          renonce = false;
         });
+        if (renonce) return;
       }
       onModifie();
       onFermer();

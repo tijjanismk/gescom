@@ -1225,3 +1225,129 @@ morceaux »), versement, avertissement sur la dépense « Salaire » de la
 caisse, note au départ d'un vendeur, texte ITS dans Cotisations. Tests :
 `paie_tiroir_base` 8, `commission_encaisse_base` 5 ; `paie_base` et
 `paie_corrections_base` passés sur des ventes payées.
+
+## D43 — L'assistant de création du dossier, au premier démarrage (28/10/2026)
+
+**Le besoin** (le propriétaire) : « comme dans Ciel », un assistant qui
+définit la société, les dates de travail du premier exercice et les
+réglages qui aident ensuite, au lieu d'une base neuve qui démarre avec
+« Ma boutique », l'année civile et `admin123`.
+
+**Retenu** (proposé, accepté le 28/10/2026) :
+
+1. **Connexion d'abord, puis l'assistant prend l'écran.** Le patron entre
+   avec `admin` / `admin123` (l'écran de connexion d'une base neuve le
+   dit : `/sante` porte `assistant_a_faire`). Pas de route ouverte sans
+   mot de passe (Ciel crée son dossier avant toute connexion ; chez nous
+   ce serait une porte ouverte au réseau local). L'assistant marche depuis
+   n'importe quel poste.
+2. **Une marque, pas une devinette** : l'amorçage d'une base neuve pose
+   `config_app.assistant_dossier = a_faire` ; une base sans la marque
+   (toutes celles d'avant) ne voit jamais l'assistant. Une base de
+   démonstration (`GESCOM_DEMO=1`, `donnees_demo`, le banc) la retire
+   (`amorcage::mode_essai`).
+3. **Le serveur ne sert que l'assistant** tant qu'il reste à faire
+   (`assistant::COMMANDES_PERMISES`, refus `ASSISTANT_A_FAIRE`, lu en base
+   à chaque appel) : personne ne vend dans un dossier sans nom. Un
+   vendeur qui se connecte lit « le patron n'a pas encore créé le
+   dossier ».
+4. **Les étapes** : vous (nom, identifiant, mot de passe — celui d'usine
+   refusé) ; la société (raison sociale obligatoire, adresse, deux
+   téléphones, email, NIF, RCCM, site, pied de facture, logo) — elle
+   renomme aussi le dossier ; les dates du premier exercice (D21, D38 :
+   libres, 5 ans au plus, **elles doivent comprendre aujourd'hui**) ; les
+   réglages ; les vendeurs (mot de passe provisoire, à changer) ; le
+   récapitulatif et « Créer mon dossier » ; puis la reprise des données
+   (articles, fournisseurs), qui vient après : le dossier a alors son
+   magasin et sa TVA.
+5. **Les réglages** : devise FCFA, montrée, pas réglable (les montants
+   sont des francs entiers) ; TVA des nouveaux articles 0 ou 18 % (clé
+   `tva_par_defaut:<dossier>`, appliquée par le comptoir, Paramètres et
+   l'import) ; premier numéro de facture de l'année, **seulement dans
+   l'assistant et si aucune facture n'est sortie** (le préfixe `FAC` ne
+   change pas) ; nom du magasin principal ; fond de caisse habituel
+   (`fond_caisse_habituel:<dossier>`, proposé à l'ouverture, modifiable).
+   Ensuite (le propriétaire, le même soir : « on doit pouvoir changer
+   l'état de la TVA dans l'app ») : **l'état de la TVA en tête de
+   Paramètres → TVA** (« La boutique facture-t-elle la TVA ? »), et
+   Gescom **demande** s'il l'applique aussi aux articles existants —
+   oui : tous, en une transaction (`definir_tva_boutique`) ; non : les
+   nouveaux seulement. Il remplace l'ancien « Taux TVA global » de cet
+   onglet, qui envoyait une commande par article (une coupure laissait
+   le catalogue à moitié). Le fond de caisse reste dans Paramètres →
+   Société.
+6. **Plus de compte `employe` / `employe123` d'usine** : un deuxième mot
+   de passe public. Il n'existe plus qu'en démonstration.
+7. **Tout en une transaction** (`assistant::terminer_sur`), le serveur
+   juge chaque champ (`coeur/assistant.rs`) ; le logo part par sa
+   commande. Trace `assistant_dossier_fait` à l'Historique, sans mot de
+   passe.
+
+**Ce qu'on ne prend pas de Ciel** : le dossier de démonstration au
+choix (le générateur de base de démonstration est un autre chantier) ;
+le nombre de décimales (aucune en FCFA) ; régler le préfixe des pièces.
+
+**Les risques nommés** : sur un serveur neuf branché au réseau, une
+caisse peut se connecter en `admin123` avant le patron (c'était déjà le
+cas ; l'écran le dit) ; un premier numéro de facture ne vaut que pour
+l'année en cours — la série repart à 1 chaque 1er janvier, comme
+toujours ; `parametres_societe` n'est pas cloisonnée (une société qui
+imprime par installation) : l'assistant ne sert qu'au premier dossier,
+les suivants se créent dans Paramètres → Dossiers. Gescom Équipe n'a
+pas l'assistant : sur une base neuve, ses écrans disent « dossier pas
+encore créé ».
+
+**Mise en œuvre.** `noyau/src/assistant.rs`, `coeur/assistant.rs`,
+marque posée par `amorcage::amorcer` et `seed` ; verrou dans
+`serveur/src/api.rs` ; commandes `lire_assistant`, `terminer_assistant`,
+`lire_reglages_dossier`, `definir_reglages_dossier`. Écran
+`src/pages/AssistantDossier.tsx` (App le montre à la place de tout),
+`ReglagesDuDossier.tsx`, `lib/reglagesDossier.ts`. Tests :
+`noyau/tests/assistant_base.rs`, route HTTP
+`une_base_neuve_ne_sert_que_l_assistant…`, banc `p1-premier-demarrage`
+(`lancer.ps1 monoposte -Neuf -SansDemo`).
+
+## D44 — Les doublons d'articles et de fournisseurs, l'import et l'export (28/10/2026)
+
+**Le besoin** (le propriétaire) : l'import et l'export des fournisseurs,
+la gestion des doublons, idem pour les articles.
+
+**Retenu** (proposé, accepté le 28/10/2026) :
+
+1. **Un doublon se reconnaît sans la casse ni les espaces en trop**
+   (`coeur::doublons::normaliser_nom` : « Riz 25 kg » = « riz  25 KG ») ;
+   les accents comptent. Articles : le nom, et le code-barre. Fournisseurs :
+   le même NIF (même entreprise, refus) ou le même nom (homonyme possible).
+2. **L'import montre un aperçu avant d'écrire** (`simuler`) : le même code,
+   dans une transaction qui retombe — l'aperçu ne peut pas mentir.
+   Créés, mis à jour / complétés, laissés (doublons), refusés, ligne par
+   ligne.
+3. **Articles** : une ligne répétée (même article, même unité) est
+   refusée ; un code-barre déjà porté par un autre article refuse SA ligne
+   à la création (avant : erreur SQL et tout l'import perdu), n'est pas
+   repris à la mise à jour ; un article désactivé du même nom est dit, pas
+   mis à jour en silence ; une colonne TVA vide garde le taux d'un article
+   existant (avant : remis à 0) et donne celui du dossier (D43) à un
+   neuf ; sans « mettre à jour », les unités d'un article créé par le même
+   fichier passent quand même. La création dans Paramètres refuse un nom
+   vide et un doublon, comme le comptoir.
+4. **Fournisseurs** : export CSV (même format que le catalogue, sans le
+   « Fournisseur divers ») ; import qui crée, ou **complète** un doublon
+   (seulement ses champs vides, jamais son nom), ou le laisse ; à la
+   main, un NIF déjà connu est refusé, un homonyme demande « créer quand
+   même » (`FOURNISSEUR_HOMONYME`, `forcer`), un nom vide ou le nom
+   réservé du « Fournisseur divers » est refusé, à la création comme à
+   la modification.
+
+**Ce qu'on ne fait pas** : fusionner deux fiches déjà en double (leurs
+pièces, leurs dettes) — un autre chantier ; rapprocher un homonyme par
+son téléphone (deux numéros pour une personne, un numéro pour deux
+boutiques : trop d'erreurs).
+
+**Mise en œuvre.** `coeur/doublons.rs`, `fournisseurs_csv.rs`,
+`catalogue_csv::importer_articles_csv_sur_base` (aperçu, doublons),
+`refuser_doublon_article_sur` ; commandes `exporter_fournisseurs_csv`,
+`importer_fournisseurs_csv`, paramètre `simuler`. Écran
+`ImportCsvAvecApercu.tsx`, `ImportExportFournisseurs.tsx` (page
+Fournisseurs, assistant), `lib/homonyme.ts`. Tests :
+`noyau/tests/doublons_base.rs`.

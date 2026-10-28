@@ -47,7 +47,7 @@ et la clôturer le soir. Tout le reste en dépend.
 
 # 2. Se connecter
 
-Deux comptes existent.
+Deux rôles sont livrés.
 
 **Patron** — accès complet : prix d'achat, marges, rapports, paramètres.
 
@@ -57,10 +57,51 @@ d'achat, ni les rapports, ni la sauvegarde.
 Chacun doit avoir son mot de passe. Ne les partagez pas : c'est ce qui
 permet de savoir qui a fait quoi en cas d'écart.
 
-Les deux comptes livrés (`admin` / `employe`) exigent un nouveau mot de
-passe à la première connexion. Le patron ajuste ensuite ce que chacun
-peut faire : **Paramètres → Utilisateurs → Permissions**, permission par
-permission.
+Une base neuve n'a qu'un compte, celui du patron : `admin` /
+`admin123`, écrit sur l'écran de connexion tant que le dossier n'est pas
+créé. À la première connexion, **l'assistant de création du dossier**
+prend l'écran (voir ci-dessous) : on y choisit son identifiant et son
+mot de passe — `admin123` est refusé — et on y crée les comptes des
+vendeurs, avec un mot de passe provisoire qu'ils changent à leur
+première connexion. Le patron ajuste ensuite ce que chacun peut faire :
+**Paramètres → Utilisateurs → Permissions**, permission par permission.
+
+## Créer le dossier : l'assistant du premier démarrage
+
+Comme dans Ciel, Gescom ne vend pas avant que la boutique ait un
+dossier. Tant qu'il n'est pas créé, rien d'autre ne s'ouvre, sur aucun
+poste ; un vendeur qui se connecte lit « le patron n'a pas encore créé
+le dossier ». Les étapes, que l'on peut reprendre avec « Précédent » :
+
+1. **Vous** — votre nom, votre identifiant, votre nouveau mot de passe.
+2. **La société** — raison sociale (obligatoire, elle nomme aussi le
+   dossier), adresse, téléphones, NIF, RCCM, email, site, pied de
+   facture, logo. C'est l'en-tête des factures et des reçus.
+3. **Les dates de travail** — le premier exercice : n'importe quel jour
+   de début, cinq ans au plus, et il doit comprendre aujourd'hui.
+   « Année 2026 » ou « 12 mois à partir de ce mois » les remplissent.
+4. **Les réglages** — la TVA (« Non » pour une boutique à l'impôt
+   synthétique, « Oui, 18 % » sinon : c'est le taux des nouveaux
+   articles), le premier numéro de facture si vous continuez un carnet
+   (seulement ici, et pour l'année en cours), le nom du magasin
+   principal, le fond de caisse habituel (proposé chaque matin à
+   l'ouverture de la caisse).
+5. **Les vendeurs** — facultatif.
+6. **Vérifier et créer** — le récapitulatif, puis **« Créer mon
+   dossier »** : rien n'est écrit avant.
+7. **Reprendre vos données** — vos articles et vos fournisseurs depuis
+   Excel (CSV), avec un aperçu avant l'import ; ou plus tard.
+
+Ensuite, tout se change dans Paramètres : Société (et, en dessous, le
+fond de caisse habituel), **TVA**, Dossiers (les dates), Utilisateurs.
+
+**Changer l'état de la TVA.** Paramètres → TVA, en tête : « La boutique
+facture-t-elle la TVA ? » — Non, ou Oui 18 %. Gescom demande alors ce
+que deviennent les articles déjà au catalogue : **seulement les
+nouveaux** prennent le taux, ou **aussi tous les articles existants**
+(en une fois, noté à l'Historique). Avec plusieurs dossiers, l'écran
+rappelle que les articles sont communs à tous. Un article à part
+(exonéré, 5 %…) se règle ensuite dans la liste en dessous.
 
 ## Aller vite : Ctrl + K
 
@@ -803,11 +844,39 @@ Recharge 1000;Services;unite;1000;950;;;;non
 Seuls le **nom** et le **prix** sont obligatoires. **Suivre le stock**
 (oui / non) est facultatif : vide, un nouvel article suit son stock.
 L'import ne change pas ce réglage sur un article qui existe déjà. Une catégorie
-inconnue est créée. Un article de même nom est mis à jour, jamais
-dupliqué.
+inconnue est créée. Une **TVA vide** laisse son taux à un article qui
+existe, et donne celui du dossier à un nouveau.
 
-Les lignes incorrectes sont signalées une par une — les autres sont
-importées.
+**D'abord un aperçu** : Gescom dit ce qu'il va créer, mettre à jour,
+laisser ou refuser, ligne par ligne ; rien n'est écrit avant **« Importer
+pour de vrai »**.
+
+**Les doublons.** Un article de même nom est mis à jour, jamais
+dupliqué — sans tenir compte des majuscules ni des espaces en trop :
+« Riz 25 kg » et « riz  25 KG » sont le même. Deux lignes du fichier pour
+le même article et la même unité : la seconde est refusée. Un code-barre
+déjà porté par un autre article refuse la ligne qui créerait l'article.
+Créer à la main un article qui existe déjà est refusé de la même façon.
+
+Les lignes refusées sont signalées une par une — les autres passent.
+
+## Les fournisseurs en Excel
+
+**Fournisseurs → Import / export.** L'export sort les fournisseurs du
+dossier (nom, téléphone, adresse, NIF, email, voisin) ; l'import les
+reprend, avec le même aperçu.
+
+```
+Nom;Téléphone;Adresse;NIF;Email;Voisin
+Sodima SARL;20 22 00 00;ACI 2000;084123456M;;non
+```
+
+Un fournisseur qui a **le même NIF**, ou **le même nom** (sans
+majuscules ni espaces en trop), est le même : l'import complète ce qui
+lui manque (téléphone, adresse…) sans jamais le renommer, ou le laisse
+tel quel si la case est décochée. À la main, un NIF déjà connu est
+refusé ; un nom déjà connu demande **« Créer quand même ? »** — deux
+« Moussa Traoré » peuvent être deux fournisseurs.
 
 ## Codes-barres
 

@@ -294,6 +294,7 @@ fn le_fournisseur_divers_ne_recoit_ni_piece_ni_reglement_ni_avoir() {
 
     let refus = gescom_noyau::fournisseurs::modifier_fournisseur_sur_base(
         &mut base, divers_id, "Marché Médine".into(), None, None, None, None, None,
+        false,
     )
     .unwrap_err();
     assert!(refus.contains("fiche"), "{refus}");

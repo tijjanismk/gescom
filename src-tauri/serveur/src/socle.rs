@@ -492,6 +492,32 @@ pub fn registre() -> Registre {
 
     // D37 : le menu du dossier — ce qu'il cache (un affichage seulement).
     r.sur_base("lire_menu", None, false, |c, _| gescom_noyau::menu::lire_menu_sur(c.base));
+
+    // D43 : l'assistant du premier demarrage, et les reglages du dossier
+    // qu'il pose (TVA par defaut, fond de caisse habituel).
+    r.sur_base("lire_assistant", None, false, |c, _| {
+        let id = c.appelant.utilisateur_id.clone();
+        gescom_noyau::assistant::lire_sur(c.base, &id)
+    });
+    r.sur_base("terminer_assistant", Some("dossiers:gerer"), true, |c, p| {
+        let saisie: gescom_noyau::assistant::Saisie = arg(&p, "saisie", "saisie")?;
+        let id = c.appelant.utilisateur_id.clone();
+        gescom_noyau::assistant::terminer_sur(c.base, &id, saisie)
+    });
+    r.sur_base("lire_reglages_dossier", None, false, |c, _| {
+        gescom_noyau::assistant::lire_reglages_dossier_sur(c.base)
+    });
+    r.sur_base("definir_tva_boutique", Some("parametres:modifier"), true, |c, p| {
+        let appliquer: Option<bool> = arg(&p, "appliquerAuxArticles", "appliquer_aux_articles")?;
+        gescom_noyau::assistant::definir_tva_boutique_sur(c.base, arg(&p, "tvaPct", "tva_pct")?, appliquer.unwrap_or(false))
+    });
+    r.sur_base("definir_reglages_dossier", Some("parametres:modifier"), true, |c, p| {
+        gescom_noyau::assistant::definir_reglages_dossier_sur(
+            c.base,
+            arg(&p, "tvaPct", "tva_pct")?,
+            arg(&p, "fondCaisse", "fond_caisse")?,
+        )
+    });
     r.sur_base("definir_menu", Some("parametres:modifier"), true, |c, p| {
         let caches: Vec<String> = arg(&p, "caches", "caches")?;
         gescom_noyau::menu::definir_menu_sur(c.base, caches)
@@ -1199,7 +1225,11 @@ pub fn registre() -> Registre {
         };
         let peut_ne_pas_suivre =
             gescom_noyau::portes::verifier_permission_sur(c.base, &ctx, "parametres:modifier").is_ok();
-        let v = catalogue_csv::importer_articles_csv_sur_base(c.base, contenu, mettre_a_jour, peut_ne_pas_suivre)?;
+        // D44 : l'apercu joue l'import et le laisse retomber.
+        let simuler: Option<bool> = arg(&p, "simuler", "simuler")?;
+        let v = catalogue_csv::importer_articles_csv_sur_base(
+            c.base, contenu, mettre_a_jour, peut_ne_pas_suivre, simuler.unwrap_or(false),
+        )?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1481,7 +1511,11 @@ pub fn registre() -> Registre {
         let nif: Option<String> = arg(&p, "nif", "nif")?;
         let email: Option<String> = arg(&p, "email", "email")?;
         let est_voisin: Option<bool> = arg(&p, "estVoisin", "est_voisin")?;
-        let v = fournisseurs::creer_fournisseur_sur_base(c.base, nom, telephone, adresse, nif, email, est_voisin)?;
+        // D44 : « créer quand même » un homonyme.
+        let forcer: Option<bool> = arg(&p, "forcer", "forcer")?;
+        let v = fournisseurs::creer_fournisseur_sur_base(
+            c.base, nom, telephone, adresse, nif, email, est_voisin, forcer.unwrap_or(false),
+        )?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1493,8 +1527,26 @@ pub fn registre() -> Registre {
         let nif: Option<String> = arg(&p, "nif", "nif")?;
         let email: Option<String> = arg(&p, "email", "email")?;
         let est_voisin: Option<bool> = arg(&p, "estVoisin", "est_voisin")?;
-        let v = fournisseurs::modifier_fournisseur_sur_base(c.base, fournisseur_id, nom, telephone, adresse, nif, email, est_voisin)?;
+        let forcer: Option<bool> = arg(&p, "forcer", "forcer")?;
+        let v = fournisseurs::modifier_fournisseur_sur_base(
+            c.base, fournisseur_id, nom, telephone, adresse, nif, email, est_voisin, forcer.unwrap_or(false),
+        )?;
         serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    // D44 : les fournisseurs en CSV. L'export suit la lecture de la
+    // liste ; l'import, la creation d'un fournisseur.
+    r.sur_base("exporter_fournisseurs_csv", None, false, |c, _p| {
+        let v = gescom_noyau::fournisseurs_csv::exporter_fournisseurs_csv_sur_base(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.sur_base("importer_fournisseurs_csv", Some("fournisseurs:regler"), true, |c, p| {
+        let contenu: String = arg(&p, "contenu", "contenu")?;
+        let completer: Option<bool> = arg(&p, "completer", "completer")?;
+        let simuler: Option<bool> = arg(&p, "simuler", "simuler")?;
+        gescom_noyau::fournisseurs_csv::importer_fournisseurs_csv_sur_base(
+            c.base, contenu, completer.unwrap_or(true), simuler.unwrap_or(false),
+        )
     });
 
     r.sur_base("lire_etat_dette_fournisseur", None, false, |c, p| {

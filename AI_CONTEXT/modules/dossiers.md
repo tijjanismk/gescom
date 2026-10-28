@@ -76,3 +76,31 @@ l'invitation de l'écran font le reste.
 Preuves : `exercice_coupe_base.rs` (5) et `fin_exercice_base.rs` (7), deux moteurs et compte limité, `dossier_d_origine.rs` (4), `dossiers_base.rs` (9 scénarios, deux moteurs, dont
 `un_dossier_nait_avec_ses_dates_de_travail_et_refuse_ce_qui_en_sort`),
 `cloisonnement.rs` (20), route `une_ecriture_hors_des_dates_de_travail_est_refusee_avant_d_ecrire`, banc `d3-dossiers.mjs`, `d4-exercices.mjs`, `d5-dossier-d-origine.mjs`.
+
+## L'assistant du premier démarrage (D43, 28/10/2026)
+
+Une base NEUVE porte `config_app.assistant_dossier = a_faire`, posée par
+`amorcage::amorcer` (Base) et `seed::seeder` (fichier) ; une base sans
+la marque ne voit jamais l'assistant. `amorcage::mode_essai` (appelée
+par `donnees_demo`, et par le serveur sous `GESCOM_DEMO=1` si la marque
+est là) la retire et crée `employe` / `employe123` : **ce compte
+n'existe plus qu'en démonstration** (`COMPTES_USINE` = le patron seul).
+
+| fonction | rôle |
+|---|---|
+| `assistant::a_faire_sur(acces)` | la marque est-elle là |
+| `assistant::refus_si_a_faire(acces, commande)` | le verrou du serveur : tout sauf `COMMANDES_PERMISES` |
+| `assistant::lire_sur(base, utilisateur)` | ce que l'écran propose (société, dates, magasin, patron) |
+| `assistant::terminer_sur(base, utilisateur, Saisie)` / `terminer_au_sur(…, maintenant)` | tout en une transaction : patron (nom, identifiant, mot de passe), `parametres_societe`, `dossier.societe`, l'unique exercice ouvert, TVA et fond (`config_app`), premier numéro de facture (`compteur_piece`, refusé si une facture est sortie), nom du dépôt par défaut, vendeurs (rôle `employe`, `doit_changer_mdp`), journal `assistant_dossier_fait`, marque « fait » |
+| `assistant::{lire,definir}_reglages_dossier_sur` | TVA des nouveaux articles (`tva_par_defaut:<dossier>`, 0 ou 18) et fond de caisse habituel (`fond_caisse_habituel:<dossier>`), après l'assistant ; journal `reglages_dossier_modifies` |
+| `assistant::taux_nouvel_article_sur` | le taux que prennent les articles neufs (comptoir, Paramètres, import) |
+| `assistant::definir_tva_boutique_sur(base, tva_pct, appliquer_aux_articles)` | l'état de la TVA (Paramètres → TVA) ; avec `appliquer_aux_articles`, tous les articles actifs au même taux dans la même transaction (ils sont communs à tous les dossiers : `lire_reglages_dossier` rend `nb_articles`, `nb_dossiers` pour le dire avant) |
+
+Règles pures : `coeur/assistant.rs` (identifiant, mot de passe — celui
+d'usine refusé —, TVA 0/18, premier numéro 1…99 999, fond 0…10 M, des
+dates qui comprennent aujourd'hui). Les dates passent aussi par
+`dates_de_travail` (5 ans au plus).
+
+Preuves : `assistant_base.rs` (9, deux moteurs), route
+`une_base_neuve_ne_sert_que_l_assistant_jusqu_a_ce_qu_il_soit_fait`,
+banc `p1-premier-demarrage.mjs` (`lancer.ps1 monoposte -Neuf -SansDemo`).

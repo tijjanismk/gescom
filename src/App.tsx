@@ -7,6 +7,7 @@ import { PageLogin, UtilisateurConnecte } from "@/pages/PageLogin";
 import { PageServeur } from "@/pages/PageServeur";
 import { PageRolePoste, PageServeurLocal, garderLaBase } from "@/pages/PageRolePoste";
 import { ModalChangerMdp } from "@/components/ModalChangerMdp";
+import { AssistantDossier } from "@/pages/AssistantDossier";
 import { Dashboard } from "@/pages/Dashboard";
 import { Ventes } from "@/pages/Ventes";
 import { Pieces } from "@/pages/Pieces";
@@ -216,6 +217,20 @@ function App() {
     return surSessionPerdue(() => handleDeconnecter());
   }, [pontPret, utilisateur?.id]);
 
+  // D43 : une base neuve n'a pas encore son dossier. Tant que le patron
+  // n'a pas fait l'assistant, le serveur ne sert que lui : l'écran le
+  // montre à la place de tout le reste. « inconnu » le temps de demander.
+  const [assistant, setAssistant] = useState<"inconnu" | "a_faire" | "fait">("inconnu");
+  useEffect(() => {
+    if (!serveurJoint || !utilisateur) return;
+    let fini = false;
+    invoke<{ a_faire: boolean }>("lire_assistant")
+      .then(r => { if (!fini) setAssistant(r.a_faire ? "a_faire" : "fait"); })
+      // Un serveur d'avant D43 ne connaît pas la commande : pas d'assistant.
+      .catch(() => { if (!fini) setAssistant("fait"); });
+    return () => { fini = true; };
+  }, [serveurJoint, utilisateur?.id]);
+
   // Les droits gardés par le navigateur datent de la connexion : on les
   // relit une fois le pont prêt (lib/droits.ts, relireDroits).
   useEffect(() => {
@@ -299,6 +314,7 @@ function App() {
   }
 
   function handleDeconnecter() {
+    setAssistant("inconnu");
     supprimerSession();
     UTILISATEUR_ACTIF = null;
     poserDroits(null);
@@ -448,6 +464,34 @@ function App() {
 
   if (!utilisateur) {
     return <PageLogin onConnecte={handleConnecte} />;
+  }
+
+  if (assistant === "inconnu") {
+    return (
+      <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
+        Ouverture du dossier…
+      </div>
+    );
+  }
+  if (assistant === "a_faire") {
+    return (
+      <AssistantDossier
+        utilisateur={utilisateur}
+        onDeconnecter={handleDeconnecter}
+        onTermine={(nom) => {
+          // Le mot de passe d'usine est remplacé : plus de fenêtre
+          // « changer le mot de passe » par-dessus le tableau de bord.
+          const u = { ...utilisateur, nom: nom || utilisateur.nom, doit_changer_mdp: false };
+          setModalMdp(false);
+          setUtilisateur(u);
+          UTILISATEUR_ACTIF = u;
+          poserDroits(u);
+          sauvegarderSession(u, "dashboard");
+          setPageActive("dashboard");
+          setAssistant("fait");
+        }}
+      />
+    );
   }
 
   // Fiche client/fournisseur → surligner l'onglet parent dans la sidebar

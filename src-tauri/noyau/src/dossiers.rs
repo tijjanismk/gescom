@@ -662,7 +662,7 @@ mod tests_dossier_accepte {
 use crate::base::Base;
 use crate::parametres;
 
-fn lire_les_exercices(base: &mut Base, dossier_id: &str) -> Result<Vec<Exercice>, String> {
+pub(crate) fn lire_les_exercices(base: &mut Base, dossier_id: &str) -> Result<Vec<Exercice>, String> {
     base.lire_plusieurs(
         "SELECT id, dossier_id, date_debut, date_fin, prolonge_jusqu_au, clos
          FROM exercice WHERE dossier_id = ?1 ORDER BY date_debut ASC",

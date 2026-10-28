@@ -597,18 +597,26 @@ pub fn creer_article_complet_sur_base(
     unite_base: String,
     prix_reference: i64,
 ) -> Result<String, String> {
+    // D44 : comme au comptoir — un nom, et pas deux fois le meme article.
+    let nom = nom.split_whitespace().collect::<Vec<_>>().join(" ");
+    if nom.is_empty() {
+        return Err("Le nom de l'article est obligatoire".to_string());
+    }
+    crate::catalogue_csv::refuser_doublon_article_sur(base, &nom)?;
     let dossier = base.dossier().to_string();
     let now = maintenant_iso();
     let art_id = uuid::Uuid::new_v4().to_string();
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    // D43 : un article neuf prend la TVA par defaut du dossier.
+    let tva = crate::assistant::taux_nouvel_article_sur(base);
 
     let mut tx = base.transaction().map_err(|e| e.0)?;
     tx.executer(
         "INSERT INTO article
          (id, nom, categorie_id, unite_base, gere_en_stock, attributs,
-          actif, cree_le, modifie_le, cree_par, modifie_par, origine)
-         VALUES (?1,?2,CAST(?3 AS TEXT),?4,1,'{}',1,?5,?5,?6,?6,'app')",
-        &parametres![art_id.clone(), nom, categorie_id, unite_base.clone(), now.clone(), auteur.clone()],
+          actif, cree_le, modifie_le, cree_par, modifie_par, origine, taux_tva_defaut)
+         VALUES (?1,?2,CAST(?3 AS TEXT),?4,1,'{}',1,?5,?5,?6,?6,'app',?7)",
+        &parametres![art_id.clone(), nom, categorie_id, unite_base.clone(), now.clone(), auteur.clone(), tva],
     )
     .map_err(|e| e.0)?;
 

@@ -10,23 +10,15 @@
 import { useState } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { peut } from "@/lib/droits";
-import { message, save, open } from "@tauri-apps/plugin-dialog";
-import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
-import {
-  Download, Upload, Loader2, FileSpreadsheet, AlertTriangle, CheckCircle2,
-} from "lucide-react";
+import { message, save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { Download, Upload, Loader2, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-
-interface Resultat {
-  crees: number; mis_a_jour: number;
-  erreurs: string[]; nb_erreurs: number;
-}
+import { ImportCsvAvecApercu } from "@/components/ImportCsvAvecApercu";
 
 export function OngletImportExport() {
   const [travail, setTravail] = useState(false);
-  const [resultat, setResultat] = useState<Resultat | null>(null);
-  const [majExistants, setMajExistants] = useState(true);
 
   async function exporter() {
     setTravail(true);
@@ -42,34 +34,6 @@ export function OngletImportExport() {
         { title: "Export", kind: "info" });
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Export", kind: "error" });
-    } finally {
-      setTravail(false);
-    }
-  }
-
-  async function importer() {
-    setResultat(null);
-    try {
-      const chemin = await open({
-        multiple: false,
-        filters: [{ name: "CSV", extensions: ["csv", "txt"] }],
-      });
-      if (!chemin || typeof chemin !== "string") return;
-
-      setTravail(true);
-      const contenu = await readTextFile(chemin);
-      const r = await invoke<Resultat>("importer_articles_csv", {
-        contenu, mettreAJour: majExistants,
-      });
-      setResultat(r);
-
-      if (r.nb_erreurs === 0) {
-        await message(
-          `${r.crees} article(s) créé(s), ${r.mis_a_jour} mis à jour.`,
-          { title: "Import terminé", kind: "info" });
-      }
-    } catch (e) {
-      await message(`Erreur : ${e}`, { title: "Import", kind: "error" });
     } finally {
       setTravail(false);
     }
@@ -122,58 +86,18 @@ export function OngletImportExport() {
             </div>
             <p className="text-xs text-muted-foreground">
               Les colonnes peuvent être dans le désordre du moment que
-              l'en-tête est présent. Nom et prix sont obligatoires.
+              l'en-tête est présent. Nom et prix sont obligatoires. Un
+              aperçu dit ce qui sera fait avant que rien ne s'écrive.
             </p>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input type="checkbox" checked={majExistants}
-                onChange={e => setMajExistants(e.target.checked)}
-                className="w-3.5 h-3.5 rounded accent-primary" />
-              Mettre à jour les articles déjà présents
-            </label>
-            <Button onClick={importer} disabled={travail}
-              variant="outline" className="w-full">
-              {travail
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <><Upload className="h-4 w-4 mr-2" /> Choisir un fichier</>}
-            </Button>
+            <ImportCsvAvecApercu
+              commande="importer_articles_csv"
+              quoi="articles"
+              option={{ libelle: "Mettre à jour les articles déjà présents", cle: "mettreAJour", parDefaut: true }}
+              libelleRepris="Mis à jour"
+            />
           </CardContent>
         </Card>
       </div>
-
-      {/* Résultat */}
-      {resultat && (
-        <Card className={resultat.nb_erreurs > 0 ? "border-orange-300" : ""}>
-          <CardContent className="pt-4 space-y-3">
-            <div className="flex items-center gap-2">
-              {resultat.nb_erreurs === 0
-                ? <CheckCircle2 className="h-4 w-4 text-green-600" />
-                : <AlertTriangle className="h-4 w-4 text-orange-500" />}
-              <h3 className="text-sm font-semibold">Résultat de l'import</h3>
-            </div>
-
-            <div className="flex gap-6 text-sm">
-              <span>Créés : <strong className="text-green-700">
-                {resultat.crees}</strong></span>
-              <span>Mis à jour : <strong>{resultat.mis_a_jour}</strong></span>
-              {resultat.nb_erreurs > 0 && (
-                <span>Rejetés : <strong className="text-orange-600">
-                  {resultat.nb_erreurs}</strong></span>
-              )}
-            </div>
-
-            {resultat.erreurs.length > 0 && (
-              <div className="bg-orange-50 rounded-md p-3 max-h-52 overflow-auto">
-                <p className="text-xs font-medium text-orange-900 mb-1">
-                  Lignes rejetées — les autres ont bien été importées :
-                </p>
-                <ul className="text-xs text-orange-800 space-y-0.5">
-                  {resultat.erreurs.map((e, i) => <li key={i}>· {e}</li>)}
-                </ul>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       {/* Format */}
       <Card>
@@ -195,7 +119,15 @@ Sachets;;paquet;100;;;;;non`}
             <li>· Les prix acceptent les espaces et les points :
               « 12 500 » et « 12.500 » donnent 12500</li>
             <li>· Une catégorie inconnue est créée automatiquement</li>
-            <li>· Un article de même nom est mis à jour, jamais dupliqué</li>
+            <li>· Un article de même nom est mis à jour, jamais dupliqué —
+              sans tenir compte des majuscules ni des espaces en trop
+              (« Riz 25 kg » = « riz  25 KG »)</li>
+            <li>· Deux lignes pour le même article et la même unité : la
+              seconde est refusée</li>
+            <li>· Un code-barre déjà porté par un autre article refuse sa
+              ligne (création) ou n'est pas repris (mise à jour)</li>
+            <li>· TVA vide : un article existant garde la sienne, un
+              nouveau prend celle du dossier</li>
             <li>· Séparateur point-virgule, encodage UTF-8</li>
           </ul>
         </CardContent>

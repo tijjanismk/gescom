@@ -14,6 +14,16 @@ use gescom_noyau::parametres;
 use gescom_noyau::utils::maintenant_iso;
 
 pub fn base_avec_demo() -> Base {
+    preparer(true)
+}
+
+/// Une base NEUVE, comme chez un commercant au premier demarrage : le
+/// patron seul, l'assistant a faire (D43), pas de demonstration.
+pub fn base_neuve() -> Base {
+    preparer(false)
+}
+
+fn preparer(demo: bool) -> Base {
     let mut base = match std::env::var("GESCOM_PG") {
         Ok(url) => {
             let mut b = Base::ouvrir(&url).expect("PostgreSQL");
@@ -23,7 +33,9 @@ pub fn base_avec_demo() -> Base {
         Err(_) => Base::ouvrir(":memory:").expect("base en mémoire"),
     };
     amorcage::amorcer(&mut base).expect("amorçage");
-    amorcage::donnees_demo(&mut base).expect("démo");
+    if demo {
+        amorcage::donnees_demo(&mut base).expect("démo");
+    }
     // v3, D-6 : `GESCOM_PG_LIMITE=1` rejoue les scenarios sous le compte
     // limite — le moteur refuse alors ce qui sort du dossier de la
     // session. Ce qui passe ici passera chez un commercant ainsi installe.

@@ -20,6 +20,7 @@ import type {
 import { cn } from "@/lib/utils";
 import { peut } from "@/lib/droits";
 import { appeler as invoke } from "@/lib/pont";
+import { avecHomonymeConfirme } from "@/lib/homonyme";
 import { SelectUnite } from "@/components/SelectUnite";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 
@@ -101,14 +102,16 @@ function ModalNouveauFournisseur({
       // creer_fournisseur renvoie un OBJET {id, nom}, pas une chaine.
       // L'annotation <string> le masquait : fournisseur.id valait alors
       // {id, nom} et Tauri refusait l'appel ("expected a string").
-      const res = await invoke<CreerFournisseurResultat>("creer_fournisseur", {
+      const res = await avecHomonymeConfirme(forcer => invoke<CreerFournisseurResultat>("creer_fournisseur", {
         nom: nom.trim(),
         telephone: telephone.trim() || null,
         nif: null,
         adresse: null,
         email: null,
         estVoisin: false,
-      });
+        forcer,
+      }));
+      if (!res) return;
       onCreer({ id: res.id, nom: nom.trim(), telephone: telephone.trim() || undefined });
       setNom(""); setTelephone("");
     } catch (e) {

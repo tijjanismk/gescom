@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { UTILISATEUR_ACTIF } from "@/App";
+import { useFondHabituel } from "@/lib/reglagesDossier";
 
 /** Le refus serveur porte ce code en tête de message. */
 export function estCaisseFermee(e: unknown): boolean {
@@ -39,6 +40,8 @@ interface Props {
 export function ModalOuvrirCaisse({ ouvert, onFermer, onOuverte }: Props) {
   const [fond, setFond] = useState("");
   const [enCours, setEnCours] = useState(false);
+  // D43 : le fond habituel du dossier, proposé.
+  useFondHabituel(ouvert, setFond);
 
   async function ouvrir() {
     setEnCours(true);

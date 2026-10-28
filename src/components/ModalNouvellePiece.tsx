@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { avecHomonymeConfirme } from "@/lib/homonyme";
 import { Loader2, X, UserPlus, Package, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -175,10 +176,13 @@ export function ModalNouvellePiece({
     setCreerTiersEnCours(true);
     try {
       const cmd = cote === "client" ? "creer_client_rapide" : "creer_fournisseur";
-      const res = await invoke<any>(cmd, {
+      // D44 : un fournisseur homonyme se confirme (le client a ses règles).
+      const res = await avecHomonymeConfirme(forcer => invoke<any>(cmd, {
         nom: nomNouveauTiers.trim(),
         telephone: telNouveauTiers.trim() || null,
-      });
+        ...(cote === "fournisseur" ? { forcer } : {}),
+      }));
+      if (res === null) return;
       const id = typeof res === "string" ? res : (res.id ?? res);
       setTiersId(id);
       setTiersNom(nomNouveauTiers.trim());

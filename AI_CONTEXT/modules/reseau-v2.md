@@ -143,3 +143,14 @@ demande « Quel dossier ouvrir ? » quand il y en a plusieurs ;
 - Une vraie impression papier depuis une caisse, jamais essayée.
 - Le service Windows n'a pas été déroulé en élevé depuis la session
   d'écriture (TESTS-MANUELS, section A).
+
+## Le verrou de l'assistant (D43, 28/10/2026)
+
+Dans `api.rs::rpc`, après le contrôle de permission et du dossier :
+`assistant::refus_si_a_faire` — tant que la base neuve n'a pas fait son
+assistant, toute commande hors `assistant::COMMANDES_PERMISES` répond
+409 `ASSISTANT_A_FAIRE`. Lu en base à chaque appel : l'assistant fini,
+toutes les sessions travaillent sans redémarrer. `GET /sante` porte
+`assistant_a_faire` (rien du commerce) : l'écran de connexion d'une base
+neuve rappelle `admin` / `admin123`. La console du serveur n'annonce
+plus que le compte du patron.

@@ -37,7 +37,9 @@ fn postgresql_s_amorce_et_donne_de_quoi_se_connecter() {
         .lire_une("SELECT COUNT(*) FROM utilisateur_auth", &[], |r| r.get::<i64>(0))
         .unwrap()
         .unwrap();
-    assert_eq!(comptes, 2);
+    // D43 : le patron seul ; `employe` ne vient qu'avec la demonstration.
+    assert_eq!(comptes, 1);
+    assert!(gescom_noyau::assistant::a_faire_sur(&mut base), "la base neuve attend son assistant");
 
     // Le minimum pour vendre.
     let depots = base
@@ -63,7 +65,7 @@ fn l_amorcage_ne_se_rejoue_pas_sur_postgresql() {
         .lire_une("SELECT COUNT(*) FROM utilisateur_auth", &[], |r| r.get::<i64>(0))
         .unwrap()
         .unwrap();
-    assert_eq!(comptes, 2, "aucun compte en double");
+    assert_eq!(comptes, 1, "aucun compte en double (D43 : le patron seul)");
 }
 
 #[test]

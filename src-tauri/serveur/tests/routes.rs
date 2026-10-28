@@ -1000,7 +1000,9 @@ fn un_serveur_rallume_chaque_matin_est_sauvegarde_sans_attendre_un_jour() {
     let mut srv = Serveur { enfant: demarrer(), port, base: base.clone() };
     attendre_sante();
     let debut = Instant::now();
-    while copies().is_empty() {
+    // Une copie EN COURS a son `-journal` a cote : attendre qu'elle soit
+    // finie. Compter a la premiere apparition voyait parfois les deux.
+    while copies().is_empty() || copies().iter().any(|n| n.ends_with("-journal")) {
         assert!(debut.elapsed() < Duration::from_secs(30), "aucune copie automatique après le démarrage");
         std::thread::sleep(Duration::from_millis(300));
     }
@@ -1359,4 +1361,52 @@ fn un_gestionnaire_sans_la_paie_n_efface_pas_le_salaire_et_un_montant_enorme_ne_
     let (code, v) = rpc(port, &admin, "lire_fiche_paie", json!({ "ficheId": fiche }));
     assert_eq!(code, 200, "la base répond toujours : {v}");
     assert_eq!(v["donnee"]["net"], 60000);
+}
+
+/// D43 — une base neuve (sans `GESCOM_DEMO`) : `/sante` le dit, le
+/// serveur ne sert que l'assistant, et l'assistant fini, tout repart sans
+/// redemarrer. Le JSON est celui que l'ecran envoie (`saisie` imbriquee).
+#[test]
+fn une_base_neuve_ne_sert_que_l_assistant_jusqu_a_ce_qu_il_soit_fait() {
+    let srv = lancer_avec(|c| {
+        c.env_remove("GESCOM_DEMO");
+    });
+    let port = srv.port;
+    let (_, sante) = requete(port, "GET", "/sante", None, None).unwrap();
+    assert_eq!(sante["assistant_a_faire"], true, "{sante}");
+
+    let (jeton, _) = connexion(port);
+    let (code, v) = rpc(port, &jeton, "lire_clients", json!({}));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap_or("").contains("ASSISTANT_A_FAIRE"), "{v}");
+    let (code, v) = rpc(port, &jeton, "lire_assistant", json!({}));
+    assert_eq!((code, v["donnee"]["a_faire"].as_bool()), (200, Some(true)), "{v}");
+
+    let annee = v["donnee"]["annee"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &jeton, "terminer_assistant", json!({ "saisie": {
+        "patron_nom": "Moussa Traoré", "patron_pseudo": "moussa", "mot_de_passe": "Bamako-2026",
+        "societe": "Quincaillerie Traoré", "nif": "084123456M",
+        "date_debut": format!("{annee}-01-01"), "date_fin": format!("{annee}-12-31"),
+        "tva_pct": 0, "numero_depart": null, "magasin": "Boutique Médine", "fond_caisse": 25000,
+        "vendeurs": [{ "nom": "Awa Diallo", "pseudo": "awa", "mot_de_passe": "awa-2026" }]
+    }}));
+    assert_eq!(code, 200, "{v}");
+
+    // Fait : la meme session travaille, sans redemarrage.
+    let (code, v) = rpc(port, &jeton, "lire_clients", json!({}));
+    assert_eq!(code, 200, "{v}");
+    let (_, sante) = requete(port, "GET", "/sante", None, None).unwrap();
+    assert_eq!(sante["assistant_a_faire"], false, "{sante}");
+    let (code, v) = rpc(port, &jeton, "lire_reglages_dossier", json!({}));
+    assert_eq!((code, v["donnee"]["fond_caisse"].as_i64()), (200, Some(25000)), "{v}");
+    // Le mot de passe d'usine ne sert plus.
+    let (code, _) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({
+            "identifiant": "admin", "mot_de_passe": "admin123",
+            "poste_nom": "Caisse test", "poste_empreinte": "routes-1", "version_protocole": 1
+        })),
+        None,
+    ).unwrap();
+    assert_ne!(code, 200);
 }

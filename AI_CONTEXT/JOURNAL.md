@@ -2728,3 +2728,58 @@ effacer la base, passage monoposte → service, écran de connexion sans
 lien réseau, Équipe sans caisse) : ALERTES, « Trouvé le 28/10/2026 en
 écrivant le guide ». **Rien n'a été essayé à l'écran** ; les manuels
 décrivent le code.
+
+## 28/10/2026 (nuit) — D43 l'assistant du premier démarrage, D44 les doublons
+
+Demande du propriétaire : un assistant de création du dossier « comme
+dans Ciel » ; en cours de route, l'import/export des fournisseurs et la
+gestion des doublons (articles aussi), des icônes qui distinguent les
+trois applications, l'Historique de caisse « jaune sur jaune » avec des
+pictogrammes inutiles, et « changer l'état de la TVA dans l'app ».
+Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
+
+- **Relevé** : une base neuve démarrait « Ma boutique », année civile,
+  `admin123` et `employe123` ; rien ne savait qu'elle était neuve ; la
+  devise n'était écrite qu'à l'amorçage ; ni TVA par défaut, ni
+  numérotation réglable, ni fond proposé ; l'import d'articles perdait
+  TOUT sur un code-barre déjà pris (erreur SQL) et remettait à 0 la TVA
+  d'un article existant quand la colonne était vide ; aucun import ni
+  export de fournisseurs, aucune vérification de doublon à leur création.
+- **D43** : marque `assistant_dossier` posée par l'amorçage, retirée par
+  la démonstration (`amorcage::mode_essai`, le banc et les scénarios) ;
+  verrou dans `api.rs` ; `/sante.assistant_a_faire` ; `AssistantDossier`
+  en huit étapes, tout en une transaction ; `employe` / `employe123`
+  seulement en démonstration ; TVA des nouveaux articles appliquée par le
+  comptoir, Paramètres et l'import ; premier numéro de facture ; fond
+  habituel ; puis l'état de la TVA en tête de Paramètres → TVA
+  (`definir_tva_boutique`, « aussi les articles existants ? »), qui
+  remplace un « Taux global » non transactionnel.
+- **D44** : `coeur/doublons.rs`, aperçu `simuler` (le même code dans une
+  transaction qui retombe), `fournisseurs_csv.rs`, `forcer` pour un
+  homonyme, `ImportCsvAvecApercu`, `ImportExportFournisseurs`.
+- **Icônes** : `outils/icones/pastilles.py` + `tauri icon` ;
+  `serveur-fenetre/icons` et `equipe/icons` à part.
+- **Historique de caisse** : le halo de la page Caisse se peignait par-
+  dessus les blocs non positionnés (`relative z-[1]` manquait) ; orange
+  500 à 2,80:1 remplacé par orange 800 (7,31:1), rouge 700, vert 700 ;
+  pictogrammes retirés devant les chiffres.
+- **Branche** : le travail est parti de `main` (8372aa4) ; `rh` avait
+  D41 et D42 en plus. Remis par-dessus `rh` (même contenu de base),
+  sans conflit ; mes décisions renumérotées D43/D44.
+- **Tests** : `assistant_base` 10, `doublons_base` 9 (SQLite, PostgreSQL,
+  compte limité) ; trois tests réalignés sur la fin du compte employé
+  d'usine (`seed`, `auth_base`, `postgres_amorcage`) ; la sauvegarde du
+  matin attendait la première apparition d'un fichier et voyait parfois
+  le `-journal` d'une copie en cours (une fois sur deux après D43, le
+  démarrage étant plus rapide d'un bcrypt) : elle attend la fin de la
+  copie. La recherche UDP a échoué une fois puis passé : le poste.
+- **Vu dans le navigateur** (serveur jetable 40060, base neuve, l'écran
+  par Vite) : rappel du compte d'usine, assistant complet, refus de
+  `admin123`, dossier créé et renommé dans la barre, TVA, caisse ouverte
+  avec 25 000 proposés, Historique après une clôture à −500 F. Le serveur
+  du poste sur 40000 (pas le mien) n'a pas été touché : le banc l'aurait
+  arrêté.
+- **Reste** : la vraie fenêtre (logo, import de fichiers, icônes
+  installées, `p1` avec `-SansDemo`) ; Gescom Équipe sur une base neuve
+  dit seulement « dossier pas encore créé » ; fusionner deux fiches déjà
+  en double reste un autre chantier. Rien n'est commité.

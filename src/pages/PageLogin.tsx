@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  appeler as invoke, connecterServeur, choisirDossier, enReseau, etatReseau,
+  appeler as invoke, connecterServeur, choisirDossier, enReseau, etatReseau, sante,
   type DossierOuvrable,
 } from "@/lib/pont";
 import { Store, Eye, EyeOff, Loader2, Lock, User } from "lucide-react";
@@ -41,6 +41,13 @@ export function PageLogin({ onConnecte, titre = "Gescom", sousTitre = "Gestion c
   const [aChoisir, setAChoisir] = useState<{ dossiers: DossierOuvrable[]; utilisateur: UtilisateurConnecte } | null>(null);
   const [memoriser, setMemoriser] = useState(true);
   const [choixEnCours, setChoixEnCours] = useState<string | null>(null);
+  // D43 : une base neuve le dit, avec le compte d'usine — il est déjà
+  // public (manuel), et le patron le change dans l'assistant qui suit.
+  const [baseNeuve, setBaseNeuve] = useState(false);
+  useEffect(() => {
+    if (!enReseau()) return;
+    sante().then(s => setBaseNeuve(!!(s as { assistant_a_faire?: boolean })?.assistant_a_faire)).catch(() => {});
+  }, []);
 
   async function handleChoixDossier(d: DossierOuvrable) {
     if (!aChoisir) return;
@@ -158,6 +165,17 @@ export function PageLogin({ onConnecte, titre = "Gescom", sousTitre = "Gestion c
       {/* Formulaire */}
       <div className="w-full max-w-sm">
         <div className="space-y-4">
+
+          {baseNeuve && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+              <p className="font-medium">Première ouverture de Gescom</p>
+              <p className="text-muted-foreground">
+                Identifiant <span className="font-mono text-foreground">admin</span>, mot de passe{" "}
+                <span className="font-mono text-foreground">admin123</span>. Vous le remplacerez juste après,
+                en créant le dossier de votre boutique.
+              </p>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="identifiant">Pseudo ou email</Label>

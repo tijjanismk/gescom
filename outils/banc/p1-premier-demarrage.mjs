@@ -3,12 +3,14 @@
 // premier demarrage la vraie fenetre Tauri demande le role du poste,
 // une fois, sans le deviner ; « Ce poste garde la base » : elle lance
 // elle-meme son serveur (aucun ne tournait), s'y branche sur 127.0.0.1,
-// rien a saisir. Connexion du patron (mot de passe d'usine change), un
-// seul dossier qu'on ne choisit pas. Un cache vide ne redemande rien
-// (poste.json est la source). La base du proprietaire
-// (%APPDATA%\ml.gescom.app) n'a pas ete touchee.
+// rien a saisir. Base neuve (D43) : la connexion dit le compte d'usine,
+// l'assistant cree le dossier (le patron, la societe, les dates, les
+// reglages, une vendeuse), puis le tableau de bord ; un seul dossier
+// qu'on ne choisit pas. Un cache vide ne redemande rien (poste.json est
+// la source) ; on se reconnecte avec le NOUVEAU compte. La base du
+// proprietaire (%APPDATA%\ml.gescom.app) n'a pas ete touchee.
 //
-//   .\lancer.ps1 monoposte -Neuf ; node p1-premier-demarrage.mjs
+//   .\lancer.ps1 monoposte -Neuf -SansDemo ; node p1-premier-demarrage.mjs
 import fs from "node:fs";
 import path from "node:path";
 import { fenetre, boitesMuettes, connecter, capture, verifieur, erreursUtiles, sante, TRAVAIL, URL_FENETRE } from "./pw.mjs";
@@ -58,19 +60,66 @@ const poste = lirePoste();
 ok(poste.mode === "monoposte" && poste.serveur === "127.0.0.1:40000", `poste.json réécrit (${poste.mode}, ${poste.serveur})`);
 ok(fs.existsSync(path.join(DONNEES, "serveur.db")), "le serveur tient sa base dans le dossier isolé (serveur.db)");
 
-// ---- La connexion du patron, un seul dossier.
+// ---- Base neuve (D43) : la connexion dit le compte d'usine.
+ok(s.assistant_a_faire === true, "le serveur annonce une base neuve (/sante : assistant à faire)");
+ok(await page.getByText("Première ouverture de Gescom").count() === 1, "la connexion dit « admin / admin123 » sur une base neuve");
 let choix = false;
 const surveiller = setInterval(async () => { if (await page.getByText("Quel dossier ouvrir ?").count().catch(() => 0)) choix = true; }, 300);
-await connecter(page, "admin", "admin123", "Admin-2026!", "Ma boutique", URL_FENETRE);
+await page.locator("#identifiant").fill("admin");
+await page.locator("#mot_de_passe").fill("admin123");
+await page.keyboard.press("Enter");
+await page.getByText("création du dossier").waitFor({ timeout: 30000 }).catch(() => {});
+ok(await page.getByText("création du dossier").count() > 0, "connecté : l'assistant prend l'écran, pas le tableau de bord");
+await capture(page, "p1-02-assistant");
+
+// ---- L'assistant, étape par étape.
+const suivant = async () => { await page.getByRole("button", { name: /^(Commencer|Suivant)/ }).click(); await page.waitForTimeout(300); };
+await suivant();
+await page.locator("#patron-nom").fill("Moussa Traoré");
+await page.locator("#patron-pseudo").fill("moussa");
+await page.locator("#patron-mdp").fill("admin123");
+await page.locator("#patron-mdp2").fill("admin123");
+ok(await page.getByRole("button", { name: /^Suivant/ }).isDisabled(), "le mot de passe d'usine ne se garde pas");
+await page.locator("#patron-mdp").fill("Bamako-2026");
+await page.locator("#patron-mdp2").fill("Bamako-2026");
+await suivant();
+await page.locator("#soc-nom").fill("Quincaillerie Traoré");
+await page.locator("#soc-adresse").fill("Marché de Médine, Bamako");
+await page.locator("#soc-tel").fill("76 00 00 00");
+await page.locator("#soc-nif").fill("084123456M");
+await capture(page, "p1-03-societe");
+await suivant();
+ok((await page.locator("body").innerText()).includes("1er janvier"), "les dates proposées, dites en clair");
+await capture(page, "p1-04-dates");
+await suivant();
+await page.locator("#magasin").fill("Boutique Médine");
+await page.locator("#fond").fill("25000");
+await capture(page, "p1-05-reglages");
+await suivant();
+await page.getByRole("button", { name: /Ajouter un vendeur/ }).click();
+await page.locator("#v-nom-0").fill("Awa Diallo");
+await page.locator("#v-pseudo-0").fill("awa");
+await page.locator("#v-mdp-0").fill("awa-2026");
+await suivant();
+ok((await page.locator("body").innerText()).includes("Quincaillerie Traoré"), "le récapitulatif reprend la société");
+await capture(page, "p1-06-recapitulatif");
+await page.getByRole("button", { name: /Créer mon dossier/ }).click();
+await page.getByText(/Le dossier .* est créé/).waitFor({ timeout: 30000 }).catch(() => {});
+ok(await page.getByText(/Le dossier .* est créé/).count() > 0, "« Créer mon dossier » : créé, la reprise des données est proposée");
+await capture(page, "p1-07-reprise");
+await page.getByRole("button", { name: /Commencer à travailler/ }).click();
+await page.getByText("Tableau de bord", { exact: true }).first().waitFor({ timeout: 20000 }).catch(() => {});
 clearInterval(surveiller);
-ok(await page.getByText("Tableau de bord", { exact: true }).count() > 0, "le patron est connecté : le tableau de bord");
+ok(await page.getByText("Tableau de bord", { exact: true }).count() > 0, "le patron arrive au tableau de bord");
+ok(await page.locator('input[type="password"]').count() === 0, "plus de fenêtre « changer le mot de passe » par-dessus");
 ok(!choix, "un seul dossier : rien à choisir");
+ok((await sante())?.assistant_a_faire === false, "le serveur sert tout, sans redémarrer");
 const etat = await page.evaluate(async () => (await import("/src/lib/pont.ts")).etatReseau());
 ok(etat.mode === "monoposte" && etat.serveur === "127.0.0.1:40000" && !!etat.jeton && !!etat.dossierId,
   "le pont parle au serveur de cette machine, jeton et dossier posés");
-const dossiers = await page.evaluate(async () => (await (await import("/src/lib/pont.ts")).appeler("lire_dossiers", {})).length);
-ok(dossiers === 1, `un dossier sur ce serveur (${dossiers})`);
-await capture(page, "p1-02-accueil");
+const dossiers = await page.evaluate(async () => (await (await import("/src/lib/pont.ts")).appeler("lire_dossiers", {})));
+ok(dossiers.length === 1 && dossiers[0].societe === "Quincaillerie Traoré", `un dossier, au nom de la société (${dossiers.map(d => d.societe)})`);
+await capture(page, "p1-08-accueil");
 
 // ---- Cache vide : la fenetre relit poste.json, ne redemande rien.
 // D'abord laisser l'accueil finir ses lectures : un rechargement en plein
@@ -84,7 +133,8 @@ ok(await page.getByText("Comment travaille ce poste ?").count() === 0 && await p
   "cache vidé : ni le rôle ni l'adresse ne sont redemandés");
 // Le jeton vivait dans le cache : on se reconnecte.
 if (await page.getByText("Pseudo ou email").count()) {
-  await connecter(page, "admin", "Admin-2026!", "Admin-2026!", "Ma boutique", URL_FENETRE);
+  ok(await page.getByText("Première ouverture de Gescom").count() === 0, "la connexion ne parle plus du compte d'usine");
+  await connecter(page, "moussa", "Bamako-2026", "Bamako-2026", "Quincaillerie Traoré", URL_FENETRE);
 }
 ok(await page.getByText("Tableau de bord", { exact: true }).count() > 0, "reconnecté");
 const s2 = await sante();

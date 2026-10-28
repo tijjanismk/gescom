@@ -55,9 +55,14 @@ avant même qu'on ouvre une session, et se relance tout seul s'il tombe.
 3. Gescom affiche « Démarrage du serveur de ce poste… » puis l'écran de
    connexion. Rien à saisir : il prend le port 40000, ou le suivant libre
    de 40000 à 40100 si un autre programme l'occupe, et le retient.
-4. Se connecter avec le compte **admin** (le patron). Une base neuve a
-   deux comptes, `admin` et `employe` ; chacun **doit changer son mot de
-   passe** à la première connexion.
+4. Se connecter avec le compte **admin**, mot de passe **admin123**
+   (l'écran de connexion d'une base neuve le rappelle). Une base neuve
+   n'a que ce compte.
+5. **L'assistant de création du dossier** prend l'écran : votre
+   identifiant et votre mot de passe (`admin123` est refusé), la société,
+   les dates de travail, la TVA, le magasin, le fond de caisse, les
+   vendeurs. Rien d'autre ne s'ouvre avant « Créer mon dossier », sur
+   aucun poste (manuel, « Créer le dossier »).
 
 **Où sont les données** : `C:\Users\<votre nom>\AppData\Roaming\ml.gescom.app\`
 — la base `gescom.db`, le réglage du poste `poste.json`, le journal, et
