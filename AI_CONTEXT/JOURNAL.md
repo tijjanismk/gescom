@@ -2685,3 +2685,10 @@ séries de la paie, des avances, du personnel, des journaux et de
 l'Historique), compte limité (cinq) ; `tsc` propre. **Pas vu** : les
 écrans d'Équipe et l'avertissement de la caisse dans la vraie fenêtre ;
 les installeurs du jour ne contiennent pas D42.
+
+**Commit `b03ac85`**, puis les trois installeurs reconstruits avec D42
+(13 h 32 → 13 h 46), sans rien installer : caisse 213,5 Mo, Équipe
+2,5 Mo, serveur 4,2 Mo signé et horodaté ; `gescom-serveur.exe` porte bien
+le motif `avance_salaire`. Place faite d'abord, avec l'accord du
+propriétaire : les six anciennes copies de WebView2 de
+`%LOCALAPPDATA%\tauri\x64` supprimées (celle du jour gardée).
