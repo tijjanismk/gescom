@@ -112,7 +112,7 @@ pub const CATALOGUE: &[Permission] = &[
     Permission { code: "comptabilite:gerer", libelle: "Ajouter des sous-comptes et régler les affectations comptables", groupe: "Administration" },
     // --- Gescom Equipe (PLAN-EQUIPE, D28-D34) ---
     Permission { code: "personnel:gerer", libelle: "Créer et modifier les fiches du personnel", groupe: "Équipe" },
-    Permission { code: "personnel:avancer", libelle: "Donner une avance sur salaire (sortie de caisse)", groupe: "Équipe" },
+    Permission { code: "personnel:avancer", libelle: "Donner une avance sur salaire", groupe: "Équipe" },
     Permission { code: "paie:preparer", libelle: "Préparer les fiches de paie et voir les salaires", groupe: "Équipe" },
     Permission { code: "paie:valider", libelle: "Valider et payer les fiches de paie", groupe: "Équipe" },
     Permission { code: "crm:suivre", libelle: "Suivre les clients : échanges, rappels, prospects", groupe: "Équipe" },

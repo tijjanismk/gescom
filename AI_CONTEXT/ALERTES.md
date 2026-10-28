@@ -126,6 +126,42 @@ la plage 40000–40100).
   serveur sur 7301 (hors de la plage D39) ; le commentaire de `LOCALES`
   dans `pont.ts` parle encore d'une base locale.
 
+## Trouvé le 28/10/2026 en écrivant le guide d'installation, pas encore fait
+
+Relevé dans le code (non essayé en vrai) ; le guide et les manuels le
+disent aux utilisateurs en attendant.
+
+- **Désinstaller la caisse peut effacer la base d'un poste unique** : la
+  case standard de Tauri « supprimer les données de l'application » fait
+  `RmDir /r $APPDATA\ml.gescom.app` (base, sauvegardes, `poste.json`).
+  Le libellé français affiché n'est pas vérifié. À retirer ou à garder.
+- **Installer Gescom Serveur sur un poste unique qui a des données** :
+  la fenêtre reprend le service sur 40000 (`reseau.rs`), donc la base
+  neuve et vide de `ProgramData`. Aucun passage monoposte → service
+  prévu ; le guide (chapitre 9) donne un `--restaurer … --base`, non essayé.
+- **`--restaurer` sans `--base`** écrit dans la base de l'utilisateur qui
+  tape la commande, pas dans celle du service (`main.rs:146`) — le
+  manuel le disait ainsi, corrigé.
+- **L'écran de connexion n'a pas de lien vers le réglage du réseau**, et
+  Paramètres → Réseau demande d'être connecté : une caisse qui ne trouve
+  plus son serveur (port changé, IP changée) est coincée sans technicien.
+  La console de D40 conseille pourtant « Paramètres → Réseau → Rechercher
+  le serveur ».
+- **Gescom Équipe sur un poste sans caisse** ne peut pas recevoir
+  d'adresse (elle lit le `poste.json` de la caisse, sinon 127.0.0.1:40000).
+  L'écran « Gescom Équipe a besoin du serveur Gescom » (`AppEquipe.tsx`)
+  ne s'affiche jamais (le mode vaut toujours « poste ») et son texte est
+  périmé.
+- `outils\parefeu.ps1` n'est pas livré, alors que des messages y renvoient ;
+  le message de `--compte-limite` dit « dans poste.json » (c'est la clé
+  `base` de `serveur.json`) ; `GESCOM_PG_SAUVEGARDE` lu par le service
+  LocalSystem : non vérifié.
+- `ListePassages.tsx:242` dit encore que les factures gardent « Client de
+  passage » (le papier imprime le code depuis le 26/10).
+- Droits : « passer en client ordinaire » demande `clients:modifier`, que
+  l'employé a et le caissier non ; un employé peut décocher « Suivre le
+  stock » à la création mais pas le changer ensuite (`parametres:modifier`).
+
 ## Ce que la revue du 23/09/2026 a corrigé (branche `correctif/revue-v2`)
 
 Trois règles, qui valent pour tout ce qui s'écrit ensuite :

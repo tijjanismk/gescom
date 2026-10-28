@@ -2692,3 +2692,39 @@ les installeurs du jour ne contiennent pas D42.
 le motif `avance_salaire`. Place faite d'abord, avec l'accord du
 propriétaire : les six anciennes copies de WebView2 de
 `%LOCALAPPDATA%\tauri\x64` supprimées (celle du jour gardée).
+
+## 28/10/2026 (soir) — le guide d'installation et les manuels en PDF
+
+Demande du propriétaire : « tous les cas » d'installation et les
+manuels en PDF ; trois documents choisis, rangés dans `docs/manuels/`.
+Trois agents ont relevé dans le code les libellés exacts (installation,
+nouveautés de la caisse depuis le 25/10, écrans d'Équipe).
+
+- **`INSTALLATION.md`** (nouveau, 15 chapitres) : les trois programmes,
+  un seul poste, plusieurs caisses avec le service, sans service
+  (déconseillé), PostgreSQL et le compte limité, Équipe (sur quels
+  postes), ajouter/renommer, passer d'un poste unique à plusieurs
+  caisses, mise à jour, port, désinstallation, sauvegarde, problèmes.
+- **`MANUEL.md`** 2.1 : section 0 réduite à l'essentiel (40000,
+  « Rechercher le serveur »), le menu par dossier, les passages, le
+  duplicata, les retours groupés, les articles non suivis, la colonne
+  CSV, la sauvegarde quotidienne (elle disait « une fois par semaine »),
+  la restauration **avec `--base`** (sans lui, elle allait dans la
+  mauvaise base), « 13 bis » exercices et horloge, l'avertissement de la
+  dépense « Salaire ».
+- **`MANUEL-EQUIPE.md`** (nouveau) : connexion et droits, personnel et
+  jours, avances (tiroir, date, morceaux), fiches, rectificative,
+  versements, bulletin, cotisations et ITS, suivi clients.
+- **`outils/manuels_pdf.ps1`** : pandoc (Anaconda) → HTML à la mise en
+  page de `genererManuel.ts` → Edge sans fenêtre → PDF A4. Le script
+  reste en ASCII (PowerShell 5.1 lit mal l'UTF-8 sans BOM). L'ancien
+  `Gescom_Manuel.pdf` de la racine (09/09) est retiré.
+- En route, trois libellés faux depuis D42 corrigés : la permission
+  `personnel:avancer` (« sortie de caisse »), l'accueil d'Équipe
+  (« versements depuis la caisse »), la ligne D42 du récapitulatif.
+
+Les relevés ont trouvé des risques réels (désinstallation qui peut
+effacer la base, passage monoposte → service, écran de connexion sans
+lien réseau, Équipe sans caisse) : ALERTES, « Trouvé le 28/10/2026 en
+écrivant le guide ». **Rien n'a été essayé à l'écran** ; les manuels
+décrivent le code.
