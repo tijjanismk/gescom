@@ -190,6 +190,67 @@ compte limité, une ligne dans ETAPES, un parcours du banc.
 ## 4. Ce qui n'est PAS dans Équipe (pour l'instant)
 
 Pointeuse, congés payés calculés, heures supplémentaires légales,
-déclarations INPS/impôts générées, prêts au personnel sur plusieurs
-mois (au-delà d'une avance reportée), campagnes SMS du CRM, pipeline de
+déclarations INPS/impôts générées, campagnes SMS du CRM, pipeline de
 ventes à étapes. Rien de ce qui précède ne l'empêche d'arriver après.
+(Les prêts sur plusieurs mois sont sortis de cette liste le 29/10/2026 :
+EQ-1 ci-dessous.)
+
+---
+
+## 5. Compléter Équipe : EQ-1 à EQ-6 (29/10/2026)
+
+> « Qu'est-ce qu'on peut ajouter à Équipe pour la compléter ? », puis
+> « écris le plan en ces étapes et chaque étape ouvre sa conversation »
+> — le propriétaire, 29/10/2026.
+
+Six étapes **indépendantes**, une session chacune, chacune dans son
+worktree tiré de `claude/gallant-neumann-9efb9f`. Aucune n'attend le
+résultat d'une autre ; ce qui relierait deux étapes (la tuile des prêts
+sur l'accueil, le bouton WhatsApp sur la liste à relancer) est noté
+« après fusion » et attend que les deux soient réunies.
+
+| étape | contenu | décision réservée | fichiers à elle | preuve |
+|---|---|---|---|---|
+| **EQ-1** | **Le prêt au personnel sur plusieurs mois** : 60 000 F prêtés pour la Tabaski ou la rentrée, retenus 10 000 F par mois. Échéance fixe ; la retenue ne dépasse jamais le net du mois, le reste se reporte ; soldé, il se ferme ; hors caisse comme l'avance (D31, D32) ; journal PA 421 / trésorerie | **D47** | `noyau/src/prets.rs`, `coeur/pret.rs`, `src/equipe/Prets.tsx`, `tests/prets_base.rs` ; la retenue entre dans le calcul de `paie.rs` | scénario : un prêt sur six fiches, une fiche trop maigre (report), la rectificative, PA équilibré |
+| **EQ-2** | **L'état de paie du mois** : une ligne par personne — brut, avances, retenues, cotisations, net, déjà versé, reste dû — et les totaux ; imprimable, exportable en CSV ; lecture seule | **D48** | `noyau/src/etat_paie.rs`, `src/equipe/EtatPaie.tsx`, `tests/etat_paie_base.rs` | scénario : trois personnes, deux versements partiels ; les totaux égalent la somme des fiches et `salaires_par_mois_sur` |
+| **EQ-3** | **L'accueil du jour** : en ouvrant Équipe, ce qui attend la personne connectée — ses rappels dus, les fiches en brouillon à valider, les fiches validées pas soldées, les avances en cours — chaque ligne mène à l'écran ; selon ses droits (C-1) | **D49** | `noyau/src/equipe_jour.rs`, `src/equipe/Accueil.tsx`, `tests/equipe_jour_base.rs` | scénario : un caissier ne voit aucun montant, le patron voit tout ; un rappel fait disparaît |
+| **EQ-4** | **Les clients à relancer** : une liste tirée de la base, sans saisie — sans achat depuis N jours (60 d'office, réglage du dossier), créance en retard, meilleurs clients qui ralentissent ; un clic crée l'échange ou le rappel (D34) | **D50** | `noyau/src/crm_relances.rs`, règle pure dans `coeur/`, `src/equipe/ClientsARelancer.tsx`, `tests/crm_relances_base.rs` | scénario : un client dormant, un en retard, un actif absent de la liste ; cloisonnement par dossier |
+| **EQ-5** | **WhatsApp sans service payant** : un bouton ouvre WhatsApp (`wa.me`) avec le texte prêt — le bulletin résumé (période, net, versé, reste) pour l'employé, un message pour le client depuis la fiche 360 ; c'est la personne qui appuie sur « Envoyer » ; l'échange `whatsapp` se note | **D51** | `src/lib/whatsapp.ts` (numéro malien en +223, texte encodé) et son test `node --test`, boutons dans `ApercuBulletin.tsx` et la fiche 360 | test du numéro (76 11 22 33, 0022376…, +223…) ; banc : le lien ouvert porte le bon numéro et le bon texte |
+| **EQ-6** | **Les absences notées, sans calcul légal** : le motif d'un jour non travaillé (maladie, permission, congé, absence) dans la grille des jours (F-3), et le compte de l'année par motif sur la fiche ; aucune paie de congé calculée (§ 4) | **D52** | la grille des jours (`JoursTravailles.tsx`) et son module du noyau, `tests/absences_base.rs` | scénario : un mois avec trois motifs ; la paie à la journée ne compte que les jours travaillés, comme avant |
+
+### Règles communes aux six sessions
+
+- **Décisions écrites avant le code**, avec leur pourquoi, et l'accord
+  du propriétaire avant d'écrire (méthode habituelle) ; la décision prend
+  le numéro réservé ci-dessus, aucun autre.
+- Règles de `CLAUDE.md` : logique dans `noyau`, SQL portable, le serveur
+  juge la saisie (D27), qui agit vient de la session (D26), version
+  `Base` seulement (exception D29), colonnes dans `schema.sql` **et**
+  `amorcage.rs`.
+- **Fichiers partagés** (`serveur/src/socle.rs`, `schema.sql`,
+  `amorcage.rs`, `equipe/modules.ts`, `AppEquipe.tsx`, `Paie.tsx`,
+  `ETAPES.md`, `JOURNAL.md`, `DECISIONS.md`, `modules/equipe.md`) : y
+  **ajouter** ses lignes, ne rien y réordonner ni reformater — les six
+  branches se fusionnent ensuite.
+- **Pas de retouche de mise en page** : la session « Onglets de la
+  paie » a un travail non commité sur les mêmes écrans
+  (`claude/xenodochial-hodgkin-4f567b`) ; il sera fusionné à part.
+- **PostgreSQL : une base par session**, déjà créée : `gescom_test_eq1`
+  … `gescom_test_eq6` (`postgresql://postgres:user@127.0.0.1:5432/gescom_test_eqN`).
+  Jamais `gescom`, jamais `gescom_test` (autres sessions). Le compte
+  limité est commun à toutes les bases : s'il échoue sur le rôle,
+  rejouer la série seule.
+- **Ports d'essai** : serveur `4007N`, écran Vite `144N` (N = numéro de
+  l'étape). Ne jamais toucher 40000 (le propriétaire), 40050 (l'essai à
+  la main), 40060-40062, 1420, 1431.
+- Fini quand : tests SQLite, PostgreSQL et compte limité verts, `npx tsc
+  --noEmit ; node --test src/lib/*.test.ts` vert, l'écran vu par le
+  propriétaire, ETAPES / JOURNAL / DECISIONS / `modules/equipe.md` à
+  jour. **Commit seulement quand le propriétaire le demande ; jamais de
+  push.**
+
+### Après fusion
+
+La tuile « prêts en cours » sur l'accueil (EQ-1 + EQ-3) ; le bouton
+WhatsApp sur la liste à relancer (EQ-4 + EQ-5) ; la colonne « prêt »
+dans l'état de paie (EQ-1 + EQ-2).
