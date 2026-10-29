@@ -126,7 +126,7 @@ fn l_assistant_fini_tout_est_en_place() {
     // Les reglages qui servent ensuite.
     let reg = assistant::lire_reglages_dossier_sur(&mut base).unwrap();
     assert_eq!((reg["tva_pct"].as_i64(), reg["fond_caisse"].as_i64()), (Some(18), Some(25_000)));
-    let a = gescom_noyau::comptoir::creer_article_rapide_sur(&mut base, "Ciment CIMAF".into(), "sac".into(), 5_000, None).unwrap();
+    let a = gescom_noyau::comptoir::creer_article_rapide_sur(&mut base, "Ciment CIMAF".into(), "sac".into(), 5_000, None, None).unwrap();
     let taux: f64 = base
         .lire_une("SELECT taux_tva_defaut FROM article WHERE id = ?1", &parametres![a["id"].as_str().unwrap()], |r| r.get::<f64>(0))
         .unwrap()
@@ -240,10 +240,10 @@ fn un_identifiant_deja_pris_se_refuse() {
 #[test]
 fn les_reglages_du_dossier_se_changent_ensuite() {
     let mut base = base_avec_demo();
-    let r = assistant::definir_reglages_dossier_sur(&mut base, 18, 10_000).unwrap();
+    let r = assistant::definir_reglages_dossier_sur(&mut base, 18, 10_000, None).unwrap();
     assert_eq!((r["tva_pct"].as_i64(), r["fond_caisse"].as_i64()), (Some(18), Some(10_000)));
-    assert!(assistant::definir_reglages_dossier_sur(&mut base, 5, 0).is_err());
-    assert!(assistant::definir_reglages_dossier_sur(&mut base, 0, -1).is_err());
+    assert!(assistant::definir_reglages_dossier_sur(&mut base, 5, 0, None).is_err());
+    assert!(assistant::definir_reglages_dossier_sur(&mut base, 0, -1, None).is_err());
     assert_eq!(assistant::fond_habituel_sur(&mut base), 10_000, "le refus n'a rien écrit");
     let dossier = base.dossier().to_string();
     assert_eq!(
@@ -259,7 +259,7 @@ fn tout_passe_le_detecteur() {
     let id = patron(&mut base);
     assistant::lire_sur(&mut base, &id).unwrap();
     assistant::terminer_sur(&mut base, &id, saisie()).unwrap();
-    assistant::definir_reglages_dossier_sur(&mut base, 0, 5_000).unwrap();
+    assistant::definir_reglages_dossier_sur(&mut base, 0, 5_000, None).unwrap();
     assistant::lire_reglages_dossier_sur(&mut base).unwrap();
     assistant::definir_tva_boutique_sur(&mut base, 18, true).unwrap();
 }

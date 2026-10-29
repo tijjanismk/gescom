@@ -128,7 +128,7 @@ fn un_article_complet_nait_avec_son_unite_et_son_stock_a_zero() {
     let cat = reglages::creer_categorie_sur_base(&mut base, "Quincaillerie".into()).unwrap();
     assert!(reglages::lire_categories_sur_base(&mut base).unwrap().iter().any(|c| c["id"] == cat));
 
-    let id = reglages::creer_article_complet_sur_base(&mut base, "Clous".into(), Some(cat), "kg".into(), 1_500).unwrap();
+    let id = reglages::creer_article_complet_sur_base(&mut base, "Clous".into(), Some(cat), "kg".into(), 1_500, None).unwrap();
     let complets = reglages::lire_articles_complets_sur_base(&mut base).unwrap();
     let clous = complets.iter().find(|a| a["id"] == id).expect("l'article est listé");
     assert_eq!(clous["unites"].as_array().unwrap().len(), 1);
@@ -235,7 +235,7 @@ fn tout_ce_qui_est_porte_dans_les_reglages_passe_le_detecteur() {
     reglages::lire_categories_sur_base(&mut base).expect("catégories");
     reglages::creer_categorie_sur_base(&mut base, "c".into()).expect("catégorie");
     reglages::lire_articles_complets_sur_base(&mut base).expect("articles");
-    let a = reglages::creer_article_complet_sur_base(&mut base, "A".into(), None, "u".into(), 100).expect("article");
+    let a = reglages::creer_article_complet_sur_base(&mut base, "A".into(), None, "u".into(), 100, None).expect("article");
     let un = reglages::ajouter_unite_vente_sur_base(&mut base, a, "p".into(), 2.0, 200, None).expect("unité");
     let uid = un["id"].as_str().unwrap().to_string();
     reglages::modifier_unite_vente_sur_base(&mut base, uid.clone(), None, None, None, None).expect("modifier unité");

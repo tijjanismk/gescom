@@ -111,7 +111,10 @@ CREATE TABLE IF NOT EXISTS article (
     cree_par            TEXT NOT NULL DEFAULT 'system',
     modifie_par         TEXT NOT NULL DEFAULT 'system',
     origine             TEXT NOT NULL DEFAULT 'app'
-, taux_tva_defaut REAL NOT NULL DEFAULT 0.0);
+, taux_tva_defaut REAL NOT NULL DEFAULT 0.0
+-- D45 : le seuil d'alerte de l'article, en unite de base. Vide : celui
+-- du dossier (5 d'office). 0 : pas d'alerte, seulement la rupture.
+, seuil_alerte REAL);
 
 CREATE TABLE IF NOT EXISTS unite_vente (
     id              TEXT PRIMARY KEY,

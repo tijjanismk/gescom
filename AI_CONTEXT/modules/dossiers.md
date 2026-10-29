@@ -94,6 +94,7 @@ n'existe plus qu'en démonstration** (`COMPTES_USINE` = le patron seul).
 | `assistant::terminer_sur(base, utilisateur, Saisie)` / `terminer_au_sur(…, maintenant)` | tout en une transaction : patron (nom, identifiant, mot de passe), `parametres_societe`, `dossier.societe`, l'unique exercice ouvert, TVA et fond (`config_app`), premier numéro de facture (`compteur_piece`, refusé si une facture est sortie), nom du dépôt par défaut, vendeurs (rôle `employe`, `doit_changer_mdp`), journal `assistant_dossier_fait`, marque « fait » |
 | `assistant::{lire,definir}_reglages_dossier_sur` | TVA des nouveaux articles (`tva_par_defaut:<dossier>`, 0 ou 18) et fond de caisse habituel (`fond_caisse_habituel:<dossier>`), après l'assistant ; journal `reglages_dossier_modifies` |
 | `assistant::taux_nouvel_article_sur` | le taux que prennent les articles neufs (comptoir, Paramètres, import) |
+| `assistant::seuil_defaut_sur` | D45 : le seuil d'alerte des articles qui n'ont pas le leur (`seuil_alerte_defaut:<dossier>`, 5 d'office) ; `definir_reglages_dossier_sur` prend `seuil_defaut` |
 | `assistant::definir_tva_boutique_sur(base, tva_pct, appliquer_aux_articles)` | l'état de la TVA (Paramètres → TVA) ; avec `appliquer_aux_articles`, tous les articles actifs au même taux dans la même transaction (ils sont communs à tous les dossiers : `lire_reglages_dossier` rend `nb_articles`, `nb_dossiers` pour le dire avant) |
 
 Règles pures : `coeur/assistant.rs` (identifiant, mot de passe — celui

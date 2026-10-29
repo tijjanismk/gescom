@@ -20,6 +20,7 @@ import type {
 import { cn } from "@/lib/utils";
 import { peut } from "@/lib/droits";
 import { appeler as invoke } from "@/lib/pont";
+import { ChampSeuil, lireSeuil } from "@/components/ChampSeuil";
 import { avecHomonymeConfirme } from "@/lib/homonyme";
 import { SelectUnite } from "@/components/SelectUnite";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
@@ -266,6 +267,8 @@ export function Achats() {
   const [modalNouvelArticle, setModalNouvelArticle] = useState(false);
   const [naNom, setNaNom] = useState("");
   const [naUnite, setNaUnite] = useState("");
+  // D45 : le seuil d'alerte, connu a la reception ; vide = celui du dossier.
+  const [naSeuil, setNaSeuil] = useState("");
   const [naEnCours, setNaEnCours] = useState(false);
   const [articlesFiltres, setArticlesFiltres] = useState<ArticleAchat[]>([]);
   const [articleSelectionne, setArticleSelectionne] = useState<ArticleAchat | null>(null);
@@ -354,6 +357,7 @@ export function Achats() {
   function ouvrirNouvelArticle() {
     setNaNom(rechercheArticle.trim());
     setNaUnite("");
+    setNaSeuil("");
     setModalNouvelArticle(true);
   }
 
@@ -369,6 +373,7 @@ export function Achats() {
         uniteBase: naUnite.trim(),
         prixReference: 0,
         prixAchat: null,
+        seuilAlerte: lireSeuil(naSeuil),
       });
       const articles = await invoke<ArticleAchat[]>("lire_articles_avec_unites");
       setTousArticles(articles);
@@ -912,6 +917,8 @@ export function Achats() {
                 déclare après, dans Paramètres.
               </p>
             </div>
+            <ChampSeuil id="seuil-achat" valeur={naSeuil} onChange={setNaSeuil}
+              unite={naUnite.trim() || undefined} />
             <p className="text-xs text-muted-foreground">
               Le prix de vente reste à définir dans Paramètres — ici on
               n'enregistre que ce qui entre en stock.

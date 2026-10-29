@@ -60,11 +60,11 @@ fn un_article_se_reconnait_sans_la_casse_ni_les_espaces() {
     assert_eq!(articles(&mut base), avant, "pas de second « Riz local »");
     assert_eq!(article_unite(&mut base, "Riz local").3, 650, "le prix a suivi");
     // A la main aussi.
-    let e = gescom_noyau::comptoir::creer_article_rapide_sur(&mut base, "riz  local".into(), "kg".into(), 1, None).unwrap_err();
+    let e = gescom_noyau::comptoir::creer_article_rapide_sur(&mut base, "riz  local".into(), "kg".into(), 1, None, None).unwrap_err();
     assert!(e.contains("existe déjà"), "{e}");
-    let e = parametres::creer_article_complet_sur_base(&mut base, " SUCRE ".into(), None, "kg".into(), 1).unwrap_err();
+    let e = parametres::creer_article_complet_sur_base(&mut base, " SUCRE ".into(), None, "kg".into(), 1, None).unwrap_err();
     assert!(e.contains("existe déjà"), "{e}");
-    assert!(parametres::creer_article_complet_sur_base(&mut base, "  ".into(), None, "kg".into(), 1).is_err());
+    assert!(parametres::creer_article_complet_sur_base(&mut base, "  ".into(), None, "kg".into(), 1, None).is_err());
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn sans_mise_a_jour_l_existant_est_laisse_et_un_article_neuf_garde_ses_unites() 
 #[test]
 fn une_tva_vide_garde_celle_de_l_article_et_donne_celle_du_dossier_au_neuf() {
     let mut base = base_avec_demo();
-    gescom_noyau::assistant::definir_reglages_dossier_sur(&mut base, 18, 0).unwrap();
+    gescom_noyau::assistant::definir_reglages_dossier_sur(&mut base, 18, 0, None).unwrap();
     base.executer("UPDATE article SET taux_tva_defaut = 0.05 WHERE nom = 'Sucre'", &[]).unwrap();
     let csv = "Nom;Categorie;Unite;Prix\nSucre;;kg;850\nSavon;;pièce;250".to_string();
     importer(&mut base, csv, Some(true), true, false).unwrap();

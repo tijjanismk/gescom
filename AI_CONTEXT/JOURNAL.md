@@ -2783,3 +2783,31 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   installées, `p1` avec `-SansDemo`) ; Gescom Équipe sur une base neuve
   dit seulement « dossier pas encore créé » ; fusionner deux fiches déjà
   en double reste un autre chantier. Rien n'est commité.
+
+## 29/10/2026 — D45 le seuil d'alerte ; l'assistant retiré puis rétabli
+
+- **Le seuil** (« on définit le seuil pour les articles lors de la
+  création ») : relevé d'abord — aucun seuil par article, 5 en dur au
+  tableau de bord et aux rapports, 10 dans la page Stock. Deux choix
+  posés : sans seuil, celui du dossier (5 d'office) ; un seuil par
+  article, pas par magasin. Codé sur les trois chemins de schéma,
+  `coeur::stock::statut_stock`, création (Paramètres, Achats), fiche,
+  import/export, tableau de bord, rapport, page Stock ; Paramètres →
+  Société porte le seuil du dossier.
+- **Deux demandes du propriétaire en route.** « La création de dossier
+  doit être la même et deux dossiers peuvent coexister » : relevé —
+  `parametres_societe` est une ligne pour l'installation (37 lectures) ;
+  trois choix posés, réponse « on laisse pour cette version » (ALERTES).
+  « On enlève l'assistant de création au 1er démarrage » : retiré
+  (module renommé `reglages_dossier`, rappel du compte d'usine gardé),
+  puis « on peut revenir ici » : retour à l'état du commit `86f7ba8` en
+  gardant le seuil (choix posé). Le travail du retrait est gardé dans un
+  patch hors du dépôt.
+- **Tests** : `seuil_base` 5 (SQLite, PostgreSQL, compte limité),
+  workspace SQLite 915/915 ; la ligne exportée finit désormais par la
+  colonne « Seuil » (`donnees_base` réaligné).
+- **Vu dans le navigateur** (serveur jetable 40060) : le champ à la
+  création (« celui du dossier : 5 »), le badge orange à 6 sous 10,
+  « 1 alerte » au tableau de bord, la fiche qui dit « en alerte sous
+  10 », puis 0 qui coupe l'alerte. **Pas commité.**
+

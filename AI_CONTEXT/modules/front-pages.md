@@ -88,7 +88,10 @@ données (`ImportCsvAvecApercu`, `ImportExportFournisseurs`). Sans
 `PageLogin` lit `sante().assistant_a_faire` pour rappeler le compte
 d'usine. `ModalOuvrirCaisse` et `Caisse` proposent le fond habituel
 (`lib/reglagesDossier.ts`) ; `ReglagesDuDossier.tsx` sous Paramètres →
-Société (le fond de caisse) ; `EtatTvaBoutique.tsx` en tête de
+Société (le fond de caisse, D45 le seuil d'alerte par défaut) ;
+`ChampSeuil.tsx` (D45 : création dans Paramètres et Achats,
+`SeuilArticle` sur la fiche dépliée ; le badge de `Stock.tsx` lit
+`statut` du serveur) ; `EtatTvaBoutique.tsx` en tête de
 Paramètres → TVA (`OngletTVA`, à la place de l'ancien « Taux TVA
 global ») ; `lib/homonyme.ts` pose « créer quand même ? » aux quatre
 endroits qui créent ou modifient un fournisseur. `OngletHistoriqueCaisse`

@@ -1351,3 +1351,45 @@ boutiques : trop d'erreurs).
 `ImportCsvAvecApercu.tsx`, `ImportExportFournisseurs.tsx` (page
 Fournisseurs, assistant), `lib/homonyme.ts`. Tests :
 `noyau/tests/doublons_base.rs`.
+
+## D45 — Le seuil d'alerte des articles (28/10/2026, nuit)
+
+**Le besoin** (le propriétaire) : « on définit le seuil pour les
+articles lors de la création ». Relevé : aucun seuil par article ; 5 en
+dur au tableau de bord et dans les rapports, 10 dans la page Stock.
+
+**Retenu** (deux choix posés, acceptés) :
+
+1. **Un seuil par article** (`article.seuil_alerte`, unité de base),
+   commun aux dossiers comme l'article ; vide : **le seuil du dossier**
+   (`config_app seuil_alerte_defaut:<dossier>`, Paramètres → Société,
+   **5 d'office** — rien ne change pour les articles existants).
+2. **Saisi à la création** (Paramètres → Articles, Achats → nouvel
+   article), changé sur la fiche de l'article (`definir_seuil_article`),
+   par la colonne **Seuil** de l'import (vide : inchangé), rendu à
+   l'export.
+3. **Un seul calcul** (`coeur::stock::statut_stock`) : « alerte »
+   strictement sous le seuil (le stock minimum de Ciel), « rupture » à 0
+   ou moins ; **0 coupe l'alerte**. Tableau de bord (total du dossier ou
+   du magasin choisi), rapport du stock et page Stock (la ligne du
+   magasin) comptent pareil — fini le 5 ici, 10 là.
+4. Le serveur juge : positif ou nul, au plus un million ; un article
+   qui ne suit pas son stock n'a pas de seuil (refus qui le dit).
+
+**Pas pris** : un seuil par magasin (proposé, écarté : une saisie par
+magasin pour une boutique qui n'en a souvent qu'un).
+
+**Au passage, deux décisions du propriétaire le même soir.** (a) Créer
+un **nouveau dossier par le même assistant** et donner **à chaque
+dossier sa société** : « on laisse pour cette version » (ALERTES). (b)
+L'assistant du premier démarrage a été retiré, puis **rétabli** sur sa
+demande (« on peut revenir ici ») : D43 reste telle qu'écrite.
+
+**Mise en œuvre.** Colonne dans `schema.sql`, `persistance/mod.rs`,
+`amorcage.rs` ; `coeur::stock::{SEUIL_ALERTE_DEFAUT, verifier_seuil,
+statut_stock}` ; `assistant::seuil_defaut_sur` ;
+`parametres::definir_seuil_article_sur` ; `creer_article_complet` et
+`creer_article_rapide` prennent `seuilAlerte` ; `definir_reglages_dossier`
+prend `seuilDefaut`. Écran `ChampSeuil.tsx` (création, fiche),
+`ReglagesDuDossier`, badge de `Stock.tsx`. Tests :
+`noyau/tests/seuil_base.rs`.

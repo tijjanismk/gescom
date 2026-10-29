@@ -12,17 +12,22 @@ import { Loader2, Save, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
+import { Input } from "@/components/ui/input";
+import { lireSeuil } from "@/components/ChampSeuil";
 import type { ReglagesDossier } from "@/lib/reglagesDossier";
 
 export function ReglagesDuDossier() {
   const [r, setR] = useState<ReglagesDossier | null>(null);
   const [fond, setFond] = useState("");
+  // D45 : le seuil d'alerte des articles qui n'ont pas le leur.
+  const [seuil, setSeuil] = useState("");
   const [enCours, setEnCours] = useState(false);
 
   useEffect(() => {
     invoke<ReglagesDossier>("lire_reglages_dossier").then(v => {
       setR(v);
       setFond(v.fond_caisse > 0 ? String(v.fond_caisse) : "");
+      setSeuil(v.seuil_defaut !== undefined ? String(v.seuil_defaut) : "");
     }).catch(() => setR(null));
   }, []);
 
@@ -32,6 +37,7 @@ export function ReglagesDuDossier() {
       const v = await invoke<ReglagesDossier>("definir_reglages_dossier", {
         // La TVA ne change pas ici : on renvoie celle du dossier.
         tvaPct: r?.tva_pct ?? 0, fondCaisse: parseMontant(fond) || 0,
+        seuilDefaut: lireSeuil(seuil),
       });
       setR(v);
       await message("Réglages du dossier enregistrés.", { title: "Succès", kind: "info" });
@@ -57,6 +63,14 @@ export function ReglagesDuDossier() {
         <MoneyInput id="fond-habituel" value={fond} onChange={setFond} placeholder="0" className="mt-1" />
         <p className="text-xs text-muted-foreground mt-1">
           Proposé à l'ouverture de la caisse ; le caissier tape ce qu'il y a vraiment dans le tiroir.
+        </p>
+      </div>
+      <div>
+        <Label htmlFor="seuil-defaut">Seuil d'alerte des articles</Label>
+        <Input id="seuil-defaut" inputMode="decimal" value={seuil} onChange={e => setSeuil(e.target.value)}
+          placeholder="5" className="mt-1" />
+        <p className="text-xs text-muted-foreground mt-1">
+          Pour les articles qui n'ont pas le leur : sous ce stock, ils passent « en alerte ». 0 : pas d'alerte.
         </p>
       </div>
       <Button onClick={enregistrer} disabled={enCours} variant="outline" className="w-full">

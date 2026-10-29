@@ -202,6 +202,7 @@ fn tables_v2(base: &mut Base) {
         "ALTER TABLE session_caisse ADD COLUMN ferme_le TEXT",
         "ALTER TABLE parametres_societe ADD COLUMN logo_chemin TEXT",
         "ALTER TABLE article ADD COLUMN taux_tva_defaut REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE article ADD COLUMN seuil_alerte REAL",
         "ALTER TABLE vente ADD COLUMN piece_id TEXT",
         "ALTER TABLE mouvement_stock ADD COLUMN fournisseur_id TEXT",
         "ALTER TABLE mouvement_stock ADD COLUMN prix_achat_unitaire INTEGER",

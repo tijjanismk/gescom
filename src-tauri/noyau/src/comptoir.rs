@@ -377,10 +377,16 @@ pub fn creer_article_rapide_sur(
     unite_base: String,
     prix_reference: i64,
     prix_achat: Option<i64>,
+    // D45 : le seuil d'alerte, saisi a la reception (Achats) ; vide :
+    // celui du dossier.
+    seuil_alerte: Option<f64>,
 ) -> Result<serde_json::Value, String> {
     let nom = nom.trim().to_string();
     if nom.is_empty() {
         return Err("Le nom de l'article est obligatoire".to_string());
+    }
+    if let Some(s) = seuil_alerte {
+        crate::coeur::stock::verifier_seuil(s)?;
     }
 
     // Un doublon de nom casse l'import CSV, qui rapproche les articles
@@ -419,8 +425,8 @@ pub fn creer_article_rapide_sur(
         "INSERT INTO article
            (id, nom, unite_base, gere_en_stock, attributs, actif,
             dernier_prix_achat, cree_le, modifie_le, cree_par, modifie_par,
-            origine, taux_tva_defaut)
-         VALUES (?1,?2,?3,1,'{}',1,?4,?5,?5,?6,?6,'app',?7)",
+            origine, taux_tva_defaut, seuil_alerte)
+         VALUES (?1,?2,?3,1,'{}',1,?4,?5,?5,?6,?6,'app',?7,CAST(?8 AS DOUBLE PRECISION))",
         &parametres![
             art_id.clone(),
             nom.clone(),
@@ -429,6 +435,7 @@ pub fn creer_article_rapide_sur(
             now.clone(),
             auteur.clone(),
             tva,
+            seuil_alerte,
         ],
     )
     .map_err(|e| e.0)?;

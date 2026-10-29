@@ -42,6 +42,10 @@ fn cle_fond(dossier: &str) -> String {
     format!("fond_caisse_habituel:{dossier}")
 }
 
+fn cle_seuil(dossier: &str) -> String {
+    format!("seuil_alerte_defaut:{dossier}")
+}
+
 /// Pose la marque d'une base neuve. Rejouable.
 pub fn marquer_a_faire(acces: &mut impl Acces) {
     let _ = acces.executer(
@@ -109,6 +113,15 @@ pub fn taux_nouvel_article_sur(acces: &mut impl Acces) -> f64 {
     tva_par_defaut_pct_sur(acces) as f64 / 100.0
 }
 
+/// D45 — le seuil d'alerte d'un article qui n'en a pas : celui du
+/// dossier, 5 d'office (`coeur::stock::SEUIL_ALERTE_DEFAUT`).
+pub fn seuil_defaut_sur(acces: &mut impl Acces) -> f64 {
+    let dossier = acces.dossier().to_string();
+    lire_config(acces, &cle_seuil(&dossier))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(crate::coeur::stock::SEUIL_ALERTE_DEFAUT)
+}
+
 /// Le fond de caisse propose a l'ouverture (0 si rien).
 pub fn fond_habituel_sur(acces: &mut impl Acces) -> i64 {
     let dossier = acces.dossier().to_string();
@@ -140,6 +153,7 @@ pub fn lire_reglages_dossier_sur(base: &mut Base) -> Result<serde_json::Value, S
     Ok(serde_json::json!({
         "tva_pct": tva_pct,
         "fond_caisse": fond_habituel_sur(base),
+        "seuil_defaut": seuil_defaut_sur(base),
         "taux_proposes": regles::TAUX_TVA_PROPOSES,
         "nb_articles": articles,
         "nb_dossiers": dossiers,
@@ -198,15 +212,28 @@ pub fn definir_tva_boutique_sur(
 
 /// Change les reglages du dossier apres l'assistant (Parametres ->
 /// Societe). Juges comme dans l'assistant ; trace a l'Historique.
-pub fn definir_reglages_dossier_sur(base: &mut Base, tva_pct: i64, fond_caisse: i64) -> Result<serde_json::Value, String> {
+/// `seuil_defaut` (D45) : absent, inchange.
+pub fn definir_reglages_dossier_sur(
+    base: &mut Base,
+    tva_pct: i64,
+    fond_caisse: i64,
+    seuil_defaut: Option<f64>,
+) -> Result<serde_json::Value, String> {
     regles::verifier_tva(tva_pct)?;
     regles::verifier_fond_caisse(fond_caisse)?;
+    if let Some(s) = seuil_defaut {
+        crate::coeur::stock::verifier_seuil(s)?;
+    }
     let dossier = base.dossier().to_string();
     let avant = lire_reglages_dossier_sur(base)?;
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
     let mut tx = base.transaction().map_err(|e| e.0)?;
     ecrire_config(&mut tx, &cle_tva(&dossier), &tva_pct.to_string())?;
     ecrire_config(&mut tx, &cle_fond(&dossier), &fond_caisse.to_string())?;
+    if let Some(s) = seuil_defaut {
+        ecrire_config(&mut tx, &cle_seuil(&dossier), &s.to_string())?;
+    }
+    let seuil_apres = seuil_defaut.or(avant["seuil_defaut"].as_f64());
     tx.executer(
         "INSERT INTO journal
            (id, type_evenement, entite_type, entite_id, auteur_id,
@@ -216,8 +243,8 @@ pub fn definir_reglages_dossier_sur(base: &mut Base, tva_pct: i64, fond_caisse: 
             uuid::Uuid::new_v4().to_string(),
             dossier.clone(),
             auteur,
-            serde_json::json!({ "tva_pct": avant["tva_pct"], "fond_caisse": avant["fond_caisse"] }).to_string(),
-            serde_json::json!({ "tva_pct": tva_pct, "fond_caisse": fond_caisse }).to_string(),
+            serde_json::json!({ "tva_pct": avant["tva_pct"], "fond_caisse": avant["fond_caisse"], "seuil_defaut": avant["seuil_defaut"] }).to_string(),
+            serde_json::json!({ "tva_pct": tva_pct, "fond_caisse": fond_caisse, "seuil_defaut": seuil_apres }).to_string(),
             maintenant_iso()
         ],
     )

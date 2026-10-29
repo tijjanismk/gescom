@@ -544,9 +544,9 @@ fn l_import_csv_pose_le_suivi_du_stock_sans_deviner() {
     // L'export ecrit la colonne, et se reimporte sans une erreur.
     let export = catalogue_csv::exporter_articles_csv_sur_base(&mut base).unwrap();
     let entete = export.lines().next().unwrap().trim_start_matches('\u{FEFF}').to_string();
-    assert!(entete.ends_with(";Suivre le stock"), "{entete}");
-    assert!(export.lines().any(|l| l.starts_with("Sachets;") && l.ends_with(";non")), "{export}");
-    assert!(export.lines().any(|l| l.starts_with("Sucre;") && l.ends_with(";oui")), "{export}");
+    assert!(entete.ends_with(";Suivre le stock;Seuil"), "{entete}");
+    assert!(export.lines().any(|l| l.starts_with("Sachets;") && l.ends_with(";non;")), "{export}");
+    assert!(export.lines().any(|l| l.starts_with("Sucre;") && l.ends_with(";oui;")), "{export}");
     let r = catalogue_csv::importer_articles_csv_sur_base(&mut base, export, Some(true), false, false).unwrap();
     assert_eq!(r["nb_erreurs"], 0, "{r}");
     assert_eq!(r["crees"], 0, "{r}");
@@ -677,7 +677,7 @@ fn les_versions_de_la_fenetre_suivent() {
     assert_eq!(l["donnees"][0]["numero_facture"], numero.as_str());
     // D.11
     let export = catalogue_csv::exporter_articles_csv(conn).unwrap();
-    assert!(export.lines().next().unwrap().ends_with(";Suivre le stock"));
+    assert!(export.lines().next().unwrap().ends_with(";Suivre le stock;Seuil"));
     let conn = base.sqlite_mut().expect("SQLite");
     let r = catalogue_csv::importer_articles_csv(
         conn,

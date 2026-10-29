@@ -67,6 +67,7 @@ passe par les yeux et par le réseau.
 | C1f | Importer un catalogue avec « riz  25 KG » alors que « Riz 25 kg » existe, et un code-barre déjà pris | L'aperçu dit « mis à jour » pour le riz, refuse la seule ligne au code-barre pris ; rien n'est écrit avant « Importer pour de vrai » | ☐ |
 | C1h | Paramètres → TVA : passer de « Non » à « Oui, 18 % », choisir « Aussi les articles existants » | Tous les articles à 18 % ; un article créé ensuite aussi ; Historique : « Réglages du dossier modifiés » ; avec « Seulement les nouveaux », les anciens gardent leur taux | ☐ |
 | C1i | Caisse → Historique après une clôture avec écart | Chiffres sans pictogramme, lisibles ; le bandeau d'alerte en texte foncé sur blanc, liseré orange ; aucun fond pêche à travers les blocs | ☐ |
+| C1j | Créer un article avec un seuil de 10 (Paramètres → Articles, puis Achats → nouvel article), lui donner 6 en stock ; Paramètres → Société : seuil du dossier 3 | Badge orange dans Stock, « 1 alerte » au tableau de bord, statut « alerte » au rapport du stock ; seuil 0 : plus d'alerte ; un article sans seuil à 2 en stock passe en alerte, à 3 non | ☐ |
 | C1g | Regarder les trois icônes (bureau, barre des tâches) | Gescom sans pastille, Gescom Serveur pastille bleue (tour), Gescom Équipe pastille verte (personnes) | ☐ |
 | C2 | Mauvais mot de passe | Refus, sans dire lequel des deux est faux | ☐ |
 | C3 | Se connecter en `employe` | Pas de prix d'achat, pas de rapports, pas de Paramètres → Utilisateurs | ☐ |

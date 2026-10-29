@@ -34,6 +34,9 @@ interface StockRow {
   depot_nom: string;
   depot_id: string;
   quantite: number;
+  /** D45 : le seuil de l'article (sinon celui du dossier), et ce qu'il dit. */
+  seuil?: number;
+  statut?: "rupture" | "alerte" | "ok";
 }
 
 interface Fournisseur {
@@ -746,11 +749,15 @@ export function Stock({ onHistorique }: {
                         <p className="text-xs text-muted-foreground">{s.depot_nom}</p>
                       </div>
                       <div className="flex items-center gap-2">
+                        {/* D45 : le seuil de l'article (sinon celui du
+                            dossier), le même que le tableau de bord —
+                            avant, 10 ici et 5 là-bas. */}
                         <Badge
                           variant={s.quantite < 0 ? "destructive"
-                            : s.quantite < 10 ? "outline" : "secondary"}
-                          className={s.quantite > 0 && s.quantite < 10
-                            ? "text-orange-500 border-orange-300" : ""}
+                            : s.statut === "alerte" ? "outline" : "secondary"}
+                          className={s.statut === "alerte"
+                            ? "text-orange-800 border-orange-400" : ""}
+                          title={s.statut === "alerte" ? `Sous le seuil d'alerte (${s.seuil})` : undefined}
                         >
                           {formaterQuantite(s.quantite, s.unite_base)}
                         </Badge>

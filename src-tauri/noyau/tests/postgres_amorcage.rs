@@ -338,7 +338,7 @@ fn un_article_naît_avec_son_unité_ou_pas_du_tout() {
     let Some(mut base) = base_peuplee() else { return };
 
     let a = comptoir::creer_article_rapide_sur(
-        &mut base, "Ciment CIMAF".into(), "sac".into(), 5500, Some(4800),
+        &mut base, "Ciment CIMAF".into(), "sac".into(), 5500, Some(4800), None
     )
     .expect("article créé");
 
@@ -358,7 +358,7 @@ fn un_article_naît_avec_son_unité_ou_pas_du_tout() {
         .unwrap()
         .unwrap();
     assert!(comptoir::creer_article_rapide_sur(
-        &mut base, "ciment cimaf".into(), "sac".into(), 5500, None,
+        &mut base, "ciment cimaf".into(), "sac".into(), 5500, None, None
     )
     .is_err(), "le doublon, même en minuscules, doit être refusé");
     let apres = base
@@ -575,7 +575,7 @@ fn tout_ce_qui_est_porte_passe_le_detecteur_sur_postgresql() {
         None,
     )
     .expect("modifier un client");
-    comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None)
+    comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None, None)
         .expect("créer un article");
     comptoir::lire_clients_avec_creances_sur(&mut base).expect("créances");
 
@@ -643,7 +643,7 @@ fn deux_dossiers_ne_melangent_pas_leurs_clients_mais_partagent_leurs_articles_su
     base.auditer(true);
 
     comptoir::creer_client_rapide_sur(&mut base, "Awa".into(), None).unwrap();
-    comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None)
+    comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None, None)
         .unwrap();
 
     base.choisir_dossier("dossier-b").unwrap();
@@ -688,7 +688,7 @@ fn un_champ_vide_passe_sur_une_colonne_numerique() {
         "Ciment sans prix d'achat".into(),
         "sac".into(),
         5_000,
-        None,
+        None, None
     )
     .expect("un article sans prix d'achat doit pouvoir naître");
 }

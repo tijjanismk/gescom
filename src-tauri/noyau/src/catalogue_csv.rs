@@ -32,8 +32,21 @@ use crate::utils::maintenant_iso;
 // sans en-tete garde l'ordre v1.3. Facultative a l'import : absente ou
 // vide, un article cree suit son stock et un article existant garde son
 // reglage.
+//
+// `Seuil` ajoutee par D45, EN DERNIER, lue par son nom seulement : vide,
+// l'article prend (ou garde) le seuil du dossier.
 const ENTETE: &str =
-    "Nom;Categorie;Unite;Facteur;Prix;Prix achat;TVA %;Code barre;Stock;Suivre le stock";
+    "Nom;Categorie;Unite;Facteur;Prix;Prix achat;TVA %;Code barre;Stock;Suivre le stock;Seuil";
+
+/// Ce que la colonne « Seuil » ecrit : vide quand l'article suit le
+/// seuil du dossier, entier quand c'est un entier.
+fn seuil_ecrit(seuil: Option<f64>) -> String {
+    match seuil {
+        None => String::new(),
+        Some(s) if s.fract() == 0.0 => format!("{}", s as i64),
+        Some(s) => format!("{s}"),
+    }
+}
 
 /// Ce que la colonne « Suivre le stock » ecrit a l'export.
 fn suivi_ecrit(gere_en_stock: i64) -> &'static str {
@@ -125,7 +138,8 @@ pub fn exporter_articles_csv(
                 COALESCE(uv.code_barre, a.code_barre, ''),
                 COALESCE((SELECT SUM(sd.quantite) FROM stock_depot sd
                           WHERE sd.article_id = a.id), 0),
-                a.gere_en_stock
+                a.gere_en_stock,
+                a.seuil_alerte
          FROM article a
          LEFT JOIN categorie c ON c.id = a.categorie_id
          LEFT JOIN unite_vente uv ON uv.article_id = a.id AND uv.actif = 1
@@ -138,7 +152,7 @@ pub fn exporter_articles_csv(
         let facteur: f64 = r.get(3)?;
         let taux: f64 = r.get(6)?;
         Ok(format!(
-            "{};{};{};{};{};{};{};{};{};{}",
+            "{};{};{};{};{};{};{};{};{};{};{}",
             echapper(&r.get::<_, String>(0)?),   // Nom
             echapper(&r.get::<_, String>(1)?),   // Categorie
             echapper(&r.get::<_, String>(2)?),   // Unite
@@ -155,6 +169,7 @@ pub fn exporter_articles_csv(
             echapper(&r.get::<_, String>(7)?),   // Code barre
             r.get::<_, f64>(8)?,                 // Stock
             suivi_ecrit(r.get::<_, i64>(9)?),    // Suivre le stock (D36)
+            seuil_ecrit(r.get::<_, Option<f64>>(10)?), // Seuil (D45)
         ))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
@@ -589,7 +604,8 @@ pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String>
                     COALESCE(uv.code_barre, a.code_barre, ''),
                     CAST(COALESCE((SELECT SUM(sd.quantite) FROM stock_depot sd
                                    WHERE sd.article_id = a.id AND sd.dossier_id = ?1), 0) AS DOUBLE PRECISION),
-                    a.gere_en_stock
+                    a.gere_en_stock,
+                    a.seuil_alerte
              FROM article a
              LEFT JOIN categorie c ON c.id = a.categorie_id
              LEFT JOIN unite_vente uv ON uv.article_id = a.id AND uv.actif = 1
@@ -600,7 +616,7 @@ pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String>
                 let facteur: f64 = r.get::<f64>(3)?;
                 let taux: f64 = r.get::<f64>(6)?;
                 Ok(format!(
-                    "{};{};{};{};{};{};{};{};{};{}",
+                    "{};{};{};{};{};{};{};{};{};{};{}",
                     echapper(&r.get::<String>(0)?),
                     echapper(&r.get::<String>(1)?),
                     echapper(&r.get::<String>(2)?),
@@ -612,6 +628,8 @@ pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String>
                     r.get::<f64>(8)?,
                     // D36 : « Suivre le stock », relue a l'import.
                     suivi_ecrit(r.get::<i64>(9)?),
+                    // D45 : vide = le seuil du dossier.
+                    seuil_ecrit(r.get::<Option<f64>>(10)?),
                 ))
             },
         )
@@ -796,6 +814,20 @@ pub fn importer_articles_csv_sur_base(
             .map(|t| if t > 1.0 { t / 100.0 } else { t });
         let code_barre = champ(&ch, &cols, "codebarre", Some(6)).filter(|s| !s.is_empty()).map(|s| s.to_string());
         let stock = champ(&ch, &cols, "stock", Some(7)).and_then(parser_decimal).unwrap_or(0.0);
+        // D45 : « Seuil », par son nom seulement ; vide = celui du
+        // dossier (ou celui que l'article a deja). Illisible : refusee.
+        let seuil = match champ(&ch, &cols, "seuil", None).filter(|s| !s.is_empty()) {
+            None => None,
+            Some(brut) => match parser_decimal(brut).ok_or_else(|| "illisible".to_string())
+                .and_then(|s| crate::coeur::stock::verifier_seuil(s).map(|_| s))
+            {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    erreurs.push(format!("Ligne {} « {} » : seuil « {} » refusé ({}).", num, nom, brut, e));
+                    continue;
+                }
+            },
+        };
 
         // D36, lot D.11 : « Suivre le stock », jugee AVANT toute ecriture
         // de la ligne (categorie comprise).
@@ -903,9 +935,10 @@ pub fn importer_articles_csv_sur_base(
                     "UPDATE article SET categorie_id = COALESCE(CAST(?1 AS TEXT), categorie_id),
                         dernier_prix_achat = COALESCE(CAST(?2 AS BIGINT), dernier_prix_achat),
                         taux_tva_defaut = COALESCE(CAST(?3 AS DOUBLE PRECISION), taux_tva_defaut),
+                        seuil_alerte = COALESCE(CAST(?6 AS DOUBLE PRECISION), seuil_alerte),
                         modifie_le = ?4
                      WHERE id = ?5",
-                    &parametres![cat_id, prix_achat, tva, now.clone(), art_id.clone()],
+                    &parametres![cat_id, prix_achat, tva, now.clone(), art_id.clone(), seuil],
                 )
                 .map_err(|e| e.0)?;
                 if let Some(ref cb) = code_barre {
@@ -949,11 +982,11 @@ pub fn importer_articles_csv_sur_base(
                     "INSERT INTO article
                      (id, nom, categorie_id, unite_base, gere_en_stock, attributs,
                       dernier_prix_achat, code_barre, actif,
-                      cree_le, modifie_le, cree_par, modifie_par, origine, taux_tva_defaut)
-                     VALUES (?1,?2,CAST(?3 AS TEXT),?4,?9,'{}',CAST(?5 AS BIGINT),CAST(?6 AS TEXT),1,?7,?7,'import','import','import',?8)",
+                      cree_le, modifie_le, cree_par, modifie_par, origine, taux_tva_defaut, seuil_alerte)
+                     VALUES (?1,?2,CAST(?3 AS TEXT),?4,?9,'{}',CAST(?5 AS BIGINT),CAST(?6 AS TEXT),1,?7,?7,'import','import','import',?8,CAST(?10 AS DOUBLE PRECISION))",
                     &parametres![
                         art_id.clone(), nom, cat_id, unite, prix_achat, code_barre.clone(), now.clone(),
-                        tva.unwrap_or(tva_du_dossier), suivre as i64
+                        tva.unwrap_or(tva_du_dossier), suivre as i64, seuil
                     ],
                 )
                 .map_err(|e| e.0)?;

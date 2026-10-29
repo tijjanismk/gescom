@@ -93,7 +93,8 @@ le dossier ». Les étapes, que l'on peut reprendre avec « Précédent » :
    Excel (CSV), avec un aperçu avant l'import ; ou plus tard.
 
 Ensuite, tout se change dans Paramètres : Société (et, en dessous, le
-fond de caisse habituel), **TVA**, Dossiers (les dates), Utilisateurs.
+fond de caisse habituel et le seuil d'alerte des articles), **TVA**,
+Dossiers (les dates), Utilisateurs.
 
 **Changer l'état de la TVA.** Paramètres → TVA, en tête : « La boutique
 facture-t-elle la TVA ? » — Non, ou Oui 18 %. Gescom demande alors ce
@@ -859,6 +860,19 @@ déjà porté par un autre article refuse la ligne qui créerait l'article.
 Créer à la main un article qui existe déjà est refusé de la même façon.
 
 Les lignes refusées sont signalées une par une — les autres passent.
+
+## Le seuil d'alerte
+
+Sous son **seuil d'alerte**, un article passe « en alerte » : au tableau
+de bord, dans la page Stock (badge orange) et dans le rapport du stock.
+Il se donne **à la création** de l'article (Paramètres → Articles, ou à
+la réception dans Achats), se change ensuite sur la fiche de l'article
+(Paramètres → Articles, en dépliant l'article), ou par la colonne
+**Seuil** de l'import. Il est en unité de base (kg, pièce…).
+
+Vide, l'article prend le **seuil du dossier** (Paramètres → Société,
+5 d'office). **0** : pas d'alerte, seulement la rupture. Un article qui
+ne suit pas son stock n'a pas de seuil.
 
 ## Les fournisseurs en Excel
 

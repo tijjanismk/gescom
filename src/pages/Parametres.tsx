@@ -31,6 +31,7 @@ import { OngletImportExport } from "@/components/OngletImportExport";
 import { OngletReseau } from "@/components/OngletReseau";
 import { OngletMenu } from "@/components/OngletMenu";
 import { SuiviStockArticle } from "@/components/SuiviStockArticle";
+import { ChampSeuil, SeuilArticle, lireSeuil } from "@/components/ChampSeuil";
 import { OngletDossiers } from "@/components/OngletDossiers";
 import { OngletComptabilite } from "@/components/OngletComptabilite";
 import { OngletRoles } from "@/components/OngletRoles";
@@ -58,6 +59,8 @@ interface ArticleComplet {
   dernier_prix_achat?: number; unites: Unite[];
   /** D36 : false = le stock de l'article n'est pas suivi. */
   gere_en_stock?: boolean;
+  /** D45 : son seuil d'alerte ; null = celui du dossier. */
+  seuil_alerte?: number | null;
 }
 interface Utilisateur {
   id: string; nom: string; role: string;
@@ -703,6 +706,8 @@ function OngletArticles() {
   const [prixVente, setPrixVente] = useState("");
   // D36 : coché par défaut ; décoché, l'article ne suivra pas son stock.
   const [suivreStock, setSuivreStock] = useState(true);
+  // D45 : vide = le seuil du dossier.
+  const [seuil, setSeuil] = useState("");
   const [chargementCreer, setChargementCreer] = useState(false);
 
   async function charger() {
@@ -732,11 +737,12 @@ function OngletArticles() {
         categorieId: categorieId || null,
         uniteBase,
         prixReference: parseMontant(prixVente),
+        seuilAlerte: suivreStock ? lireSeuil(seuil) : null,
       });
       // Un article neuf n'a pas de stock : cesser de le suivre ne fait
       // rien sortir, juste le geste trace (D36).
       if (!suivreStock) await invoke("changer_suivi_stock", { articleId: id, suivre: false });
-      setNom(""); setCategorieId(""); setUniteBase("pièce"); setPrixVente(""); setSuivreStock(true);
+      setNom(""); setCategorieId(""); setUniteBase("pièce"); setPrixVente(""); setSuivreStock(true); setSeuil("");
       setModalArticle(false);
       await charger();
     } catch (e) {
@@ -856,6 +862,7 @@ function OngletArticles() {
             {expandeId === a.id && (
               <div className="border-t border-border bg-muted/20 px-4 py-3 space-y-1">
                 <SuiviStockArticle article={a} onChange={charger} />
+                <SeuilArticle key={`${a.id}-${a.seuil_alerte ?? ""}`} article={a} onChange={charger} />
                 {a.unites.map(u => (
                   <div key={u.id}
                     className="flex items-center justify-between text-sm py-1 border-b border-border last:border-0">
@@ -1022,6 +1029,9 @@ function OngletArticles() {
                 (décocher pour un sachet, un service, du vrac qu'on ne compte pas)
               </span>
             </label>
+            {suivreStock && (
+              <ChampSeuil id="seuil-nouvel-article" valeur={seuil} onChange={setSeuil} unite={uniteBase} />
+            )}
             <div>
               <Label>Catégorie</Label>
               <Select value={categorieId}

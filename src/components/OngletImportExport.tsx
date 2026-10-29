@@ -128,6 +128,9 @@ Sachets;;paquet;100;;;;;non`}
               ligne (création) ou n'est pas repris (mise à jour)</li>
             <li>· TVA vide : un article existant garde la sienne, un
               nouveau prend celle du dossier</li>
+            <li>· <strong>Seuil</strong> (facultative, en dernier) : le seuil
+              d'alerte de l'article. Vide : celui du dossier, ou celui que
+              l'article a déjà</li>
             <li>· Séparateur point-virgule, encodage UTF-8</li>
           </ul>
         </CardContent>

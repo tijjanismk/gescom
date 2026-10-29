@@ -11,6 +11,16 @@ semblent vivantes.
 
 ---
 
+## Reporté le 28/10/2026 (décision du propriétaire)
+
+- **Deux dossiers n'ont pas chacun leur société.** `parametres_societe`
+  est une ligne pour toute l'installation (37 lectures) : un second
+  dossier imprime l'en-tête du premier. Le plan multi-société voulait
+  que « l'en-tête change ». Avec : créer un nouveau dossier par le même
+  assistant que la boutique (société, dates, réglages, accès), et la TVA
+  des articles — communs aux dossiers — qu'un dossier sans TVA devrait
+  ramener à 0 à la vente. « On laisse pour cette version » (D45).
+
 ## Trouvé en v3
 
 - ~~**Le mode « caisse par utilisateur » casse tout encaissement.**~~

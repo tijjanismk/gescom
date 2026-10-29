@@ -516,6 +516,7 @@ pub fn registre() -> Registre {
             c.base,
             arg(&p, "tvaPct", "tva_pct")?,
             arg(&p, "fondCaisse", "fond_caisse")?,
+            arg(&p, "seuilDefaut", "seuil_defaut")?,
         )
     });
     r.sur_base("definir_menu", Some("parametres:modifier"), true, |c, p| {
@@ -560,6 +561,8 @@ pub fn registre() -> Registre {
                 .or_else(|| entier(&p, "prix_reference"))
                 .unwrap_or(0),
             entier(&p, "prixAchat").or_else(|| entier(&p, "prix_achat")),
+            // D45 : le seuil d'alerte, saisi a la reception (Achats).
+            arg(&p, "seuilAlerte", "seuil_alerte")?,
         )
     });
 
@@ -1702,8 +1705,18 @@ pub fn registre() -> Registre {
         let categorie_id: Option<String> = arg(&p, "categorieId", "categorie_id")?;
         let unite_base: String = arg(&p, "uniteBase", "unite_base")?;
         let prix_reference: i64 = arg(&p, "prixReference", "prix_reference")?;
-        let v = parametres::creer_article_complet_sur_base(c.base, nom, categorie_id, unite_base, prix_reference)?;
+        let seuil_alerte: Option<f64> = arg(&p, "seuilAlerte", "seuil_alerte")?;
+        let v = parametres::creer_article_complet_sur_base(c.base, nom, categorie_id, unite_base, prix_reference, seuil_alerte)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    // D45 : le seuil d'alerte d'un article (vide : celui du dossier).
+    r.sur_base("definir_seuil_article", Some("parametres:modifier"), true, |c, p| {
+        parametres::definir_seuil_article_sur(
+            c.base,
+            arg(&p, "articleId", "article_id")?,
+            arg(&p, "seuilAlerte", "seuil_alerte")?,
+        )
     });
 
     r.sur_base("ajouter_unite_vente", Some("parametres:modifier"), true, |c, p| {

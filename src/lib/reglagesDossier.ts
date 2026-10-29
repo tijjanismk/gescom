@@ -10,6 +10,8 @@ import { appeler as invoke } from "@/lib/pont";
 export interface ReglagesDossier {
   tva_pct: number;
   fond_caisse: number;
+  /** D45 : le seuil d'alerte des articles qui n'ont pas le leur. */
+  seuil_defaut?: number;
   taux_proposes: number[];
 }
 
