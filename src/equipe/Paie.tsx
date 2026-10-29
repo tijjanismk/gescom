@@ -91,7 +91,7 @@ function Avances() {
   }
 
   return (
-    <div className="space-y-4 max-w-3xl">
+    <div className="space-y-4">
       {donne && (
         <div className="border border-border rounded-lg p-4 space-y-3" data-testid="nouvelle-avance">
           <h3 className="text-sm font-semibold">Donner une avance</h3>

@@ -323,7 +323,7 @@ export function FichesPaie() {
   }
 
   return (
-    <div className="space-y-4 max-w-3xl">
+    <div className="space-y-4">
       <div className="flex items-center gap-3">
         <label className="text-sm text-muted-foreground flex items-center gap-2">Mois
           <Input type="month" value={mois} onChange={e => e.target.value && setMois(e.target.value)} aria-label="Mois de paie" className="h-9 w-44" />

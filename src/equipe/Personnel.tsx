@@ -298,7 +298,7 @@ function Fiches() {
   if (!liste) return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />;
 
   return (
-    <div className="max-w-4xl space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Personnel</h1>
         <div className="flex items-center gap-3">

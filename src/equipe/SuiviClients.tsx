@@ -13,6 +13,7 @@ import { peut } from "@/lib/droits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { KpiPetit, GRILLE } from "@/components/ui/KpiVerre";
 
 interface Utilisateur { id: string; nom: string; role: string; actif: boolean; }
 interface ClientLigne { id: string; code: string; nom: string; telephone: string | null; statut?: string; }
@@ -128,7 +129,9 @@ function Fiche360({ clientId, moi, onRetour }: { clientId: string; moi: { id: st
   const estProspect = client?.statut === "prospect";
 
   return (
-    <div className="space-y-4 max-w-3xl" data-testid="fiche-360">
+    // Toute la largeur (le proprietaire, 29/10/2026) : la fiche tenait
+    // dans 768 px ; ses chiffres sont des tuiles comme au tableau de bord.
+    <div className="space-y-4" data-testid="fiche-360">
       <Button size="sm" variant="ghost" onClick={onRetour}><ArrowLeft className="h-4 w-4 mr-1" /> Retour</Button>
 
       {avis && <p className={`text-sm ${avis.erreur ? "text-red-600" : "text-emerald-700"}`} role="status">{avis.texte}</p>}
@@ -142,10 +145,10 @@ function Fiche360({ clientId, moi, onRetour }: { clientId: string; moi: { id: st
       </div>
       {client.telephone && <p className="text-sm text-muted-foreground">{client.telephone}</p>}
 
-      <div className="flex gap-4 flex-wrap text-sm">
-        <div className="border border-border rounded-lg px-3 py-2"><div className="text-muted-foreground text-xs">Chiffre d'affaires</div><div className="font-semibold">{f(stats.ca_total)}</div></div>
-        <div className="border border-border rounded-lg px-3 py-2"><div className="text-muted-foreground text-xs">Ventes</div><div className="font-semibold">{stats.nb_ventes}</div></div>
-        {stats.encours != null && <div className="border border-border rounded-lg px-3 py-2"><div className="text-muted-foreground text-xs">Encours</div><div className="font-semibold">{f(stats.encours)}</div></div>}
+      <div style={GRILLE}>
+        <KpiPetit titre="Chiffre d'affaires" valeur={f(stats.ca_total)} />
+        <KpiPetit titre="Ventes" valeur={String(stats.nb_ventes)} />
+        {stats.encours != null && <KpiPetit titre="Encours" valeur={f(stats.encours)} />}
       </div>
 
       {/* Rappels */}
@@ -248,7 +251,7 @@ function Clients({ onOuvrir }: { onOuvrir: (id: string) => void }) {
   }, [recherche]);
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       <label className="flex items-center gap-2 border border-border rounded-lg px-3 h-9">
         <Search className="h-4 w-4 text-muted-foreground" />
         <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Nom, code, téléphone…"
@@ -305,7 +308,7 @@ function Prospects({ onOuvrir }: { onOuvrir: (id: string) => void }) {
   }
 
   return (
-    <div className="space-y-4 max-w-2xl">
+    <div className="space-y-4">
       {ecrit && (
         <div className="border border-border rounded-lg p-4 space-y-3" data-testid="nouveau-prospect">
           <h3 className="text-sm font-semibold">Nouveau prospect</h3>
@@ -375,7 +378,7 @@ function MesRappels({ moi, onOuvrir }: { moi: { id: string }; onOuvrir: (id: str
   return (
     <>
     {avis && <p className={`text-sm ${avis.erreur ? "text-red-600" : "text-emerald-700"}`} role="status">{avis.texte}</p>}
-    <div className="border border-border rounded-lg divide-y divide-border max-w-2xl" data-testid="mes-rappels">
+    <div className="border border-border rounded-lg divide-y divide-border" data-testid="mes-rappels">
       {liste.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">Aucun rappel en attente.</p>}
       {liste.map(r => (
         <div key={r.id} className="flex items-center gap-3 px-4 py-2 text-sm" data-testid="rappel">

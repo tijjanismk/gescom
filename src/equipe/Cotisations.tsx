@@ -49,7 +49,7 @@ export function Cotisations() {
   const taux = (s: string) => Number(s.replace(/\s/g, "").replace(",", "."));
 
   return (
-    <div className="space-y-4 max-w-3xl">
+    <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Les cotisations (INPS, AMO…) ne s'appliquent qu'aux personnes <strong>déclarées</strong>, et seulement
         une fois saisies ici. Tant qu'il n'y en a aucune, aucune n'est retenue : le comptable les remplit, avec les

@@ -10,6 +10,11 @@
 // suffit (comme les tuiles du tableau de bord) ; des couleurs de texte à
 // 4,5:1 au moins sur blanc (vert 700, rouge 700, orange 800 — l'orange
 // 500 faisait 2,8:1).
+//
+// 29/10/2026, le proprietaire : « enleve l'emoji danger et le tiret rouge
+// a cote, utilise des cards comme dans le dashboard ». Les chiffres sont
+// des tuiles `KpiPetit` (meme grille que le tableau de bord), le
+// diagnostic une tuile de texte : ni triangle, ni lisere.
 
 import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
@@ -17,10 +22,10 @@ import { peut } from "@/lib/droits";
 
 const peutTout = (...p: string[]) => p.every(peut);
 import {
-  Loader2, RefreshCw, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle,
+  Loader2, RefreshCw, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { KpiPetit, CARTE, GRILLE } from "@/components/ui/KpiVerre";
 
 interface Session {
   id: string; statut: string;
@@ -149,56 +154,35 @@ export function OngletHistoriqueCaisse() {
         </div>
       </div>
 
-      {/* ── Diagnostic ── */}
+      {/* ── Diagnostic : des tuiles, comme le tableau de bord ── */}
       {rapport && rapport.nb_clotures > 0 && (
-        <Card className="bg-card">
-          <CardContent className="pt-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-              <div>
-                <p className="text-xs text-muted-foreground">Clôtures</p>
-                <p className="text-xl font-bold">{rapport.nb_clotures}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Justes</p>
-                <p className="text-xl font-bold text-green-700">{rapport.nuls}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Manques</p>
-                <p className="text-xl font-bold text-red-700">{rapport.manques}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Excédents</p>
-                <p className="text-xl font-bold text-orange-800">{rapport.excedents}</p>
-              </div>
-            </div>
+        <div className="space-y-3">
+          <div style={GRILLE}>
+            <KpiPetit titre="Clôtures" valeur={String(rapport.nb_clotures)}
+              sous={`sur ${rapport.jours} jours`} />
+            <KpiPetit titre="Justes" valeur={String(rapport.nuls)} sous="écart nul" />
+            <KpiPetit titre="Manques" valeur={String(rapport.manques)}
+              sous="moins d'argent que prévu" alerte={rapport.manques > 0} />
+            <KpiPetit titre="Excédents" valeur={String(rapport.excedents)}
+              sous="plus d'argent que prévu" />
+          </div>
 
-            {/* Le diagnostic : texte foncé sur fond blanc, la couleur
-                seulement au bord et sur le pictogramme d'alerte. */}
-            <div className={`flex gap-3 p-3 rounded-md text-sm bg-background text-foreground
-                             border border-border border-l-4 ${
-              rapport.nuls === rapport.nb_clotures ? "border-l-green-600" : "border-l-orange-600"
-            }`} role="status">
-              {rapport.nuls === rapport.nb_clotures
-                ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-green-700" aria-hidden="true" />
-                : <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-orange-700" aria-hidden="true" />}
-              <p>{rapport.diagnostic}</p>
+          {rapport.cumul !== 0 && (
+            <div style={GRILLE}>
+              <KpiPetit titre="Cumul sur la période" valeur={fmt(rapport.cumul)}
+                sous={rapport.cumul < 0 ? "manque" : "excédent"} alerte={rapport.cumul < 0} />
+              <KpiPetit titre="Moyenne par clôture" valeur={fmt(rapport.moyenne)} />
+              {rapport.pire_manque < 0 && (
+                <KpiPetit titre="Pire manque" valeur={fmt(rapport.pire_manque)} alerte />
+              )}
             </div>
+          )}
 
-            {rapport.cumul !== 0 && (
-              <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs
-                              text-muted-foreground">
-                <span>Cumul sur la période : <strong className={
-                  rapport.cumul < 0 ? "text-red-700" : "text-orange-800"
-                }>{fmt(rapport.cumul)}</strong></span>
-                <span>Moyenne par clôture : <strong>{fmt(rapport.moyenne)}</strong></span>
-                {rapport.pire_manque < 0 && (
-                  <span>Pire manque : <strong className="text-red-700">
-                    {fmt(rapport.pire_manque)}</strong></span>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          <div className={`${CARTE} p-4`} role="status">
+            <p className="text-sm font-semibold text-foreground mb-1">Ce que disent les écarts</p>
+            <p className="text-sm">{rapport.diagnostic}</p>
+          </div>
+        </div>
       )}
 
       {/* ── Sessions ── */}

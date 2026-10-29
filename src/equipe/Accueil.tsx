@@ -1,4 +1,9 @@
 // equipe/Accueil.tsx — ce que la personne connectée peut faire ici.
+//
+// Les cartes prennent toute la largeur, autant par ligne que la place le
+// permet (comme les tuiles de la caisse, `KpiVerre.GRILLE`). Elles
+// tenaient dans 768 px sur deux colonnes : trois modules tombaient en
+// deux en haut, un seul en bas (le propriétaire, 29/10/2026).
 import type { ModuleEquipe } from "./modules";
 import { dossierCourant } from "@/lib/pont";
 
@@ -9,7 +14,7 @@ export function Accueil({ nom, modules, onOuvrir }: {
 }) {
   const dossier = dossierCourant();
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Bonjour {nom}</h1>
         {dossier && <p className="text-sm text-muted-foreground">Dossier : {dossier.societe}</p>}
@@ -19,7 +24,7 @@ export function Accueil({ nom, modules, onOuvrir }: {
           Votre rôle ne donne accès à rien dans Équipe pour l'instant. Demander au patron.
         </p>
       ) : (
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
           {modules.map(m => {
             const Icone = m.icone;
             return (

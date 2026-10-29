@@ -2837,3 +2837,31 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   (prouvé sur un faux écran : trois fautes nommées). Le propriétaire a
   refait l'import : « c'est lisible ». D46. **Pas commité.**
 
+## 29/10/2026 (fin) — l'accueil d'Équipe sur toute la largeur, les captures
+
+- **L'accueil de Gescom Équipe** (« trois cards dans l'accueil ne
+  prennent pas la largeur totale, deux en haut et une en bas ») : il
+  tenait dans 768 px (`max-w-3xl`) sur deux colonnes ; ses cartes
+  prennent désormais toute la largeur, autant par ligne que la place le
+  permet (comme les tuiles de la caisse). L'accueil de la caisse, lui,
+  remplissait déjà la largeur (vérifié à 1600 px).
+- **Pas d'installeurs** : la construction prend trop de place (9,7 Go
+  libres). À la place, 18 captures à 1600 × 900 sur trois serveurs
+  jetables (40062 base neuve pour l'assistant, 40061 démonstration avec
+  six ventes et une clôture à −500 F), par Edge déjà installé (rien
+  d'installé) ; posées sur le Bureau du propriétaire,
+  `essai-gescom\captures`. Gescom Équipe ne s'ouvre pas en fenêtre
+  d'essai : elle lit le `poste.json` de la vraie caisse, donc le vrai
+  serveur — vue dans le navigateur.
+- **L'Historique de caisse en tuiles** (« enlève l'emoji danger et le
+  tiret rouge à côté, utilise des cards comme dans le dashboard ») :
+  clôtures, justes, manques, excédents, puis cumul, moyenne et pire
+  manque en `KpiPetit` sur la grille du tableau de bord, chacun avec son
+  mot (« écart nul », « moins d'argent que prévu ») ; le diagnostic dans
+  une tuile de texte. Plus de triangle ni de liseré.
+- **La fiche client d'Équipe** (Suivi clients) sur toute la largeur, ses
+  chiffres en tuiles ; puis, à la demande, **tous les écrans d'Équipe**
+  (Personnel, Paie, Fiches du mois, Cotisations, Suivi clients et ses
+  listes) sans largeur limitée. Restent étroits, exprès : « Bientôt » et
+  le message « serveur injoignable » (du texte à lire). Captures 18 à 22.
+
