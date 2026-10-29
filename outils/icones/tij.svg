@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="1024" height="1024">
+  <!-- Le logo TIJ (choix du proprietaire, 29/10/2026) : T, I et J en
+       trois barres de plus en plus hautes, le J finit en fleche -- les
+       ventes qui montent. Que des formes, aucune police : il se rend
+       pareil partout. tij.png en est tire par rendre.mjs. -->
+  <defs>
+    <linearGradient id="fond" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B4F6C"/>
+      <stop offset="1" stop-color="#1A8F6E"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="url(#fond)"/>
+  <rect x="38" y="138" width="66" height="20" rx="4" fill="#fff"/>
+  <rect x="61" y="138" width="20" height="74" rx="4" fill="#fff"/>
+  <rect x="116" y="102" width="20" height="110" rx="4" fill="#fff"/>
+  <path d="M166 74 H186 V182 A30 30 0 0 1 156 212 H146 V192 H156 A10 10 0 0 0 166 182 Z" fill="#7BD389"/>
+  <path d="M152 78 L176 42 L200 78 Z" fill="#7BD389"/>
+</svg>

@@ -1,11 +1,14 @@
 """Les icones de Gescom Serveur et de Gescom Equipe : le logo de Gescom
 et une pastille en coin (choix du proprietaire, 28/10/2026).
 
-La caisse garde l'icone d'origine (`src-tauri/icons/icon.png`). Le
+Le logo est `tij.png`, rendu depuis `tij.svg` (le logo TIJ choisi par
+le proprietaire le 29/10/2026) ; la caisse le porte sans pastille. Le
 serveur porte une pastille bleu nuit avec une tour, l'equipe une
 pastille verte avec deux personnes. Le cercle blanc autour de la
 pastille la detache du logo, bleu et vert lui aussi.
 
+    node outils/icones/rendre.mjs
+    npx tauri icon outils/icones/tij.png -o src-tauri/icons
     python outils/icones/pastilles.py
     npx tauri icon outils/icones/serveur.png -o src-tauri/serveur-fenetre/icons
     npx tauri icon outils/icones/equipe.png  -o src-tauri/equipe/icons
@@ -15,21 +18,24 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 ICI = Path(__file__).resolve().parent
-LOGO = ICI.parent.parent / "src-tauri" / "icons" / "icon.png"
+LOGO = ICI / "tij.png"
 TAILLE = 1024
 BLANC = (255, 255, 255, 255)
 
 
 def pastille(fond, dessiner):
-    """Le logo, et en bas a droite une pastille de 46 % du cote."""
+    """Le logo, et en haut a gauche une pastille de 44 % du cote.
+
+    En haut a gauche parce que le coin est vide dans le logo TIJ : en bas
+    a droite, la pastille cachait le crochet du J et on lisait « TI »."""
     logo = Image.open(LOGO).convert("RGBA").resize((TAILLE, TAILLE), Image.LANCZOS)
     calque = Image.new("RGBA", (TAILLE, TAILLE), (0, 0, 0, 0))
     d = ImageDraw.Draw(calque)
-    cote = int(TAILLE * 0.46)
-    x0, y0 = TAILLE - cote, TAILLE - cote
-    d.ellipse((x0, y0, TAILLE - 1, TAILLE - 1), fill=BLANC)
+    cote = int(TAILLE * 0.44)
+    x0, y0 = 0, 0
+    d.ellipse((x0, y0, x0 + cote - 1, y0 + cote - 1), fill=BLANC)
     bord = int(cote * 0.07)
-    d.ellipse((x0 + bord, y0 + bord, TAILLE - 1 - bord, TAILLE - 1 - bord), fill=fond)
+    d.ellipse((x0 + bord, y0 + bord, x0 + cote - 1 - bord, y0 + cote - 1 - bord), fill=fond)
     dessiner(d, x0 + cote / 2, y0 + cote / 2, cote)
     return Image.alpha_composite(logo, calque)
 

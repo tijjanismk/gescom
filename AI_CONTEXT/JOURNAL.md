@@ -2865,3 +2865,25 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   listes) sans largeur limitée. Restent étroits, exprès : « Bientôt » et
   le message « serveur injoignable » (du texte à lire). Captures 18 à 22.
 
+## 29/10/2026 (soir) — le logo TIJ sur les trois applications
+
+- **Le plan pour compléter Équipe** (« qu'est-ce qu'on peut ajouter à
+  Équipe ») : EQ-1 à EQ-6 dans [PLAN-EQUIPE.md](PLAN-EQUIPE.md) § 5,
+  une session chacune, décisions D47 à D52 réservées, une base
+  PostgreSQL par session (`gescom_test_eq1` … `eq6`, créées). Les six
+  ont proposé leur décision et attendent l'accord.
+- **Une icône moderne avec TIJ, en lien avec la gestion commerciale** :
+  quatre propositions (barres qui montent, monogramme, ticket de caisse,
+  sac de boutique), rendues en grand et à 32 px sur barre claire et
+  sombre (capture 24). **Choix du propriétaire : A, les barres** — T, I
+  et J en trois barres de plus en plus hautes, le J finit en flèche.
+- Le logo vit en vectoriel (`outils/icones/tij.svg`, des formes, aucune
+  police) ; `rendre.mjs` le rend en 1024 px par Edge (rien installé) ;
+  `tauri icon` en tire les jeux des trois applications.
+- **Les pastilles passent en haut à gauche** : en bas à droite, elles
+  cachaient le crochet du J et on lisait « TI ». Le coin haut gauche est
+  vide dans le nouveau logo. Capture 25 : les trois, lisibles à 32 px.
+- Les écrans n'affichaient pas l'ancien logo (une icône `Store` sur le
+  choix du profil) : rien à changer dedans. Pas d'installeur construit :
+  les icônes se verront à la prochaine construction.
+
