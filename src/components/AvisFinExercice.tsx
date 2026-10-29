@@ -68,14 +68,14 @@ export function AvisFinExercice({ actu, onExercices }: {
       role={rouge ? "alert" : "status"}
       className={`flex items-center gap-3 px-3 py-2 text-sm border ${rouge
         ? "bg-red-600 border-red-700 text-white"
-        : "bg-orange-50 border-orange-300 text-orange-900"}`}>
+        : "bg-card border-border border-l-4 border-l-orange-600 text-foreground"}`}>
       <CalendarClock className="h-4 w-4 shrink-0" />
       <span className="flex-1">{texte}</span>
       {patron && onExercices && (
         <button onClick={onExercices} data-testid="avis-fin-exercice-ouvrir"
           className={`shrink-0 px-2.5 py-1 text-xs font-medium border transition-colors ${rouge
             ? "bg-white text-red-700 border-white hover:bg-red-50"
-            : "bg-orange-600 text-white border-orange-700 hover:bg-orange-700"}`}>
+            : "bg-orange-700 text-white border-orange-700 hover:bg-orange-800"}`}>
           Dates de travail
         </button>
       )}

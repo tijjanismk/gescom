@@ -95,7 +95,7 @@ function CLS_MONTANT(p: PaiementFournisseur) {
 }
 
 function CLS_RESTE(p: PaiementFournisseur) {
-  const teinte = p.reste_apres > 0 ? "text-orange-600" : "text-green-700";
+  const teinte = p.reste_apres > 0 ? "text-orange-800" : "text-green-700";
   return `px-3 py-2 text-right whitespace-nowrap text-xs ${teinte}`;
 }
 
@@ -307,7 +307,7 @@ function ModalReglementDette({
               <div className="bg-muted rounded-md px-3 py-2.5">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">{fournisseur.nom}</span>
-                  <span className="font-bold text-orange-600">{fmt(dette)}</span>
+                  <span className="font-bold text-orange-800">{fmt(dette)}</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">Dette actuelle</p>
               </div>
@@ -528,7 +528,7 @@ export function FicheFournisseur({ fournisseurId, onRetour, onHistorique }: Fich
           <ArrowLeft className="h-4 w-4" />
         </button>
         <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center">
-          <Truck className="h-4 w-4 text-orange-600" />
+          <Truck className="h-4 w-4 text-orange-800" />
         </div>
         <div>
           <p className="font-semibold text-sm">{fournisseur.nom}</p>
@@ -560,7 +560,7 @@ export function FicheFournisseur({ fournisseurId, onRetour, onHistorique }: Fich
           )}
           {stats.dette > 0 && (
             <Button size="sm" onClick={() => setModalDette(true)}
-              className="gap-1.5 bg-orange-600 hover:bg-orange-700">
+              className="gap-1.5 bg-orange-700 hover:bg-orange-800">
               <Banknote className="h-3.5 w-3.5" />
               Régler dette · {fmt(stats.dette)}
             </Button>
@@ -736,12 +736,12 @@ export function FicheFournisseur({ fournisseurId, onRetour, onHistorique }: Fich
           <div className="space-y-2">
             {stats.dette > 0 && (
               <div className="flex items-center justify-between px-4 py-3 mb-2
-                              bg-orange-50 border border-orange-200 rounded-lg">
+                              bg-card border border-border border-l-4 border-l-orange-600 rounded-lg">
                 <span className="text-sm font-medium text-orange-800">Dette restante</span>
                 <div className="flex items-center gap-3">
                   <span className="font-bold text-orange-700">{fmt(stats.dette)}</span>
                   <Button size="sm" onClick={() => setModalDette(true)}
-                    className="bg-orange-600 hover:bg-orange-700 h-7 text-xs">
+                    className="bg-orange-700 hover:bg-orange-800 h-7 text-xs">
                     Régler
                   </Button>
                 </div>

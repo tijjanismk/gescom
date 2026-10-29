@@ -365,7 +365,7 @@ export function Dashboard({ onAnomalies, onExercices }: {
             )}
             {r.factures_brouillon > 0 && (
               <div className="px-3 py-2
-                              bg-orange-50 border border-orange-200 text-sm text-orange-700">
+                              bg-card border border-border border-l-4 border-l-orange-600 text-sm text-foreground">
                 <span><strong>{r.factures_brouillon}</strong> facture{r.factures_brouillon > 1 ? "s" : ""} à valider</span>
               </div>
             )}
@@ -380,7 +380,7 @@ export function Dashboard({ onAnomalies, onExercices }: {
                 marchandise est déjà partie. */}
             {nbDecouverts > 0 && (
               <div className="px-3 py-2
-                              bg-orange-50 border border-orange-300 text-sm text-orange-800"
+                              bg-card border border-border border-l-4 border-l-orange-600 text-sm text-foreground"
                 title="Vendu au-delà du stock connu : régulariser par une entrée, un achat ou un ajustement">
                 <span>
                   <strong>{nbDecouverts}</strong> vente{nbDecouverts > 1 ? "s" : ""} à découvert
@@ -389,7 +389,7 @@ export function Dashboard({ onAnomalies, onExercices }: {
             )}
             {r.stock_ruptures > 0 && (
               <div className="px-3 py-2
-                              bg-amber-50 border border-amber-300 text-sm text-amber-950">
+                              bg-card border border-border border-l-4 border-l-amber-600 text-sm text-foreground">
                 <span><strong>{r.stock_ruptures}</strong> article{r.stock_ruptures > 1 ? "s" : ""} en rupture</span>
               </div>
             )}

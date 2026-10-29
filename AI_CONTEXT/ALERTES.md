@@ -11,6 +11,13 @@ semblent vivantes.
 
 ---
 
+## Lisibilité (D46, 29/10/2026)
+
+- ~~Le « jaune sur jaune »~~ **corrigé partout** (43 encadrés, 25 textes,
+  boutons) et gardé par `src/lib/lisibilite.test.ts`. **Reste** : les
+  verts, rouges et bleus pas passés au crible (rouge 600 et vert 600
+  frôlent 4,5:1 sur blanc) ; ni clavier ni zoom 200 % vérifiés.
+
 ## Reporté le 28/10/2026 (décision du propriétaire)
 
 - **Deux dossiers n'ont pas chacun leur société.** `parametres_societe`

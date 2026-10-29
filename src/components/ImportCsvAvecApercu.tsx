@@ -117,14 +117,14 @@ export function ImportCsvAvecApercu({ commande, quoi, option, libelleRepris, des
       </Button>
 
       {bilan && (
-        <Card className={bilan.nb_erreurs > 0 ? "border-orange-300" : ""}>
+        <Card className={bilan.nb_erreurs > 0 ? "border-orange-400" : ""}>
           <CardContent className="pt-4 space-y-3">
             <div className="flex items-center gap-2">
               {bilan.simule
                 ? <Eye className="h-4 w-4 text-primary" />
                 : bilan.nb_erreurs === 0
                   ? <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  : <AlertTriangle className="h-4 w-4 text-orange-500" />}
+                  : <AlertTriangle className="h-4 w-4 text-orange-800" />}
               <h3 className="text-sm font-semibold">
                 {bilan.simule ? `Aperçu — rien n'est encore écrit` : `Import terminé`}
               </h3>
@@ -138,7 +138,7 @@ export function ImportCsvAvecApercu({ commande, quoi, option, libelleRepris, des
               <span>{libelleRepris} : <strong>{repris}</strong></span>
               <span>Déjà présents, laissés : <strong>{bilan.nb_ignores}</strong></span>
               {bilan.nb_erreurs > 0 && (
-                <span>Refusés : <strong className="text-orange-600">{bilan.nb_erreurs}</strong></span>
+                <span>Refusés : <strong className="text-orange-800">{bilan.nb_erreurs}</strong></span>
               )}
             </div>
 
@@ -169,7 +169,7 @@ export function ImportCsvAvecApercu({ commande, quoi, option, libelleRepris, des
 function Liste({ titre, lignes, ton }: { titre: string; lignes: string[]; ton: "orange" | "bleu" | "gris" }) {
   if (lignes.length === 0) return null;
   const couleurs = {
-    orange: "bg-orange-50 text-orange-900",
+    orange: "bg-card border-l-4 border-l-orange-600 text-foreground",
     bleu: "bg-blue-50 text-blue-900",
     gris: "bg-muted text-muted-foreground",
   }[ton];

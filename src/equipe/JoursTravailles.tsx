@@ -27,7 +27,7 @@ const SUIVANT: Record<string, string | null> = { "": "present", present: "demi",
 const MARQUE: Record<string, string> = { present: "P", demi: "½", absent: "A" };
 const COULEUR: Record<string, string> = {
   present: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
-  demi: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+  demi: "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200",
   absent: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
 };
 

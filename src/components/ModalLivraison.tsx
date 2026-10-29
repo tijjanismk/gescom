@@ -144,7 +144,7 @@ export function ModalLivraison({
   const COULEUR: Record<string, string> = {
     sans_objet: "bg-muted text-muted-foreground",
     non_livre: "bg-muted text-muted-foreground",
-    partiel: "bg-orange-100 text-orange-700",
+    partiel: "bg-orange-100 text-orange-900",
     livre: "bg-green-100 text-green-700",
   };
 
@@ -213,7 +213,7 @@ export function ModalLivraison({
                             className="h-8 text-sm text-right" />
                         </td>
                         <td className={`px-3 py-2 text-right font-medium ${
-                          reste > 0 ? "text-orange-600" : "text-green-700"}`}>
+                          reste > 0 ? "text-orange-800" : "text-green-700"}`}>
                           {fmtQte(reste)}
                         </td>
                       </tr>

@@ -480,7 +480,7 @@ export function Rapports() {
                           <td className="px-4 py-2 text-right text-muted-foreground">{m.nb_ventes}</td>
                           <td className="px-4 py-2 text-right font-semibold">{fmt(m.ca)}</td>
                           <td className="px-4 py-2 text-right text-green-600">{fmt(m.encaisse)}</td>
-                          <td className="px-4 py-2 text-right text-orange-600">
+                          <td className="px-4 py-2 text-right text-orange-800">
                             {creancesDuMois(m) > 0 ? fmt(creancesDuMois(m)) : "—"}
                           </td>
                           {voitSalaires && (
@@ -508,7 +508,7 @@ export function Rapports() {
                         <td className="px-4 py-2 text-right font-bold text-green-600">
                           {fmt(moisCA.reduce((s, m) => s + m.encaisse, 0))}
                         </td>
-                        <td className="px-4 py-2 text-right font-bold text-orange-600">
+                        <td className="px-4 py-2 text-right font-bold text-orange-800">
                           {fmt(moisCA.reduce((s, m) => s + creancesDuMois(m), 0))}
                         </td>
                         {voitSalaires && (
@@ -567,7 +567,7 @@ export function Rapports() {
                           </td>
                           <td className="px-4 py-2 text-right">{c.nb_ventes}</td>
                           <td className="px-4 py-2 text-right font-semibold">{fmt(c.ca)}</td>
-                          <td className={`px-4 py-2 text-right ${c.creances > 0 ? "text-orange-600 font-medium" : "text-muted-foreground"}`}>
+                          <td className={`px-4 py-2 text-right ${c.creances > 0 ? "text-orange-800 font-medium" : "text-muted-foreground"}`}>
                             {c.creances > 0 ? fmt(c.creances) : "—"}
                           </td>
                         </tr>
@@ -640,7 +640,7 @@ export function Rapports() {
                   <span className="text-green-600 font-medium">
                     ● OK : {stock.filter(s => s.statut === "ok").length}
                   </span>
-                  <span className="text-orange-600 font-medium">
+                  <span className="text-orange-800 font-medium">
                     ● Alerte : {stock.filter(s => s.statut === "alerte").length}
                   </span>
                   <span className="text-red-600 font-medium">
@@ -682,7 +682,7 @@ export function Rapports() {
                           <td className="px-4 py-2 text-center">
                             <span className={`text-xs font-medium ${
                               a.statut === "rupture" ? "text-red-600" :
-                              a.statut === "alerte"  ? "text-orange-600" :
+                              a.statut === "alerte"  ? "text-orange-800" :
                               "text-green-600"
                             }`}>
                               {a.statut === "rupture" ? "Rupture" :
@@ -739,8 +739,8 @@ export function Rapports() {
 
                 {[
                   { label: "Moins de 30 jours",  data: creances.moins_30j,     couleur: "bg-gray-50 border-gray-200" },
-                  { label: "30 à 60 jours",      data: creances.tranche_30_60, couleur: "bg-yellow-50 border-yellow-200" },
-                  { label: "60 à 90 jours",      data: creances.tranche_60_90, couleur: "bg-orange-50 border-orange-200" },
+                  { label: "30 à 60 jours",      data: creances.tranche_30_60, couleur: "bg-card border-border border-l-4 border-l-amber-600" },
+                  { label: "60 à 90 jours",      data: creances.tranche_60_90, couleur: "bg-card border-border border-l-4 border-l-orange-600" },
                   { label: "Plus de 90 jours",   data: creances.plus_90j,      couleur: "bg-red-50 border-red-200" },
                 ].map(t => (
                   <div key={t.label}

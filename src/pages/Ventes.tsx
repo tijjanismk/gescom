@@ -329,7 +329,7 @@ function ModalConfirmation({
                 </div>
                 <div className="flex justify-between text-sm border-t border-border pt-2">
                   <span className="text-muted-foreground">Reste en créance</span>
-                  <span className="text-orange-500 font-semibold">
+                  <span className="text-orange-800 font-semibold">
                     {fmt(Math.max(0, totalApresAvoir - acompte))}
                   </span>
                 </div>
@@ -338,7 +338,7 @@ function ModalConfirmation({
             {modeReglement === "credit" && acompte === 0 && totalApresAvoir > 0 && (
               <div className="flex justify-between text-sm border-t border-border pt-2">
                 <span className="text-muted-foreground">Créance ouverte</span>
-                <span className="text-orange-500 font-semibold">{fmt(totalApresAvoir)}</span>
+                <span className="text-orange-800 font-semibold">{fmt(totalApresAvoir)}</span>
               </div>
             )}
           </div>
@@ -475,7 +475,7 @@ function ModalRepartition({
           </div>
 
           <div className={`flex justify-between text-sm px-3 py-2 rounded-md ${
-            manque === 0 ? "bg-green-50 text-green-800" : "bg-orange-50 text-orange-800"
+            manque === 0 ? "bg-green-50 text-green-800" : "bg-card border-l-4 border-l-orange-600 text-foreground"
           }`}>
             <span>Réparti</span>
             <strong>
@@ -1316,7 +1316,7 @@ export function Ventes() {
                             {fmt(a.unites[0].prix_reference)}/{a.unite_base}
                           </span>
                           <Badge variant={a.stock < 0 ? "destructive" : a.stock === 0 ? "outline" : "secondary"}
-                            className={cn("text-xs", a.stock === 0 && "text-orange-500 border-orange-300")}>
+                            className={cn("text-xs", a.stock === 0 && "text-orange-800 border-orange-400")}>
                             {a.stock < 0 ? "Découvert" : a.stock === 0 ? "Rupture" : fmtQte(a.stock, a.unite_base)}
                           </Badge>
                         </div>
@@ -1348,7 +1348,7 @@ export function Ventes() {
                   </Badge>
                 ) : (
                   <Badge variant={aDecouvert ? "outline" : "secondary"}
-                    className={cn("text-xs", aDecouvert && "text-orange-500 border-orange-300")}>
+                    className={cn("text-xs", aDecouvert && "text-orange-800 border-orange-400")}>
                     Stock : {fmtQte(articleSelectionne.stock, articleSelectionne.unite_base)}
                   </Badge>
                 )}
@@ -1368,13 +1368,13 @@ export function Ventes() {
                 </p>
               )}
               {repartitionNecessaire && !completableAilleurs && (
-                <p className="text-xs text-orange-500 flex items-center gap-1">
+                <p className="text-xs text-orange-800 flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3 shrink-0" />
                   Stock insuffisant partout — répartition puis découvert
                 </p>
               )}
               {aDecouvert && !repartitionNecessaire && (
-                <p className="text-xs text-orange-500 flex items-center gap-1">
+                <p className="text-xs text-orange-800 flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3" /> Vente à découvert autorisée
                 </p>
               )}
@@ -1411,7 +1411,7 @@ export function Ventes() {
                   <Label className="text-xs">Quantité</Label>
                   <Input type="number" value={quantite}
                     onChange={e => setQuantite(e.target.value)}
-                    className={cn("h-8 text-sm mt-0.5", aDecouvert && "border-orange-300")}
+                    className={cn("h-8 text-sm mt-0.5", aDecouvert && "border-orange-400")}
                     autoFocus
                     onKeyDown={e => e.key === "Enter" && ajouterAuPanier()} />
                 </div>
@@ -1457,7 +1457,7 @@ export function Ventes() {
                     </span>
                   )}
                   {majoration > 0 && (
-                    <span className="text-xs text-orange-500">
+                    <span className="text-xs text-orange-800">
                       Prix majoré de {fmt(majoration)}
                     </span>
                   )}
@@ -1515,7 +1515,7 @@ export function Ventes() {
                     <p className="text-xs text-muted-foreground">
                       {ligne.quantite} {ligne.unite.libelle} × {fmt(ligne.prix_pratique)}
                       {ligne.prix_pratique < ligne.unite.prix_reference && (
-                        <span className="text-orange-500 ml-1">(remise)</span>
+                        <span className="text-orange-800 ml-1">(remise)</span>
                       )}
                       {ligne.a_decouvert && <span className="text-red-500 ml-1">(à découvert)</span>}
                     </p>
@@ -1593,7 +1593,7 @@ export function Ventes() {
             {panier.length > 0 && (
               <div className={cn(
                 "flex items-center gap-2 rounded-md border px-2 py-1.5",
-                remiseAppliquee > 0 ? "border-orange-300 bg-orange-50" : "border-border",
+                remiseAppliquee > 0 ? "border-orange-600" : "border-border",
               )}>
                 <Label className="text-xs text-muted-foreground whitespace-nowrap">Remise</Label>
                 <Input
@@ -1671,7 +1671,7 @@ export function Ventes() {
             {peutAntidater && (
               <div className={cn(
                 "flex items-center gap-2 rounded-md border px-3 py-2",
-                dateVente ? "border-amber-400 bg-amber-50" : "border-border",
+                dateVente ? "border-amber-600" : "border-border",
               )}>
                 <Label className="text-xs text-muted-foreground whitespace-nowrap">
                   Vente du

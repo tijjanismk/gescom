@@ -175,7 +175,7 @@ function ModalReglementCreance({
             )}
             <div className="flex justify-between text-sm font-bold border-t border-border pt-1">
               <span>Reste dû</span>
-              <span className="text-orange-500">{fmt(creance.reste)}</span>
+              <span className="text-orange-800">{fmt(creance.reste)}</span>
             </div>
           </div>
 
@@ -206,7 +206,7 @@ function ModalReglementCreance({
                 <MoneyInput value={montant} onChange={setMontant}
                   className="mt-1" autoFocus />
                 {montantNum > creance.reste && (
-                  <p className="text-xs text-orange-500 mt-1">
+                  <p className="text-xs text-orange-800 mt-1">
                     Limité au reste dû : {fmt(creance.reste)}
                   </p>
                 )}
@@ -501,7 +501,7 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
               onClick={() => setAvecCreancesSeulement(!avecCreancesSeulement)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
                 avecCreancesSeulement
-                  ? "border-orange-400 bg-orange-50 text-orange-700"
+                  ? "border-orange-600 text-foreground"
                   : "border-border text-muted-foreground hover:bg-muted"
               }`}>
               <TrendingUp className="h-3 w-3" /> Avec créances
@@ -591,7 +591,7 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
                       </div>
                       <div className="flex items-center gap-3">
                         {c.total_creances > 0 && (
-                          <span className="text-sm font-semibold text-orange-500">
+                          <span className="text-sm font-semibold text-orange-800">
                             {fmt(c.total_creances)}
                           </span>
                         )}
@@ -637,15 +637,15 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
         <div className="space-y-3">
           {creances.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3
-                            bg-orange-50 dark:bg-orange-950/20
-                            border border-orange-200 rounded-lg mb-2">
+                            bg-card border-l-4 border-l-orange-600 dark:bg-orange-950/20
+                            border border-border rounded-lg mb-2">
               <div className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-orange-500" />
+                <TrendingUp className="h-4 w-4 text-orange-800" />
                 <span className="text-sm font-medium text-orange-700">
                   Total créances ouvertes
                 </span>
               </div>
-              <span className="text-lg font-bold text-orange-500">
+              <span className="text-lg font-bold text-orange-800">
                 {fmt(totalCreances)}
               </span>
             </div>
@@ -686,7 +686,7 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-orange-500">
+                      <span className="text-sm font-bold text-orange-800">
                         {fmt(totalClient)}
                       </span>
                       {/* Fiche depuis l'onglet créances aussi */}
@@ -732,7 +732,7 @@ export function Clients({ onOuvrirFiche }: ClientsProps) {
                               <p className="text-xs text-muted-foreground">
                                 Total : {fmt(v.total)}
                               </p>
-                              <p className="text-sm font-semibold text-orange-500">
+                              <p className="text-sm font-semibold text-orange-800">
                                 Reste : {fmt(v.reste)}
                               </p>
                             </div>

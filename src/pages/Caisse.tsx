@@ -523,7 +523,7 @@ export function Caisse() {
       {/* Statut de la session */}
       {resume?.statut === "aucune" && (
         <div className="relative z-[1] flex items-center gap-3 p-4 bg-muted/70 border border-border mb-6">
-          <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0" />
+          <AlertTriangle className="h-5 w-5 text-orange-800 shrink-0" />
           <div>
             <p className="text-sm font-medium">Aucune session ouverte</p>
             <p className="text-xs text-muted-foreground">

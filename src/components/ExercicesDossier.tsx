@@ -257,7 +257,7 @@ export function ExercicesDossier() {
                 </div>
               )}
               {aClore === e.id && (
-                <div className="flex items-center gap-2 flex-wrap text-sm bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1.5">
+                <div className="flex items-center gap-2 flex-wrap text-sm bg-card border-l-4 border-l-amber-600 dark:bg-amber-950/30 rounded px-2 py-1.5">
                   <span>
                     Clore du {jourEnLettres(e.date_debut)} au {jourEnLettres(e.fin_effective)} ? On n'y écrira plus, et
                     ça ne se défait pas.

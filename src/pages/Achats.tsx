@@ -844,7 +844,7 @@ export function Achats() {
             {peutAntidater && (
               <div className={cn(
                 "flex items-center gap-2 rounded-md border px-3 py-2",
-                dateReception ? "border-amber-400 bg-amber-50" : "border-border",
+                dateReception ? "border-amber-600" : "border-border",
               )}>
                 <Label className="text-xs text-muted-foreground whitespace-nowrap">
                   Réception du

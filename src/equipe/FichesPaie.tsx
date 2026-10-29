@@ -52,7 +52,7 @@ function Statut({ fiche }: { fiche: FichePaie }) {
   // payée et le dit.
   return <>
     <Badge variant="secondary">{fiche.numero}</Badge>
-    {fiche.reste < 0 ? <Badge className="bg-amber-600">versé en trop {f(-fiche.reste)}</Badge>
+    {fiche.reste < 0 ? <Badge className="bg-amber-700">versé en trop {f(-fiche.reste)}</Badge>
       : fiche.reste === 0 ? <Badge className="bg-emerald-600">payée</Badge>
       : fiche.verse > 0 ? <Badge variant="outline">reste {f(fiche.reste)}</Badge> : null}
     {fiche.trop_verse > 0 && <Badge variant="outline" className="border-amber-600 text-amber-700">{f(fiche.trop_verse)} repris en avance</Badge>}

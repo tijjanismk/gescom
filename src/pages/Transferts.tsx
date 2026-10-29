@@ -312,7 +312,7 @@ export function Transferts() {
           )}
 
           {depassement && (
-            <p className="text-xs text-orange-600">
+            <p className="text-xs text-orange-800">
               Une quantité dépasse le stock connu. Le transfert sera refusé
               si le magasin source ne l'a pas réellement.
             </p>

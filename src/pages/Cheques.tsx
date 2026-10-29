@@ -45,7 +45,7 @@ const STATUTS = [
 function Badge({ statut }: { statut: string }) {
   const style = {
     recu:     "bg-blue-100 text-blue-700",
-    depose:   "bg-orange-100 text-orange-700",
+    depose:   "bg-orange-100 text-orange-900",
     encaisse: "bg-green-100 text-green-700",
     rejete:   "bg-red-100 text-red-700",
   }[statut] ?? "bg-muted text-muted-foreground";
@@ -147,13 +147,13 @@ export function Cheques() {
           </CardContent>
         </Card>
 
-        <Card className={dormants > 0 ? "border-orange-300" : ""}>
+        <Card className={dormants > 0 ? "border-orange-400" : ""}>
           <CardContent className="pt-4">
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Clock className="h-3 w-3" /> Non déposés depuis 15 jours
             </p>
             <p className={`text-2xl font-bold mt-1 ${
-              dormants > 0 ? "text-orange-600" : ""}`}>{dormants}</p>
+              dormants > 0 ? "text-orange-800" : ""}`}>{dormants}</p>
             <p className="text-xs text-muted-foreground mt-1">
               Un chèque gardé trop longtemps perd sa valeur de recours.
             </p>
@@ -190,7 +190,7 @@ export function Cheques() {
                   <Badge statut={ch.statut} />
                   {ch.statut === "recu" && ch.jours_detention > 15 && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded
-                                     bg-orange-100 text-orange-700
+                                     bg-orange-100 text-orange-900
                                      flex items-center gap-1">
                       <AlertTriangle className="h-2.5 w-2.5" />
                       {ch.jours_detention} j

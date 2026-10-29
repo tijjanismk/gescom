@@ -76,7 +76,7 @@ export function RechercheServeur({ onChoisir, desactive }: Props) {
       )}
 
       {trouves && trouves.length === 0 && (
-        <div className="space-y-1 rounded-md border border-amber-600/40 bg-amber-500/5 p-3 text-xs" role="status">
+        <div className="space-y-1 rounded-md border border-border border-l-4 border-l-amber-600 bg-card p-3 text-xs" role="status">
           <p className="font-medium">Aucun serveur Gescom n'a répondu sur ce réseau.</p>
           <p className="text-muted-foreground">Causes probables :</p>
           <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">

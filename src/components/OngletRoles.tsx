@@ -293,7 +293,7 @@ export function OngletRoles() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   {r.protege
-                    ? <Lock className="h-3.5 w-3.5 text-amber-600" />
+                    ? <Lock className="h-3.5 w-3.5 text-amber-800" />
                     : r.acces_total
                       ? <ShieldCheck className="h-3.5 w-3.5 text-primary" />
                       : <Shield className="h-3.5 w-3.5 text-muted-foreground" />}

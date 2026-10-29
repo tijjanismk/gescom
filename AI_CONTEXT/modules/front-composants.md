@@ -114,3 +114,12 @@ composants maison (effet verre, tuiles de KPI).
   Tauri (`estDansTauri`, exportée de `pont.ts`). Dans `PageServeur`
   (branchement d'une caisse) et `OngletReseau` (poste caisse). Fiche :
   [serveur-fenetre.md](serveur-fenetre.md).
+
+## La lisibilité (D46, 29/10/2026)
+
+Niveau **WCAG 2.2 AA**. Un **encadré d'alerte** : `bg-card border
+border-border border-l-4 border-l-orange-600` (ou `amber-600`), texte
+normal, icône 700. Une **pastille d'état** : `bg-*-100 text-*-900`. Un
+**texte** orange, ambre ou jaune : 700 au moins. Un **bouton plein** :
+700. Le garde-fou `src/lib/lisibilite.test.ts` (`node --test`) refuse le
+reste, ligne par ligne.

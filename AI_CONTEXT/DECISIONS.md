@@ -1393,3 +1393,39 @@ statut_stock}` ; `assistant::seuil_defaut_sur` ;
 prend `seuilDefaut`. Écran `ChampSeuil.tsx` (création, fiche),
 `ReglagesDuDossier`, badge de `Stock.tsx`. Tests :
 `noyau/tests/seuil_base.rs`.
+
+## D46 — La lisibilité : WCAG AA, plus de couleur claire sur fond clair (29/10/2026)
+
+**Le besoin** (le propriétaire) : du « jaune sur jaune » dans
+l'Historique de caisse, puis dans le résultat d'un import — « regarder
+si le problème est récurrent ». Relevé : **43 encadrés** sur fond
+orange, ambre ou jaune pâle dans **22 écrans**, **25 textes** orange
+clair (l'orange 500 fait 2,80:1 sur blanc), des boutons orange 600 où le
+texte blanc fait 3,56:1. Aucun niveau de lisibilité n'était écrit.
+
+**Retenu** (deux choix posés, acceptés) :
+
+1. **Le niveau : WCAG 2.2 AA** — 4,5:1 pour le texte, 3:1 pour un bord
+   ou une icône ; un état se dit aussi en mots.
+2. **Un seul style d'encadré d'alerte** : fond de carte (`bg-card`), bord
+   gris, la couleur seulement au liseré (`border-l-4 border-l-orange-600`
+   ou `amber-600`) et à l'icône (700), texte normal. Un champ surligné
+   (date antidatée, remise) : un bord ambre ou orange 600, fond normal.
+3. **Les pastilles d'état** gardent leur fond pâle (`bg-*-100`), texte
+   **900** (≈ 7:1).
+4. **Texte** orange, ambre ou jaune : nuance 700 au moins ; **bouton
+   plein** : 700 (texte blanc 5,2:1).
+5. **Garde-fou** : `src/lib/lisibilite.test.ts` (`node --test`) relit tous
+   les écrans et nomme chaque ligne qui revient en arrière (fond 50 ou
+   transparent, texte 300–600, pastille sans 900, bouton 500/600) ; il
+   vérifie aussi les contrastes des couleurs retenues. Le thème sombre
+   (`dark:`) n'est pas concerné.
+
+**Pas fait** : les couleurs vertes, rouges et bleues ne sont pas
+passées au crible (le rouge 600 et le vert 600 frôlent 4,5:1) ; le
+parcours au clavier et le zoom 200 % ne sont pas vérifiés. Nommé dans
+ALERTES.
+
+**Mise en œuvre.** 105 lignes dans 28 fichiers, par règle (script),
+puis les encadrés relus à la main : lignes de tableau (fond neutre, une
+bordure de `<tr>` ne s'affiche pas), bords internes des encadrés.

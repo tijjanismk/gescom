@@ -633,7 +633,7 @@ function OngletSauvegarde() {
         )}
 
         {diag && !diag.corruption && diag.anomalies.length > 0 && (
-          <div className="p-3 rounded-md bg-orange-50 border border-orange-300
+          <div className="p-3 rounded-md bg-card border border-border border-l-4 border-l-orange-600
                           text-sm text-orange-900">
             <p className="font-medium">Écritures incomplètes</p>
             <ul className="text-xs mt-1 space-y-0.5">
@@ -970,7 +970,7 @@ function OngletArticles() {
               const ecart = saisi > 0 ? Math.abs(saisi - attendu) / attendu : 0;
               return (
                 <p className={`text-xs ${ecart > 0.3
-                  ? "text-orange-600 font-medium" : "text-muted-foreground"}`}>
+                  ? "text-orange-800 font-medium" : "text-muted-foreground"}`}>
                   {f} × {fmt(base.prix_reference)} = {fmt(attendu)}
                   {saisi > 0 && ecart > 0.3 && " — écart important, à vérifier"}
                 </p>

@@ -347,7 +347,7 @@ export function Journal() {
                 </td>
                 <td className={TD}>
                   <span className={h.type === "solde"
-                    ? "text-green-700" : "text-orange-600"}>
+                    ? "text-green-700" : "text-orange-800"}>
                     {h.type === "solde" ? "Solde" : "Acompte"}
                   </span>
                 </td>
@@ -441,17 +441,17 @@ export function Journal() {
 
       {/* ── Ventes à découvert : un signal, pas un total ── */}
       {!!data?.decouverts?.length && (
-        <div className="mb-6 border border-orange-300 bg-orange-50 rounded-lg
+        <div className="mb-6 border border-border border-l-4 border-l-orange-600 bg-card rounded-lg
                         overflow-hidden print:rounded-none">
-          <div className="px-4 py-2 border-b border-orange-200
+          <div className="px-4 py-2 border-b border-border
                           flex items-center gap-1.5">
-            <AlertTriangle className="h-4 w-4 text-orange-600 shrink-0" />
+            <AlertTriangle className="h-4 w-4 text-orange-800 shrink-0" />
             <p className="text-sm font-medium text-orange-900">
               {data.decouverts.length} vente(s) à découvert
             </p>
           </div>
           <table className="w-full">
-            <tbody className="divide-y divide-orange-200">
+            <tbody className="divide-y divide-border">
               {data.decouverts.map((d, i) => (
                 <tr key={i}>
                   <td className={TD}>{d.article}</td>
@@ -473,7 +473,7 @@ export function Journal() {
       )}
 
       {/* ── 4 bis. Mouvements de stock sans effet monétaire ── */}
-      <Section titre="Mouvements de stock" couleur="bg-amber-50"
+      <Section titre="Mouvements de stock" couleur="bg-card border-l-4 border-l-amber-600"
         vide={!data?.mouvements?.length}>
         <table className="w-full">
           <thead className="border-b border-border">
@@ -558,7 +558,7 @@ export function Journal() {
       </Section>
 
       {/* ── 6. Situation non payée ── */}
-      <Section titre="Situation non payée" couleur="bg-orange-50"
+      <Section titre="Situation non payée" couleur="bg-card border-l-4 border-l-orange-600"
         vide={!data?.impayes.length}>
         <table className="w-full">
           <thead className="border-b border-border">
@@ -655,7 +655,7 @@ export function Journal() {
                   − {fmt(t?.depenses ?? 0)}
                 </td>
               </tr>
-              <tr className="bg-orange-50/50">
+              <tr className="bg-muted/60">
                 <td className={`${TD} font-medium`}>Impayés clients (cumul)</td>
                 <td className={`${TD} text-right font-semibold text-red-600`}>
                   {fmt(t?.impayes ?? 0)}

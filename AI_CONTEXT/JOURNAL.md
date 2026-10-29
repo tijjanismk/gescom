@@ -2811,3 +2811,29 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   « 1 alerte » au tableau de bord, la fiche qui dit « en alerte sous
   10 », puis 0 qui coupe l'alerte. **Pas commité.**
 
+## 29/10/2026 (suite) — l'essai dans la vraie fenêtre, D46 la lisibilité
+
+- **La vraie fenêtre** : `gescom.exe` de débogage construit depuis ce
+  travail, son écran Vite sur 1420, un `poste.json` d'essai qui la
+  branche sur un serveur jetable (40060, base vierge) — le serveur du
+  propriétaire sur 40000 n'a pas été touché (le banc l'aurait arrêté).
+  Construire la fenêtre recopie l'ancien serveur embarqué sur
+  `target/debug/gescom-serveur.exe` : serveur reconstruit après (piège
+  connu du banc). Le propriétaire a fait l'essai : connexion qui rappelle
+  le compte d'usine, assistant complet, **logo par la boîte Windows**,
+  **import d'articles** (3 créés avec leurs seuils ; « riz  LOCAL »
+  doublon dans le fichier et le code-barre déjà pris refusés), import de
+  fournisseurs depuis la page Fournisseurs (l'étape de l'assistant avait
+  été sautée). Deux CSV d'essai posés sur son Bureau (`essai-gescom`).
+- **« Jaune sur jaune » dans le résultat de l'import**, « regarder si
+  le problème est récurrent » : relevé — 43 encadrés sur fond orange,
+  ambre ou jaune pâle dans 22 écrans, 25 textes orange clair, des
+  boutons orange 600 à 3,56:1. Deux choix posés : partout avec un
+  garde-fou ; pastilles à fond pâle et texte 900. 105 lignes par règle
+  (script), puis relues à la main : les champs surlignés ont un bord
+  plein (le liseré y faisait bizarre), une ligne de tableau ne porte pas
+  de bordure (fond neutre), les bords internes des encadrés passent au
+  gris. `src/lib/lisibilite.test.ts` refuse désormais chaque rechute
+  (prouvé sur un faux écran : trois fautes nommées). Le propriétaire a
+  refait l'import : « c'est lisible ». D46. **Pas commité.**
+

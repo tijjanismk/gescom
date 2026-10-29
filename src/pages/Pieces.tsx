@@ -84,7 +84,7 @@ const eteintParRetour = (p: Piece) => (p.total_paye ?? 0) - encaisse(p);
 const BADGE_RETOUR: Record<string, { label: string; classe: string }> = {
   partiel:   { label: "Retour partiel", classe: "bg-amber-100 text-amber-900" },
   retourne:  { label: "Retournée",      classe: "bg-slate-200 text-slate-700" },
-  rembourse: { label: "Remboursée",     classe: "bg-orange-100 text-orange-800" },
+  rembourse: { label: "Remboursée",     classe: "bg-orange-100 text-orange-900" },
 };
 const toutRevenu = (p: Piece) =>
   p.retour?.etat === "retourne" || p.retour?.etat === "rembourse";
@@ -113,11 +113,11 @@ function detailRetour(r: NonNullable<Piece["retour"]>): string {
 // ferait lire l'inverse de ce qui s'est passé.
 const BADGE_LIVRAISON: Record<string, Record<string, { label: string; classe: string }>> = {
   client: {
-    partiel: { label: "Part. livré", classe: "bg-orange-100 text-orange-700" },
+    partiel: { label: "Part. livré", classe: "bg-orange-100 text-orange-900" },
     livre:   { label: "Livré",       classe: "bg-green-100 text-green-700" },
   },
   fournisseur: {
-    partiel: { label: "Part. reçu",  classe: "bg-orange-100 text-orange-700" },
+    partiel: { label: "Part. reçu",  classe: "bg-orange-100 text-orange-900" },
     livre:   { label: "Reçu",        classe: "bg-green-100 text-green-700" },
   },
 };
@@ -1338,7 +1338,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                 <Icone className="h-3 w-3" />{t.label}
                 {t.value === FILTRE_RETOURS && nbRetours > 0 && (
                   <span className={`ml-0.5 rounded-full px-1.5 text-[10px] ${
-                    actif ? "bg-primary-foreground/20" : "bg-orange-100 text-orange-800"}`}>
+                    actif ? "bg-primary-foreground/20" : "bg-orange-100 text-orange-900"}`}>
                     {nbRetours}
                   </span>
                 )}
@@ -1574,7 +1574,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <span className="font-semibold text-sm">{fmt(p.total_ttc)}</span>
                       {p.remise_montant > 0 && (
-                        <p className="text-xs text-orange-500 font-normal">
+                        <p className="text-xs text-orange-800 font-normal">
                           −{fmt(p.remise_montant)}
                         </p>
                       )}
@@ -1841,7 +1841,7 @@ export function Pieces({ onOuvrirFicheClient, onOuvrirFicheFournisseur, onHistor
                           <button onClick={() => handleAvoirFournisseur(p)}
                             title="Annuler par un avoir fournisseur"
                             className="p-1.5 rounded hover:bg-muted transition-colors
-                                       text-muted-foreground hover:text-amber-600">
+                                       text-muted-foreground hover:text-amber-800">
                             <Gift className="h-3.5 w-3.5" />
                           </button>
                         )}

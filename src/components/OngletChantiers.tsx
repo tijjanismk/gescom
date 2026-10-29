@@ -253,7 +253,7 @@ export function OngletDettes() {
   return (
     <div className="space-y-4">
       {totalDettes > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3
+        <div className="bg-card border border-border border-l-4 border-l-amber-600 rounded-lg px-4 py-3
                         flex items-center justify-between">
           <span className="text-sm font-medium text-amber-800">Total dettes fournisseurs</span>
           <span className="text-sm font-bold text-amber-900">{fmt(totalDettes)}</span>

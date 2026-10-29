@@ -150,7 +150,7 @@ export function ApercuRecu({ paiementId, cote, onFermer }: Props) {
           ) : erreur ? (
             <div className="flex flex-col items-center justify-center h-full
                             gap-2 text-center px-6">
-              <AlertTriangle className="h-8 w-8 text-orange-500" />
+              <AlertTriangle className="h-8 w-8 text-orange-800" />
               <p className="text-sm font-medium">Reçu indisponible</p>
               <p className="text-xs text-muted-foreground">{erreur}</p>
             </div>
