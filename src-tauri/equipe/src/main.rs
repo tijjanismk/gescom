@@ -131,6 +131,7 @@ fn lire_config_reseau(app: tauri::AppHandle) -> Result<ConfigReseau, String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![lire_config_reseau])
         .run(tauri::generate_context!())
         .expect("Gescom Équipe n'a pas pu démarrer");

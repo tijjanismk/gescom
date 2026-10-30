@@ -2865,3 +2865,32 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   listes) sans largeur limitée. Restent étroits, exprès : « Bientôt » et
   le message « serveur injoignable » (du texte à lire). Captures 18 à 22.
 
+## 29-30/10/2026 — EQ-5 : WhatsApp sans service payant (D51)
+
+- **Relevé avant D51** : téléphones des employés et des clients en texte
+  libre, jugés nulle part ; la coque d'Équipe ne savait ouvrir aucun lien
+  (une commande, `lire_config_reseau`) ; la caisse (`Relances.tsx`)
+  préfixe « 223 » à l'aveugle — un « 00223 76… » y devient
+  « 22300223 76… » (noté dans D51, pas corrigé ici).
+- **D51 acceptée telle qu'écrite** : le lien `wa.me`, pas l'envoi ; un
+  numéro douteux désactive le bouton avec sa raison, la fiche n'est pas
+  réécrite ; le bulletin d'une fiche validée seulement, le montant ne
+  sortant que de `lire_donnees_bulletin` (déjà refusée sans droit de
+  paie) ; l'échange client noté au « Oui » ; le plugin opener limité à
+  `https://wa.me/*` plutôt que `cmd /C start` (les `%` du texte encodé).
+- **Code** : `src/lib/whatsapp.ts` (pur) et son test ; `src/equipe/WhatsApp.tsx`
+  (les deux boutons), une ligne dans `ApercuBulletin.tsx` et dans la fiche
+  360 de `SuiviClients.tsx` ; la coque : `Cargo.toml`, `main.rs`,
+  `capabilities/default.json`. « (+223) 76 11 22 33 » se lit aussi : le
+  « + » se juge sans séparateurs.
+- **Banc** `eq5-whatsapp.mjs` (24) : `window.open` remplacé pour relire le
+  lien. Serveur d'essai sur 40075 : copie du `gescom-serveur.exe` du
+  worktree de base (aucun code serveur touché), base SQLite de
+  démonstration dans le scratchpad ; Vite 1445 servi par le
+  `node_modules` du dépôt principal.
+- **Disque plein deux fois pendant la séance** (six sessions qui
+  compilent ensemble) : mon `target` (1,8 Go) et un `npm install` à
+  moitié fait effacés ; la jonction `outils/banc/node_modules` pointe sur
+  celle du dépôt principal (à retirer par `rmdir`, jamais `Remove-Item
+  -Recurse`, qui viderait la cible).
+

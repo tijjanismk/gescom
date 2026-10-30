@@ -1429,3 +1429,79 @@ ALERTES.
 **Mise en œuvre.** 105 lignes dans 28 fichiers, par règle (script),
 puis les encadrés relus à la main : lignes de tableau (fond neutre, une
 bordure de `<tr>` ne s'affiche pas), bords internes des encadrés.
+
+## D51 — WhatsApp sans service payant : le lien, pas l'envoi (29/10/2026)
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-5) : envoyer à l'employé le résumé
+de son bulletin, et écrire à un client depuis sa fiche 360, par
+WhatsApp, sans abonnement ni envoi automatique. Relevé : les téléphones
+(`employe.telephone`, `client.telephone`) sont du **texte libre**, jugé
+nulle part ; la coque d'Équipe ne sait **ouvrir aucun lien** (une seule
+commande, `lire_config_reseau`) ; la caisse ouvre WhatsApp depuis les
+relances de créance par `cmd /C start` et préfixe « 223 » à l'aveugle.
+
+**Retenu** (six choix posés, acceptés le 29/10/2026) :
+
+1. **Le lien, pas l'envoi.** Un bouton ouvre `https://wa.me/<numéro>?text=<texte>` :
+   WhatsApp (application ou WhatsApp Web) s'ouvre sur la conversation,
+   le texte déjà écrit ; **c'est la personne qui appuie sur Envoyer**,
+   et elle peut encore le corriger. Ni API WhatsApp Business (payante,
+   compte Meta, modèles validés), ni envoi en tâche de fond.
+2. **Le numéro** (`src/lib/whatsapp.ts`, pur, testé par `node --test`).
+   Espaces, points, tirets, parenthèses ignorés ; on lit :
+   - **8 chiffres** (`76 11 22 33`) → malien, `+223` ajouté ;
+   - **`+223`, `00223` ou `223`** suivi de 8 chiffres → le même ;
+   - **`+` ou `00` suivi d'un autre indicatif** (8 à 15 chiffres en
+     tout) → pris tel quel : la diaspora (France, Côte d'Ivoire…) a des
+     clients et des employés à Bamako ;
+   - **tout le reste est douteux, et le bouton est désactivé avec la
+     raison** sous les yeux : pas de numéro sur la fiche ; des lettres ;
+     deux numéros dans le champ (« 76… / 66… ») ; une longueur fausse
+     (« 7 chiffres : un numéro malien en a 8 ») ; 8 chiffres qui
+     commencent par 0 ; un numéro long sans indicatif (« 06 12 34 56 78 »
+     — on ne devine pas le pays, écrire `+33…`).
+   Pourquoi refuser plutôt que deviner (règle 5) : un lien vers le
+   mauvais numéro envoie un salaire ou une créance **à un inconnu**. La
+   fiche n'est **pas réécrite** : le numéro lu ne sert qu'au lien ; on
+   corrige la fiche si le bouton dit qu'elle est douteuse. Une ligne
+   fixe (2…) passe : WhatsApp dira lui-même que le numéro n'y est pas.
+3. **Le bulletin** (bouton « WhatsApp » de l'aperçu) : seulement une
+   fiche **validée** (numérotée) — un brouillon peut encore changer, une
+   fiche remplacée n'est plus la bonne (bouton désactivé, raison dite).
+   Le texte : bonjour, la période, le numéro du bulletin, **le net, le
+   déjà versé, le reste dû** (« soldée » à zéro ; le versé en trop et
+   l'avance reportée s'ils existent), le nom de la société. Pas le
+   détail des lignes : il reste sur le papier signé.
+   **Le montant jamais sans droit de paie** : l'aperçu lit
+   `lire_donnees_bulletin`, que le serveur refuse déjà sans
+   `paie:preparer` ou `paie:valider` (`coeur::lecture`) ; le texte est
+   fait de ce que le serveur a rendu, et aucun autre écran n'écrit un
+   salaire. Rien n'est noté côté employé : le fil d'échanges est celui
+   du client (D34), le personnel n'en a pas.
+4. **Le client** (fiche 360, à côté du téléphone) : une zone de message
+   qui commence par « Bonjour <nom>, », la personne écrit la suite. Pas
+   de modèle (créance, promotion) : les relances de créance ont déjà
+   leur écran, et la liste à relancer (EQ-4) recevra son bouton après
+   fusion.
+5. **L'échange se note après confirmation, pas au clic.** WhatsApp
+   ouvert, la fiche demande : « Le message est-il parti ? » — **Oui** :
+   `creer_echange` (genre `whatsapp`, le texte en « quoi ») ; **Non** :
+   rien. Pourquoi : au clic, la fiche 360 garderait des messages jamais
+   partis (WhatsApp refermé, numéro absent de WhatsApp) — un fil qui
+   ment. Le risque inverse (oublier de répondre Oui) laisse un trou que
+   la personne comble à la main, comme avant. Aucune commande serveur
+   nouvelle : `creer_echange` exige déjà `crm:suivre`.
+6. **Ouvrir le lien.** Dans la coque d'Équipe : `tauri-plugin-opener`
+   (déjà dans le `Cargo.lock` et `package.json`, la caisse l'utilise),
+   avec une permission **limitée à `https://wa.me/*`** — la fenêtre ne
+   peut rien ouvrir d'autre. Pas `cmd /C start` : le texte encodé est
+   plein de `%`, que l'invite de commandes peut lire comme des
+   variables. Dans un navigateur (essais, Vite) : `window.open`.
+
+**Pas pris** : l'envoi automatique ou groupé, les SMS, les modèles de
+message, un bouton WhatsApp pour un employé hors bulletin.
+
+**À noter, pas corrigé ici** : la caisse (`src/pages/Relances.tsx`)
+préfixe « 223 » à tout numéro qui ne commence pas par 223 — un
+« 00223 76… » y devient « 22300223 76… ». Elle pourra lire le numéro
+par `whatsapp.ts` après fusion.

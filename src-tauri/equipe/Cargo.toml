@@ -21,3 +21,6 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 # Les boites « c'est fait » des ecrans partages (mot de passe change).
 tauri-plugin-dialog = "2"
+# D51 : ouvrir WhatsApp (wa.me) hors de la fenetre ; la permission ne
+# laisse ouvrir que ce lien-la (capabilities/default.json).
+tauri-plugin-opener = "2"

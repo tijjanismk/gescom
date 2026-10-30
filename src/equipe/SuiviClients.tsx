@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { KpiPetit, GRILLE } from "@/components/ui/KpiVerre";
+import { MessageClientWhatsApp } from "@/equipe/WhatsApp";
 
 interface Utilisateur { id: string; nom: string; role: string; actif: boolean; }
 interface ClientLigne { id: string; code: string; nom: string; telephone: string | null; statut?: string; }
@@ -144,6 +145,13 @@ function Fiche360({ clientId, moi, onRetour }: { clientId: string; moi: { id: st
         {estProspect ? <Badge variant="secondary">prospect</Badge> : null}
       </div>
       {client.telephone && <p className="text-sm text-muted-foreground">{client.telephone}</p>}
+      {/* EQ-5 (D51) : ecrire au client sur WhatsApp, l'echange note au Oui. */}
+      {ecrit && (
+        <MessageClientWhatsApp client={client} onNote={async () => {
+          await charger();
+          setAvis({ texte: "Échange WhatsApp noté." });
+        }} />
+      )}
 
       <div style={GRILLE}>
         <KpiPetit titre="Chiffre d'affaires" valeur={f(stats.ca_total)} />
