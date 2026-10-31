@@ -25,29 +25,35 @@ export function ModalChangerMdp({
   const [confirmation, setConfirmation] = useState("");
   const [visible, setVisible] = useState(false);
   const [chargement, setChargement] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
 
   const valide = nouveauMdp.length >= 6 && nouveauMdp === confirmation;
 
   async function handleChanger() {
     if (!valide || !ancienMdp) return;
     setChargement(true);
+    setErreur(null);
+    let change = false;
     try {
       await invoke("changer_mot_de_passe", {
         utilisateurId,
         ancienMdp,
         nouveauMdp,
       });
-      await message("Mot de passe changé", { title: "Succès", kind: "info" });
-      setAncienMdp(""); setNouveauMdp(""); setConfirmation("");
-      onChange();
+      change = true;
     } catch (err) {
-      await message(
-        typeof err === "string" ? err : "Erreur lors du changement",
-        { title: "Erreur", kind: "error" }
-      );
+      setErreur(typeof err === "string" ? err : err instanceof Error ? err.message : "Erreur lors du changement");
     } finally {
       setChargement(false);
     }
+    if (!change) return;
+    // Le changement est fait : la boîte se ferme D'ABORD. La confirmation
+    // est une boîte native — dans un navigateur (poste multiposte), elle
+    // n'existe pas et `message` échoue : la boîte restait alors ouverte,
+    // le mot de passe déjà changé, l'écran bloqué (vu le 31/10).
+    setAncienMdp(""); setNouveauMdp(""); setConfirmation("");
+    onChange();
+    message("Mot de passe changé", { title: "Succès", kind: "info" }).catch(() => {});
   }
 
   return (
@@ -110,6 +116,9 @@ export function ModalChangerMdp({
               <p className="text-xs text-destructive mt-1">Les mots de passe ne correspondent pas</p>
             )}
           </div>
+
+          {/* Le refus se lit ici, dans la boîte : il ne dépend pas d'une boîte native. */}
+          {erreur && <p className="text-sm text-destructive" role="alert">{erreur}</p>}
 
           <div className="flex gap-2 pt-1">
             {!obligatoire && (

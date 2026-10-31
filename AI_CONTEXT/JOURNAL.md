@@ -3107,3 +3107,21 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   fenêtre signés aussi). Le `target\debug` effacé avant, 35 Go libres au
   départ, 33 au plus bas. **Pas essayé** : aucune installation ; le
   service installé (0.2.0) reste celui d'avant.
+
+## 31/10/2026 — la boîte du mot de passe par défaut se ferme dans un navigateur
+
+- **Le défaut** (noté par EQ-1, revu en ouvrant Équipe sur les données
+  d'essai) : après un changement réussi, la boîte « Changer le mot de
+  passe par défaut » restait ouverte et bloquait l'écran, le mot de passe
+  déjà changé au serveur. `ModalChangerMdp` attendait la confirmation
+  (`message` de plugin-dialog, une boîte native) AVANT de prévenir
+  l'application : dans un navigateur (poste multiposte, Équipe ouverte
+  dans le navigateur), `message` échoue, `onChange` ne venait jamais. Un
+  refus (ancien mot de passe faux) ne se voyait pas non plus.
+- **Corrigé** : le changement fait, la boîte se ferme d'abord, la
+  confirmation native suit si la fenêtre la sait (`.catch` sinon) ; le
+  refus s'écrit dans la boîte (`role="alert"`). Vu dans le navigateur
+  intégré sur le serveur d'essai : « Ancien mot de passe incorrect »
+  affiché, puis le bon mot de passe ferme la boîte et la session ne
+  demande plus rien. Gescom et Équipe partagent la boîte : les deux sont
+  corrigés. tsc, node 14/14.
