@@ -271,6 +271,10 @@ fn colonnes_roles(base: &mut Base) {
         "ALTER TABLE avance ADD COLUMN trop_verse_fiche_id TEXT",
         // D42 : l'avance etalee (vide = tout sur la prochaine paie).
         "ALTER TABLE avance ADD COLUMN mensualite INTEGER",
+        // D47 : le pret sur plusieurs mois est une avance d'une autre
+        // nature (la table `pret_reglement` nait de `schema.sql`).
+        "ALTER TABLE avance ADD COLUMN nature TEXT NOT NULL DEFAULT 'avance'",
+        "ALTER TABLE avance ADD COLUMN retenir_des TEXT",
         "CREATE TABLE IF NOT EXISTS utilisateur_permission (
             utilisateur_id TEXT NOT NULL REFERENCES utilisateur(id),
             permission     TEXT NOT NULL,

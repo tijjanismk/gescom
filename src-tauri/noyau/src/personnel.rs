@@ -404,6 +404,12 @@ pub fn faire_partir_sur(base: &mut Base, id: String, date: Option<String>, motif
             "Il reste à {nom} une avance en cours : elle se retiendra sur sa dernière fiche de paie, ou restera due."
         ));
     }
+    // D47 : sans montant — qui gere le personnel ne lit pas forcement la paie.
+    if crate::prets::en_cours_sur(base, &id)? > 0 {
+        avertissements.push(format!(
+            "Il reste à {nom} un prêt en cours : la fiche de paie du départ en retiendra tout le reste, dans la limite du net ;              ce qui ne passe pas restera dû (onglet Prêts : remboursement ou remise)."
+        ));
+    }
     for numero in crate::paie::fiches_validees_apres_sur(base, &id, &date)? {
         avertissements.push(format!(
             "La fiche {numero} paie des jours après ce départ : faire une rectificative (le trop-versé deviendra une avance)."

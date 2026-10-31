@@ -20,6 +20,7 @@ pub mod journaux;
 pub mod personnel;
 pub mod presences;
 pub mod avances;
+pub mod pret;
 pub mod paie;
 pub mod crm;
 pub mod menu;

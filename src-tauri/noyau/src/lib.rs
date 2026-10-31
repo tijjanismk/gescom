@@ -62,6 +62,7 @@ pub mod journaux_comptables;
 pub mod personnel;
 pub mod presences;
 pub mod avances;
+pub mod prets;
 pub mod paie;
 pub mod crm;
 pub mod passage;

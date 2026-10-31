@@ -129,7 +129,7 @@ WHERE (CAST(?2 AS TEXT) IS NULL OR SUBSTR(r.date_evenement, 1, 10) >= ?2)
   AND (CAST(?9 AS TEXT) IS NULL OR LOWER(
          COALESCE(r.tiers_nom, '') || ' ' || COALESCE(r.piece_numero, '') || ' ' ||
          COALESCE(r.article_nom, '') || ' ' || COALESCE(r.auteur_nom, '') || ' ' ||
-         CASE WHEN CAST(?11 AS BIGINT) = 0 OR r.entite_type NOT IN ('fiche_paie', 'avance', 'cotisation')
+         CASE WHEN CAST(?11 AS BIGINT) = 0 OR r.entite_type NOT IN ('fiche_paie', 'avance', 'cotisation', 'pret')
               THEN COALESCE(r.nouveau_valeur, '') || ' ' || COALESCE(r.ancien_valeur, '')
               ELSE '' END
        ) LIKE LOWER(?9))

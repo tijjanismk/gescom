@@ -39,13 +39,19 @@ fn personne(base: &mut Base, employe_id: &str) -> Result<Personne, String> {
     .ok_or_else(|| "Fiche introuvable.".to_string())
 }
 
-/// Ce que la personne doit encore en avances non retenues.
+/// Ce que la personne doit encore en avances non retenues (les prets a
+/// part, D47 : ils n'entrent pas dans le plafond).
 pub fn en_cours_sur(base: &mut Base, employe_id: &str) -> Result<i64, String> {
+    en_cours_de_nature_sur(base, employe_id, "avance")
+}
+
+/// Ce que la personne doit encore, en avances ou en prets (`nature`).
+pub fn en_cours_de_nature_sur(base: &mut Base, employe_id: &str, nature: &str) -> Result<i64, String> {
     let dossier = base.dossier().to_string();
     base.lire_une(
         "SELECT CAST(COALESCE(SUM(montant - retenu), 0) AS BIGINT) FROM avance
-         WHERE employe_id = ?1 AND dossier_id = ?2 AND statut = 'ouverte'",
-        &parametres![employe_id, dossier],
+         WHERE employe_id = ?1 AND dossier_id = ?2 AND statut = 'ouverte' AND nature = ?3",
+        &parametres![employe_id, dossier, nature],
         |r| r.get::<i64>(0),
     )
     .map_err(|e| e.0)
@@ -59,15 +65,29 @@ fn noter(
     auteur: &str,
     valeur: serde_json::Value,
 ) -> Result<(), String> {
+    noter_entite(acces, type_evenement, "avance", avance_id, auteur, valeur)
+}
+
+/// Note un geste au journal ; un pret s'y range sous `pret` (D47), que
+/// la lecture masque comme la paie.
+pub(crate) fn noter_entite(
+    acces: &mut impl crate::base::Acces,
+    type_evenement: &str,
+    entite: &str,
+    avance_id: &str,
+    auteur: &str,
+    valeur: serde_json::Value,
+) -> Result<(), String> {
     let dossier = acces.dossier().to_string();
     acces
         .executer(
             "INSERT INTO journal
                (id, type_evenement, entite_type, entite_id, auteur_id, nouveau_valeur, origine, date_evenement, dossier_id)
-             VALUES (?1, ?2, 'avance', ?3, ?4, ?5, 'app', ?6, ?7)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'app', ?7, ?8)",
             &parametres![
                 uuid::Uuid::new_v4().to_string(),
                 type_evenement,
+                entite,
                 avance_id,
                 auteur,
                 valeur.to_string(),
@@ -226,22 +246,36 @@ fn deja_payee(base: &mut Base, employe_id: &str, jour: &str) -> Result<Option<St
 /// Annule une avance donnee par erreur : elle ne se retiendra pas.
 /// Refuse si une fiche de paie en a deja retenu une partie. Prise dans le
 /// tiroir, l'argent y revient : une entree dans la caisse ouverte
-/// (D42 ; fermee, rien n'est annule).
+/// (D42 ; fermee, rien n'est annule). Un pret s'annule par
+/// `prets::annuler_sur` (D47 : un autre droit).
 pub fn annuler_sur(base: &mut Base, avance_id: String, motif: Option<String>) -> Result<serde_json::Value, String> {
+    annuler_de_nature_sur(base, avance_id, motif, "avance")
+}
+
+/// Annule une avance ou un pret (`nature`), aux memes conditions.
+pub(crate) fn annuler_de_nature_sur(base: &mut Base, avance_id: String, motif: Option<String>, nature: &str) -> Result<serde_json::Value, String> {
     let dossier = base.dossier().to_string();
-    let (employe_id, montant, retenu, statut, du_tiroir): (String, i64, i64, String, bool) = base
+    let (employe_id, montant, retenu, statut, du_tiroir, sa_nature): (String, i64, i64, String, bool, String) = base
         .lire_une(
-            "SELECT employe_id, montant, retenu, statut, mouvement_caisse_id FROM avance WHERE id = ?1 AND dossier_id = ?2",
+            "SELECT employe_id, montant, retenu, statut, mouvement_caisse_id, nature FROM avance WHERE id = ?1 AND dossier_id = ?2",
             &parametres![avance_id.clone(), dossier.clone()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get::<Option<String>>(4)?.is_some())),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get::<Option<String>>(4)?.is_some(), r.get(5)?)),
         )
         .map_err(|e| e.0)?
         .ok_or_else(|| "Avance introuvable.".to_string())?;
+    let pret = nature == crate::coeur::pret::NATURE;
+    if sa_nature != nature {
+        return Err(if pret { "Ce n'est pas un prêt.".to_string() } else { "C'est un prêt : il s'annule dans l'onglet Prêts.".to_string() });
+    }
     if statut != "ouverte" {
         return Err("Cette avance n'est plus en cours.".to_string());
     }
     if retenu > 0 {
-        return Err("Une fiche de paie en a déjà retenu une partie : elle ne s'annule plus.".to_string());
+        return Err(if pret {
+            "Une partie a déjà été retenue ou remboursée : le prêt ne s'annule plus.".to_string()
+        } else {
+            "Une fiche de paie en a déjà retenu une partie : elle ne s'annule plus.".to_string()
+        });
     }
     let p = personne(base, &employe_id)?;
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
@@ -254,7 +288,7 @@ pub fn annuler_sur(base: &mut Base, avance_id: String, motif: Option<String>) ->
             "entree",
             montant,
             MOTIF_CAISSE_ANNULEE,
-            &format!("Avance annulée, l'argent revient — {}", p.nom),
+            &format!("{}, l'argent revient — {}", if pret { "Prêt annulé" } else { "Avance annulée" }, p.nom),
             &avance_id,
             &auteur,
             &now,
@@ -271,9 +305,10 @@ pub fn annuler_sur(base: &mut Base, avance_id: String, motif: Option<String>) ->
     if n == 0 {
         return Err("Cette avance vient de changer : relire avant d'annuler.".to_string());
     }
-    noter(
+    noter_entite(
         &mut tx,
-        "avance_annulee",
+        if pret { "pret_annule" } else { "avance_annulee" },
+        nature,
         &avance_id,
         &auteur,
         serde_json::json!({ "nom": p.nom, "montant": montant, "motif": motif, "du_tiroir": du_tiroir }),
@@ -291,7 +326,7 @@ pub fn lister_sur(base: &mut Base, employe_id: Option<String>, en_cours_seulemen
                 a.mensualite, a.mouvement_caisse_id
          FROM avance a JOIN employe e ON e.id = a.employe_id AND e.dossier_id = a.dossier_id
          LEFT JOIN fiche_paie f ON f.id = a.trop_verse_fiche_id AND f.dossier_id = a.dossier_id
-         WHERE a.dossier_id = ?1
+         WHERE a.dossier_id = ?1 AND a.nature = 'avance'
            AND (CAST(?2 AS TEXT) IS NULL OR a.employe_id = ?2)
            AND (CAST(?3 AS BIGINT) = 0 OR (a.statut = 'ouverte' AND a.montant > a.retenu))
          ORDER BY a.date_avance DESC",
