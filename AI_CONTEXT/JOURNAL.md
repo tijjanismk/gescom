@@ -2865,3 +2865,30 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   listes) sans largeur limitée. Restent étroits, exprès : « Bientôt » et
   le message « serveur injoignable » (du texte à lire). Captures 18 à 22.
 
+## 30/10/2026 — D49 l'accueil du jour d'Équipe (EQ-3)
+
+- **Le besoin** : en ouvrant Équipe, ce qui attend la personne
+  connectée. Sept choix écrits puis acceptés (D49) : une commande qui
+  rassemble (`lire_accueil_equipe`) plutôt que quatre lectures que
+  l'écran additionnerait mois par mois ; un bloc n'existe que pour qui a
+  le droit de le lire, règle pure `coeur::lecture::accueil_equipe` ; « dû »
+  = aujourd'hui et en retard ; toutes les périodes du dossier (un
+  brouillon de septembre oublié est ce qu'il faut voir).
+- **L'écran** : un bloc « Aujourd'hui » de quatre `KpiPetit` au-dessus
+  des modules ; chaque tuile ouvre l'onglet (une propriété `vue`
+  facultative sur `Paie` et `SuiviClients`). Une tuile à 0 reste ;
+  une lecture qui échoue le dit, les modules restent.
+- **Vu dans le navigateur** (serveur jetable 40073, trois employés, une
+  fiche à moitié versée, un brouillon, une avance, trois rappels) :
+  « 2 dont 1 en retard », le rappel de dans trois jours absent ; marqué
+  fait, il disparaît ; les tuiles de paie ouvrent « Fiches du mois » et
+  « Avances ».
+- **Le disque plein** a coupé la séance deux fois : la compilation du
+  workspace entier échoue faute de place (six worktrees, chacun son
+  `target`). Vérifié paquet par paquet : noyau 867, serveur 13 + routes
+  20, puis `equipe_jour_base` 7 sur PostgreSQL et sous le compte limité.
+  `target` effacé ensuite (4,9 Go).
+- **Reste** : après la fusion avec EQ-1, filtrer `nature = 'avance'` et
+  ajouter la tuile « Prêts » ; à la fusion des onglets de la paie, une
+  ligne à résoudre dans `Paie()`. **Pas commité.**
+

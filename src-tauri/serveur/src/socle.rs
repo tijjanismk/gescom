@@ -315,6 +315,16 @@ pub fn registre() -> Registre {
     r.sur_base("lire_prospects", None, false, |c, _| {
         serde_json::to_value(gescom_noyau::crm::lister_prospects_sur(c.base)?).map_err(|e| e.to_string())
     });
+    // EQ-3 (D49) : l'accueil du jour d'Equipe. Ouvert a toute session :
+    // chaque bloc suit le droit de la commande qui le lit en entier
+    // (`coeur::lecture::accueil_equipe`), les montants la paie seulement ;
+    // les rappels sont ceux de la session, pas d'un parametre.
+    r.sur_base("lire_accueil_equipe", None, false, |c, _| {
+        let perms = gescom_noyau::portes::permissions_de_sur(c.base, &c.appelant.utilisateur_id, &c.appelant.role);
+        let droits = gescom_noyau::coeur::lecture::accueil_equipe(|p| perms.contains(p));
+        let moi = c.appelant.utilisateur_id.clone();
+        gescom_noyau::equipe_jour::accueil_sur(c.base, droits, &moi, &gescom_noyau::utils::maintenant_iso())
+    });
     // v3, E-3 : les journaux, fabriques a la lecture, et leur export.
     // Ce sont les chiffres de la boutique : `rapports:lire`.
     r.sur_base("lire_journaux_comptables", Some("rapports:lire"), false, |c, p| {

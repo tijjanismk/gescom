@@ -202,8 +202,9 @@ function Avances() {
   );
 }
 
-export function Paie() {
-  const [vue, setVue] = useState<"avances" | "fiches" | "cotisations">("avances");
+// D49 : `vue`, l'onglet ou ouvrir (une tuile de l'accueil).
+export function Paie({ vue: depart }: { vue?: "avances" | "fiches" } = {}) {
+  const [vue, setVue] = useState<"avances" | "fiches" | "cotisations">(depart ?? "avances");
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Paie</h1>

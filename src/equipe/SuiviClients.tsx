@@ -400,8 +400,9 @@ function MesRappels({ moi, onOuvrir }: { moi: { id: string }; onOuvrir: (id: str
 //  Écran
 // =====================================================================
 
-export function SuiviClients({ moi }: { moi: { id: string; nom: string } }) {
-  const [vue, setVue] = useState<"clients" | "prospects" | "rappels">("clients");
+// D49 : `vue`, l'onglet ou ouvrir (une tuile de l'accueil).
+export function SuiviClients({ moi, vue: depart }: { moi: { id: string; nom: string }; vue?: "rappels" }) {
+  const [vue, setVue] = useState<"clients" | "prospects" | "rappels">(depart ?? "clients");
   const [clientOuvert, setClientOuvert] = useState<string | null>(null);
 
   if (clientOuvert) {

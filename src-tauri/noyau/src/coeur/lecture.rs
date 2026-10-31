@@ -115,6 +115,30 @@ pub fn voit_la_paie(a: impl Fn(&str) -> bool) -> bool {
     PAIE_LIRE.iter().any(|p| a(p))
 }
 
+/// D49 : ce que l'accueil du jour d'Equipe montre a l'appelant. Chaque
+/// bloc suit la regle de la commande qui le lit en entier ; un bloc
+/// sans droit n'est pas calcule (`equipe_jour::accueil_sur`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AccueilEquipe {
+    /// Ses rappels dus — comme `lire_rappels`.
+    pub rappels: bool,
+    /// Brouillons et fiches a solder — comme `lire_fiches_paie`.
+    pub fiches: bool,
+    /// Les avances en cours — comme `lire_avances`.
+    pub avances: bool,
+    /// Les montants : la paie seulement (C-1), avances comprises.
+    pub montants: bool,
+}
+
+pub fn accueil_equipe(a: impl Fn(&str) -> bool) -> AccueilEquipe {
+    AccueilEquipe {
+        rappels: a(CRM_SUIVRE),
+        fiches: PAIE_LIRE.iter().any(|p| a(p)),
+        avances: AVANCES_LIRE.iter().any(|p| a(p)),
+        montants: voit_la_paie(&a),
+    }
+}
+
 /// Une ligne de l'Historique qui porte la paie : une fiche de paie (ses
 /// totaux, ses versements) ou une cotisation (son taux).
 fn ligne_de_paie(v: &Value) -> bool {
