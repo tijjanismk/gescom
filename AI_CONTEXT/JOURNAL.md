@@ -3069,3 +3069,31 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   celle du dépôt principal (à retirer par `rmdir`, jamais `Remove-Item
   -Recurse`, qui viderait la cible).
 
+## 31/10/2026 — la fusion d'EQ-1 à EQ-6
+
+- **Six branches, une à une** (EQ-1, EQ-2, EQ-3, EQ-6, EQ-4, EQ-5), sur la
+  branche du plan. Les conflits : surtout des sections ajoutées des deux
+  côtés (DECISIONS, ETAPES, JOURNAL, fiche Équipe), gardées toutes ; dans
+  le code, des lignes voisines — les droits de `lire_prets` et
+  `lire_etat_paie`, les onglets de la Paie (« Prêts » et « État du mois »,
+  même droit) et du Suivi clients (« À relancer »), `vue` d'ouverture
+  (D49) étendue à `prets` et `relancer`, les routes de l'accueil et des
+  relances dans `socle.rs`. Les numéros D47 à D52 ne se marchaient pas.
+- **Le prêt dans la table `avance`** (D47) : l'état de paie le rangeait
+  dans « Avances retenues » (la ligne de fiche est du genre `avance`) et
+  l'accueil le comptait dans la tuile des avances. L'état relit la nature
+  de la source et lui donne sa colonne « Prêts » (montrée si le mois en
+  a ; CSV « Prêts retenus ») ; l'accueil filtre `nature` et ajoute la
+  tuile « Prêts en cours » (droit : la paie, comme `lire_prets`). Deux
+  scénarios de plus (`etat_paie_base`, `equipe_jour_base`).
+- **Vérifié** : noyau + serveur 958/958 (SQLite, `--no-fail-fast`), tsc,
+  node 14/14. Le banc `eq-tout.mjs` (nouveau) passe les six ajouts dans
+  le vrai écran contre le serveur fusionné : 20/20. Joué sur des ports à
+  part (40080, 1480) ; Vite refuse deux polices par `/@fs/` dans un
+  worktree dont `node_modules` pointe sur le dépôt principal — écarté du
+  compte d'erreurs, ce n'est pas l'écran.
+- **Le service « Gescom Serveur » installé** tenait le port 40000 : arrêté
+  à la demande du propriétaire (fenêtre d'autorisation Windows). Il
+  repart au démarrage de Windows.
+- PostgreSQL et le compte limité n'ont pas été rejoués sur la fusion :
+  chaque lot les avait passés seul.
