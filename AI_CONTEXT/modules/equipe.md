@@ -246,3 +246,27 @@ Preuves : 9 unitaires `coeur::crm_relances`, 2 de plus dans `coeur::crm`,
 ralentit, contact et rappel qui mettent de côté, réglage jugé, étape et
 compte du mois, parti qui reste pour sa dette et revient en rachetant,
 partis cloisonnés, cloisonnement, détecteur).
+
+## WhatsApp sans service payant (EQ-5 — D51)
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Règles (pur) | [src/lib/whatsapp.ts](../../src/lib/whatsapp.ts) | `lireNumero` (8 chiffres → +223 ; `+223`/`00223`/`223` ; `+`/`00` + autre indicatif, 8 à 15 chiffres ; sinon `{ ok: false, raison }`), `lienWhatsApp` (`https://wa.me/<chiffres>?text=…`, encodé), `raisonBulletin`, `texteBulletin`, `debutMessageClient`, `messageEcrit` |
+| Écran | [src/equipe/WhatsApp.tsx](../../src/equipe/WhatsApp.tsx) | `ouvrirWhatsApp` (coque : plugin opener ; navigateur : `window.open`), `BoutonBulletinWhatsApp` (aperçu du bulletin), `MessageClientWhatsApp` (fiche 360) |
+| Coque | [src-tauri/equipe](../../src-tauri/equipe) | `tauri-plugin-opener`, permission `opener:allow-open-url` limitée à `https://wa.me/*` |
+
+**Rien ne part tout seul** : le lien ouvre WhatsApp sur la conversation,
+le texte écrit, la personne appuie sur Envoyer. Un numéro douteux
+désactive le bouton, la raison à côté ; la fiche n'est jamais réécrite.
+**Bulletin** : fiche validée seulement ; période, numéro, net, déjà
+versé, reste dû (« soldée » à zéro), l'avance reportée et le versé en
+trop s'il y en a, la société ; le montant ne sort que de
+`lire_donnees_bulletin`, refusée sans droit de paie ; rien n'est noté.
+**Client** : la personne écrit après « Bonjour <nom>, » ; WhatsApp
+ouvert, « Le message est-il parti ? » — Oui : `creer_echange` genre
+`whatsapp`, le texte en `quoi` ; Non : rien, le texte reste. Aucune
+commande serveur nouvelle.
+
+Preuves : `src/lib/whatsapp.test.ts` (`node --test`) ; banc
+`eq5-whatsapp.mjs` (le lien relu : numéro, texte ; numéro douteux ;
+échange noté au Oui seulement).
