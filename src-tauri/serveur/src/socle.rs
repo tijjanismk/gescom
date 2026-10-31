@@ -197,6 +197,48 @@ pub fn registre() -> Registre {
     r.sur_base("annuler_avance", Some("personnel:avancer"), true, |c, p| {
         gescom_noyau::avances::annuler_sur(c.base, arg(&p, "avanceId", "avance_id")?, arg(&p, "motif", "motif")?)
     });
+    // EQ-1 (D47) : le pret sur plusieurs mois. Preter, rembourser,
+    // remettre, annuler : le patron (`paie:valider`) ; lire : qui lit la
+    // paie (`coeur::lecture`).
+    r.sur_base("lire_prets", None, false, |c, p| {
+        let en_cours: Option<bool> = arg(&p, "enCoursSeulement", "en_cours_seulement")?;
+        serde_json::to_value(gescom_noyau::prets::lister_sur(
+            c.base,
+            arg(&p, "employeId", "employe_id")?,
+            en_cours.unwrap_or(false),
+        )?)
+        .map_err(|e| e.to_string())
+    });
+    r.sur_base("lire_pret", None, false, |c, p| {
+        gescom_noyau::prets::lire_sur(c.base, &arg::<String>(&p, "pretId", "pret_id")?)
+    });
+    r.sur_base("preter", Some("paie:valider"), true, |c, p| {
+        let du_tiroir: Option<bool> = arg(&p, "duTiroir", "du_tiroir")?;
+        let saisie = gescom_noyau::prets::Saisie {
+            moyen: arg(&p, "moyen", "moyen")?,
+            motif: arg(&p, "motif", "motif")?,
+            date: arg(&p, "date", "date")?,
+            mensualite: arg(&p, "mensualite", "mensualite")?,
+            premier_mois: arg(&p, "premierMois", "premier_mois")?,
+            du_tiroir: du_tiroir.unwrap_or(false),
+        };
+        gescom_noyau::prets::preter_sur(c.base, arg(&p, "employeId", "employe_id")?, arg(&p, "montant", "montant")?, saisie)
+    });
+    r.sur_base("rembourser_pret", Some("paie:valider"), true, |c, p| {
+        gescom_noyau::prets::rembourser_sur(
+            c.base,
+            arg(&p, "pretId", "pret_id")?,
+            arg(&p, "montant", "montant")?,
+            arg(&p, "moyen", "moyen")?,
+            arg(&p, "motif", "motif")?,
+        )
+    });
+    r.sur_base("remettre_pret", Some("paie:valider"), true, |c, p| {
+        gescom_noyau::prets::remettre_sur(c.base, arg(&p, "pretId", "pret_id")?, arg(&p, "motif", "motif")?)
+    });
+    r.sur_base("annuler_pret", Some("paie:valider"), true, |c, p| {
+        gescom_noyau::prets::annuler_sur(c.base, arg(&p, "pretId", "pret_id")?, arg(&p, "motif", "motif")?)
+    });
     // G-2 (D31) : la fiche de paie. Preparer et corriger un brouillon :
     // `paie:preparer` ; valider et rectifier : `paie:valider`. Lire :
     // qui prepare ou valide (`coeur::lecture`).

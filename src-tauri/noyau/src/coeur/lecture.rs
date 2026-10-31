@@ -116,9 +116,9 @@ pub fn voit_la_paie(a: impl Fn(&str) -> bool) -> bool {
 }
 
 /// Une ligne de l'Historique qui porte la paie : une fiche de paie (ses
-/// totaux, ses versements) ou une cotisation (son taux).
+/// totaux, ses versements), une cotisation (son taux) ou un pret (D47).
 fn ligne_de_paie(v: &Value) -> bool {
-    matches!(v.get("entite_type").and_then(Value::as_str), Some("fiche_paie" | "cotisation"))
+    matches!(v.get("entite_type").and_then(Value::as_str), Some("fiche_paie" | "cotisation" | "pret"))
 }
 
 /// Une ligne de l'Historique qui porte une avance (son montant).
@@ -224,6 +224,8 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         // lit aussi depuis le 28/10, comme les fiches et le CA mensuel.
         "lire_journaux_comptables" | "exporter_journaux_csv" => &[Neutre(PAIE_LIRE, &[("avecPaie", ParamNeutre::Faux)])],
         "lire_fiches_paie" | "lire_fiche_paie" | "lire_donnees_bulletin" | "lire_cotisations" => &[RefusSaufUne(PAIE_LIRE)],
+        // D47 : les prets se lisent comme la paie.
+        "lire_prets" | "lire_pret" => &[RefusSaufUne(PAIE_LIRE)],
         "lire_personnel" | "lire_employe" => &[
             RefusSaufUne(PERSONNEL_LIRE),
             Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None },

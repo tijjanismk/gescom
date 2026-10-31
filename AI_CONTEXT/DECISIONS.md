@@ -427,6 +427,7 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D47 | **le prêt au personnel** : une avance de nature `pret` (même table) ; `paie:valider` ; échéance fixe par mois civil, reculable de 3 mois, une échéance manquée allonge le prêt ; avances d'abord ; un seul prêt en cours ; soldé calculé ; au départ, tout le reste sur la dernière fiche, puis remboursement ou remise (658) |
 | D42 | **le tiroir, l'avance, la commission** (les questions de D41) : case « pris dans le tiroir » qui écrit la sortie de caisse, sinon hors caisse ; l'avance s'étale à la saisie (tout, ou X F par mois) et se date dans le passé (31 jours au plus) ; la commission sur l'**encaissé**, moins l'argent rendu ; l'ITS saisi à la main, pas de barème — codé le 28/10 |
 | D41 | **la paie suit l'emploi et fige ses conditions** : seulement les jours d'emploi de la période ; prorata en entiers sur les jours du mois, un jour non marqué compte présent ; salaire au mois sur un mois civil ; la rectificative reprend les conditions figées de la fiche ; jours figés après validation ; trop-versé → avance ; commission nette des retours ; montants masqués partout sans droit de paie ; « 15.000 » = 15 000 F |
 | D40 | **la fenêtre « Gescom Serveur »** (la coque de D25) et son panneau **Réseau** — port 40000–40100 et écoute changés par le patron, depuis le poste du serveur seulement, appliqués par le serveur lui-même — et la **recherche automatique** des caisses (UDP 40000, rien de la boutique) |
@@ -1429,3 +1430,63 @@ ALERTES.
 **Mise en œuvre.** 105 lignes dans 28 fichiers, par règle (script),
 puis les encadrés relus à la main : lignes de tableau (fond neutre, une
 bordure de `<tr>` ne s'affiche pas), bords internes des encadrés.
+
+## D47 — Le prêt au personnel sur plusieurs mois (29/10/2026)
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-1) : 60 000 F prêtés pour la Tabaski
+ou la rentrée, retenus 10 000 F par mois sur la fiche de paie ; la
+retenue ne dépasse jamais le net, le reste se reporte ; soldé, le prêt se
+ferme ; hors caisse comme l'avance (D31, D32) ; journal PA.
+
+**Le relevé** : l'avance étalée de D42 (« X F par paie ») fait déjà
+l'essentiel — retenue bornée par la mensualité et par le net, report,
+rectificative, trop-versé, double validation, PA 421 / trésorerie et
+422 / 421. Un second circuit referait tout cela en double. D47 n'ajoute
+que ce qu'un prêt a de plus.
+
+**Retenu** (proposé, accepté tel quel le 29/10/2026) :
+
+1. **Un prêt est une avance d'une autre nature** : la table `avance`
+   reçoit `nature` (`avance` | `pret`) et `retenir_des` (le premier mois
+   retenu). La ligne de la fiche reste du genre `avance` (sa source est
+   le prêt) : validation, rectificative et journal marchent sans
+   changer ; le libellé dit « Prêt du … ». `prets.rs` et `coeur/pret.rs`
+   portent ce qui est propre au prêt ; l'onglet « Avances » ne montre
+   plus les prêts, l'onglet « Prêts » les montre.
+2. **Le droit : `paie:valider`** (le patron) pour prêter, rembourser,
+   remettre, annuler. 60 000 F sont un engagement de la société, pas un
+   dépannage ; aucune permission nouvelle. L'avance reste à
+   `personnel:avancer`. Lire les prêts : qui lit la paie (C-1).
+3. **Échéancier fixe, compté par mois civil** : mensualité obligatoire,
+   plus petite que le montant (sinon c'est une avance) ; première retenue
+   sur la paie du mois suivant le prêt, reculable de trois mois au plus.
+   Par **mois**, pas par paie : un journalier payé à la quinzaine
+   rembourse l'échéance une fois par mois (ce que les fiches validées du
+   même mois ont déjà retenu se déduit). Une échéance manquée (net trop
+   maigre) **allonge** le prêt, elle ne se double pas : le salaire suivant
+   est protégé, la fin prévue recule. Sur une fiche maigre, **les avances
+   d'abord**, les prêts ensuite. **Un seul prêt en cours** par personne ;
+   le prêt n'entre pas dans le plafond d'avance. Même date que l'avance
+   (31 jours en arrière au plus) et même case « pris dans le tiroir ».
+4. **Soldé se calcule, ne s'écrit pas** : un prêt est soldé quand il ne
+   reste rien (`montant - retenu = 0`). Une rectificative qui réduit le
+   net rend ce que l'ancienne fiche avait retenu et retient de nouveau :
+   le prêt se rouvre de lui-même.
+5. **Un départ** : la fiche qui contient le jour du départ retient **tout
+   le reste**, dans la limite du net (solde de tout compte). Ce qui ne
+   passe pas reste dû, sur la fiche de la personne et dans « Prêts » ; le
+   patron note un **remboursement** (espèces, Orange Money… — PA
+   trésorerie / 421, hors caisse) ou une **remise** du reste (PA 658 /
+   421, affectation `paie:prets_remis` que le comptable peut changer). Le
+   remboursement direct se note aussi pendant l'emploi. Les deux montent
+   dans `avance.retenu` (ce qui n'est plus dû) et s'écrivent dans
+   `pret_reglement` (daté, pour le journal).
+6. **Le reste ne change pas** : annuler seulement si rien n'a été retenu ;
+   montants masqués sans droit de paie, à la lecture et dans
+   l'Historique ; pas d'impression du prêt dans EQ-1.
+
+**Les risques nommés** : deux fiches de quinzaine du même mois validées au
+même instant pourraient retenir chacune l'échéance (la validation
+recalcule avant de figer : la fenêtre est étroite, pas nulle). Après
+fusion, EQ-2 (état de paie) et EQ-3 (accueil) lisent la table `avance` :
+les prêts y entrent s'ils ne filtrent pas `nature`.

@@ -602,7 +602,28 @@ CREATE TABLE IF NOT EXISTS avance (
     trop_verse_fiche_id  TEXT,
     -- D42 : ce qu'une paie en retient au plus (l'accord passe avec
     -- l'employe) ; vide = tout sur la prochaine paie.
-    mensualite           INTEGER
+    mensualite           INTEGER,
+    -- D47 : `pret` = un pret sur plusieurs mois (mensualite par mois
+    -- civil, a partir du mois `retenir_des`, `AAAA-MM`). Pour un pret,
+    -- `retenu` compte aussi ce qui a ete rembourse ou remis
+    -- (`pret_reglement`) : ce qui n'est plus du.
+    nature               TEXT NOT NULL DEFAULT 'avance',
+    retenir_des          TEXT
+);
+
+-- Le remboursement direct d'un pret, ou la remise de son reste (D47) :
+-- date, pour le journal PA (tresorerie / 421, ou 658 / 421).
+CREATE TABLE IF NOT EXISTS pret_reglement (
+    id                   TEXT PRIMARY KEY,
+    dossier_id           TEXT NOT NULL,
+    pret_id              TEXT NOT NULL REFERENCES avance(id),
+    genre                TEXT NOT NULL,
+    montant              INTEGER NOT NULL,
+    moyen                TEXT,
+    motif                TEXT,
+    date_reglement       TEXT NOT NULL,
+    cree_par             TEXT,
+    cree_le              TEXT NOT NULL
 );
 
 -- La fiche de paie (PLAN-EQUIPE, G-2 — D31) : un papier qu'on remet,

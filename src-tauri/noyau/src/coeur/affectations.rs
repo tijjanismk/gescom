@@ -63,6 +63,8 @@ pub const OPERATIONS: &[Operation] = &[
     Operation { cle: "paie:avances", libelle: "Avances au personnel", groupe: "Paie", defaut: "421", prefixes: &["42"] },
     Operation { cle: "paie:retenues", libelle: "Retenues saisies (casse, absence…)", groupe: "Paie", defaut: "758", prefixes: &["75", "66"] },
     Operation { cle: "paie:charges_sociales", libelle: "Charges sociales de l'employeur", groupe: "Paie", defaut: "664", prefixes: &["66"] },
+    // D47 : le reste d'un pret remis a la personne (une charge).
+    Operation { cle: "paie:prets_remis", libelle: "Prêts au personnel remis", groupe: "Paie", defaut: "658", prefixes: CHARGE },
     Operation { cle: "paie:organismes", libelle: "Organismes sociaux (cotisations sans compte)", groupe: "Paie", defaut: "431", prefixes: &["43", "44"] },
 ];
 

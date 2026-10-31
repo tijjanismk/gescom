@@ -30,6 +30,7 @@
 
 use crate::base::{Acces, Base};
 use crate::coeur::paie::{self as regles, AvanceARetenir, Conditions, Ligne, Periode};
+use crate::coeur::pret::{self, PretARetenir};
 use crate::coeur::personnel::Remuneration;
 pub use crate::coeur::paie::Cotisation;
 use crate::parametres;
@@ -245,10 +246,46 @@ fn avances_a_retenir(base: &mut impl Acces, employe_id: &str, au: &str, remplace
                        AND lp.genre = 'avance' AND lp.source = a.id), 0) AS BIGINT),
                 a.mensualite
          FROM avance a
-         WHERE a.dossier_id = ?1 AND a.employe_id = ?2 AND a.statut = 'ouverte'
+         WHERE a.dossier_id = ?1 AND a.employe_id = ?2 AND a.statut = 'ouverte' AND a.nature = 'avance'
            AND SUBSTR(a.date_avance, 1, 10) <= ?3",
         &parametres![dossier, employe_id, au, remplace],
         |r| Ok(AvanceARetenir { id: r.get(0)?, date: r.get(1)?, reste: r.get(2)?, mensualite: r.get(3)? }),
+    )
+    .map_err(|e| e.0)
+}
+
+/// Les prets a retenir (D47) : ouverts, donnes avant la fin de la
+/// periode, avec ce que les AUTRES fiches validees du meme mois en ont
+/// deja retenu (l'echeance est par mois civil). Pour une rectificative,
+/// ce que la fiche remplacee avait retenu est rendu, et elle ne compte
+/// pas dans le mois.
+fn prets_a_retenir(base: &mut impl Acces, employe_id: &str, au: &str, mois: &str, remplace: Option<&str>) -> Result<Vec<PretARetenir>, String> {
+    let dossier = base.dossier().to_string();
+    base.lire_plusieurs(
+        "SELECT a.id, a.date_avance,
+                CAST(a.montant - a.retenu + COALESCE((SELECT SUM(-lp.montant) FROM ligne_paie lp
+                     WHERE lp.dossier_id = a.dossier_id AND lp.fiche_id = ?4
+                       AND lp.genre = 'avance' AND lp.source = a.id), 0) AS BIGINT),
+                a.mensualite, a.retenir_des,
+                CAST(COALESCE((SELECT SUM(-lp.montant) FROM ligne_paie lp
+                     JOIN fiche_paie f ON f.id = lp.fiche_id AND f.dossier_id = lp.dossier_id
+                     WHERE lp.dossier_id = a.dossier_id AND lp.genre = 'avance' AND lp.source = a.id
+                       AND f.statut = 'validee' AND SUBSTR(f.du, 1, 7) = ?5
+                       AND (CAST(?4 AS TEXT) IS NULL OR f.id <> ?4)), 0) AS BIGINT)
+         FROM avance a
+         WHERE a.dossier_id = ?1 AND a.employe_id = ?2 AND a.statut = 'ouverte' AND a.nature = 'pret'
+           AND SUBSTR(a.date_avance, 1, 10) <= ?3",
+        &parametres![dossier, employe_id, au, remplace, mois],
+        |r| {
+            Ok(PretARetenir {
+                id: r.get(0)?,
+                date: r.get(1)?,
+                reste: r.get(2)?,
+                mensualite: r.get::<Option<i64>>(3)?.unwrap_or(0),
+                retenir_des: r.get::<Option<String>>(4)?.unwrap_or_default(),
+                deja_ce_mois: r.get(5)?,
+            })
+        },
     )
     .map_err(|e| e.0)
 }
@@ -418,7 +455,19 @@ fn calculer(base: &mut impl Acces, e: &Entete, p: &Personne, saisies: &[Ligne]) 
     let periode = periode(base, e, p, &c)?;
     let avances = avances_a_retenir(base, &e.employe_id, &e.au, e.rectifie_id.as_deref())?;
     let cotisations: &[Cotisation] = if c.declare { &c.cotisations } else { &[] };
-    let (lignes, reporte) = regles::calculer(&c.remuneration, &periode, e.prorata, saisies, &avances, cotisations)?;
+    let (mut lignes, mut reporte) = regles::calculer(&c.remuneration, &periode, e.prorata, saisies, &avances, cotisations)?;
+    // D47 : les prets, sur ce que laissent les avances ; leurs lignes
+    // avant les charges patronales, qui ne sont pas dans le net.
+    let mois = pret::mois_de(&e.du)?;
+    let prets = prets_a_retenir(base, &e.employe_id, &e.au, &mois, e.rectifie_id.as_deref())?;
+    if !prets.is_empty() {
+        let depart = p.depart.as_deref().map(|d| d.get(..10).unwrap_or(d)).is_some_and(|d| d >= e.du.as_str() && d <= e.au.as_str());
+        let (_, _, net) = regles::totaux(&lignes)?;
+        let (retenues, manque) = pret::retenir_prets(net, &prets, &mois, depart);
+        let ou = lignes.iter().position(|l| l.genre == regles::CHARGE).unwrap_or(lignes.len());
+        lignes.splice(ou..ou, retenues);
+        reporte = reporte.saturating_add(manque);
+    }
     Ok((lignes, reporte, c))
 }
 

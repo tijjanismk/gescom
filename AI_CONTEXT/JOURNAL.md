@@ -2865,3 +2865,38 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   listes) sans largeur limitée. Restent étroits, exprès : « Bientôt » et
   le message « serveur injoignable » (du texte à lire). Captures 18 à 22.
 
+## 29-30/10/2026 — D47 le prêt au personnel (EQ-1)
+
+- **Le relevé d'abord** : l'avance étalée de D42 (« X F par paie ») faisait
+  déjà l'essentiel d'un prêt — retenue bornée, report, rectificative,
+  trop-versé, journal PA. Plutôt qu'un second circuit, D47 fait du prêt
+  une **avance d'une autre nature** (`avance.nature = 'pret'`) et n'ajoute
+  que ce qu'il a de plus : l'échéance **par mois civil** (un journalier
+  à la quinzaine ne la paie qu'une fois), la première retenue le mois
+  suivant (reculable de trois mois), une échéance manquée qui allonge le
+  prêt sans se doubler, les avances retenues d'abord, un seul prêt à la
+  fois, le départ qui retient tout le reste, puis le remboursement à part
+  ou la remise (`pret_reglement`, PA trésorerie / 421 et 658 / 421).
+  Proposé, accepté tel quel. Droit : `paie:valider`.
+- **Soldé ne s'écrit pas** : `montant - retenu = 0`. La rectificative rend
+  ce qu'elle avait retenu et retient de nouveau : un prêt soldé par une
+  fiche qu'on rectifie se rouvre de lui-même (scénario).
+- **Une régression trouvée par la suite complète** : en généralisant le
+  libellé d'annulation au prêt, « Avance annulée » était devenu « Avance
+  annulé(e) » — `paie_base` le cherchait. Rétabli (« Avance annulée »,
+  « Prêt annulé »).
+- **Le disque** : six sessions compilaient en même temps, C: est tombé à
+  2,4 Go (LNK1180, os error 112). Pause demandée, `target` effacé,
+  reprise une à une. `--workspace` ne passe plus dans un worktree neuf
+  (la fenêtre Tauri veut `binaires\gescom-serveur-*.exe`) : noyau et
+  serveur testés à part, 909/909.
+- **L'écran dans le navigateur** (serveur jetable 40071, Vite 1441) : le
+  prêt annonce « 6 échéances, de novembre 2026 à avril 2027 », la fiche
+  de novembre porte « Prêt du 30/10/2026 (reste 50 000 F après cette
+  paie) − 10 000 F », le remboursement à part laisse 45 000 F. Au passage,
+  hors EQ-1 : dans un navigateur, la boîte « changer le mot de passe par
+  défaut » reste ouverte après un changement réussi (la confirmation est
+  une boîte Tauri) — noté, pas corrigé.
+- **Après fusion** (plan § 5) : EQ-2 et EQ-3 lisent `avance` — filtrer
+  `nature = 'avance'` ou montrer les prêts à part.
+
