@@ -254,9 +254,12 @@ pub fn lire_resume_dashboard(
            WHERE a.actif = 1 AND a.gere_en_stock = 1
              AND (?1 IS NULL OR sd.depot_id = ?1)
            GROUP BY sd.article_id
-           HAVING SUM(sd.quantite) > 0 AND SUM(sd.quantite) < 5
+           HAVING SUM(sd.quantite) > 0
+              AND SUM(sd.quantite) < COALESCE(MAX(a.seuil_alerte), ?2)
          )",
-        rusqlite::params![dep], |r| r.get(0),
+        // D45 : le seuil de l'article, sinon le defaut (facade fichier :
+        // pas de reglage de dossier ici).
+        rusqlite::params![dep, crate::coeur::stock::SEUIL_ALERTE_DEFAUT], |r| r.get(0),
     ).unwrap_or(0);
 
     // Caisse
@@ -722,6 +725,8 @@ pub fn lire_resume_dashboard_sur(
     // Stock — meme comptage par ARTICLE que la version SQLite : creer
     // un magasin insere une ligne a 0 pour chaque article, et compter
     // les lignes doublait les ruptures le jour de l'ouverture.
+    // D45 : lu avant les comptes, qui empruntent la base.
+    let seuil_defaut = crate::assistant::seuil_defaut_sur(base);
     let stock_ruptures = somme(
         base,
         "SELECT COUNT(*) FROM (
@@ -749,9 +754,11 @@ pub fn lire_resume_dashboard_sur(
              AND (CAST(?1 AS TEXT) IS NULL OR sd.depot_id = ?1)
              AND sd.dossier_id = ?2
            GROUP BY sd.article_id
-           HAVING SUM(sd.quantite) > 0 AND SUM(sd.quantite) < 5
+           HAVING SUM(sd.quantite) > 0
+              AND SUM(sd.quantite) < COALESCE(MAX(a.seuil_alerte), ?3)
          ) alertes",
-        &parametres![dep.clone(), dossier.clone()],
+        // D45 : le seuil de l'article, sinon celui du dossier.
+        &parametres![dep.clone(), dossier.clone(), seuil_defaut],
     )?;
 
     // Caisse. `motif <> 'ouverture'` : le fond est deja dans

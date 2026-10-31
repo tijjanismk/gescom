@@ -11,6 +11,23 @@ semblent vivantes.
 
 ---
 
+## Lisibilité (D46, 29/10/2026)
+
+- ~~Le « jaune sur jaune »~~ **corrigé partout** (43 encadrés, 25 textes,
+  boutons) et gardé par `src/lib/lisibilite.test.ts`. **Reste** : les
+  verts, rouges et bleus pas passés au crible (rouge 600 et vert 600
+  frôlent 4,5:1 sur blanc) ; ni clavier ni zoom 200 % vérifiés.
+
+## Reporté le 28/10/2026 (décision du propriétaire)
+
+- **Deux dossiers n'ont pas chacun leur société.** `parametres_societe`
+  est une ligne pour toute l'installation (37 lectures) : un second
+  dossier imprime l'en-tête du premier. Le plan multi-société voulait
+  que « l'en-tête change ». Avec : créer un nouveau dossier par le même
+  assistant que la boutique (société, dates, réglages, accès), et la TVA
+  des articles — communs aux dossiers — qu'un dossier sans TVA devrait
+  ramener à 0 à la vente. « On laisse pour cette version » (D45).
+
 ## Trouvé en v3
 
 - ~~**Le mode « caisse par utilisateur » casse tout encaissement.**~~
@@ -107,6 +124,13 @@ la plage 40000–40100).
   prix d'achat).
 - Le reçu d'une vente **sans** pièce lit la fiche cliente d'aujourd'hui
   (pas de nom figé).
+- ~~**Paie, questions de D41**~~ **tranchées et codées le 28/10 (D42)** :
+  case « pris dans le tiroir », l'avance étalée et datée, la commission
+  sur l'encaissé, l'ITS à la main. **Restent** : l'étalement compte par
+  paie (un journalier à la quinzaine rembourse deux fois par mois) ; une
+  vente annulée après une commission déjà versée ne se reprend pas (comme
+  avant) ; les écrans d'Équipe jamais vus dans la vraie fenêtre. Le banc `f2-personnel` a changé
+  (« Confirmer le retour ») ; les écrans d'Équipe n'ont pas été vus.
 - **D40, limites assumées** : un service relancé trop souvent dans la
   journée attend 30 puis 60 s (la règle de relance de D12) ; le raccourci
   « Console du serveur » garde le port de l'installation (la fenêtre
@@ -118,6 +142,42 @@ la plage 40000–40100).
 - `MANUEL.md` parle encore de 7300 ; `p6-role-caisse.mjs` lance un
   serveur sur 7301 (hors de la plage D39) ; le commentaire de `LOCALES`
   dans `pont.ts` parle encore d'une base locale.
+
+## Trouvé le 28/10/2026 en écrivant le guide d'installation, pas encore fait
+
+Relevé dans le code (non essayé en vrai) ; le guide et les manuels le
+disent aux utilisateurs en attendant.
+
+- **Désinstaller la caisse peut effacer la base d'un poste unique** : la
+  case standard de Tauri « supprimer les données de l'application » fait
+  `RmDir /r $APPDATA\ml.gescom.app` (base, sauvegardes, `poste.json`).
+  Le libellé français affiché n'est pas vérifié. À retirer ou à garder.
+- **Installer Gescom Serveur sur un poste unique qui a des données** :
+  la fenêtre reprend le service sur 40000 (`reseau.rs`), donc la base
+  neuve et vide de `ProgramData`. Aucun passage monoposte → service
+  prévu ; le guide (chapitre 9) donne un `--restaurer … --base`, non essayé.
+- **`--restaurer` sans `--base`** écrit dans la base de l'utilisateur qui
+  tape la commande, pas dans celle du service (`main.rs:146`) — le
+  manuel le disait ainsi, corrigé.
+- **L'écran de connexion n'a pas de lien vers le réglage du réseau**, et
+  Paramètres → Réseau demande d'être connecté : une caisse qui ne trouve
+  plus son serveur (port changé, IP changée) est coincée sans technicien.
+  La console de D40 conseille pourtant « Paramètres → Réseau → Rechercher
+  le serveur ».
+- **Gescom Équipe sur un poste sans caisse** ne peut pas recevoir
+  d'adresse (elle lit le `poste.json` de la caisse, sinon 127.0.0.1:40000).
+  L'écran « Gescom Équipe a besoin du serveur Gescom » (`AppEquipe.tsx`)
+  ne s'affiche jamais (le mode vaut toujours « poste ») et son texte est
+  périmé.
+- `outils\parefeu.ps1` n'est pas livré, alors que des messages y renvoient ;
+  le message de `--compte-limite` dit « dans poste.json » (c'est la clé
+  `base` de `serveur.json`) ; `GESCOM_PG_SAUVEGARDE` lu par le service
+  LocalSystem : non vérifié.
+- `ListePassages.tsx:242` dit encore que les factures gardent « Client de
+  passage » (le papier imprime le code depuis le 26/10).
+- Droits : « passer en client ordinaire » demande `clients:modifier`, que
+  l'employé a et le caissier non ; un employé peut décocher « Suivre le
+  stock » à la création mais pas le changer ensuite (`parametres:modifier`).
 
 ## Ce que la revue du 23/09/2026 a corrigé (branche `correctif/revue-v2`)
 

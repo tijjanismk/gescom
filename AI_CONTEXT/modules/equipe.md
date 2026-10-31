@@ -8,21 +8,27 @@ fenêtre qui ne parle qu'au serveur ; modules en version `Base` seule
 |---|---|---|
 | Fenêtre | `equipe.html`, [src/equipe/](../../src/equipe/) | `AppEquipe` (connexion par `PageLogin`, session `gescom_equipe_session`, mot de passe à changer, écran « a besoin du serveur »), `modules.ts` (menu et droits), `Accueil`, `Bientot` |
 | Coque | [src-tauri/equipe/](../../src-tauri/equipe/) | `gescom-equipe` : une commande, `lire_config_reseau` (serveur de la caisse du poste, sinon `127.0.0.1:40000` (ou le port de la plage retenu dans `poste.json`, D39) ; empreinte `…-equipe`) ; `npm run equipe:dev` / `equipe:build` |
-| Personnel (pur) | [coeur/personnel.rs](../../src-tauri/noyau/src/coeur/personnel.rs) | `Remuneration` (au mois, à la journée, commission %, à la tâche — cumulables ; tout vide = rien de fixe), `dire` (« 60 000 F par mois + 2 % des ventes »), `valider` |
-| Personnel (base) | [personnel.rs](../../src-tauri/noyau/src/personnel.rs) | `lister_sur`, `lire_sur`, `creer_sur`, `modifier_sur`, `faire_partir_sur`, `faire_revenir_sur` ; journal `employe_*` sans montant |
-| Écran | [src/equipe/Personnel.tsx](../../src/equipe/Personnel.tsx) | onglets Fiches / Jours travaillés ; liste (départs à part), fiche (trois champs + « plus d'informations »), départ / retour |
-| Jours (pur) | [coeur/presences.rs](../../src-tauri/noyau/src/coeur/presences.rs) | `valeur` (présent 1, demi 0,5, absent 0), `jours_travailles`, `jours_du_mois`, `marquable` (ni demain, ni avant l'entrée, ni après le départ) |
-| Jours (base) | [presences.rs](../../src-tauri/noyau/src/presences.rs) | `lire_mois_sur` (grille ; les partis du mois y restent), `jours_travailles_sur(employe, du, au)` (lu par la paie), `marquer_sur` (ou effacer), `tous_presents_sur` (sans toucher une absence) |
-| Écran jours | [src/equipe/JoursTravailles.tsx](../../src/equipe/JoursTravailles.tsx) | grille du mois, case qui tourne P → ½ → A → vide, numéro du jour = tous présents |
-| Avances (pur) | [coeur/avances.rs](../../src-tauri/noyau/src/coeur/avances.rs) | `reste(montant, retenu)`, `verifier(montant, en_cours, plafond, nom)` (le plafond compte ce qui est en cours) |
-| Avances (base) | [avances.rs](../../src-tauri/noyau/src/avances.rs) | `donner_sur` (avance + journal, une transaction, **hors caisse**), `annuler_sur` (datée `annule_le`, seulement si rien n'est retenu), `en_cours_sur`, `lister_sur` |
-| Écran paie | [src/equipe/Paie.tsx](../../src/equipe/Paie.tsx) | onglets Avances / Fiches du mois ; donner, en cours par personne, annuler |
-| Paie (pur) | [coeur/paie.rs](../../src-tauri/noyau/src/coeur/paie.rs) | `gains_calcules` (mois, prorata jours travaillés / jours marqués, jours × tarif, % des ventes signées), `ligne_saisie` (tâche, prime, retenue), `retenir_avances` (les plus anciennes d'abord, le reste reporté), `calculer`, `totaux`, `validable`, `verifier_periode`, `se_chevauchent` |
-| Paie (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `preparer_sur`, `recalculer_sur`, `ajouter_ligne_sur`, `retirer_ligne_sur`, `supprimer_sur` (brouillon), `valider_sur` (refuse ce qui n'est plus à jour ; numéro `PAIE-AAAA-NNNNN`, avances retenues), `rectifier_sur`, `lire_sur`, `lister_sur(du, au)` (fiches + personnes à préparer) |
-| Payer (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `verser_sur` (hors caisse, pas plus que le reste), `salaires_par_mois_sur` (Rapports → CA mensuel : brut + charges des fiches validées, au mois de fin de période ; masqué sans la paie), `donnees_bulletin_sur` ; la fiche lue porte `verse`, `reste`, `versements` |
-| Bulletin | [lib/genererBulletin.ts](../../src/lib/genererBulletin.ts), [ApercuBulletin.tsx](../../src/equipe/ApercuBulletin.tsx) | genre de document `bulletin` (Paramètres → Documents), aperçu = impression |
-| Cotisations | `coeur::paie::{Cotisation, valider_cotisation, cotisations, charges}`, `paie::{cotisations_sur, enregistrer_cotisation_sur, retirer_cotisation_sur}`, [Cotisations.tsx](../../src/equipe/Cotisations.tsx) | vides par défaut, seulement pour les déclarés ; la charge patronale hors du net |
-| Écran fiches | [src/equipe/FichesPaie.tsx](../../src/equipe/FichesPaie.tsx) | le mois ; à préparer (au prorata ou non) ; la liste ; la fiche : lignes, brut / retenues / net, report, ajouter / retirer une saisie, recalculer, jeter, valider, rectifier |
+| Personnel (pur) | [coeur/personnel.rs](../../src-tauri/noyau/src/coeur/personnel.rs) | `Remuneration` (au mois, à la journée, commission %, à la tâche — cumulables ; tout vide = rien de fixe), `dire` (« 60 000 F par mois + 2 % des ventes encaissées », D42), `valider` (montants bornés, `coeur::saisie::MONTANT_MAX`), `remuneration_a_ecrire(voit_la_paie, avant, saisie)` (28/10 : sans les droits de la paie, la rémunération et le plafond d'avance restent ceux de la fiche) |
+| Personnel (base) | [personnel.rs](../../src-tauri/noyau/src/personnel.rs) | `lister_sur`, `lire_sur`, `creer_sur`, `modifier_sur` (= `modifier_selon_droits_sur(…, true)`), `modifier_selon_droits_sur(…, voit_la_paie)` (le serveur), `faire_partir_sur` (refuse une date avant des jours marqués après elle, en disant quoi faire ; `avertissements` : avance en cours, fiche validée à rectifier ; `avance_en_cours`), `faire_revenir_sur(id, date)` (après une interruption, la date de retour devient la date d'entrée — l'ancienne et le départ au journal — ; un retour au plus le lendemain du départ ne change rien ; refusé tant que la paie jusqu'au départ n'est sur aucune fiche validée, si la personne a un salaire, un tarif ou une commission) ; journal `employe_*` sans montant |
+| Écran | [src/equipe/Personnel.tsx](../../src/equipe/Personnel.tsx) | onglets Fiches / Jours travaillés ; liste (départs à part), fiche (trois champs + « plus d'informations »), départ (avertissements affichés) / retour daté (« Confirmer le retour ») ; montants par `MoneyInput` ; sans la paie, la rémunération d'une fiche existante ne se coche plus |
+| Jours (pur) | [coeur/presences.rs](../../src-tauri/noyau/src/coeur/presences.rs) | `valeur` (présent 1, demi 0,5, absent 0), `jours_travailles`, `compter` (présents, demis, absents — en entiers, pour la paie), `jours_du_mois`, `marquable` (ni demain, ni avant l'entrée, ni après le départ), `verifier_depart`, `refus_jour_fige` ; D52 : `MOTIFS` (maladie, permission, conge, absence), `verifier_motif` (A ou ½ seulement, rien de choisi = absence), `compter_motifs` (en jours, ½ pour une demi-journée) |
+| Jours (base) | [presences.rs](../../src-tauri/noyau/src/presences.rs) | `lire_mois_sur` (grille ; les partis du mois y restent ; `fiches_validees` par personne), `jours_travailles_sur(employe, du, au)`, `marquer_sur` (ou effacer ; **refusé** sur un jour d'une fiche validée non en rectification — « … sur la fiche PAIE-… déjà validée : faire une rectificative … », jugé dans la transaction), `tous_presents_sur` (sans toucher une absence ni un jour figé : `figes`) ; D52 : `marquer_avec_motif_sur` (sur un jour figé, le motif seul se corrige), `absences_annee_sur(annee)` (jours par motif de l'année civile) ; la grille rend `motifs` à côté d'`etats` |
+| Écran jours | [src/equipe/JoursTravailles.tsx](../../src/equipe/JoursTravailles.tsx) | grille du mois ; D52 : un clic sur une case ouvre un petit menu (Présent, Absent ou Demi-journée × motif, Effacer), la case affiche A, M, Pe, C, ½ suivi de la lettre ; numéro du jour = tous présents ; un jour payé par une fiche validée est grisé (« faire une rectificative »), sauf le motif d'un A ou ½ qui se change encore. Personnel : « Absences 2026 : maladie 2 · congé 1 » sous chaque personne qui en a |
+| Avances (pur) | [coeur/avances.rs](../../src-tauri/noyau/src/coeur/avances.rs) | `reste(montant, retenu)`, `verifier(montant, en_cours, plafond, nom, voit_plafond)` (le plafond compte ce qui est en cours ; sans la paie, le refus ne le chiffre pas ; montant borné, addition vérifiée) |
+| Avances (base) | [avances.rs](../../src-tauri/noyau/src/avances.rs) | `donner_avance_sur(base, employe, montant, Saisie { moyen, motif, date, mensualite, du_tiroir }, voit_la_paie)` (D42 : pris dans le tiroir → sortie de caisse `avance_salaire` dans la transaction, caisse ouverte exigée, datée d'aujourd'hui ; sinon hors caisse, datée de 31 jours en arrière au plus, jamais avant l'entrée ; rend `avertissement` si la paie de ce jour est validée) ; `donner_sur` / `donner_selon_droits_sur` (= hors caisse, aujourd'hui, tout retenu) ; `annuler_sur` (datée `annule_le`, seulement si rien n'est retenu ; prise dans le tiroir, l'argent y revient — `avance_salaire_annulee`, caisse ouverte exigée), `en_cours_sur`, `lister_sur` (`trop_verse_numero`, `mensualite`, `du_tiroir`) |
+| Prêts (pur) | [coeur/pret.rs](../../src-tauri/noyau/src/coeur/pret.rs) | D47 : `verifier(montant, mensualite, deja, nom)` (mensualité obligatoire et plus petite que le montant, un seul prêt en cours), `premier_mois(date, choisi)` (le mois suivant, reculable de 3 mois), `echeance(pret, mois, depart)` (par mois civil, moins ce que les autres fiches validées du mois ont retenu ; au départ, tout le reste), `retenir_prets(net, prets, mois, depart)` (après les avances ; rend ce qui manque aux échéances), `fin_prevue`, `verifier_reglement` (remboursement d'une partie, remise du reste), `etat` (soldé calculé), `mois_de`, `mois_plus`, `mois_dit` |
+| Prêts (base) | [prets.rs](../../src-tauri/noyau/src/prets.rs) | `preter_sur(base, employe, montant, Saisie { moyen, motif, date, mensualite, premier_mois, du_tiroir })` (une ligne `avance` de nature `pret` ; tiroir comme l'avance, D42), `rembourser_sur`, `remettre_sur` (`pret_reglement`, `avance.retenu` monte), `annuler_sur` (rien retenu ni remboursé), `en_cours_sur`, `lister_sur(employe, en_cours_seulement)` (`reste`, `etat`, `fin_prevue`, `retenu_paie`, `rembourse`, `remis`, `partie`), `lire_sur` (+ `mouvements` : retenues des fiches validées, remboursements, remise) ; journal `pret_accorde`, `pret_rembourse`, `pret_remis`, `pret_annule` (entité `pret`, montants masqués comme la paie) ; la retenue entre dans `paie::calculer` (`prets_a_retenir`) |
+| Écran prêts | [src/equipe/Prets.tsx](../../src/equipe/Prets.tsx) | onglet « Prêts » de Paie (avec `paie:preparer` ou `paie:valider`) : prêter (montant, retenue par mois, première retenue, échéancier annoncé), en cours / tous, déplier : retenues et remboursements, « Remboursement à part », « Remettre le reste », annuler |
+| Écran paie | [src/equipe/Paie.tsx](../../src/equipe/Paie.tsx) | onglets Avances / Fiches du mois / Cotisations / Prêts (D47) / État du mois (D48 ; ces deux derniers avec `paie:preparer` ou `paie:valider`) ; donner (`MoneyInput`), en cours par personne, annuler ; une avance de trop-versé se dit « versé en trop sur PAIE-…, repris en avance » |
+| Paie (pur) | [coeur/paie.rs](../../src-tauri/noyau/src/coeur/paie.rs) | **tout en entiers** (28/10) : `arrondi(num, den)` (au franc, la moitié s'éloignant de zéro), `millioniemes(pct)` ; `bornes_d_emploi`, `hors_emploi`, `nombre_de_jours`, `jours_du_mois_de`, `verifier_mois_entier` (au mois : un mois civil entier), `verifier_un_seul_mois`, `debut_du_compte` (un compte repris ne commissionne pas deux fois) ; `gains_calcules` (au mois : salaire × jours d'emploi / jours du mois, **toujours** ; au prorata, moins les absences et ½ par demi-journée — un jour non marqué compte comme présent ; jours × tarif en demi-journées ; % des ventes signées **moins les retours de la période**, jamais négatif), `ligne_saisie` (bornée), `retenir_avances`, `calculer` / `totaux` / `validable` (sommes vérifiées, `Result`), `Conditions` (ce qui a servi au calcul), `conditions_depuis_lignes` (une fiche d'avant le 28/10), `reste_a_verser`, `trop_verse_a_reprendre`, `MOYEN_TROP_VERSE` |
+| Paie (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `preparer_sur` (refuse une période hors de l'emploi, et pour qui est payé au mois une période qui n'est pas un mois civil entier), `recalculer_sur`, `ajouter_ligne_sur`, `retirer_ligne_sur`, `supprimer_sur` (brouillon, vérifié au moment d'écrire), `valider_sur` (refuse ce qui n'est plus à jour ; n'écrit que si la fiche est encore un brouillon ; numéro `PAIE-AAAA-NNNNN`, avances retenues, conditions figées ; une rectificative crée l'avance du trop-versé), `rectifier_sur` (conditions figées de l'ancienne, ou relues sur ses lignes), `lire_sur`, `lister_sur(du, au)` (fiches + personnes employées au moins un jour de la période), `fiche_validee_du_jour_sur`, `fiches_validees_apres_sur`, `jour_paye_sur` |
+| Payer (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `verser_avec_sur(base, fiche, montant, moyen, du_tiroir)` (D42 : pris dans le tiroir → sortie de caisse `salaire`, espèces, caisse ouverte exigée) ; `verser_sur` (= hors caisse ; pas plus que le reste), `salaires_par_mois_sur` (Rapports → CA mensuel : brut + charges des fiches validées, au mois de fin de période ; masqué sans la paie), `donnees_bulletin_sur` ; la fiche lue porte `verse`, `trop_verse` (repris en avance), `reste` (= net − versé + repris ; négatif : un trop-versé non repris), `versements` |
+| Bulletin | [lib/genererBulletin.ts](../../src/lib/genererBulletin.ts), [ApercuBulletin.tsx](../../src/equipe/ApercuBulletin.tsx) | genre de document `bulletin` (Paramètres → Documents), aperçu = impression ; dit le trop-versé repris en avance |
+| Cotisations | `coeur::paie::{Cotisation, valider_cotisation, cotisations, charges}`, `paie::{cotisations_sur, enregistrer_cotisation_sur, retirer_cotisation_sur}` (cotisation et historique dans **une** transaction), [Cotisations.tsx](../../src/equipe/Cotisations.tsx) | vides par défaut, seulement pour les déclarés ; la charge patronale hors du net |
+| État du mois (pur) | [coeur/etat_paie.rs](../../src-tauri/noyau/src/coeur/etat_paie.rs) | D48 : `Montants` (brut, avances, retenues, cotisations, charges, net, versé, reste, trop-versé ; `cout()` = brut + charges, `ajouter` vérifié), `ventiler(numero, net, lignes, verse, reste)` (chaque ligne de la fiche rangée par son **genre**, jamais recalculée ; un genre inconnu va en « autres retenues » ; refus si le net ne colle pas), `bornes_du_mois("AAAA-MM")`, `LigneEtat`, `csv(lignes, total)` (point-virgule, montants entiers ; le BOM est ajouté par l'écran, comme pour les journaux) |
+| État du mois (base) | [etat_paie.rs](../../src-tauri/noyau/src/etat_paie.rs) | `lire_sur(base, mois)` : une ligne par personne = ses fiches **validées** dont la période **finit** dans le mois (les remplacées exclues), les totaux, le coût du mois (= Rapports → CA mensuel), puis hors des totaux les brouillons et les personnes employées sans fiche ; `csv_sur(base, mois)`. Commandes `lire_etat_paie`, `exporter_etat_paie_csv` (`RefusSaufUne(PAIE_LIRE)`) |
+| Écran état | [src/equipe/EtatPaie.tsx](../../src/equipe/EtatPaie.tsx), [lib/genererEtatPaie.ts](../../src/lib/genererEtatPaie.ts) | le mois, le tableau et ses totaux, « à valider — pas comptés », « pas de fiche » ; Imprimer (aperçu A4 en iframe, habillage du bulletin) ; CSV fabriqué par le serveur ; colonnes « charges » et « versé en trop » seulement si le mois en a (`colonnesEtat`) |
+| Écran fiches | [src/equipe/FichesPaie.tsx](../../src/equipe/FichesPaie.tsx) | le mois ; à préparer (au prorata ou non ; « entrée le », « partie le ») ; la liste (badge « versé en trop » / « payée » + « repris en avance ») ; la fiche : lignes, brut / retenues / net, report, trop-versé, ajouter / retirer une saisie (`MoneyInput`), recalculer, jeter, valider, rectifier |
 
 **Table** `employe` (cloisonnée, RLS) : nom, fonction, modes de
 rémunération, facultatifs (téléphone, entrée, pièce, contrat écrit +
@@ -34,17 +40,51 @@ ses ventes compteraient deux fois dans les commissions).
 (`coeur::lecture` : `RefusSaufUne`) ; les montants
 (`salaire_mensuel`, `tarif_journalier`, `commission_pct`,
 `remuneration_dite`, `avance_max`) masqués sans `paie:preparer` / `paie:valider` ;
-`modes` reste lisible.
+`modes` reste lisible. Depuis le 28/10 : les réponses de `creer_employe`,
+`modifier_employe`, `faire_partir_employe`, `faire_revenir_employe` sont
+masquées de même (et `avance_en_cours` sans le droit de lire les
+avances) ; `modifier_employe` sans la paie **garde** la rémunération et
+le plafond d'avance (`coeur::lecture::voit_la_paie`, lu par le serveur à
+chaque appel) ; le journal PA se lit avec `paie:preparer` **ou**
+`paie:valider` ; l'Historique masque les montants des gestes de paie
+(fiche, versement, avance, cotisation) à qui ne voit pas la paie, et sa
+recherche n'en fouille pas le détail (`historique::Filtre::sans_paie`).
 
 **Table** `presence` (cloisonnée) : une ligne par personne et par jour
-marqué (`UNIQUE (employe_id, jour)`) ; un jour sans ligne n'est pas su.
+marqué (`UNIQUE (employe_id, jour)`) ; un jour sans ligne n'est pas su
+(pour le salaire au mois au prorata, il compte comme présent — choix du
+propriétaire, 28/10). Un jour couvert par une fiche validée est figé.
+`motif` (D52) : maladie, permission, conge, absence, sur un jour A ou ½
+seulement ; la paie ne le lit pas ; sur un jour figé, il se corrige encore.
 
 **Table** `avance` (cloisonnée, RLS) : montant, `retenu` (ce que les
 fiches de paie en ont déjà pris), moyen, motif, statut `ouverte` /
 `annulee`, `annule_le`. **Hors caisse** (D31/D32 révisées le 24/09) :
-`mouvement_caisse_id` reste vide.
+`mouvement_caisse_id` reste vide — sauf **pris dans le tiroir** (D42) :
+il désigne la sortie de caisse écrite avec elle. `mensualite` (D42) : ce
+qu'une paie en retient au plus, vide = tout ; `date_avance` peut être un
+jour passé (`AAAA-MM-JJ`), `cree_le` garde l'instant de la saisie.
 Droits : `personnel:avancer` pour donner et annuler ; lecture par qui
-avance ou paie.
+avance ou paie. `trop_verse_fiche_id` (28/10) : l'avance née d'un
+trop-versé, créée dans la transaction qui valide la rectificative
+(moyen `trop_verse`, journal `avance_trop_verse`, PA 421 / 422 — rien ne
+sort de la trésorerie) ; elle suit la fiche qui vaut si celle-ci est
+rectifiée de nouveau, et se retient sur la fiche suivante.
+**D47 (29/10)** : `nature` (`avance` | `pret`) et `retenir_des` (premier
+mois retenu, `AAAA-MM`). Un **prêt** est une ligne de nature `pret` :
+mensualité par **mois civil**, retenue après les avances, jamais plus que
+le net (une échéance manquée allonge le prêt) ; la fiche du départ en
+retient tout le reste. Sa retenue est une ligne de genre `avance` (source
+= le prêt, libellé « Prêt du … »). Les avances (`en_cours_sur`,
+`lister_sur`, `avances_a_retenir`, le plafond) filtrent `nature =
+'avance'`. Droits du prêt : `paie:valider` pour prêter, rembourser,
+remettre, annuler ; lecture avec la paie (`lire_prets`, `lire_pret`).
+Pour un prêt, `retenu` compte aussi ce qui a été remboursé ou remis.
+
+**Table** `pret_reglement` (cloisonnée, RLS, D47) : `pret_id`, `genre`
+(`remboursement` | `remise`), montant, moyen, motif, `date_reglement` —
+PA : trésorerie / 421 (remboursement), `paie:prets_remis` (658) / 421
+(remise).
 
 **Tables** `fiche_paie` et `ligne_paie` (cloisonnées, RLS) : la fiche
 se stocke (D31) ; `nom`, `fonction` figés à la paie ; statut
@@ -56,14 +96,32 @@ retenue). Une fiche vivante par personne et par période (pas de
 chevauchement). À la validation, `avance.retenu` monte (sans jamais
 dépasser le montant) ; la rectificative rend d'abord ce que l'ancienne
 avait retenu. Préparer / corriger : `paie:preparer` ; valider,
-rectifier, verser : `paie:valider` ; lire : l'un des deux.
+rectifier, verser : `paie:valider` ; lire : l'un des deux. `conditions`
+(28/10, JSON) : ce qui a servi au calcul — rémunération, compte de la
+commission, déclaration, cotisations — figé à la validation et repris
+par la rectificative (D31 : septembre rectifié garde le salaire de
+septembre) ; vide sur une fiche d'avant, relue alors sur ses lignes (le
+journal `paie_rectificative` le dit). `commission_sur_encaisse` (D42,
+dans `conditions`) : vrai pour toute fiche nouvelle — la commission
+porte sur l'argent reçu dans la période sur les ventes du compte faites
+pendant l'emploi, moins l'argent ou l'avoir rendu (retours non-échange
+moins la dette éteinte, mode `retour`) ; absent = sur le vendu. Les
+ventes d'avant la fin de la dernière fiche « sur le vendu »
+(`vendu_jusqu_au`) ne comptent plus à leur règlement ; leurs retours se
+déduisent pour leur valeur entière.
 
 **Table** `versement_paie` (cloisonnée, RLS) : fiche, montant, moyen,
-date (hors caisse : `mouvement_caisse_id` vide). La
+date (hors caisse : `mouvement_caisse_id` vide ; pris dans le tiroir,
+D42 : la sortie de caisse). La
 rectificative validée reprend les versements de l'ancienne.
 
-Preuves : `personnel_base.rs` (6), `presences_base.rs` (5), `avances_base.rs` (5),
-`paie_base.rs` (10), trois moteurs ; bancs `f1-fenetre-equipe.mjs`,
+Preuves : `personnel_base.rs` (6), `presences_base.rs` (5), `absences_base.rs` (5, D52), `avances_base.rs` (5),
+`paie_base.rs` (11), `paie_corrections_base.rs` (17 : la revue du 28/10,
+un scénario par exemple), `paie_tiroir_base.rs` (8, D42 : tiroir, date,
+étalement), `commission_encaisse_base.rs` (5, D42), `prets_base.rs` (7, D47 : six fiches, fiche maigre,
+quinzaine, rectificative, départ, refus, détecteur), trois moteurs ; route
+`un_gestionnaire_sans_la_paie_n_efface_pas_le_salaire_et_un_montant_enorme_ne_tue_pas_la_base` ;
+`src/lib/montant.test.ts` (`node --test`) ; bancs `f1-fenetre-equipe.mjs`,
 `f2-personnel.mjs`, `f3-jours-travailles.mjs`, `g1-avances.mjs`,
 `g2-fiches-paie.mjs`, `g3-verser-bulletin.mjs`, `g4-cotisations-journal.mjs`.
 
@@ -115,3 +173,100 @@ Preuves : 2 unitaires `coeur::crm`, `crm_base.rs` (11, trois moteurs :
 dossier, prospect qui devient client — au comptoir et par une facture
 validée —, cloisonnement, détecteur) ; bancs
 `h1-echanges-360.mjs`, `h2-rappels-prospects.mjs`.
+
+## L'accueil du jour (EQ-3 — D49)
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Droits (pur) | [coeur/lecture.rs](../../src-tauri/noyau/src/coeur/lecture.rs) | `accueil_equipe(a) -> AccueilEquipe { rappels, fiches, avances, montants }` : chaque bloc la règle de la commande qui le lit en entier (`crm:suivre` ; paie ; avances), les montants la paie seulement |
+| Base | [equipe_jour.rs](../../src-tauri/noyau/src/equipe_jour.rs) | `accueil_sur(base, droits, moi, aujourd_hui)` : `rappels {nombre, en_retard}` (ceux de `moi`, `quand <= aujourd'hui`, pas faits), `brouillons {nombre, net, plus_ancien}`, `a_solder {nombre, reste, plus_ancien}` (validées, `coeur::paie::reste_a_verser > 0`), `avances {nombre, personnes, reste}` — toutes périodes du dossier |
+| Serveur | `lire_accueil_equipe` (socle.rs) | ouverte à toute session ; droits relus (`portes::permissions_de_sur`), `moi` = la session, aujourd'hui = l'horloge du serveur |
+| Écran | [src/equipe/Accueil.tsx](../../src/equipe/Accueil.tsx) | bloc « Aujourd'hui » (`KpiPetit` dans `GRILLE`) au-dessus des modules ; une tuile mène à Suivi clients → Mes rappels, Paie → Fiches du mois, Paie → Avances (prop `vue` de `Paie` et `SuiviClients`) |
+
+Un bloc sans droit n'est **ni calculé ni rendu** ; un montant non lisible
+vaut `null`. Un caissier voit ses rappels ; `personnel:avancer` seul
+compte les avances sans les chiffrer. **Après fusion avec EQ-1** : filtrer
+`nature = 'avance'` dans la requête des avances, et une tuile « Prêts ».
+
+Preuves : `equipe_jour_base.rs` (7, trois moteurs : le patron voit tout,
+le caissier aucun montant, l'avanceur sans chiffre, un rappel fait
+disparaît, une fiche soldée sort, cloisonnement, détecteur).
+
+### Les clients à relancer (EQ-4 — D50)
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Règle (pure) | [coeur/crm_relances.rs](../../src-tauri/noyau/src/coeur/crm_relances.rs) | `juger(releves, jours_dormant, avec_creances)` : motifs `creance` / `ralentit` / `dormant`, ordre de D50, `mis_de_cote` ; `ralentit`, `texte_propose` (sans montant), `valider_jours_dormant` ; constantes (60, 15–365, 30, 90, 360, 10, 3, 14) |
+| Lecture (base) | [crm_relances.rs](../../src-tauri/noyau/src/crm_relances.rs) | `lire_clients_a_relancer_sur(base, avec_creances)` ; `jours_dormant_sur`, `definir_jours_dormant_sur` |
+| Écran | [src/equipe/ClientsARelancer.tsx](../../src/equipe/ClientsARelancer.tsx) | onglet « À relancer » du Suivi clients : la liste, « Noter… » (échange prérempli), « Me le rappeler » (rappel pour soi, demain), le réglage N |
+
+Rien de neuf en base : les âges se comptent en Rust (`utils::jours_depuis`),
+la borne des 360 jours se compare par `SUBSTR(date_vente, 1, 10)`. Le
+réglage N vit dans `config_app`, clé `crm_jours_dormant:<dossier>` (60
+d'office). Le clic réutilise `creer_echange` et `creer_rappel` : le
+client sort alors de la liste (contact de moins de 14 jours, ou rappel
+non fait — échanges **et** relances de créance comptent).
+
+**Commandes** : `lire_clients_a_relancer` (`avecCreances`, vrai
+d'office) et `definir_jours_dormant` (`jours`, `parametres:modifier`) ;
+`changer_etape_prospect` (`clientId`, `etape`, `raison`),
+`marquer_client_parti` (`clientId`, `raison`), `annuler_client_parti`
+(`clientId`) — `crm:suivre` ; `lire_compte_prospects` (`mois` AAAA-MM,
+le mois en cours d'office), refusée sans `crm:suivre`.
+**Lecture** (`coeur::lecture`) : refus sans `crm:suivre` ; sans
+`tiers:lire_solde`, `avecCreances` est forcé à faux (les créances ne
+sont pas lues) et `reste_en_retard` masqué ; sans `rapports:lire`,
+`ca_reference` et `ca_recent` valent `null`.
+
+**Ajouts 10 à 16 (acceptés le 30/10)** — l'étape du prospect et le
+client parti. Cinq colonnes sur `client` : `etape_prospect` (vide =
+`nouveau`), `raison_sortie` (abandon d'un prospect OU départ d'un
+client), `devenu_client_le`, `parti_le`, `revenu_le`. Règles pures dans
+`coeur::crm` (`valider_etape`, `valider_raison_depart`, `valider_mois`,
+`etape_lue`, listes `ETAPES_PROSPECT`, `RAISONS_ABANDON`,
+`RAISONS_DEPART`) ; en base dans `crm.rs` : `changer_etape_prospect_sur`,
+`marquer_client_parti_sur`, `annuler_client_parti_sur` (journal
+`prospect_etape`, `client_parti`, `client_parti_annule`),
+`lire_compte_prospects_sur(mois)`. `creer_echange_sur` passe un prospect
+`nouveau` à `contacte` dans sa transaction. **La vente** :
+`argent::prospect_devient_client[_sur]` date `devenu_client_le` et fait
+revenir un parti (`parti_le` vidé, `revenu_le` daté) — même aide, mêmes
+cinq chemins. `lire_clients_a_relancer` : un parti ne garde que le motif
+`creance`, n'est pas parmi les meilleurs ; bloc `partis` (`nombre`,
+`par_raison`, `reconquis_mois`, `liste`, sans montant). La fiche client
+(deux versions) rend `etape_prospect`, `raison_sortie`, `parti_le`.
+Écran : libellés dans `src/equipe/raisonsCrm.ts` ; fiche 360
+(`SuiviEtat`), onglet Prospects (tuiles du mois, case « voir les
+abandonnés »), « À relancer » (ligne des partis, « Parti… », « Il est
+revenu »).
+
+Preuves : 9 unitaires `coeur::crm_relances`, 2 de plus dans `coeur::crm`,
+1 `coeur::lecture` ; `crm_relances_base.rs` (10, trois moteurs : dormant
+/ en retard / actif absent, sans les soldes, meilleur client qui
+ralentit, contact et rappel qui mettent de côté, réglage jugé, étape et
+compte du mois, parti qui reste pour sa dette et revient en rachetant,
+partis cloisonnés, cloisonnement, détecteur).
+
+## WhatsApp sans service payant (EQ-5 — D51)
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Règles (pur) | [src/lib/whatsapp.ts](../../src/lib/whatsapp.ts) | `lireNumero` (8 chiffres → +223 ; `+223`/`00223`/`223` ; `+`/`00` + autre indicatif, 8 à 15 chiffres ; sinon `{ ok: false, raison }`), `lienWhatsApp` (`https://wa.me/<chiffres>?text=…`, encodé), `raisonBulletin`, `texteBulletin`, `debutMessageClient`, `messageEcrit` |
+| Écran | [src/equipe/WhatsApp.tsx](../../src/equipe/WhatsApp.tsx) | `ouvrirWhatsApp` (coque : plugin opener ; navigateur : `window.open`), `BoutonBulletinWhatsApp` (aperçu du bulletin), `MessageClientWhatsApp` (fiche 360) |
+| Coque | [src-tauri/equipe](../../src-tauri/equipe) | `tauri-plugin-opener`, permission `opener:allow-open-url` limitée à `https://wa.me/*` |
+
+**Rien ne part tout seul** : le lien ouvre WhatsApp sur la conversation,
+le texte écrit, la personne appuie sur Envoyer. Un numéro douteux
+désactive le bouton, la raison à côté ; la fiche n'est jamais réécrite.
+**Bulletin** : fiche validée seulement ; période, numéro, net, déjà
+versé, reste dû (« soldée » à zéro), l'avance reportée et le versé en
+trop s'il y en a, la société ; le montant ne sort que de
+`lire_donnees_bulletin`, refusée sans droit de paie ; rien n'est noté.
+**Client** : la personne écrit après « Bonjour <nom>, » ; WhatsApp
+ouvert, « Le message est-il parti ? » — Oui : `creer_echange` genre
+`whatsapp`, le texte en `quoi` ; Non : rien, le texte reste. Aucune
+commande serveur nouvelle.
+
+Preuves : `src/lib/whatsapp.test.ts` (`node --test`) ; banc
+`eq5-whatsapp.mjs` (le lien relu : numéro, texte ; numéro douteux ;
+échange noté au Oui seulement).

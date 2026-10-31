@@ -76,7 +76,7 @@ const CANAUX = [
   { value: "whatsapp", label: "WhatsApp",  icone: MessageCircle, couleur: "text-green-600" },
   { value: "appel",    label: "Appel",     icone: Phone,         couleur: "text-blue-600"  },
   { value: "sms",      label: "SMS",       icone: MessageCircle, couleur: "text-purple-600"},
-  { value: "email",    label: "Email",     icone: Mail,          couleur: "text-orange-600"},
+  { value: "email",    label: "Email",     icone: Mail,          couleur: "text-orange-800"},
   { value: "visite",   label: "Visite",    icone: MapPin,        couleur: "text-red-600"   },
 ];
 
@@ -88,8 +88,8 @@ const TRIS: Record<"jours" | "montant" | "nb_relances", string> = {
 
 function urgence(jours: number): { label: string; couleur: string } {
   if (jours > 90) return { label: "Critique",  couleur: "bg-red-100 text-red-700 border-red-200" };
-  if (jours > 60) return { label: "Urgent",    couleur: "bg-orange-100 text-orange-700 border-orange-200" };
-  if (jours > 30) return { label: "En retard", couleur: "bg-amber-100 text-amber-950 border-amber-300" };
+  if (jours > 60) return { label: "Urgent",    couleur: "bg-orange-100 text-orange-900 border-orange-400" };
+  if (jours > 30) return { label: "En retard", couleur: "bg-amber-100 text-amber-950 border-amber-400" };
   return { label: "Récent", couleur: "bg-gray-100 text-gray-600 border-gray-200" };
 }
 
@@ -217,7 +217,7 @@ function ModalRelancer({
               <span className="text-muted-foreground">
                 {creance.facture_num ?? "Créance"}
               </span>
-              <span className="font-bold text-orange-600">{fmt(creance.reste)}</span>
+              <span className="font-bold text-orange-800">{fmt(creance.reste)}</span>
             </div>
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>Depuis le {fmtDate(creance.date_vente)}</span>
@@ -273,7 +273,7 @@ function ModalRelancer({
                            focus:ring-1 focus:ring-primary"
               />
               {!creance.telephone && (
-                <p className="text-xs text-orange-600 mt-1 flex items-center gap-1">
+                <p className="text-xs text-orange-800 mt-1 flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3 shrink-0" />
                   Aucun numéro de téléphone pour ce client
                 </p>
@@ -524,7 +524,7 @@ export function Relances() {
             <span className="text-muted-foreground">
               {creancesFiltrees.length} créance{creancesFiltrees.length > 1 ? "s" : ""} ·{" "}
             </span>
-            <span className="font-bold text-orange-600">{fmt(totalReste)}</span>
+            <span className="font-bold text-orange-800">{fmt(totalReste)}</span>
           </div>
         </div>
 
@@ -584,7 +584,7 @@ export function Relances() {
 
                     {/* Montant */}
                     <div className="text-right shrink-0">
-                      <p className="text-sm font-bold text-orange-600">{fmt(c.reste)}</p>
+                      <p className="text-sm font-bold text-orange-800">{fmt(c.reste)}</p>
                       {encaisseDe(c) > 0 && (
                         <p className="text-xs text-muted-foreground">
                           payé {fmt(encaisseDe(c))}
@@ -657,7 +657,7 @@ export function Relances() {
                       <div className="flex justify-between font-medium text-foreground
                                       border-t border-border pt-1 mt-1">
                         <span>Reste à recouvrir</span>
-                        <span className="text-orange-600">{fmt(c.reste)}</span>
+                        <span className="text-orange-800">{fmt(c.reste)}</span>
                       </div>
                       {c.derniere_relance && (
                         <p className="pt-1">

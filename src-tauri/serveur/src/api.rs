@@ -92,6 +92,14 @@ fn sante(srv: &Arc<Serveur>, flux: &mut TcpStream) -> std::io::Result<()> {
         .ok()
         .map(|mut b| sessions::lister_actives_sur(&mut b).map(|v| v.len()).unwrap_or(0))
         .unwrap_or(0);
+    // D43 : l'ecran de connexion d'une base neuve le dit. Rien du
+    // commerce : seulement qu'il n'est pas encore cree.
+    let assistant_a_faire = srv
+        .base
+        .lock()
+        .ok()
+        .map(|mut b| gescom_noyau::assistant::a_faire_sur(&mut *b))
+        .unwrap_or(false);
 
     let s = Sante {
         version_protocole: VERSION_PROTOCOLE,
@@ -100,6 +108,7 @@ fn sante(srv: &Arc<Serveur>, flux: &mut TcpStream) -> std::io::Result<()> {
         postes_connectes: connectes,
         base_saine,
         derniere_sauvegarde: srv.derniere_sauvegarde.lock().ok().and_then(|v| v.clone()),
+        assistant_a_faire,
     };
     repondre_json(flux, 200, &serde_json::to_value(s).unwrap_or(Value::Null))
 }
@@ -407,6 +416,19 @@ fn rpc(srv: &Arc<Serveur>, req: &Requete, flux: &mut TcpStream) -> std::io::Resu
             CodeErreur::DossierAChoisir,
             "Choisir un dossier avant de continuer.",
         );
+    }
+
+    // D43 : une base neuve ne sert que l'assistant du patron. Lu en base
+    // a chaque appel, comme les permissions : l'assistant fini, tous les
+    // postes travaillent sans redemarrer le serveur.
+    {
+        let mut base = match srv.base.lock() {
+            Ok(b) => b,
+            Err(_) => return erreur(flux, 500, CodeErreur::Technique, "Base indisponible."),
+        };
+        if let Some(refus) = gescom_noyau::assistant::refus_si_a_faire(&mut *base, nom) {
+            return erreur(flux, 409, CodeErreur::Metier, &refus);
+        }
     }
 
     // v3, C-1 : les permissions de LECTURE (`coeur::lecture`). Refuser

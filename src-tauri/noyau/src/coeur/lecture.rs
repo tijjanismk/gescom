@@ -55,10 +55,20 @@ pub enum Regle {
         cles: &'static [&'static str],
         si: Option<fn(&Value) -> bool>,
     },
-    /// Sans la permission, ces parametres prennent leur valeur neutre :
-    /// un filtre « avec dette seulement » ou un tri par dette trahirait
-    /// la donnee masquee.
-    Neutre(&'static str, &'static [(&'static str, ParamNeutre)]),
+    /// Sans AUCUNE de ces permissions, dans chaque element du tableau
+    /// `tableau` de la reponse que `si` designe, ces cles valent `null`
+    /// (a n'importe quelle profondeur de l'element). L'Historique : les
+    /// lignes de la paie perdent leurs montants, les autres les gardent.
+    MasqueElements {
+        permissions: &'static [&'static str],
+        tableau: &'static str,
+        si: fn(&Value) -> bool,
+        cles: &'static [&'static str],
+    },
+    /// Sans AUCUNE de ces permissions, ces parametres prennent leur
+    /// valeur neutre : un filtre « avec dette seulement » ou un tri par
+    /// dette trahirait la donnee masquee.
+    Neutre(&'static [&'static str], &'static [(&'static str, ParamNeutre)]),
     /// Sans la permission, un tableau ne garde que les elements dont
     /// cette cle vaut l'utilisateur qui lit.
     AMoi(&'static str, &'static str),
@@ -91,6 +101,57 @@ const PERSONNEL_LIRE: &[&str] = &["personnel:gerer", "paie:preparer", "paie:vali
 const PAIE_LIRE: &[&str] = &["paie:preparer", "paie:valider"];
 const REMUNERATION: &[&str] = &["salaire_mensuel", "tarif_journalier", "commission_pct", "remuneration_dite", "avance_max"];
 const AVANCES_LIRE: &[&str] = &["personnel:avancer", "paie:preparer", "paie:valider"];
+/// Les montants que le journal garde d'un geste de paie (fiche validee,
+/// versement, avance, cotisation) : traçabilite au journal, masques a la
+/// lecture pour qui ne voit pas la paie (revue du 28/10, point 9).
+const MONTANTS_PAIE: &[&str] =
+    &["montant", "brut", "retenues", "net", "taux", "plafond", "reste", "en_cours", "trop_verse", "mensualite"];
+
+/// L'appelant voit-il ce que gagne une personne ? `paie:preparer` ou
+/// `paie:valider` — la meme regle que pour lire les montants de la
+/// fiche du personnel. Les commandes qui ECRIVENT la remuneration la
+/// demandent aussi (`personnel::modifier_selon_droits_sur`).
+pub fn voit_la_paie(a: impl Fn(&str) -> bool) -> bool {
+    PAIE_LIRE.iter().any(|p| a(p))
+}
+
+/// D49 : ce que l'accueil du jour d'Equipe montre a l'appelant. Chaque
+/// bloc suit la regle de la commande qui le lit en entier ; un bloc
+/// sans droit n'est pas calcule (`equipe_jour::accueil_sur`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AccueilEquipe {
+    /// Ses rappels dus — comme `lire_rappels`.
+    pub rappels: bool,
+    /// Brouillons et fiches a solder — comme `lire_fiches_paie`.
+    pub fiches: bool,
+    /// Les avances en cours — comme `lire_avances`.
+    pub avances: bool,
+    /// Les prets en cours (D47) — comme `lire_prets` : qui lit la paie.
+    pub prets: bool,
+    /// Les montants : la paie seulement (C-1), avances comprises.
+    pub montants: bool,
+}
+
+pub fn accueil_equipe(a: impl Fn(&str) -> bool) -> AccueilEquipe {
+    AccueilEquipe {
+        rappels: a(CRM_SUIVRE),
+        fiches: PAIE_LIRE.iter().any(|p| a(p)),
+        avances: AVANCES_LIRE.iter().any(|p| a(p)),
+        prets: PAIE_LIRE.iter().any(|p| a(p)),
+        montants: voit_la_paie(&a),
+    }
+}
+
+/// Une ligne de l'Historique qui porte la paie : une fiche de paie (ses
+/// totaux, ses versements), une cotisation (son taux) ou un pret (D47).
+fn ligne_de_paie(v: &Value) -> bool {
+    matches!(v.get("entite_type").and_then(Value::as_str), Some("fiche_paie" | "cotisation" | "pret"))
+}
+
+/// Une ligne de l'Historique qui porte une avance (son montant).
+fn ligne_d_avance(v: &Value) -> bool {
+    v.get("entite_type").and_then(Value::as_str) == Some("avance")
+}
 
 fn piece_fournisseur(v: &Value) -> bool {
     v.pointer("/piece/tiers_type").and_then(Value::as_str) == Some("fournisseur")
@@ -166,7 +227,7 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         "lire_clients_pagines" => &[
             Masque { permissions: &[TIERS_LIRE_SOLDE], cles: SOLDES_CLIENT, si: None },
             Neutre(
-                TIERS_LIRE_SOLDE,
+                &[TIERS_LIRE_SOLDE],
                 &[
                     ("avecCreancesSeulement", ParamNeutre::Faux),
                     ("avec_creances_seulement", ParamNeutre::Faux),
@@ -182,18 +243,57 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         // gere ou le paie ; ce qu'il gagne, par qui prepare ou valide la
         // paie seulement. ---
         "lire_presences_mois" => &[RefusSaufUne(PERSONNEL_LIRE)],
+        // D52 : le motif d'une absence (maladie…) se lit comme la grille.
+        "lire_absences_annee" => &[RefusSaufUne(PERSONNEL_LIRE)],
         "lire_avances" => &[RefusSaufUne(AVANCES_LIRE)],
         // G-4 : le journal de paie nomme ce que chacun gagne. Sans le
-        // droit de preparer la paie, il n'est ni fabrique ni rendu.
-        "lire_journaux_comptables" | "exporter_journaux_csv" => &[Neutre("paie:preparer", &[("avecPaie", ParamNeutre::Faux)])],
+        // droit de lire la paie, il n'est ni fabrique ni rendu. Lire la
+        // paie, c'est la preparer OU la valider (PLAN-EQUIPE, « Lecture » ;
+        // D31 : qui valide relit ce qu'il fige) — `paie:valider` seul le
+        // lit aussi depuis le 28/10, comme les fiches et le CA mensuel.
+        "lire_journaux_comptables" | "exporter_journaux_csv" => &[Neutre(PAIE_LIRE, &[("avecPaie", ParamNeutre::Faux)])],
         "lire_fiches_paie" | "lire_fiche_paie" | "lire_donnees_bulletin" | "lire_cotisations" => &[RefusSaufUne(PAIE_LIRE)],
+        // D47 : les prets se lisent comme la paie.
+        "lire_prets" | "lire_pret" => &[RefusSaufUne(PAIE_LIRE)],
+        // EQ-2 (D48) : l'etat de paie n'est fait que de montants — refus,
+        // a l'ecran comme pour le fichier.
+        "lire_etat_paie" | "exporter_etat_paie_csv" => &[RefusSaufUne(PAIE_LIRE)],
         "lire_personnel" | "lire_employe" => &[
             RefusSaufUne(PERSONNEL_LIRE),
             Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None },
         ],
+        // Revue du 28/10, point 3 : les ecritures de la fiche rendent la
+        // fiche — masquee comme a la lecture. Un depart dit aussi l'avance
+        // en cours, pour qui lit les avances.
+        "creer_employe" | "modifier_employe" | "faire_revenir_employe" => {
+            &[Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None }]
+        }
+        "faire_partir_employe" => &[
+            Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None },
+            Masque { permissions: AVANCES_LIRE, cles: &["avance_en_cours"], si: None },
+        ],
+        // Revue du 28/10, point 9 : l'Historique (`journal:lire`) garde
+        // les montants de la paie au journal, mais ne les rend qu'a qui
+        // voit la paie (une avance : a qui lit les avances). La recherche
+        // ne fouille pas non plus leur detail : chercher « 60000 »
+        // trouverait la fiche sans la montrer.
+        "lire_historique" => &[
+            MasqueElements { permissions: PAIE_LIRE, tableau: "lignes", si: ligne_de_paie, cles: MONTANTS_PAIE },
+            MasqueElements { permissions: AVANCES_LIRE, tableau: "lignes", si: ligne_d_avance, cles: MONTANTS_PAIE },
+            Neutre(PAIE_LIRE, &[("avecPaie", ParamNeutre::Faux)]),
+        ],
 
         // --- H-1/H-2 (D34) : le suivi client, une seule permission ---
-        "lire_echanges_client" | "lire_rappels" | "lire_prospects" => &[Refus(CRM_SUIVRE)],
+        "lire_echanges_client" | "lire_rappels" | "lire_prospects" | "lire_compte_prospects" => &[Refus(CRM_SUIVRE)],
+        // D50 : sans les soldes, le motif creance n'est pas calcule — la
+        // presence du client dans la liste trahirait sa dette ; sans les
+        // rapports, pas de chiffre d'affaires par client.
+        "lire_clients_a_relancer" => &[
+            Refus(CRM_SUIVRE),
+            Neutre(&[TIERS_LIRE_SOLDE], &[("avecCreances", ParamNeutre::Faux), ("avec_creances", ParamNeutre::Faux)]),
+            Masque { permissions: &[TIERS_LIRE_SOLDE], cles: &["reste_en_retard"], si: None },
+            Masque { permissions: &[RAPPORTS_LIRE], cles: &["ca_reference", "ca_recent"], si: None },
+        ],
 
         // --- caisse:lire_autres : les sessions des autres ---
         "lire_sessions_caisse" => &[AMoi(CAISSE_LIRE_AUTRES, "ouvert_par_id")],
@@ -223,8 +323,8 @@ pub fn session_caisse_a_verifier(commande: &str, a: impl Fn(&str) -> bool) -> bo
 /// compris quand ils sont absents.
 pub fn neutraliser(commande: &str, a: impl Fn(&str) -> bool, params: &mut Value) {
     for r in regles(commande) {
-        if let Regle::Neutre(p, liste) = r {
-            if a(p) {
+        if let Regle::Neutre(ps, liste) = r {
+            if ps.iter().any(|p| a(p)) {
                 continue;
             }
             // Pose MEME si absent : le tri par defaut de la liste des
@@ -259,6 +359,14 @@ pub fn filtrer(commande: &str, a: impl Fn(&str) -> bool, utilisateur_id: &str, r
                     continue;
                 }
                 masquer(reponse, cles);
+            }
+            Regle::MasqueElements { permissions, tableau, si, cles } => {
+                if permissions.iter().any(|p| a(p)) {
+                    continue;
+                }
+                if let Some(t) = reponse.get_mut(*tableau).and_then(Value::as_array_mut) {
+                    t.iter_mut().filter(|e| si(e)).for_each(|e| masquer(e, cles));
+                }
             }
             Regle::AMoi(p, cle) if !a(p) => {
                 if let Some(t) = reponse.as_array_mut() {
@@ -397,6 +505,28 @@ mod tests {
     }
 
     #[test]
+    fn la_liste_a_relancer_ne_trahit_ni_la_dette_ni_le_chiffre() {
+        assert_eq!(refus("lire_clients_a_relancer", sans), Some(CRM_SUIVRE));
+        assert_eq!(refus("lire_clients_a_relancer", avec(CRM_SUIVRE)), None);
+        assert_eq!(refus("lire_compte_prospects", sans), Some(CRM_SUIVRE), "D50, point 12");
+        // Absent, le parametre est pose quand meme : d'office, la liste
+        // calcule les creances.
+        let mut p = json!({});
+        neutraliser("lire_clients_a_relancer", avec(CRM_SUIVRE), &mut p);
+        assert_eq!(p["avecCreances"], false);
+        let mut q = json!({});
+        neutraliser("lire_clients_a_relancer", avec(TIERS_LIRE_SOLDE), &mut q);
+        assert!(q.get("avecCreances").is_none());
+
+        let mut v = json!({ "lignes": [{ "nom": "Awa", "ca_reference": 270000, "ca_recent": 0, "reste_en_retard": 5000, "nb_achats_reference": 3 }] });
+        filtrer("lire_clients_a_relancer", avec(CRM_SUIVRE), "moi", &mut v);
+        assert_eq!(v["lignes"][0]["ca_reference"], Value::Null);
+        assert_eq!(v["lignes"][0]["ca_recent"], Value::Null);
+        assert_eq!(v["lignes"][0]["reste_en_retard"], Value::Null);
+        assert_eq!(v["lignes"][0]["nb_achats_reference"], 3, "le nombre d'achats reste");
+    }
+
+    #[test]
     fn sans_caisse_lire_autres_on_ne_voit_que_ses_sessions() {
         let mut v = json!([{ "id": "s1", "ouvert_par_id": "moi" }, { "id": "s2", "ouvert_par_id": "autre" }]);
         filtrer("lire_sessions_caisse", sans, "moi", &mut v);
@@ -406,8 +536,87 @@ mod tests {
     }
 
     #[test]
+    fn les_ecritures_de_la_fiche_du_personnel_rendent_une_fiche_masquee() {
+        // Revue du 28/10, point 3 : creer, modifier, faire partir, faire
+        // revenir rendaient le salaire a qui gere sans la paie.
+        let fiche = json!({ "nom": "Awa", "salaire_mensuel": 60000, "commission_pct": 2.0, "avance_max": 15000,
+                            "remuneration_dite": "60 000 F par mois", "modes": ["au mois"], "avance_en_cours": 10000 });
+        for cmd in ["creer_employe", "modifier_employe", "faire_partir_employe", "faire_revenir_employe"] {
+            let mut v = fiche.clone();
+            filtrer(cmd, |p| p == "personnel:gerer", "u", &mut v);
+            for cle in REMUNERATION {
+                assert_eq!(v[*cle], Value::Null, "{cmd} · {cle}");
+            }
+            assert_eq!(v["modes"], json!(["au mois"]), "{cmd} : la façon d'être payée reste");
+            let mut w = fiche.clone();
+            filtrer(cmd, |p| p == "paie:valider", "u", &mut w);
+            assert_eq!(w["salaire_mensuel"], 60000, "{cmd}");
+        }
+        let mut v = fiche.clone();
+        filtrer("faire_partir_employe", |p| p == "personnel:gerer", "u", &mut v);
+        assert_eq!(v["avance_en_cours"], Value::Null, "l'avance en cours, pour qui lit les avances");
+        let mut w = fiche;
+        filtrer("faire_partir_employe", |p| p == "personnel:avancer", "u", &mut w);
+        assert_eq!(w["avance_en_cours"], 10000);
+        assert!(voit_la_paie(|p| p == "paie:preparer") && voit_la_paie(|p| p == "paie:valider"));
+        assert!(!voit_la_paie(|p| p == "personnel:gerer"));
+    }
+
+    #[test]
+    fn le_journal_de_paie_se_lit_avec_la_preparer_ou_la_valider() {
+        for (p, attendu) in [("rapports:lire", Some(false)), ("paie:preparer", None), ("paie:valider", None)] {
+            let mut params = json!({ "du": "2026-09-01" });
+            neutraliser("lire_journaux_comptables", |x| x == p, &mut params);
+            assert_eq!(params["avecPaie"].as_bool(), attendu, "{p}");
+        }
+    }
+
+    #[test]
+    fn l_historique_garde_les_montants_de_la_paie_pour_qui_la_voit() {
+        // Revue du 28/10, point 9.
+        let page = json!({ "total": 4, "lignes": [
+            { "type": "paie_validee", "entite_type": "fiche_paie", "nouveau": { "nom": "Awa", "net": 60000, "brut": 60000, "retenues": 0 } },
+            { "type": "paie_versee", "entite_type": "fiche_paie", "nouveau": { "nom": "Awa", "montant": 45000, "moyen": "especes" } },
+            { "type": "avance_donnee", "entite_type": "avance", "nouveau": { "nom": "Awa", "montant": 10000 } },
+            { "type": "cotisation_modifiee", "entite_type": "cotisation", "nouveau": { "libelle": "INPS", "taux": 3.6, "plafond": null } },
+            { "type": "paiement", "entite_type": "paiement", "nouveau": { "montant": 5000 } },
+        ]});
+        let mut v = page.clone();
+        filtrer("lire_historique", |p| p == "journal:lire", "u", &mut v);
+        let l = &v["lignes"];
+        assert_eq!((l[0]["nouveau"]["net"].clone(), l[0]["nouveau"]["nom"].clone()), (Value::Null, json!("Awa")), "le nom reste, le net part");
+        assert_eq!(l[1]["nouveau"]["montant"], Value::Null);
+        assert_eq!(l[1]["nouveau"]["moyen"], "especes");
+        assert_eq!(l[2]["nouveau"]["montant"], Value::Null);
+        assert_eq!(l[3]["nouveau"]["taux"], Value::Null);
+        assert_eq!(l[4]["nouveau"]["montant"], 5000, "un paiement client garde son montant");
+        assert_eq!(v["total"], 4);
+        // Qui lit les avances voit l'avance, pas la fiche.
+        let mut w = page.clone();
+        filtrer("lire_historique", |p| p == "journal:lire" || p == "personnel:avancer", "u", &mut w);
+        assert_eq!(w["lignes"][2]["nouveau"]["montant"], 10000);
+        assert_eq!(w["lignes"][0]["nouveau"]["net"], Value::Null);
+        // Qui voit la paie voit tout.
+        let mut x = page.clone();
+        filtrer("lire_historique", |p| p == "journal:lire" || p == "paie:valider", "u", &mut x);
+        assert_eq!(x, page);
+        // Et la recherche ne fouille pas le détail de la paie à sa place.
+        let mut params = json!({ "filtre": { "recherche": "60000" } });
+        neutraliser("lire_historique", |p| p == "journal:lire", &mut params);
+        assert_eq!(params["avecPaie"], false);
+        let mut params = json!({ "filtre": {} });
+        neutraliser("lire_historique", |p| p == "paie:preparer", &mut params);
+        assert!(params.get("avecPaie").is_none());
+    }
+
+    #[test]
     fn chaque_permission_nommee_existe_au_catalogue() {
-        for p in [ACHATS_LIRE_PRIX, RAPPORTS_LIRE, TIERS_LIRE_SOLDE, CAISSE_LIRE_AUTRES, CRM_SUIVRE, "achats:creer"] {
+        for p in [ACHATS_LIRE_PRIX, RAPPORTS_LIRE, TIERS_LIRE_SOLDE, CAISSE_LIRE_AUTRES, CRM_SUIVRE, "achats:creer"]
+            .into_iter()
+            .chain(PAIE_LIRE.iter().copied())
+            .chain(AVANCES_LIRE.iter().copied())
+            .chain(PERSONNEL_LIRE.iter().copied())
+        {
             assert!(crate::portes::existe(p), "{p}");
         }
     }

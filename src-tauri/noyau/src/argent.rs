@@ -555,10 +555,20 @@ pub fn lire_lignes_raw(
 /// validee). Sans effet sur un client deja 'client'. L'erreur se
 /// propage : c'est une regle, pas une ecriture facultative (ALERTES :
 /// sur PostgreSQL une erreur avalee avorte toute la transaction).
+///
+/// D50 (points 12 et 14) : la bascule date `devenu_client_le` ; un
+/// client « parti » qui rachete redevient actif (`parti_le` vide,
+/// `revenu_le` date). Une etape « abandonne » ne bloque rien.
 fn prospect_devient_client(tx: &rusqlite::Connection, client_id: &str, now: &str) -> Result<(), String> {
     tx.execute(
-        "UPDATE client SET statut = 'client', modifie_le = ?1
+        "UPDATE client SET statut = 'client', devenu_client_le = ?1, raison_sortie = NULL, modifie_le = ?1
          WHERE id = ?2 AND statut = 'prospect'",
+        rusqlite::params![now, client_id],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE client SET parti_le = NULL, raison_sortie = NULL, revenu_le = ?1, modifie_le = ?1
+         WHERE id = ?2 AND parti_le IS NOT NULL",
         rusqlite::params![now, client_id],
     )
     .map(|_| ())
@@ -1370,8 +1380,15 @@ pub fn prospect_devient_client_sur(
 ) -> Result<(), String> {
     acces
         .executer(
-            "UPDATE client SET statut = 'client', modifie_le = ?1
+            "UPDATE client SET statut = 'client', devenu_client_le = ?1, raison_sortie = NULL, modifie_le = ?1
              WHERE id = ?2 AND dossier_id = ?3 AND statut = 'prospect'",
+            &parametres![now, client_id, dossier],
+        )
+        .map_err(|e| e.0)?;
+    acces
+        .executer(
+            "UPDATE client SET parti_le = NULL, raison_sortie = NULL, revenu_le = ?1, modifie_le = ?1
+             WHERE id = ?2 AND dossier_id = ?3 AND parti_le IS NOT NULL",
             &parametres![now, client_id, dossier],
         )
         .map(|_| ())

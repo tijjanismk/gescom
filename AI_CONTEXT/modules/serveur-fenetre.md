@@ -98,3 +98,14 @@ service après un changement de port, la diffusion entre deux machines
 (et le pare-feu UDP posé par l'installeur), la résolution du nom du poste
 depuis une caisse, l'installeur reconstruit avec la fenêtre (WebView2
 n'est pas embarqué : présent sur Windows 11 et les Windows 10 à jour).
+
+## Les icônes (28/10/2026)
+
+Gescom Serveur et Gescom Équipe ont chacun leur jeu d'icônes
+(`src-tauri/serveur-fenetre/icons/`, `src-tauri/equipe/icons/`) : le logo
+de Gescom et une pastille en coin — bleu nuit avec une tour pour le
+serveur, verte avec deux personnes pour l'équipe (choix du propriétaire).
+La caisse garde `src-tauri/icons/`. Pour les refaire :
+`python outils/icones/pastilles.py`, puis
+`npx tauri icon outils/icones/<serveur|equipe>.png -o src-tauri/<serveur-fenetre|equipe>/icons`
+(ne garder que les fichiers que `tauri.conf.json` cite).

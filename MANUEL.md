@@ -1,77 +1,33 @@
 # Gescom — Manuel d'utilisation
 
-*Version 2.0 — à imprimer et garder près de la caisse.*
+*Version 2.1 — 28 octobre 2026 — à imprimer et garder près de la caisse.*
 
 ---
 
 # 0. Installer
 
-Gescom se compose de **deux programmes** :
+L'installation a son propre document : le **Guide d'installation**
+(`INSTALLATION.md`, imprimé à part). L'essentiel :
 
-- **Gescom Serveur** — il détient la base (les ventes, le stock, la
-  caisse). Un seul par magasin, sur l'ordinateur qui reste allumé.
-- **Gescom** (la fenêtre) — la caisse. Une par poste, y compris sur
-  l'ordinateur du serveur. Elle ne garde rien : tout ce qu'elle affiche
-  vient du serveur.
-
-## Le serveur
-
-`Gescom-Serveur_x.y.z_x64-setup.exe`, à lancer **en administrateur**
-(clic droit → Exécuter en tant qu'administrateur) sur l'ordinateur qui
-tiendra la base.
-
-L'installeur demande deux choses, une seule fois :
-
-| Question | Réponse habituelle |
-|---|---|
-| Base de données | Laisser la valeur proposée (un fichier dans `C:\ProgramData\Gescom`). Avec PostgreSQL : `postgresql://utilisateur:motdepasse@127.0.0.1:5432/gescom` |
-| Port | 7300 |
-
-Puis il fait tout : ouvre le pare-feu, enregistre le certificat de
-l'éditeur sur cette machine, installe le serveur comme **service
-Windows** et le démarre. Le service démarre ensuite **avec
-l'ordinateur**, avant même qu'on ouvre une session, et se relance tout
-seul s'il tombe.
-
-> Windows peut afficher « éditeur inconnu » à la première installation :
-> le certificat est celui de Gescom, pas d'un grand éditeur. Après
-> cette première fois, sur cette machine, la question ne revient plus.
-
-**Arrêter, redémarrer.** Dans une invite de commandes en administrateur :
-
-```
-sc stop GescomServeur
-sc start GescomServeur
-```
-
-Ou : **Services** (touche Windows, taper « services ») → *Gescom
-Serveur* → Arrêter / Démarrer.
-
-**Où sont les choses.** Menu Démarrer → Gescom :
-
-| Raccourci | Ce que c'est |
-|---|---|
-| Journal du serveur | `C:\ProgramData\Gescom\serveur.log` — ce que le serveur a fait, avec l'heure : chaque refus (« 11:02 REFUS … creer_vente … Caisse fermée »), chaque erreur, chaque commande lente, les démarrages et les sauvegardes. Une commande qui passe n'y écrit rien. Le fichier tourne tout seul à 5 Mo, jamais de mot de passe dedans |
-| Configuration du serveur | `serveur.json` — la base et le port. Après une modification, redémarrer le service |
-| Console du serveur | `http://localhost:7300` — les postes connectés, les sauvegardes, l'entretien |
-
-**L'adresse à donner aux caisses.** Le journal l'écrit au démarrage
-(« Adresse à saisir sur les caisses : 192.168.x.x:7300 »). C'est
-l'adresse de cet ordinateur sur le réseau du magasin. Une adresse fixe
-vaut mieux : sinon, un jour, la box en donne une autre et les caisses
-ne trouvent plus le serveur.
-
-## Les caisses
-
-`Gescom_x.y.z_x64-setup.exe` sur chaque poste. Au premier démarrage :
-**Paramètres → Réseau → Poste**, saisir l'adresse du serveur
-(`192.168.x.x:7300`), donner un nom au poste (« Caisse 1 »), enregistrer.
-
-Sur l'ordinateur du serveur lui-même, l'adresse est `127.0.0.1:7300`.
+- **Gescom** (la caisse) s'installe sur chaque poste, sans droits
+  administrateur. Au premier démarrage, l'écran **« Comment travaille
+  ce poste ? »** demande, une seule fois, son rôle.
+- **Un seul ordinateur** : choisir **« Ce poste garde la base »**. Gescom
+  lance lui-même son serveur ; rien à saisir.
+- **Plusieurs caisses** : installer d'abord **Gescom Serveur**, en
+  administrateur, sur l'ordinateur principal. Puis, sur chaque caisse,
+  choisir **« Ce poste est une caisse d'un autre poste »**, cliquer
+  **Rechercher le serveur**, **Essayer**, **Enregistrer**.
+- Le serveur écoute sur le port **40000** (de 40000 à 40100). Sa
+  fenêtre, **Gescom Serveur** au menu Démarrer, donne son nom, son
+  adresse et les postes connectés.
+- **Gescom Équipe** (personnel, paie, suivi clients) s'installe après la
+  caisse du même poste ; elle a son propre manuel.
 
 Si la caisse dit **« Serveur injoignable »** : le serveur tourne-t-il
-(Services) ? le pare-feu est-il ouvert (l'installeur l'a fait ; sinon
-`outils\parefeu.ps1 -Ouvrir`) ? l'adresse est-elle toujours la bonne ?
+(fenêtre Gescom Serveur → « Démarrer le service ») ? l'ordinateur
+principal est-il allumé ? le réseau Wi-Fi est-il en « Privé » ? Le
+Guide d'installation, chapitre 14, détaille les autres cas.
 
 ---
 
@@ -91,7 +47,7 @@ et la clôturer le soir. Tout le reste en dépend.
 
 # 2. Se connecter
 
-Deux comptes existent.
+Deux rôles sont livrés.
 
 **Patron** — accès complet : prix d'achat, marges, rapports, paramètres.
 
@@ -101,10 +57,52 @@ d'achat, ni les rapports, ni la sauvegarde.
 Chacun doit avoir son mot de passe. Ne les partagez pas : c'est ce qui
 permet de savoir qui a fait quoi en cas d'écart.
 
-Les deux comptes livrés (`admin` / `employe`) exigent un nouveau mot de
-passe à la première connexion. Le patron ajuste ensuite ce que chacun
-peut faire : **Paramètres → Utilisateurs → Permissions**, permission par
-permission.
+Une base neuve n'a qu'un compte, celui du patron : `admin` /
+`admin123`, écrit sur l'écran de connexion tant que le dossier n'est pas
+créé. À la première connexion, **l'assistant de création du dossier**
+prend l'écran (voir ci-dessous) : on y choisit son identifiant et son
+mot de passe — `admin123` est refusé — et on y crée les comptes des
+vendeurs, avec un mot de passe provisoire qu'ils changent à leur
+première connexion. Le patron ajuste ensuite ce que chacun peut faire :
+**Paramètres → Utilisateurs → Permissions**, permission par permission.
+
+## Créer le dossier : l'assistant du premier démarrage
+
+Comme dans Ciel, Gescom ne vend pas avant que la boutique ait un
+dossier. Tant qu'il n'est pas créé, rien d'autre ne s'ouvre, sur aucun
+poste ; un vendeur qui se connecte lit « le patron n'a pas encore créé
+le dossier ». Les étapes, que l'on peut reprendre avec « Précédent » :
+
+1. **Vous** — votre nom, votre identifiant, votre nouveau mot de passe.
+2. **La société** — raison sociale (obligatoire, elle nomme aussi le
+   dossier), adresse, téléphones, NIF, RCCM, email, site, pied de
+   facture, logo. C'est l'en-tête des factures et des reçus.
+3. **Les dates de travail** — le premier exercice : n'importe quel jour
+   de début, cinq ans au plus, et il doit comprendre aujourd'hui.
+   « Année 2026 » ou « 12 mois à partir de ce mois » les remplissent.
+4. **Les réglages** — la TVA (« Non » pour une boutique à l'impôt
+   synthétique, « Oui, 18 % » sinon : c'est le taux des nouveaux
+   articles), le premier numéro de facture si vous continuez un carnet
+   (seulement ici, et pour l'année en cours), le nom du magasin
+   principal, le fond de caisse habituel (proposé chaque matin à
+   l'ouverture de la caisse).
+5. **Les vendeurs** — facultatif.
+6. **Vérifier et créer** — le récapitulatif, puis **« Créer mon
+   dossier »** : rien n'est écrit avant.
+7. **Reprendre vos données** — vos articles et vos fournisseurs depuis
+   Excel (CSV), avec un aperçu avant l'import ; ou plus tard.
+
+Ensuite, tout se change dans Paramètres : Société (et, en dessous, le
+fond de caisse habituel et le seuil d'alerte des articles), **TVA**,
+Dossiers (les dates), Utilisateurs.
+
+**Changer l'état de la TVA.** Paramètres → TVA, en tête : « La boutique
+facture-t-elle la TVA ? » — Non, ou Oui 18 %. Gescom demande alors ce
+que deviennent les articles déjà au catalogue : **seulement les
+nouveaux** prennent le taux, ou **aussi tous les articles existants**
+(en une fois, noté à l'Historique). Avec plusieurs dossiers, l'écran
+rappelle que les articles sont communs à tous. Un article à part
+(exonéré, 5 %…) se règle ensuite dans la liste en dessous.
 
 ## Aller vite : Ctrl + K
 
@@ -119,6 +117,19 @@ quelques lettres, la liste se réduit, Entrée exécute.
   choisir ouvre sa fiche.
 
 La palette ne propose que ce que votre compte a le droit de faire.
+
+## Un menu à la taille de la boutique
+
+**Paramètres → Menu.** Une case par entrée du menu : décocher ce dont la
+boutique ne se sert pas (Relances, Chèques, Historique…). **Boutique
+simple** ne garde que l'essentiel, **Complet** remet tout ; puis
+**Enregistrer le menu**.
+
+Tableau de bord, Ventes, Caisse et Paramètres restent toujours. Le
+réglage vaut pour toutes les caisses du dossier, et la palette Ctrl + K
+le suit. Cacher une entrée ne change rien aux données ni aux règles :
+elle disparaît seulement de l'écran. Réservé au patron (modifier les
+paramètres).
 
 ---
 
@@ -140,6 +151,12 @@ tout ce qui sort du tiroir doit être noté, sinon la caisse ne tombera
 pas juste le soir.
 
 **Caisse → Dépense.** Libellé, montant, poste.
+
+> **Le poste « Salaire / main d'œuvre »** est pour la main-d'œuvre d'un
+> jour (porteur, déchargeur). Une avance ou un salaire du personnel
+> suivi dans Gescom Équipe se donne **depuis Équipe**, case « pris dans
+> le tiroir » : la sortie s'écrit alors dans la caisse toute seule.
+> Saisi ici en plus, ce salaire serait compté deux fois.
 
 ## Clôturer le soir
 
@@ -173,6 +190,7 @@ ou écarts irréguliers.
 **Ventes.**
 
 1. Choisir le client, ou laisser **Comptant** pour un client de passage
+   (il paie alors tout, tout de suite — voir plus bas)
 2. Chercher l'article, ajuster la quantité
 3. Ajuster le prix ou saisir une **remise en %**
 4. En haut à droite : **Comptant** ou **Crédit**
@@ -216,7 +234,30 @@ ligne par ligne.
 **Comptant** — le client paie tout de suite.
 
 **Crédit** — le client doit de l'argent. Vous pouvez saisir un
-**acompte** : ce qu'il verse aujourd'hui.
+**acompte** : ce qu'il verse aujourd'hui. Le bouton reste grisé tant
+qu'aucun client n'est choisi : on ne fait pas crédit à quelqu'un sans
+nom.
+
+## Les clients de passage
+
+Une vente au **Comptant** (sans nom) ouvre sa propre fiche **« passage »**,
+avec un code `PAS-000123`. Elle n'encombre ni la liste des clients ni
+les chiffres, mais on la retrouve.
+
+- **Un passant paie tout, tout de suite.** Pas de crédit, pas de
+  paiement en partie : sinon Gescom refuse et dit de créer le client
+  d'abord.
+- **Sur le papier**, la facture et le reçu portent le code `PAS-…`,
+  jamais « Client de passage ».
+- **Clients → Passages** : les retrouver par leur code ou par le numéro
+  de facture. Deux gestes (permission « modifier les clients ») :
+  - **Passer en client ordinaire** : lui donner un nom (obligatoire) et
+    un téléphone ; il devient un client comme les autres ;
+  - **Rattacher à un client** : le passant était en fait un client
+    connu ; ses ventes, paiements, retours et pièces passent sur la
+    fiche de ce client. **Ce geste ne se défait pas.**
+- Un passant qui rapporte un article est remboursé ou fait un échange :
+  pas d'avoir.
 
 ## La marchandise est dans un autre dépôt
 
@@ -237,7 +278,8 @@ endroit.
 
 Après la vente, choisissez le format : A4, A5, ou ticket 58/80 mm.
 **Passer** si le client n'en veut pas — la facture reste disponible dans
-l'écran Pièces.
+l'écran Pièces. La fenêtre d'impression se ferme toute seule après
+« Imprimer ».
 
 ---
 
@@ -346,7 +388,7 @@ côté client comme côté fournisseur.
 
 ## Les modèles de documents
 
-**Paramètres → Modèles de documents.** Chaque document imprimé — facture, devis, bon
+**Paramètres → Documents.** Chaque document imprimé — facture, devis, bon
 de livraison, reçu, relevé, ticket — suit un **modèle** : une suite de
 blocs (en-tête, titre, champs, tableau, totaux, texte, signatures, pied
 de page) qu'on réordonne, règle et prévisualise avec des données
@@ -375,6 +417,20 @@ Sur une pièce fournisseur, le champ « Client » du modèle s'imprime
 Le bouton **œil** montre le document exactement tel qu'il sortira. Vous
 pouvez y changer le format — A4, A5, ticket — et voir le résultat avant
 d'engager du papier.
+
+## Original et duplicata
+
+Une pièce n'a qu'un **original**. Pour un genre de document (facture,
+devis, bon de commande, bon de livraison, reçu, ticket), cocher la case
+**Duplicata** dans **Paramètres → Documents** : la première impression
+est l'original, toutes les suivantes — sur n'importe quelle caisse —
+portent **DUPLICATA** en travers et la date de l'original. L'aperçu le
+dit avant : « Original imprimé le … — celle-ci sortira en duplicata. »
+
+**Réimprimer l'original** (dans l'aperçu) est réservé au patron, et
+noté dans l'Historique. La case est décochée par défaut : sans elle,
+chaque impression sort sans mention. Si le serveur ne répond pas, rien
+ne part à l'imprimante : réessayer.
 
 ## La facture ne devient réelle qu'à sa validation
 
@@ -500,7 +556,11 @@ explique la correction en cas de contrôle.
 
 ## Relancer
 
-**Relances.** La liste des clients en retard, avec le nombre de jours.
+**Relances.** La liste des clients en retard, triée par **ancienneté**.
+En haut, quatre tuiles : créances ouvertes, sans relance, relances de la
+semaine, montant en jeu. Sous chaque créance, « payé » ne compte que
+l'argent reçu ; ce qu'un retour a effacé est dit à part (« éteint par
+retour »).
 
 Bouton **Relancer** : le message est prérempli avec le nom, le montant
 et la référence. WhatsApp s'ouvre, vous vérifiez, vous envoyez.
@@ -576,15 +636,31 @@ récente.
 
 # 7. Les retours
 
-**Retours**, onglet **Retours**.
+**Retours**, onglet **Retours** (cinquante ventes par page) : dépliez la
+vente, puis **Rembourser**, **Échanger** ou **Avoir**. Depuis **Pièces**,
+le menu « … » d'une facture → **Retour ou échange…** ouvre la même
+fenêtre.
 
-Trouvez la vente, choisissez la ligne et la quantité, puis :
+**Plusieurs articles en un geste.** La fenêtre « Retour » liste les
+articles de la vente : cochez ceux qui reviennent (**Tout cocher**
+existe) et ajustez chaque quantité. Ce qui est déjà revenu est dit, et
+une ligne entièrement revenue est grisée. Choisissez le mode :
 
 | Mode | Effet |
 |---|---|
-| **Remboursement** | On rend l'argent |
-| **Avoir** | Le client garde un crédit |
-| **Échange** | Il repart avec autre chose |
+| **Rembourser** | On rend l'argent |
+| **Avoir** | Le client garde un crédit (pas pour un client de passage) |
+| **Échange** | Il repart avec autre chose : « Ajouter un article pris en échange… », puis le bilan dit qui paie quoi |
+
+Le geste passe en entier ou pas du tout ; l'écran dit à la fin ce qu'il
+faut rendre au client.
+
+**Ce que Pièces montre ensuite.** Une facture dont tout est revenu
+affiche **Remboursée** ou **Retournée** à la place de son statut ;
+sinon un badge **Retour partiel**. Sous le total : ce qui a été rendu
+en argent, en avoir, en dette annulée ou échangé. La pastille
+**Retours** filtre ces factures. Le chiffre d'affaires déduit les
+retours au jour du retour (pas l'échange).
 
 > **Important** : si le client n'avait pas tout payé, le retour éteint
 > d'abord sa dette. On ne lui rend que ce qu'il avait réellement versé.
@@ -652,6 +728,22 @@ Bouton **État du stock**. Le document sort avec une colonne **Compté**
 vide : emportez-le dans les rayons, cochez à la main, puis saisissez les
 écarts dans l'application.
 
+## Un article qu'on ne compte pas
+
+Sachets, recharges, services, vrac : certains articles se vendent sans
+qu'on suive leur stock. **Paramètres → Articles**, case **« Suivre le
+stock »** décochée à la création ; pour un article existant, le déplier
+puis **Ne plus suivre le stock** (le patron).
+
+- Il se vend normalement, jamais « à découvert » ;
+- il sort de l'écran Stock (la pastille **Non suivis** le montre) et de
+  la valeur du stock ; les achats disent « stock non suivi » ;
+- on ne le transfère pas et on ne l'inventorie pas.
+
+**Reprendre le suivi** (bouton **Suivre le stock**) demande de compter
+l'article dans **chaque** magasin : le bouton reste grisé tant qu'un
+magasin n'a pas sa quantité.
+
 ---
 
 # 10. Les dépôts
@@ -709,7 +801,8 @@ Un transfert n'est **ni une vente ni un achat** : votre chiffre
 d'affaires ne bouge pas.
 
 > Un transfert **refuse** de mettre le dépôt de départ à découvert. On ne
-> déplace que ce qu'on a.
+> déplace que ce qu'on a. Il refuse aussi un article qui ne suit pas son
+> stock : il n'y a rien à déplacer.
 
 ---
 
@@ -744,16 +837,60 @@ Imprimable, avec un emplacement pour les signatures.
 Format attendu :
 
 ```
-Nom;Categorie;Unite;Prix;Prix achat;TVA %;Code barre;Stock
-Sucre;Alimentaire;kg;1500;1200;18;;50
+Nom;Categorie;Unite;Prix;Prix achat;TVA %;Code barre;Stock;Suivre le stock
+Sucre;Alimentaire;kg;1500;1200;18;;50;oui
+Recharge 1000;Services;unite;1000;950;;;;non
 ```
 
-Seuls le **nom** et le **prix** sont obligatoires. Une catégorie
-inconnue est créée. Un article de même nom est mis à jour, jamais
-dupliqué.
+Seuls le **nom** et le **prix** sont obligatoires. **Suivre le stock**
+(oui / non) est facultatif : vide, un nouvel article suit son stock.
+L'import ne change pas ce réglage sur un article qui existe déjà. Une catégorie
+inconnue est créée. Une **TVA vide** laisse son taux à un article qui
+existe, et donne celui du dossier à un nouveau.
 
-Les lignes incorrectes sont signalées une par une — les autres sont
-importées.
+**D'abord un aperçu** : Gescom dit ce qu'il va créer, mettre à jour,
+laisser ou refuser, ligne par ligne ; rien n'est écrit avant **« Importer
+pour de vrai »**.
+
+**Les doublons.** Un article de même nom est mis à jour, jamais
+dupliqué — sans tenir compte des majuscules ni des espaces en trop :
+« Riz 25 kg » et « riz  25 KG » sont le même. Deux lignes du fichier pour
+le même article et la même unité : la seconde est refusée. Un code-barre
+déjà porté par un autre article refuse la ligne qui créerait l'article.
+Créer à la main un article qui existe déjà est refusé de la même façon.
+
+Les lignes refusées sont signalées une par une — les autres passent.
+
+## Le seuil d'alerte
+
+Sous son **seuil d'alerte**, un article passe « en alerte » : au tableau
+de bord, dans la page Stock (badge orange) et dans le rapport du stock.
+Il se donne **à la création** de l'article (Paramètres → Articles, ou à
+la réception dans Achats), se change ensuite sur la fiche de l'article
+(Paramètres → Articles, en dépliant l'article), ou par la colonne
+**Seuil** de l'import. Il est en unité de base (kg, pièce…).
+
+Vide, l'article prend le **seuil du dossier** (Paramètres → Société,
+5 d'office). **0** : pas d'alerte, seulement la rupture. Un article qui
+ne suit pas son stock n'a pas de seuil.
+
+## Les fournisseurs en Excel
+
+**Fournisseurs → Import / export.** L'export sort les fournisseurs du
+dossier (nom, téléphone, adresse, NIF, email, voisin) ; l'import les
+reprend, avec le même aperçu.
+
+```
+Nom;Téléphone;Adresse;NIF;Email;Voisin
+Sodima SARL;20 22 00 00;ACI 2000;084123456M;;non
+```
+
+Un fournisseur qui a **le même NIF**, ou **le même nom** (sans
+majuscules ni espaces en trop), est le même : l'import complète ce qui
+lui manque (téléphone, adresse…) sans jamais le renommer, ou le laisse
+tel quel si la case est décochée. À la main, un NIF déjà connu est
+refusé ; un nom déjà connu demande **« Créer quand même ? »** — deux
+« Moussa Traoré » peuvent être deux fournisseurs.
 
 ## Codes-barres
 
@@ -772,19 +909,23 @@ fabricant qui n'a pas treize chiffres s'imprime en numéro seul.
 
 # 13. Sauvegarder
 
-La base vit sur le **serveur** : c'est lui qui sauvegarde, une fois par
-semaine, dans le dossier réglé dans **Paramètres → Sauvegarde** (une
-clé USB, un disque externe, branché sur l'ordinateur du serveur). La
-**console du serveur** (`http://localhost:7300`, sur cet ordinateur)
-montre la dernière sauvegarde et permet d'en lancer une.
+La base vit sur le **serveur** : c'est lui qui sauvegarde, dans le
+dossier réglé dans **Paramètres → Sauvegarde** (par défaut le dossier
+`sauvegardes` à côté de la base). La fenêtre **Gescom Serveur** (la
+console, sur l'ordinateur du serveur) montre la dernière sauvegarde et
+permet d'en lancer une.
 
 ## La sauvegarde automatique
 
-Activez-la. L'application sauvegarde alors **une fois par semaine**, au
-démarrage, sans que vous ayez à y penser.
+Le serveur vérifie cinq minutes après son démarrage, puis chaque heure :
+si la dernière copie a vingt-quatre heures, il en fait une. **Quatorze**
+copies sont gardées. Un ordinateur éteint le soir est sauvegardé le
+lendemain matin.
 
-Si la clé n'est pas branchée ce jour-là, un message vous le dit. **Ne
-l'ignorez pas** : tant qu'il s'affiche, aucune copie n'est faite.
+Si le dossier réglé n'est pas joignable (clé USB absente), un message
+vous le dit. **Ne l'ignorez pas** : tant qu'il s'affiche, aucune copie
+n'est faite. Et chaque samedi, copiez le dossier des sauvegardes sur une
+clé gardée hors de la boutique.
 
 ## La sauvegarde à la main
 
@@ -803,10 +944,13 @@ depuis une caisse : restaurer efface tout ce qui a été saisi depuis la
 sauvegarde, et ce geste-là ne doit pas tenir en un clic.
 
 1. Arrêter le service : `sc stop GescomServeur`.
-2. Dans une invite de commandes, dans le dossier d'installation :
-   `gescom-serveur.exe --restaurer "D:\Sauvegardes\gescom_….db"`
-   (ou le fichier `.dump` sur PostgreSQL, avec `--base` si la base n'est
-   pas celle du réglage).
+2. Dans une invite de commandes **en administrateur**, dans le dossier
+   d'installation (`C:\Program Files\Gescom Serveur`) :
+   `gescom-serveur.exe --restaurer "D:\Sauvegardes\gescom_….db" --base C:\ProgramData\Gescom\gescom.db`
+   (ou le fichier `.dump` et l'adresse de la base sur PostgreSQL).
+   **N'oubliez pas `--base`** : sans lui, la copie irait dans la base de
+   l'utilisateur Windows qui tape la commande, pas dans celle du
+   service.
 3. Le programme vérifie que le fichier est bien une base Gescom, garde
    la base en place à côté (`…avant-restauration-<date>`) et dit ce
    qu'il a fait. Un fichier abîmé est refusé, rien n'est touché.
@@ -818,7 +962,7 @@ sauvegarde.
 
 ## Vérifier et réparer
 
-**Paramètres → État de la base → Vérifier la base**, après une coupure
+**Paramètres → Sauvegarde → État de la base → Vérifier la base**, après une coupure
 de courant et **avant** de saisir quoi que ce soit. Saisir par-dessus
 une base abîmée rend la sauvegarde inutile.
 
@@ -827,6 +971,46 @@ compacter**. Il réaffecte les règlements fournisseur enregistrés
 globalement sur les factures qu'ils couvrent, et réduit la taille du
 fichier. Les montants ne changent pas, seule leur affectation. Une copie
 de sécurité est faite avant.
+
+---
+
+# 13 bis. L'année et l'heure
+
+## Les dates de travail (les exercices)
+
+Chaque dossier écrit dans ses **dates de travail** : un exercice, qui
+commence n'importe quel jour (juillet → juin se fait) et dure jusqu'à
+cinq ans. Hors de ces dates, **plus aucune vente ne s'enregistre**.
+
+**Le tableau de bord prévient** : un bandeau orange dans le dernier mois,
+rouge les sept derniers jours. Le patron y a un bouton **Dates de
+travail** ; les autres lisent « Prévenir le patron ».
+
+**Paramètres → Dossiers**, bloc « Dates de travail » (le patron) :
+
+- **Prolonger** : choisir la nouvelle fin, ou +1 / +2 / +3 ans.
+  Une prolongation ne se raccourcit pas : vérifiez l'année.
+- **Couper** : arrêter l'exercice en cours à un jour choisi ; le suivant
+  s'ouvre le lendemain. Rien n'est déplacé : les rapports vont par dates.
+- **Clore** : seulement un exercice **terminé**, et dans l'ordre. Pour
+  s'arrêter plus tôt : couper, puis clore la partie terminée. Un
+  exercice clos ne se rouvre pas.
+- **Ouvrir l'exercice suivant.**
+
+> La numérotation des factures suit l'année civile (`FAC-2026-…`), pas
+> l'exercice : un exercice juillet → juin change de série au 1er janvier.
+
+## L'horloge de l'ordinateur
+
+Si l'heure de l'ordinateur qui garde la base **recule** de plus de
+cinq minutes, **plus rien ne s'enregistre** (« HORLOGE_RECULE ») ; on
+peut encore consulter. Une vente au mauvais jour fausserait la caisse.
+
+- Le plus souvent : **remettre la date et l'heure de Windows** sur cet
+  ordinateur.
+- Si l'heure de Windows est juste (elle avait été **avancée** par
+  erreur, puis corrigée) : le patron le confirme dans **Paramètres →
+  Horloge → L'heure de Windows est juste**.
 
 ---
 
@@ -859,8 +1043,12 @@ masquer.
 | Le stock est faux | Stock → Ajuster, en indiquant le motif |
 | Un montant semble faux | Journal, retrouver l'opération à l'heure près |
 | L'application ne démarre pas | Redémarrer l'ordinateur, puis appeler |
-| « Serveur injoignable » | Le service tourne-t-il (Services → Gescom Serveur) ? Le pare-feu est-il ouvert ? L'adresse dans Paramètres → Réseau est-elle la bonne ? |
-| La date saisie est refusée | Plus de 31 jours en arrière, dans le futur, ou le compte n'a pas la permission *antidater* |
+| « Serveur injoignable » | Le service tourne-t-il (fenêtre Gescom Serveur → Démarrer le service) ? L'ordinateur principal est-il allumé, le Wi-Fi en « Privé » ? Paramètres → Réseau → Rechercher le serveur |
+| La date saisie est refusée | Plus de 31 jours en arrière, dans le futur, le compte n'a pas la permission *antidater*, ou la date sort des dates de travail (13 bis) |
+| « HORLOGE_RECULE » | L'heure de l'ordinateur du serveur a reculé : la remettre juste (13 bis) |
+| « … est hors des dates de travail » | L'exercice est fini : le patron le prolonge (13 bis) |
+| « Pas de crédit pour un client de passage » | Choisir ou créer le client avant de vendre à crédit |
+| « … ne suit pas son stock : rien à transférer ni à compter » | Reprendre le suivi d'abord (Paramètres → Articles) |
 | « Accorder un avoir » absent | Seul le patron a cette permission ; il la donne à la main dans Utilisateurs → Permissions |
 
 ---

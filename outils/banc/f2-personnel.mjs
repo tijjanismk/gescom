@@ -85,7 +85,10 @@ ok((await statut()).includes("sa fiche reste") && await ligne(moussa).count() ==
 await page.getByLabel("Voir les départs").check();
 await page.waitForTimeout(1000);
 ok((await ligne(moussa).innerText()).includes("partie le"), "avec les départs : Moussa, parti");
+// Le retour se date (revue du 28/10) : le jour même du départ, rien
+// n'est interrompu, son entrée ne bouge pas.
 await page.getByRole("button", { name: `Retour de ${moussa}` }).click();
+await page.getByRole("button", { name: "Confirmer le retour" }).click();
 await page.waitForTimeout(1200);
 ok((await statut()).includes("de retour"), "Moussa revient");
 

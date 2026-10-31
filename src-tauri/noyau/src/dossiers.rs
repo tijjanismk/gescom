@@ -116,6 +116,7 @@ pub const TABLES_CLOISONNEES: &[&str] = &[
     "employe",
     "presence",
     "avance",
+    "pret_reglement",
     "fiche_paie",
     "ligne_paie",
     "versement_paie",
@@ -551,7 +552,8 @@ pub fn date_d_ecriture(commande: &str) -> Option<&'static [&'static str]> {
         | "modifier_depense" | "modifier_facture_pos" | "regler_creance_exceptionnel"
         | "rembourser_avoir" | "solder_residus_creances"
         | "valider_facture" | "valider_facture_credit" | "valider_facture_fournisseur"
-        | "donner_avance" | "annuler_avance" | "valider_fiche_paie" | "verser_paie" => Some(AUJOURDHUI),
+        | "donner_avance" | "annuler_avance" | "valider_fiche_paie" | "verser_paie"
+        | "preter" | "rembourser_pret" | "remettre_pret" | "annuler_pret" => Some(AUJOURDHUI),
         _ => None,
     }
 }
@@ -662,7 +664,7 @@ mod tests_dossier_accepte {
 use crate::base::Base;
 use crate::parametres;
 
-fn lire_les_exercices(base: &mut Base, dossier_id: &str) -> Result<Vec<Exercice>, String> {
+pub(crate) fn lire_les_exercices(base: &mut Base, dossier_id: &str) -> Result<Vec<Exercice>, String> {
     base.lire_plusieurs(
         "SELECT id, dossier_id, date_debut, date_fin, prolonge_jusqu_au, clos
          FROM exercice WHERE dossier_id = ?1 ORDER BY date_debut ASC",

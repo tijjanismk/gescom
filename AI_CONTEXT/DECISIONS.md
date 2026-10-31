@@ -409,6 +409,55 @@ Ces points ne demandent pas d'arbitrage — seulement qu'on s'y mette :
 
 Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 
+## D49 — L'accueil du jour d'Équipe (29/10/2026)
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-3) : en ouvrant Équipe, ce qui attend
+la personne connectée — ses rappels dus, les fiches de paie en brouillon,
+les fiches validées pas soldées, les avances en cours — chaque ligne
+menant à l'écran, selon ses droits.
+
+**Retenu** (sept choix posés, acceptés le 29/10/2026) :
+
+1. **Une commande qui rassemble**, `lire_accueil_equipe`, ouverte à toute
+   session (`equipe_jour::accueil_sur`). Les fiches à solder couvrent
+   plusieurs mois et `lire_fiches_paie` exige une période : avec quatre
+   lectures, l'écran bouclerait sur les mois et additionnerait. Une
+   réponse : un endroit où juger les droits, un seul à tester.
+2. **Un bloc n'existe que pour qui a le droit de le lire**, règle pure
+   `coeur::lecture::accueil_equipe` à côté de C-1 : ses rappels
+   (`crm:suivre`, ceux attribués à la personne de la session — D26, pas
+   un paramètre de l'écran) ; brouillons et fiches à solder
+   (`paie:preparer` ou `paie:valider`, la règle de `lire_fiches_paie`) ;
+   avances en cours (`personnel:avancer` ou la paie, la règle de
+   `lire_avances`), **le total seulement avec la paie** — qui n'a que
+   `personnel:avancer` voit le nombre de personnes. Écart assumé avec
+   Paie → Avances : l'accueil reste ouvert devant le comptoir. Un bloc
+   sans droit n'est **ni calculé ni rendu** ; un montant non lisible vaut
+   `null`, jamais 0. Un caissier voit ses rappels ; le patron, tout.
+3. **« Dû » = aujourd'hui et en retard** (`quand <= aujourd'hui`, pas
+   fait), « dont N en retard ». Aujourd'hui = l'horloge du serveur
+   (Bamako est à UTC+0). Les rappels à venir restent dans « Mes rappels ».
+4. **Toutes les périodes du dossier** : un brouillon de septembre oublié
+   est ce qu'il faut voir. Brouillons : nombre et net total. À solder :
+   validées dont le reste à verser est positif (`coeur::paie::reste_a_verser`,
+   le calcul de la fiche), les remplacées non. Avances : ouvertes, montant
+   au-delà du retenu. Chaque tuile nomme la période la plus ancienne.
+5. **Chaque tuile mène à l'écran** : Suivi clients → « Mes rappels » ;
+   Paie → « Fiches du mois » ; Paie → « Avances » (une propriété `vue`
+   facultative sur `Paie` et `SuiviClients`). Risque nommé : la session
+   « Onglets de la paie » retouche ces onglets — une ligne à résoudre à
+   la fusion. FichesPaie s'ouvre sur le mois courant : le sous-titre
+   nomme le mois ; le lien jusqu'au mois, après la fusion des onglets.
+6. **Un bloc « Aujourd'hui »** au-dessus des modules, `KpiPetit` dans
+   `GRILLE`, chaque tuile dans un bouton (`KpiVerre` inchangé). Une tuile
+   à 0 reste (« rien en attente ») ; une lecture qui échoue le dit, les
+   modules restent. La grille des modules ne change pas.
+7. **Les prêts (EQ-1)** : une tuile de plus après fusion.
+
+**Mise en œuvre.** `noyau/src/equipe_jour.rs`, `coeur::lecture::accueil_equipe`,
+`lire_accueil_equipe` dans `socle.rs`, `src/equipe/Accueil.tsx`. Tests :
+`noyau/tests/equipe_jour_base.rs`.
+
 ---
 
 ## Récapitulatif
@@ -427,6 +476,9 @@ Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D47 | **le prêt au personnel** : une avance de nature `pret` (même table) ; `paie:valider` ; échéance fixe par mois civil, reculable de 3 mois, une échéance manquée allonge le prêt ; avances d'abord ; un seul prêt en cours ; soldé calculé ; au départ, tout le reste sur la dernière fiche, puis remboursement ou remise (658) |
+| D42 | **le tiroir, l'avance, la commission** (les questions de D41) : case « pris dans le tiroir » qui écrit la sortie de caisse, sinon hors caisse ; l'avance s'étale à la saisie (tout, ou X F par mois) et se date dans le passé (31 jours au plus) ; la commission sur l'**encaissé**, moins l'argent rendu ; l'ITS saisi à la main, pas de barème — codé le 28/10 |
+| D41 | **la paie suit l'emploi et fige ses conditions** : seulement les jours d'emploi de la période ; prorata en entiers sur les jours du mois, un jour non marqué compte présent ; salaire au mois sur un mois civil ; la rectificative reprend les conditions figées de la fiche ; jours figés après validation ; trop-versé → avance ; commission nette des retours ; montants masqués partout sans droit de paie ; « 15.000 » = 15 000 F |
 | D40 | **la fenêtre « Gescom Serveur »** (la coque de D25) et son panneau **Réseau** — port 40000–40100 et écoute changés par le patron, depuis le poste du serveur seulement, appliqués par le serveur lui-même — et la **recherche automatique** des caisses (UDP 40000, rien de la boutique) |
 | D39 | **le serveur écoute de 40000 à 40100** (40000 par défaut, 7300 abandonné) : la CSP des deux fenêtres énumère ces ports et rien d'autre ; sur le poste qui garde la base, si 40000 est pris, le serveur local prend le suivant libre et `poste.json` le retient ; installeur et pare-feu suivent la plage |
 | D38 | **des exercices comme dans Ciel** : dates libres (juillet → juin se donne), plusieurs années (**5 au plus**), et le dernier exercice ouvert **se coupe** en plein milieu — le suivant s'ouvre le lendemain, au moins jusqu'à l'ancienne fin ; on ne **clôt** qu'un exercice **terminé**, dans l'ordre ; D21 tient (pas de trou, refus hors dates) |
@@ -1113,3 +1165,667 @@ qu'elles retrouvent le serveur — l'écran le dit avant, avec le nombre de
 postes connectés et « Rechercher le serveur ». **Pas vu en vrai** : la
 fenêtre, l'accord administrateur, la relance par Windows, la diffusion
 entre deux machines (TESTS-MANUELS, section K).
+
+## D41 — La paie suit l'emploi et fige ses conditions (28/10/2026)
+
+**Le constat** (relecture demandée par le propriétaire, 10 défauts
+confirmés par des tests) : la paie ignorait les dates d'entrée et de
+départ, comptait le prorata sur les jours *marqués*, laissait un
+gestionnaire sans droit de paie effacer un salaire, reprenait le salaire
+d'aujourd'hui dans une rectificative, perdait les jours marqués après une
+validation, oubliait le trop-versé, commissionnait une vente rendue,
+payait un salaire entier sur une quinzaine, montrait les montants dans
+l'Historique ; et « 15.000 » tapé à l'écran faisait 15 F.
+
+**Retenu** (quatre choix du propriétaire, les autres évidents) :
+
+1. **L'emploi borne tout** : « à préparer » = employé au moins un jour de
+   la période ; préparer hors de l'emploi est refusé ; le calcul se borne
+   aux jours d'emploi, avec ou sans prorata ; un départ ne se date pas
+   avant des jours déjà marqués ; un compte de vente repris ne commissionne
+   le nouveau qu'à partir du lendemain du départ de l'ancien ; un retour
+   après interruption devient la nouvelle entrée.
+2. **Prorata** (choix : *un jour non marqué compte présent*) : salaire ×
+   (jours d'emploi − absences − ½ par demi-journée) ÷ jours du mois, **en
+   entiers** — plus aucun flottant sur l'argent de la paie.
+3. **Le salaire au mois se paie sur un mois civil** ; une autre période
+   est refusée (un journalier, lui, se paie à la quinzaine).
+4. **La fiche fige ses conditions** (`fiche_paie.conditions` : salaire,
+   tarif, commission, déclaré, cotisations) ; la rectificative les reprend
+   (D31 : « ne change pas si on corrige un tarif le mois suivant ») ; une
+   fiche plus ancienne se relit sur ses lignes.
+5. **Valider avant la fin du mois est permis, puis les jours sont figés**
+   (choix) : marquer un jour d'une fiche validée est refusé, sauf pendant
+   une rectificative en brouillon.
+6. **Le trop-versé devient une avance** (choix), créée dans la validation
+   de la rectificative et retenue d'office (D32 ; `avance.trop_verse_fiche_id`).
+7. **La commission se calcule nette des retours** (choix), à leur date ;
+   l'échange ne se déduit pas (comme le CA, lot B) ; jamais négative.
+8. **Sans droit de paie**, la modification d'une fiche du personnel garde
+   la rémunération ; les réponses et l'Historique masquent les montants.
+9. **« 15.000 », « 15 000 », « 15,000 » valent 15 000 F** (`lib/montant.ts`,
+   `MoneyInput`) ; le serveur borne les saisies (10⁹ F, 100 000 unités).
+
+**Questions laissées ouvertes** (des décisions, pas des défauts) : la paie
+et l'avance hors caisse (D31/D32 révisés) quand l'argent sort du tiroir ;
+un maximum de retenue d'avance par mois ; l'avance datée du jour de la
+saisie ; la commission sur des ventes à crédit jamais payées ; un barème
+progressif (ITS) que D33 promet et que le code n'a pas. **Tranchées le
+28/10/2026 : D42.**
+
+## D42 — Le tiroir, l'avance étalée et datée, la commission sur l'encaissé (28/10/2026)
+
+**Le besoin** : les cinq questions que D41 laissait ouvertes. Le
+propriétaire les a tranchées le 28/10/2026, chacune dans le sens proposé.
+
+**Retenu** :
+
+1. **« Pris dans le tiroir »** (précise D31/D32 sans les renverser) : une
+   avance ou un versement de salaire en espèces porte une case « pris dans
+   le tiroir ». Cochée, la sortie de caisse s'écrit dans la même
+   transaction (`mouvement_caisse_id`, colonne qui existait déjà), sur la
+   caisse ouverte du dossier — fermée, refus `CAISSE_FERMEE` avant
+   d'écrire (règle 4). Non cochée, hors caisse comme depuis le 24/09
+   (Orange Money, Moov, virement, espèces du patron). La dépense de caisse
+   « Salaire / main d'œuvre » ne sert plus pour le personnel suivi dans
+   Équipe : le salaire serait compté deux fois (compte 661, paie et
+   dépense).
+2. **L'avance s'étale à la saisie** : « tout sur la prochaine paie » (par
+   défaut, la règle d'avant) ou « X F par mois » — l'accord passé avec
+   l'employé, écrit et imprimé. La fiche retient au plus la mensualité, et
+   jamais plus que le net (le reste se reporte, comme avant). Pas de
+   plafond de dossier.
+3. **L'avance a une date choisie, bornée** : aujourd'hui par défaut ; une
+   date passée est permise, jamais future, jamais avant l'entrée, au plus
+   31 jours en arrière. Si la paie de cette période est déjà validée,
+   l'écran dit qu'elle sera retenue sur la suivante. L'Historique garde le
+   jour de la saisie.
+4. **La commission se calcule sur l'encaissé** (remplace D41 point 7) :
+   elle suit l'argent reçu sur les ventes du vendeur — une vente comptant
+   compte le jour même, une vente à crédit au fil des règlements, dans la
+   période où ils arrivent — moins l'argent rendu sur ses ventes, à la
+   date du retour. Une dette éteinte par un retour ne compte pas : rien
+   n'avait été encaissé.
+5. **L'ITS se saisit à la main** : pas de barème ; le comptable le porte en
+   retenue sur la fiche. D33 est corrigé : une cotisation est un taux,
+   plafonné ou non — « ou un barème » n'existe pas. À revoir quand un
+   comptable le demande, avec une source officielle à jour.
+
+**Les risques nommés** : la commission sur l'encaissé ne paie rien au
+vendeur pour un règlement arrivé après son départ (l'écran le dit) ; à la
+bascule, une vente à crédit déjà commissionnée sur le vendu (fiche validée
+avant D42) ne doit pas l'être une seconde fois à son règlement — la règle
+de la fiche est figée dans ses conditions (D41 point 4).
+
+**Mise en œuvre** (28/10/2026, plan accepté avec ses huit choix de
+détail) : `avances::donner_avance_sur` (`Saisie` : moyen, motif, date,
+mensualité, `du_tiroir`) ; `paie::verser_avec_sur` ;
+`caisses::mouvement_especes_sur` écrit la sortie (motifs
+`avance_salaire`, `salaire`) ou le retour au tiroir à l'annulation
+(`avance_salaire_annulee`, caisse ouverte exigée) ; règles pures
+`coeur::avances::{verifier_tiroir, verifier_mensualite, verifier_date}`
+(31 jours, la règle des ventes ; prise dans le tiroir = aujourd'hui) ;
+colonne `avance.mensualite` ; `retenir_avances` borne chaque avance à sa
+mensualité — **par paie** (un journalier payé à la quinzaine rembourse
+donc deux fois par mois) ; la commission : `Conditions.commission_sur_encaisse`
+(absent = vendu), `paie::encaisse` et `vendu_jusqu_au` (la bascule). Le
+journal comptable CA ne lit que `motif = 'depense'` : l'argent du tiroir
+n'y est pas compté deux fois. Écrans : Avances (date, case, « retenir par
+morceaux »), versement, avertissement sur la dépense « Salaire » de la
+caisse, note au départ d'un vendeur, texte ITS dans Cotisations. Tests :
+`paie_tiroir_base` 8, `commission_encaisse_base` 5 ; `paie_base` et
+`paie_corrections_base` passés sur des ventes payées.
+
+## D43 — L'assistant de création du dossier, au premier démarrage (28/10/2026)
+
+**Le besoin** (le propriétaire) : « comme dans Ciel », un assistant qui
+définit la société, les dates de travail du premier exercice et les
+réglages qui aident ensuite, au lieu d'une base neuve qui démarre avec
+« Ma boutique », l'année civile et `admin123`.
+
+**Retenu** (proposé, accepté le 28/10/2026) :
+
+1. **Connexion d'abord, puis l'assistant prend l'écran.** Le patron entre
+   avec `admin` / `admin123` (l'écran de connexion d'une base neuve le
+   dit : `/sante` porte `assistant_a_faire`). Pas de route ouverte sans
+   mot de passe (Ciel crée son dossier avant toute connexion ; chez nous
+   ce serait une porte ouverte au réseau local). L'assistant marche depuis
+   n'importe quel poste.
+2. **Une marque, pas une devinette** : l'amorçage d'une base neuve pose
+   `config_app.assistant_dossier = a_faire` ; une base sans la marque
+   (toutes celles d'avant) ne voit jamais l'assistant. Une base de
+   démonstration (`GESCOM_DEMO=1`, `donnees_demo`, le banc) la retire
+   (`amorcage::mode_essai`).
+3. **Le serveur ne sert que l'assistant** tant qu'il reste à faire
+   (`assistant::COMMANDES_PERMISES`, refus `ASSISTANT_A_FAIRE`, lu en base
+   à chaque appel) : personne ne vend dans un dossier sans nom. Un
+   vendeur qui se connecte lit « le patron n'a pas encore créé le
+   dossier ».
+4. **Les étapes** : vous (nom, identifiant, mot de passe — celui d'usine
+   refusé) ; la société (raison sociale obligatoire, adresse, deux
+   téléphones, email, NIF, RCCM, site, pied de facture, logo) — elle
+   renomme aussi le dossier ; les dates du premier exercice (D21, D38 :
+   libres, 5 ans au plus, **elles doivent comprendre aujourd'hui**) ; les
+   réglages ; les vendeurs (mot de passe provisoire, à changer) ; le
+   récapitulatif et « Créer mon dossier » ; puis la reprise des données
+   (articles, fournisseurs), qui vient après : le dossier a alors son
+   magasin et sa TVA.
+5. **Les réglages** : devise FCFA, montrée, pas réglable (les montants
+   sont des francs entiers) ; TVA des nouveaux articles 0 ou 18 % (clé
+   `tva_par_defaut:<dossier>`, appliquée par le comptoir, Paramètres et
+   l'import) ; premier numéro de facture de l'année, **seulement dans
+   l'assistant et si aucune facture n'est sortie** (le préfixe `FAC` ne
+   change pas) ; nom du magasin principal ; fond de caisse habituel
+   (`fond_caisse_habituel:<dossier>`, proposé à l'ouverture, modifiable).
+   Ensuite (le propriétaire, le même soir : « on doit pouvoir changer
+   l'état de la TVA dans l'app ») : **l'état de la TVA en tête de
+   Paramètres → TVA** (« La boutique facture-t-elle la TVA ? »), et
+   Gescom **demande** s'il l'applique aussi aux articles existants —
+   oui : tous, en une transaction (`definir_tva_boutique`) ; non : les
+   nouveaux seulement. Il remplace l'ancien « Taux TVA global » de cet
+   onglet, qui envoyait une commande par article (une coupure laissait
+   le catalogue à moitié). Le fond de caisse reste dans Paramètres →
+   Société.
+6. **Plus de compte `employe` / `employe123` d'usine** : un deuxième mot
+   de passe public. Il n'existe plus qu'en démonstration.
+7. **Tout en une transaction** (`assistant::terminer_sur`), le serveur
+   juge chaque champ (`coeur/assistant.rs`) ; le logo part par sa
+   commande. Trace `assistant_dossier_fait` à l'Historique, sans mot de
+   passe.
+
+**Ce qu'on ne prend pas de Ciel** : le dossier de démonstration au
+choix (le générateur de base de démonstration est un autre chantier) ;
+le nombre de décimales (aucune en FCFA) ; régler le préfixe des pièces.
+
+**Les risques nommés** : sur un serveur neuf branché au réseau, une
+caisse peut se connecter en `admin123` avant le patron (c'était déjà le
+cas ; l'écran le dit) ; un premier numéro de facture ne vaut que pour
+l'année en cours — la série repart à 1 chaque 1er janvier, comme
+toujours ; `parametres_societe` n'est pas cloisonnée (une société qui
+imprime par installation) : l'assistant ne sert qu'au premier dossier,
+les suivants se créent dans Paramètres → Dossiers. Gescom Équipe n'a
+pas l'assistant : sur une base neuve, ses écrans disent « dossier pas
+encore créé ».
+
+**Mise en œuvre.** `noyau/src/assistant.rs`, `coeur/assistant.rs`,
+marque posée par `amorcage::amorcer` et `seed` ; verrou dans
+`serveur/src/api.rs` ; commandes `lire_assistant`, `terminer_assistant`,
+`lire_reglages_dossier`, `definir_reglages_dossier`. Écran
+`src/pages/AssistantDossier.tsx` (App le montre à la place de tout),
+`ReglagesDuDossier.tsx`, `lib/reglagesDossier.ts`. Tests :
+`noyau/tests/assistant_base.rs`, route HTTP
+`une_base_neuve_ne_sert_que_l_assistant…`, banc `p1-premier-demarrage`
+(`lancer.ps1 monoposte -Neuf -SansDemo`).
+
+## D44 — Les doublons d'articles et de fournisseurs, l'import et l'export (28/10/2026)
+
+**Le besoin** (le propriétaire) : l'import et l'export des fournisseurs,
+la gestion des doublons, idem pour les articles.
+
+**Retenu** (proposé, accepté le 28/10/2026) :
+
+1. **Un doublon se reconnaît sans la casse ni les espaces en trop**
+   (`coeur::doublons::normaliser_nom` : « Riz 25 kg » = « riz  25 KG ») ;
+   les accents comptent. Articles : le nom, et le code-barre. Fournisseurs :
+   le même NIF (même entreprise, refus) ou le même nom (homonyme possible).
+2. **L'import montre un aperçu avant d'écrire** (`simuler`) : le même code,
+   dans une transaction qui retombe — l'aperçu ne peut pas mentir.
+   Créés, mis à jour / complétés, laissés (doublons), refusés, ligne par
+   ligne.
+3. **Articles** : une ligne répétée (même article, même unité) est
+   refusée ; un code-barre déjà porté par un autre article refuse SA ligne
+   à la création (avant : erreur SQL et tout l'import perdu), n'est pas
+   repris à la mise à jour ; un article désactivé du même nom est dit, pas
+   mis à jour en silence ; une colonne TVA vide garde le taux d'un article
+   existant (avant : remis à 0) et donne celui du dossier (D43) à un
+   neuf ; sans « mettre à jour », les unités d'un article créé par le même
+   fichier passent quand même. La création dans Paramètres refuse un nom
+   vide et un doublon, comme le comptoir.
+4. **Fournisseurs** : export CSV (même format que le catalogue, sans le
+   « Fournisseur divers ») ; import qui crée, ou **complète** un doublon
+   (seulement ses champs vides, jamais son nom), ou le laisse ; à la
+   main, un NIF déjà connu est refusé, un homonyme demande « créer quand
+   même » (`FOURNISSEUR_HOMONYME`, `forcer`), un nom vide ou le nom
+   réservé du « Fournisseur divers » est refusé, à la création comme à
+   la modification.
+
+**Ce qu'on ne fait pas** : fusionner deux fiches déjà en double (leurs
+pièces, leurs dettes) — un autre chantier ; rapprocher un homonyme par
+son téléphone (deux numéros pour une personne, un numéro pour deux
+boutiques : trop d'erreurs).
+
+**Mise en œuvre.** `coeur/doublons.rs`, `fournisseurs_csv.rs`,
+`catalogue_csv::importer_articles_csv_sur_base` (aperçu, doublons),
+`refuser_doublon_article_sur` ; commandes `exporter_fournisseurs_csv`,
+`importer_fournisseurs_csv`, paramètre `simuler`. Écran
+`ImportCsvAvecApercu.tsx`, `ImportExportFournisseurs.tsx` (page
+Fournisseurs, assistant), `lib/homonyme.ts`. Tests :
+`noyau/tests/doublons_base.rs`.
+
+## D45 — Le seuil d'alerte des articles (28/10/2026, nuit)
+
+**Le besoin** (le propriétaire) : « on définit le seuil pour les
+articles lors de la création ». Relevé : aucun seuil par article ; 5 en
+dur au tableau de bord et dans les rapports, 10 dans la page Stock.
+
+**Retenu** (deux choix posés, acceptés) :
+
+1. **Un seuil par article** (`article.seuil_alerte`, unité de base),
+   commun aux dossiers comme l'article ; vide : **le seuil du dossier**
+   (`config_app seuil_alerte_defaut:<dossier>`, Paramètres → Société,
+   **5 d'office** — rien ne change pour les articles existants).
+2. **Saisi à la création** (Paramètres → Articles, Achats → nouvel
+   article), changé sur la fiche de l'article (`definir_seuil_article`),
+   par la colonne **Seuil** de l'import (vide : inchangé), rendu à
+   l'export.
+3. **Un seul calcul** (`coeur::stock::statut_stock`) : « alerte »
+   strictement sous le seuil (le stock minimum de Ciel), « rupture » à 0
+   ou moins ; **0 coupe l'alerte**. Tableau de bord (total du dossier ou
+   du magasin choisi), rapport du stock et page Stock (la ligne du
+   magasin) comptent pareil — fini le 5 ici, 10 là.
+4. Le serveur juge : positif ou nul, au plus un million ; un article
+   qui ne suit pas son stock n'a pas de seuil (refus qui le dit).
+
+**Pas pris** : un seuil par magasin (proposé, écarté : une saisie par
+magasin pour une boutique qui n'en a souvent qu'un).
+
+**Au passage, deux décisions du propriétaire le même soir.** (a) Créer
+un **nouveau dossier par le même assistant** et donner **à chaque
+dossier sa société** : « on laisse pour cette version » (ALERTES). (b)
+L'assistant du premier démarrage a été retiré, puis **rétabli** sur sa
+demande (« on peut revenir ici ») : D43 reste telle qu'écrite.
+
+**Mise en œuvre.** Colonne dans `schema.sql`, `persistance/mod.rs`,
+`amorcage.rs` ; `coeur::stock::{SEUIL_ALERTE_DEFAUT, verifier_seuil,
+statut_stock}` ; `assistant::seuil_defaut_sur` ;
+`parametres::definir_seuil_article_sur` ; `creer_article_complet` et
+`creer_article_rapide` prennent `seuilAlerte` ; `definir_reglages_dossier`
+prend `seuilDefaut`. Écran `ChampSeuil.tsx` (création, fiche),
+`ReglagesDuDossier`, badge de `Stock.tsx`. Tests :
+`noyau/tests/seuil_base.rs`.
+
+## D46 — La lisibilité : WCAG AA, plus de couleur claire sur fond clair (29/10/2026)
+
+**Le besoin** (le propriétaire) : du « jaune sur jaune » dans
+l'Historique de caisse, puis dans le résultat d'un import — « regarder
+si le problème est récurrent ». Relevé : **43 encadrés** sur fond
+orange, ambre ou jaune pâle dans **22 écrans**, **25 textes** orange
+clair (l'orange 500 fait 2,80:1 sur blanc), des boutons orange 600 où le
+texte blanc fait 3,56:1. Aucun niveau de lisibilité n'était écrit.
+
+**Retenu** (deux choix posés, acceptés) :
+
+1. **Le niveau : WCAG 2.2 AA** — 4,5:1 pour le texte, 3:1 pour un bord
+   ou une icône ; un état se dit aussi en mots.
+2. **Un seul style d'encadré d'alerte** : fond de carte (`bg-card`), bord
+   gris, la couleur seulement au liseré (`border-l-4 border-l-orange-600`
+   ou `amber-600`) et à l'icône (700), texte normal. Un champ surligné
+   (date antidatée, remise) : un bord ambre ou orange 600, fond normal.
+3. **Les pastilles d'état** gardent leur fond pâle (`bg-*-100`), texte
+   **900** (≈ 7:1).
+4. **Texte** orange, ambre ou jaune : nuance 700 au moins ; **bouton
+   plein** : 700 (texte blanc 5,2:1).
+5. **Garde-fou** : `src/lib/lisibilite.test.ts` (`node --test`) relit tous
+   les écrans et nomme chaque ligne qui revient en arrière (fond 50 ou
+   transparent, texte 300–600, pastille sans 900, bouton 500/600) ; il
+   vérifie aussi les contrastes des couleurs retenues. Le thème sombre
+   (`dark:`) n'est pas concerné.
+
+**Pas fait** : les couleurs vertes, rouges et bleues ne sont pas
+passées au crible (le rouge 600 et le vert 600 frôlent 4,5:1) ; le
+parcours au clavier et le zoom 200 % ne sont pas vérifiés. Nommé dans
+ALERTES.
+
+**Mise en œuvre.** 105 lignes dans 28 fichiers, par règle (script),
+puis les encadrés relus à la main : lignes de tableau (fond neutre, une
+bordure de `<tr>` ne s'affiche pas), bords internes des encadrés.
+
+## D47 — Le prêt au personnel sur plusieurs mois (29/10/2026)
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-1) : 60 000 F prêtés pour la Tabaski
+ou la rentrée, retenus 10 000 F par mois sur la fiche de paie ; la
+retenue ne dépasse jamais le net, le reste se reporte ; soldé, le prêt se
+ferme ; hors caisse comme l'avance (D31, D32) ; journal PA.
+
+**Le relevé** : l'avance étalée de D42 (« X F par paie ») fait déjà
+l'essentiel — retenue bornée par la mensualité et par le net, report,
+rectificative, trop-versé, double validation, PA 421 / trésorerie et
+422 / 421. Un second circuit referait tout cela en double. D47 n'ajoute
+que ce qu'un prêt a de plus.
+
+**Retenu** (proposé, accepté tel quel le 29/10/2026) :
+
+1. **Un prêt est une avance d'une autre nature** : la table `avance`
+   reçoit `nature` (`avance` | `pret`) et `retenir_des` (le premier mois
+   retenu). La ligne de la fiche reste du genre `avance` (sa source est
+   le prêt) : validation, rectificative et journal marchent sans
+   changer ; le libellé dit « Prêt du … ». `prets.rs` et `coeur/pret.rs`
+   portent ce qui est propre au prêt ; l'onglet « Avances » ne montre
+   plus les prêts, l'onglet « Prêts » les montre.
+2. **Le droit : `paie:valider`** (le patron) pour prêter, rembourser,
+   remettre, annuler. 60 000 F sont un engagement de la société, pas un
+   dépannage ; aucune permission nouvelle. L'avance reste à
+   `personnel:avancer`. Lire les prêts : qui lit la paie (C-1).
+3. **Échéancier fixe, compté par mois civil** : mensualité obligatoire,
+   plus petite que le montant (sinon c'est une avance) ; première retenue
+   sur la paie du mois suivant le prêt, reculable de trois mois au plus.
+   Par **mois**, pas par paie : un journalier payé à la quinzaine
+   rembourse l'échéance une fois par mois (ce que les fiches validées du
+   même mois ont déjà retenu se déduit). Une échéance manquée (net trop
+   maigre) **allonge** le prêt, elle ne se double pas : le salaire suivant
+   est protégé, la fin prévue recule. Sur une fiche maigre, **les avances
+   d'abord**, les prêts ensuite. **Un seul prêt en cours** par personne ;
+   le prêt n'entre pas dans le plafond d'avance. Même date que l'avance
+   (31 jours en arrière au plus) et même case « pris dans le tiroir ».
+4. **Soldé se calcule, ne s'écrit pas** : un prêt est soldé quand il ne
+   reste rien (`montant - retenu = 0`). Une rectificative qui réduit le
+   net rend ce que l'ancienne fiche avait retenu et retient de nouveau :
+   le prêt se rouvre de lui-même.
+5. **Un départ** : la fiche qui contient le jour du départ retient **tout
+   le reste**, dans la limite du net (solde de tout compte). Ce qui ne
+   passe pas reste dû, sur la fiche de la personne et dans « Prêts » ; le
+   patron note un **remboursement** (espèces, Orange Money… — PA
+   trésorerie / 421, hors caisse) ou une **remise** du reste (PA 658 /
+   421, affectation `paie:prets_remis` que le comptable peut changer). Le
+   remboursement direct se note aussi pendant l'emploi. Les deux montent
+   dans `avance.retenu` (ce qui n'est plus dû) et s'écrivent dans
+   `pret_reglement` (daté, pour le journal).
+6. **Le reste ne change pas** : annuler seulement si rien n'a été retenu ;
+   montants masqués sans droit de paie, à la lecture et dans
+   l'Historique ; pas d'impression du prêt dans EQ-1.
+
+**Les risques nommés** : deux fiches de quinzaine du même mois validées au
+même instant pourraient retenir chacune l'échéance (la validation
+recalcule avant de figer : la fenêtre est étroite, pas nulle). Après
+fusion, EQ-2 (état de paie) et EQ-3 (accueil) lisent la table `avance` :
+les prêts y entrent s'ils ne filtrent pas `nature`.
+
+## D48 — L'état de paie du mois (29/10/2026) — acceptée le 29/10
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-2) : savoir d'un coup d'œil ce que le
+mois coûte et ce qui reste à payer, personne par personne. Relevé :
+aujourd'hui il faut ouvrir les fiches une à une (`FichesPaie.tsx`) ; le
+seul total est le coût des salaires de Rapports → CA mensuel
+(`paie::salaires_par_mois_sur` : brut + charges patronales des fiches
+validées, rangées au mois de la **fin** de leur période). Le CSV existe
+pour les journaux (`coeur::journaux::csv` : point-virgule, BOM,
+montants entiers) ; l'impression d'Équipe passe par une iframe
+(`ApercuBulletin.tsx`) et l'habillage de `lib/impression.ts`.
+
+**Retenu** (accepté tel quel) :
+
+1. **Le mois d'une fiche est celui de la fin de sa période** — la règle
+   de `salaires_par_mois_sur`. Une semaine du 28/09 au 04/10 compte en
+   octobre, une seule fois. *Pourquoi* : prendre « les fiches qui
+   touchent le mois » (comme la liste des fiches) compterait deux fois
+   une quinzaine à cheval, et le total ne collerait plus à Rapports.
+2. **Une ligne par personne** : la somme de ses fiches **validées** du
+   mois (un journalier payé à la semaine en a quatre), avec leurs
+   numéros. **Les fiches remplacées ne comptent pas** : leur
+   rectificative les remplace, et leurs versements l'ont suivie (D41).
+3. **Colonnes** : brut, avances retenues, autres retenues (casse,
+   absence, ITS saisi), cotisations salariales, **net**, déjà versé,
+   **reste dû** ; et, seulement si le mois en a, les charges patronales
+   (hors du net). Le classement se fait sur le **genre** de chaque ligne
+   de la fiche, jamais en recalculant : l'état relit ce que la fiche a
+   figé. Un genre inconnu (le prêt d'EQ-1, avant fusion) tombe dans
+   « autres retenues » : le net reste juste, la colonne « prêt » viendra
+   après fusion.
+4. **Les totaux** : chaque colonne, plus **le coût du mois** = brut +
+   charges patronales — **le même chiffre que Rapports → CA mensuel**,
+   et le test le vérifie. Reste dû : la somme des restes positifs ; un
+   versé en trop non repris (rare : une avance de trop-versé annulée)
+   se dit à part, sur sa ligne et en total, pas soustrait en silence.
+5. **Ce qui n'est pas fini se signale, hors des totaux** :
+   - les **brouillons** du mois : nom et net provisoire, sous le
+     tableau, « à valider — pas comptés » ;
+   - les personnes **employées au moins un jour du mois sans aucune
+     fiche** (la liste « à préparer » de `paie::lister_sur`) : « pas de
+     fiche ». *Pourquoi* : la personne oubliée à la paie est le trou le
+     plus probable ; l'état est la liste de contrôle du patron. Mais un
+     brouillon n'est pas une dette : il peut encore changer.
+6. **Qui le lit : `paie:preparer` ou `paie:valider`, sinon refus**
+   (`coeur::lecture`, `RefusSaufUne(PAIE_LIRE)`) — l'état n'est fait
+   que de montants, comme le relevé d'une dette (C-1). Un caissier, ou
+   qui n'a que `personnel:avancer`, est refusé et ne voit pas l'onglet.
+   Dossier courant seulement (C-2).
+7. **Lecture seule** : aucune action depuis l'état ; on paie et on
+   corrige dans « Fiches du mois ». Le « déjà versé » est celui du jour
+   où on lit : l'impression dit « établi le … ».
+8. **Imprimer** : A4, par l'habillage du **bulletin** (en-tête, pied,
+   filigrane de la société), sans nouveau réglage dans Paramètres →
+   Documents ; titre « État de paie — octobre 2026 », tableau, totaux,
+   brouillons et « pas de fiche » en bas, « établi le … par … ».
+9. **CSV** : fabriqué **par le serveur** (`exporter_etat_paie_csv`),
+   même règle de lecture que l'état ; le format des journaux
+   (point-virgule pour Excel français, BOM, francs entiers, une ligne
+   par personne, une ligne TOTAL) ; nom `etat_paie_2026-10.csv`.
+   *Pourquoi* : un seul format, et le refus s'applique au fichier comme
+   à l'écran.
+
+**Pas pris** : une ligne par fiche plutôt que par personne (le patron
+pense en personnes ; les numéros restent sur la ligne) ; les brouillons
+dans les totaux (un chiffre qui bouge encore) ; un état sur une période
+libre (le mois suffit ; la semaine se lit dans « Fiches du mois »).
+
+**Risques nommés** : une fiche à cheval sur deux mois apparaît dans le
+mois de sa fin seulement (dit en bas de l'état) ; le « déjà versé »
+change d'un jour à l'autre (daté à l'impression).
+
+## D52 — Les absences notées, sans calcul légal (29/10/2026)
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-6) : la grille des jours (F-3) dit
+qu'Awa n'est pas venue, pas pourquoi. Le patron veut savoir, à la fin
+de l'année, combien de jours de maladie, de permission, de congé et
+d'absence chacun a eus — sans que Gescom calcule un droit à congé ni
+une paie de maladie (§ 4 l'écarte).
+
+**Retenu** (proposé, accepté par le propriétaire le 29/10) :
+
+1. **Une colonne `presence.motif`**, pas une table à part : le motif
+   décrit un jour marqué ; une table séparée pourrait dire « maladie »
+   d'un jour effacé ou présent. Dans `schema.sql`, `amorcage.rs` et la
+   migration de la fenêtre (`persistance/v2.rs`).
+2. **Quatre motifs** : maladie, permission, congé (`conge`), absence. Un
+   jour A ou ½ sans motif choisi **est une absence** (enregistré
+   `absence` ; une ligne d'avant D52, motif vide, se lit pareil). Pas de
+   texte libre : on écrit « maladie », jamais le diagnostic.
+3. **Le motif ne change pas la paie.** `paie.rs` et `coeur/paie.rs` ne
+   le lisent pas : le journalier est payé de ses jours travaillés comme
+   avant ; au prorata, chaque A ou ½ retire quel que soit son motif,
+   **congé compris**. Un congé que le patron paie se marque P. La grille
+   le dit en une ligne.
+4. **Une demi-journée peut avoir un motif** (permission l'après-midi) ;
+   elle compte ½ dans le compte de l'année. Un jour P ou effacé n'a pas
+   de motif : refusé.
+5. **Sur un jour figé par une fiche validée, le motif se corrige encore,
+   l'état non** : la paie ne lit pas le motif, et le certificat arrive
+   souvent après la paie. Jugé dans la transaction qui écrit.
+6. **Commandes** : `marquer_presence` prend un `motif` facultatif
+   (`presences::marquer_avec_motif_sur` ; `marquer_sur` reste, sans
+   motif) ; `lire_absences_annee(annee)` rend, pour chaque personne qui
+   a au moins un A ou ½ dans l'année civile, ses jours par motif. Lecture
+   comme la grille (`PERSONNEL_LIRE`). Règle pure : `coeur::presences`
+   (`MOTIFS`, `verifier_motif`, `compter_motifs`).
+7. **Écran** : un clic sur une case ouvre un petit menu (Présent ;
+   Absent ou Demi-journée × les quatre motifs ; Effacer) — deux clics
+   pour une absence au lieu de trois. La case affiche A, M, Pe, C, ou ½
+   suivi de la lettre ; couleurs inchangées (D46). Sous chaque personne
+   de la liste du Personnel : « Absences 2026 : maladie 2 · congé 1 »,
+   seulement s'il y en a.
+
+**Pas fait, exprès** : solde de congés, jours acquis, certificat joint,
+paie de la maladie, congé payé au prorata (§ 4 ; le point 3 le dit à
+l'écran).
+
+**Mise en œuvre.** `noyau/src/presences.rs`, `coeur/presences.rs`,
+`coeur/lecture.rs`, `serveur/src/socle.rs`, `src/equipe/JoursTravailles.tsx`,
+`src/equipe/Personnel.tsx`. Tests : `noyau/tests/absences_base.rs`.
+
+## D50 — Les clients à relancer (29/10/2026)
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-4) : dans le Suivi clients de Gescom
+Équipe, une liste tirée de la base, sans rien saisir — les clients qui
+n'achètent plus, ceux qui doivent depuis longtemps, les meilleurs qui
+ralentissent ; un clic note l'échange ou pose le rappel (D34).
+
+**Retenu** (proposé, accepté par le propriétaire le 29/10) :
+
+1. **Qui entre** : les clients nommés et actifs (`statut = 'client'`,
+   `actif = 1`, non générique). Une vente annulée n'est pas un achat. La
+   vente au comptant passe par « client divers » : **la liste ne connaît
+   que les clients qu'on a nommés** — nommé, pas corrigé.
+2. **Dormant** : dernier achat il y a **N jours ou plus** ; N = **60
+   d'office**, réglage du dossier (`config_app crm_jours_dormant:<dossier>`),
+   **15 à 365**, changé avec `parametres:modifier`.
+3. **Créance en retard** : une vente non soldée de **plus de 30 jours** —
+   la même règle que l'écran Relances de Gescom ; la constante vit dans
+   `coeur::crm_relances`. Pas de date d'échéance sur la vente.
+4. **Meilleur client qui ralentit** : référence = du 91ᵉ au 360ᵉ jour
+   avant aujourd'hui, ramenée à 90 jours (÷ 3) ; « meilleur » = parmi les
+   **10 premiers** du dossier par chiffre de référence, avec **au moins
+   3 achats** dans la référence ; **ralentit** si son chiffre des **90
+   derniers jours** est sous la **moitié** de sa moyenne de référence.
+   Des constantes, pas des réglages. Nommé : les retours ne sont pas
+   déduits du chiffre ; sur une base de moins d'un an la référence est
+   maigre (peu de faux signaux).
+5. **Une ligne par client**, ses motifs ensemble. Ordre : créances en
+   retard (la plus vieille d'abord), puis ceux qui ralentissent (le plus
+   gros chiffre de référence d'abord), puis les dormants (les plus
+   récemment endormis d'abord, les plus faciles à faire revenir).
+6. **Garde-fou contre le harcèlement** : un client **sort de la liste 14
+   jours** après un échange ou une relance de créance, et tant qu'un
+   **rappel non fait** l'attend. La liste dit combien sont mis de côté.
+7. **Le clic** réutilise les commandes du CRM : « Noter » crée un
+   **échange** (genre et texte préremplis, modifiables) ; « Me le
+   rappeler » pose un **rappel** pour soi, demain d'office. Même sur une
+   ligne de créance, c'est un échange (un seul chemin) — **nommé** :
+   l'écran Relances de Gescom ne le compte pas comme relance.
+8. **Lecture** : refusée sans `crm:suivre`. Sans `tiers:lire_solde`, le
+   motif créance **n'est pas calculé** (paramètre neutralisé, comme le
+   filtre « avec dettes » des clients : la présence du client trahirait
+   sa dette), et le reste dû est masqué. Sans `rapports:lire`, les
+   chiffres d'affaires valent `null` ; le nombre d'achats et la date du
+   dernier restent. Le caissier voit dormants et ralentis, sans montant.
+9. **Les prospects** restent hors de cette liste : ils ont leur onglet,
+   et « dormant » n'a pas de sens pour qui n'a jamais acheté.
+
+**Ajouts** (demandés par le propriétaire, proposés le 29/10, **tous
+acceptés le 30/10** — « Oui, tout accepté ») :
+
+10. **L'étape d'un prospect** : `client.etape_prospect` = `nouveau`,
+    `contacte`, `interesse` ou `abandonne` ; vide vaut `nouveau`. Pas
+    d'autre statut : `statut` reste `prospect` jusqu'à la première vente.
+    Un échange noté sur un prospect `nouveau` le passe `contacte`, sans
+    rien saisir. Un abandonné qui achète devient client quand même — rien
+    ne bloque une vente. Quatre mots, pas un pipeline à étapes (§ 4).
+11. **La raison d'un abandon**, obligatoire : trop cher, a acheté
+    ailleurs, plus besoin, injoignable, **autre** (une liste fermée
+    obligerait à mentir).
+12. **Le compte des prospects**, en tuiles en tête de l'onglet Prospects,
+    pour un mois choisi (le mois en cours d'office) : créés, **devenus
+    clients** (`client.devenu_client_le`, posé par la bascule), les deux
+    par origine ; les abandons en cours par raison (un état, pas un
+    flux). Les abandonnés sont cachés de la liste d'office (case « voir
+    les abandonnés »). Nommé : un prospect devenu client avant ce
+    changement n'a pas de `devenu_client_le` et n'est compté nulle part.
+13. **Un client « parti »** : `client.parti_le` et `client.raison_sortie`
+    (la même colonne que la raison d'un abandon — une fiche est prospect
+    ou client, pas les deux). Raisons : prix, concurrent, mécontent, a
+    déménagé, autre. Le bouton est sur la fiche 360 et sur la ligne « À
+    relancer » ; il s'annule (« Il est revenu ») en cas d'erreur de clic,
+    sans compter un reconquis. Le geste est noté au journal.
+14. **Il rachète, il redevient actif tout seul**, dans la même aide que
+    la bascule prospect (`argent::prospect_devient_client[_sur]`), donc
+    dans la transaction de la vente : `parti_le` vidé, `revenu_le` = la
+    date. Les **reconquis du mois** se comptent par `revenu_le`.
+15. **Garde-fous** : « parti » ne bloque **jamais** une vente, n'efface
+    ni l'historique, ni les échanges, ni la créance. **Un client parti qui
+    doit de l'argent reste dans « À relancer », pour la créance
+    seulement** (l'argent dû ne part pas avec lui) ; il n'est plus ni
+    dormant, ni compté parmi les meilleurs clients.
+16. **Les partis se voient** en tête de « À relancer » : « Partis : 5
+    (prix 2, concurrent 2, a déménagé 1) · reconquis ce mois : 1 », qui
+    s'ouvre sur la liste des partis et leur raison. Tout avec
+    `crm:suivre` ; ces comptes ne disent aucun montant.
+
+Commandes : `changer_etape_prospect`, `marquer_client_parti`,
+`annuler_client_parti` (écritures, `crm:suivre`), `lire_compte_prospects`
+(lecture refusée sans `crm:suivre`) ; les partis viennent avec
+`lire_clients_a_relancer`.
+
+## D51 — WhatsApp sans service payant : le lien, pas l'envoi (29/10/2026)
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-5) : envoyer à l'employé le résumé
+de son bulletin, et écrire à un client depuis sa fiche 360, par
+WhatsApp, sans abonnement ni envoi automatique. Relevé : les téléphones
+(`employe.telephone`, `client.telephone`) sont du **texte libre**, jugé
+nulle part ; la coque d'Équipe ne sait **ouvrir aucun lien** (une seule
+commande, `lire_config_reseau`) ; la caisse ouvre WhatsApp depuis les
+relances de créance par `cmd /C start` et préfixe « 223 » à l'aveugle.
+
+**Retenu** (six choix posés, acceptés le 29/10/2026) :
+
+1. **Le lien, pas l'envoi.** Un bouton ouvre `https://wa.me/<numéro>?text=<texte>` :
+   WhatsApp (application ou WhatsApp Web) s'ouvre sur la conversation,
+   le texte déjà écrit ; **c'est la personne qui appuie sur Envoyer**,
+   et elle peut encore le corriger. Ni API WhatsApp Business (payante,
+   compte Meta, modèles validés), ni envoi en tâche de fond.
+2. **Le numéro** (`src/lib/whatsapp.ts`, pur, testé par `node --test`).
+   Espaces, points, tirets, parenthèses ignorés ; on lit :
+   - **8 chiffres** (`76 11 22 33`) → malien, `+223` ajouté ;
+   - **`+223`, `00223` ou `223`** suivi de 8 chiffres → le même ;
+   - **`+` ou `00` suivi d'un autre indicatif** (8 à 15 chiffres en
+     tout) → pris tel quel : la diaspora (France, Côte d'Ivoire…) a des
+     clients et des employés à Bamako ;
+   - **tout le reste est douteux, et le bouton est désactivé avec la
+     raison** sous les yeux : pas de numéro sur la fiche ; des lettres ;
+     deux numéros dans le champ (« 76… / 66… ») ; une longueur fausse
+     (« 7 chiffres : un numéro malien en a 8 ») ; 8 chiffres qui
+     commencent par 0 ; un numéro long sans indicatif (« 06 12 34 56 78 »
+     — on ne devine pas le pays, écrire `+33…`).
+   Pourquoi refuser plutôt que deviner (règle 5) : un lien vers le
+   mauvais numéro envoie un salaire ou une créance **à un inconnu**. La
+   fiche n'est **pas réécrite** : le numéro lu ne sert qu'au lien ; on
+   corrige la fiche si le bouton dit qu'elle est douteuse. Une ligne
+   fixe (2…) passe : WhatsApp dira lui-même que le numéro n'y est pas.
+3. **Le bulletin** (bouton « WhatsApp » de l'aperçu) : seulement une
+   fiche **validée** (numérotée) — un brouillon peut encore changer, une
+   fiche remplacée n'est plus la bonne (bouton désactivé, raison dite).
+   Le texte : bonjour, la période, le numéro du bulletin, **le net, le
+   déjà versé, le reste dû** (« soldée » à zéro ; le versé en trop et
+   l'avance reportée s'ils existent), le nom de la société. Pas le
+   détail des lignes : il reste sur le papier signé.
+   **Le montant jamais sans droit de paie** : l'aperçu lit
+   `lire_donnees_bulletin`, que le serveur refuse déjà sans
+   `paie:preparer` ou `paie:valider` (`coeur::lecture`) ; le texte est
+   fait de ce que le serveur a rendu, et aucun autre écran n'écrit un
+   salaire. Rien n'est noté côté employé : le fil d'échanges est celui
+   du client (D34), le personnel n'en a pas.
+4. **Le client** (fiche 360, à côté du téléphone) : une zone de message
+   qui commence par « Bonjour <nom>, », la personne écrit la suite. Pas
+   de modèle (créance, promotion) : les relances de créance ont déjà
+   leur écran, et la liste à relancer (EQ-4) recevra son bouton après
+   fusion.
+5. **L'échange se note après confirmation, pas au clic.** WhatsApp
+   ouvert, la fiche demande : « Le message est-il parti ? » — **Oui** :
+   `creer_echange` (genre `whatsapp`, le texte en « quoi ») ; **Non** :
+   rien. Pourquoi : au clic, la fiche 360 garderait des messages jamais
+   partis (WhatsApp refermé, numéro absent de WhatsApp) — un fil qui
+   ment. Le risque inverse (oublier de répondre Oui) laisse un trou que
+   la personne comble à la main, comme avant. Aucune commande serveur
+   nouvelle : `creer_echange` exige déjà `crm:suivre`.
+6. **Ouvrir le lien.** Dans la coque d'Équipe : `tauri-plugin-opener`
+   (déjà dans le `Cargo.lock` et `package.json`, la caisse l'utilise),
+   avec une permission **limitée à `https://wa.me/*`** — la fenêtre ne
+   peut rien ouvrir d'autre. Pas `cmd /C start` : le texte encodé est
+   plein de `%`, que l'invite de commandes peut lire comme des
+   variables. Dans un navigateur (essais, Vite) : `window.open`.
+
+**Pas pris** : l'envoi automatique ou groupé, les SMS, les modèles de
+message, un bouton WhatsApp pour un employé hors bulletin.
+
+**À noter, pas corrigé ici** : la caisse (`src/pages/Relances.tsx`)
+préfixe « 223 » à tout numéro qui ne commence pas par 223 — un
+« 00223 76… » y devient « 22300223 76… ». Elle pourra lire le numéro
+par `whatsapp.ts` après fusion.

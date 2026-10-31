@@ -24,20 +24,20 @@ fn acheter_a_credit(base: &mut Base, f: &str, quantite: f64) -> String {
 #[test]
 fn un_fournisseur_se_cree_se_modifie_et_se_lit() {
     let mut base = base_avec_demo();
-    let r = fournisseurs::creer_fournisseur_sur_base(&mut base, "Grossiste".into(), Some("70 00 00 00".into()), None, None, None, Some(true)).unwrap();
+    let r = fournisseurs::creer_fournisseur_sur_base(&mut base, "Grossiste".into(), Some("70 00 00 00".into()), None, None, None, Some(true), false).unwrap();
     let id = r["id"].as_str().unwrap().to_string();
     let liste = fournisseurs::lire_fournisseurs_sur_base(&mut base).unwrap();
     assert_eq!(liste.len(), 1);
     assert_eq!(liste[0]["est_voisin"], true);
 
-    fournisseurs::modifier_fournisseur_sur_base(&mut base, id.clone(), " Grossiste Nord ".into(), Some("  ".into()), Some("Sikasso".into()), None, None, None).unwrap();
+    fournisseurs::modifier_fournisseur_sur_base(&mut base, id.clone(), " Grossiste Nord ".into(), Some("  ".into()), Some("Sikasso".into()), None, None, None, false).unwrap();
     let d = fournisseurs::lire_fournisseur_detail_sur_base(&mut base, id.clone()).unwrap();
     assert_eq!(d["nom"], "Grossiste Nord");
     assert!(d["telephone"].is_null(), "un champ vidé redevient NULL");
     assert_eq!(d["adresse"], "Sikasso");
     assert_eq!(d["est_voisin"], false);
-    assert!(fournisseurs::modifier_fournisseur_sur_base(&mut base, "x".into(), "y".into(), None, None, None, None, None).is_err());
-    assert!(fournisseurs::modifier_fournisseur_sur_base(&mut base, id, " ".into(), None, None, None, None, None).is_err());
+    assert!(fournisseurs::modifier_fournisseur_sur_base(&mut base, "x".into(), "y".into(), None, None, None, None, None, false).is_err());
+    assert!(fournisseurs::modifier_fournisseur_sur_base(&mut base, id, " ".into(), None, None, None, None, None, false).is_err());
 
     base.choisir_dossier("dossier-b").unwrap();
     assert!(fournisseurs::lire_fournisseurs_sur_base(&mut base).unwrap().is_empty());
@@ -256,8 +256,8 @@ fn tout_ce_qui_est_porte_ici_passe_le_detecteur() {
 
     fournisseurs::lire_fournisseurs_sur_base(&mut base).expect("liste");
     fournisseurs::lire_fournisseurs_avec_dettes_sur_base(&mut base).expect("dettes");
-    let g = fournisseurs::creer_fournisseur_sur_base(&mut base, "G".into(), None, None, None, None, None).expect("créer");
-    fournisseurs::modifier_fournisseur_sur_base(&mut base, g["id"].as_str().unwrap().to_string(), "G2".into(), None, None, None, None, None).expect("modifier");
+    let g = fournisseurs::creer_fournisseur_sur_base(&mut base, "G".into(), None, None, None, None, None, false).expect("créer");
+    fournisseurs::modifier_fournisseur_sur_base(&mut base, g["id"].as_str().unwrap().to_string(), "G2".into(), None, None, None, None, None, false).expect("modifier");
     fournisseurs::lire_etat_dette_fournisseur_sur_base(&mut base, f.clone()).expect("état");
     fournisseurs::lire_etat_dettes_global_sur_base(&mut base).expect("global");
     fournisseurs::enregistrer_entree_stock_sur_base(&mut base, sucre.0.clone(), None, 1.0, None, Some(f.clone()), None).expect("entrée");

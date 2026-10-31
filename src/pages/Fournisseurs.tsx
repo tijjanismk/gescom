@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { avecHomonymeConfirme } from "@/lib/homonyme";
 import { peut } from "@/lib/droits";
 import {
   Truck, Plus, Search, X, Loader2,
   FileText, Banknote, ChevronDown, ChevronRight,
-  CheckCircle2, Printer,
+  CheckCircle2, Printer, FileSpreadsheet,
 } from "lucide-react";
+import { ImportExportFournisseurs } from "@/components/ImportExportFournisseurs";
 import {
   genererReleveHTML, genererReleveGlobalHTML,
   type DonneesReleve, type DonneesReleveGlobal,
@@ -73,12 +75,14 @@ function ModalNouveauFournisseur({
     if (!nom.trim()) return;
     setChargement(true);
     try {
-      await invoke("creer_fournisseur", {
+      const res = await avecHomonymeConfirme(forcer => invoke("creer_fournisseur", {
         nom: nom.trim(),
         telephone: telephone.trim() || null,
         adresse: adresse.trim() || null,
         estVoisin,
-      });
+        forcer,
+      }));
+      if (res === null) return;
       setNom(""); setTelephone(""); setAdresse(""); setEstVoisin(false);
       onCree();
     } catch (e) {
@@ -187,7 +191,7 @@ function ModalReglementRapide({
               <div className="bg-muted rounded-md px-3 py-2.5 space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">{fournisseur.nom}</span>
-                  <span className="font-bold text-orange-600">
+                  <span className="font-bold text-orange-800">
                     {fmt(fournisseur.dette)}
                   </span>
                 </div>
@@ -245,6 +249,8 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
   const [recherche, setRecherche] = useState("");
   const [avecDettesSeulement, setAvecDettesSeulement] = useState(false);
   const [modalNouv, setModalNouv] = useState(false);
+  // D44 : l'import / export CSV.
+  const [modalCsv, setModalCsv] = useState(false);
   const [modalRegler, setModalRegler] = useState(false);
   const [fournisseurActif, setFournisseurActif] = useState<Fournisseur | null>(null);
   useActionsPalette("fournisseurs", [
@@ -353,23 +359,33 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
               État des dettes
             </Button>
           )}
+          <Button size="sm" variant="outline" onClick={() => setModalCsv(true)}>
+            <FileSpreadsheet className="h-4 w-4 mr-1" /> Import / export
+          </Button>
           <Button size="sm" onClick={() => setModalNouv(true)}>
             <Plus className="h-4 w-4 mr-1" /> Nouveau
           </Button>
         </div>
       </div>
 
+      <Dialog open={modalCsv} onOpenChange={setModalCsv}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-auto">
+          <DialogHeader><DialogTitle>Fournisseurs — import / export</DialogTitle></DialogHeader>
+          <ImportExportFournisseurs onImporte={() => charger(page)} />
+        </DialogContent>
+      </Dialog>
+
       {/* Résumé dettes */}
       {totalDettes > 0 && (
         <div className="flex items-center justify-between px-4 py-3 mb-4
-                        bg-orange-50 border border-orange-200 rounded-lg">
+                        bg-card border border-border border-l-4 border-l-orange-600 rounded-lg">
           <div className="flex items-center gap-2">
-            <Banknote className="h-4 w-4 text-orange-600" />
+            <Banknote className="h-4 w-4 text-orange-800" />
             <span className="text-sm font-medium text-orange-800">
               Total dettes fournisseurs
             </span>
           </div>
-          <span className="text-lg font-bold text-orange-600">{fmt(totalDettes)}</span>
+          <span className="text-lg font-bold text-orange-800">{fmt(totalDettes)}</span>
         </div>
       )}
 
@@ -392,7 +408,7 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border
                       text-xs font-medium transition-colors ${
             avecDettesSeulement
-              ? "border-orange-400 bg-orange-50 text-orange-700"
+              ? "border-orange-600 text-foreground"
               : "border-border text-muted-foreground hover:bg-muted"
           }`}>
           <Banknote className="h-3 w-3" /> Avec dettes
@@ -465,14 +481,14 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
                         {(f.dette ?? 0) > 0 && (
                           <div className="text-right">
                             <p className="text-xs text-muted-foreground">Dette</p>
-                            <p className="text-sm font-bold text-orange-600">
+                            <p className="text-sm font-bold text-orange-800">
                               {fmt(f.dette)}
                             </p>
                           </div>
                         )}
                         {(f.dette ?? 0) > 0 && (
                           <Button size="sm" variant="outline"
-                            className="h-7 text-xs gap-1 border-orange-200
+                            className="h-7 text-xs gap-1 border-orange-400
                                        text-orange-700 hover:bg-orange-50"
                             onClick={() => {
                               setFournisseurActif(f);
@@ -522,7 +538,7 @@ export function Fournisseurs({ onOuvrirFiche }: FournisseursProps) {
                         )}
                         {(f.dette ?? 0) > 0 && (
                           <div className="flex justify-between font-medium
-                                          text-orange-600 border-t border-border pt-1">
+                                          text-orange-800 border-t border-border pt-1">
                             <span>Reste dû</span>
                             <span>{fmt(f.dette)}</span>
                           </div>

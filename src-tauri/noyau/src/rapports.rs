@@ -325,7 +325,8 @@ pub fn lire_rapport_stock(
                 COALESCE(a.dernier_prix_achat, 0) as prix_achat,
                 CAST(COALESCE(sd.quantite, 0) *
                      COALESCE(a.dernier_prix_achat, 0) AS INTEGER) as valeur_stock,
-                d.nom as depot_nom
+                d.nom as depot_nom,
+                a.seuil_alerte
          FROM article a
          JOIN stock_depot sd ON sd.article_id = a.id
          JOIN depot d ON d.id = sd.depot_id
@@ -342,9 +343,11 @@ pub fn lire_rapport_stock(
             "prix_achat":   row.get::<_,i64>(3)?,
             "valeur_stock": row.get::<_,i64>(4)?,
             "depot":        row.get::<_,String>(5)?,
-            "statut": if qte <= 0.0 { "rupture" }
-                      else if qte < 5.0 { "alerte" }
-                      else { "ok" },
+            // D45 : le seuil de l'article, sinon le defaut.
+            "statut": crate::coeur::stock::statut_stock(
+                qte,
+                row.get::<_, Option<f64>>(6)?.unwrap_or(crate::coeur::stock::SEUIL_ALERTE_DEFAUT),
+            ),
         }))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
     Ok(x)
@@ -601,12 +604,14 @@ pub fn lire_rapport_creances_sur_base(base: &mut Base) -> Result<serde_json::Val
 
 pub fn lire_rapport_stock_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
     let dossier = base.dossier().to_string();
+    let defaut = crate::assistant::seuil_defaut_sur(base);
     base.lire_plusieurs(
         "SELECT a.nom, a.unite_base,
                 COALESCE(sd.quantite, 0),
                 COALESCE(a.dernier_prix_achat, 0),
                 CAST(COALESCE(sd.quantite, 0) * COALESCE(a.dernier_prix_achat, 0) AS BIGINT) AS valeur_stock,
-                d.nom
+                d.nom,
+                a.seuil_alerte
          FROM article a
          JOIN stock_depot sd ON sd.article_id = a.id
          JOIN depot d ON d.id = sd.depot_id
@@ -622,7 +627,8 @@ pub fn lire_rapport_stock_sur_base(base: &mut Base) -> Result<Vec<serde_json::Va
                 "prix_achat":   r.get::<i64>(3)?,
                 "valeur_stock": r.get::<i64>(4)?,
                 "depot":        r.get::<String>(5)?,
-                "statut": if qte <= 0.0 { "rupture" } else if qte < 5.0 { "alerte" } else { "ok" },
+                // D45 : le seuil de l'article, sinon celui du dossier.
+                "statut": crate::coeur::stock::statut_stock(qte, r.get::<Option<f64>>(6)?.unwrap_or(defaut)),
             }))
         },
     )

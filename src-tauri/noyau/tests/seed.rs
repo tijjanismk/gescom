@@ -50,10 +50,21 @@ fn l_amorcage_donne_de_quoi_se_connecter() {
         "un mot de passe d'usine doit se changer à la première connexion"
     );
 
-    let employe =
-        auth::connexion(&conn, "employe".to_string(), "employe123".to_string())
-            .expect("l'employé aussi");
-    assert_eq!(employe["role"], "employe");
+    // D43 : le patron SEUL. `employe` / `employe123` serait un deuxieme
+    // mot de passe public ; il ne vient qu'avec la demonstration. La
+    // base attend l'assistant du patron.
+    assert!(
+        auth::connexion(&conn, "employe".to_string(), "employe123".to_string()).is_err(),
+        "plus de compte employé d'usine"
+    );
+    let marque: String = conn
+        .query_row(
+            "SELECT valeur FROM config_app WHERE cle = ?1",
+            [gescom_noyau::coeur::assistant::ASSISTANT_CLE],
+            |r| r.get(0),
+        )
+        .expect("la marque de l'assistant");
+    assert_eq!(marque, gescom_noyau::coeur::assistant::ASSISTANT_A_FAIRE);
 }
 
 #[test]

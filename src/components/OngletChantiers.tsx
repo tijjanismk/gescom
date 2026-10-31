@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { message } from "@tauri-apps/plugin-dialog";
 import { UTILISATEUR_ACTIF } from "@/App";
+import { EtatTvaBoutique } from "@/components/EtatTvaBoutique";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("fr-ML").format(n) + " F";
@@ -37,9 +38,6 @@ export function OngletTVA() {
   const [chargement, setChargement] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [taux, setTaux] = useState<Record<string, string>>({});
-  const [tauxGlobal, setTauxGlobal] = useState("18");
-  const [appliqueEnCours, setAppliqueEnCours] = useState(false);
-  const [succesGlobal, setSuccesGlobal] = useState(false);
 
   // Période résumé
   const today = new Date().toISOString().slice(0, 10);
@@ -92,30 +90,6 @@ export function OngletTVA() {
     } finally { setSaving(null); }
   }
 
-  async function appliquerATous() {
-    const val = parseFloat(tauxGlobal);
-    if (isNaN(val) || val < 0 || val > 100) return;
-    if (!window.confirm(`Appliquer TVA ${val}% à TOUS les articles ?`)) return;
-    setAppliqueEnCours(true);
-    try {
-      // Sauvegarder pour chaque article
-      for (const a of articles) {
-        await invoke("sauvegarder_tva_article", {
-          articleId: a.id, tauxTva: val / 100,
-        });
-      }
-      // Mettre à jour l'état local
-      const newTaux: Record<string, string> = {};
-      articles.forEach(a => { newTaux[a.id] = val.toFixed(0); });
-      setTaux(newTaux);
-      setSuccesGlobal(true);
-      setTimeout(() => setSuccesGlobal(false), 2000);
-      await charger();
-    } catch (e) {
-      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
-    } finally { setAppliqueEnCours(false); }
-  }
-
   if (chargement) return (
     <div className="flex justify-center py-8">
       <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -125,49 +99,10 @@ export function OngletTVA() {
   return (
     <div className="space-y-6">
 
-      {/* ── Taux global ── */}
-      <div className="border border-primary/30 bg-primary/5 rounded-lg p-4 space-y-3">
-        <div>
-          <p className="text-sm font-semibold">Taux TVA global</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Applique le même taux à tous les articles en une seule action.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="relative w-24">
-            <Input
-              type="number" min="0" max="100" step="1"
-              value={tauxGlobal}
-              onChange={e => setTauxGlobal(e.target.value)}
-              className="h-9 text-sm pr-6 font-medium" />
-            <span className="absolute right-2 top-2 text-xs text-muted-foreground">%</span>
-          </div>
-          <Button size="sm" onClick={appliquerATous}
-            disabled={appliqueEnCours}
-            className="gap-2">
-            {appliqueEnCours
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : succesGlobal
-              ? <CheckCircle2 className="h-4 w-4" />
-              : null
-            }
-            {succesGlobal ? "Appliqué !" : `Appliquer à tous (${articles.length} articles)`}
-          </Button>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {[0, 5, 18].map(t => (
-            <button key={t}
-              onClick={() => setTauxGlobal(t.toString())}
-              className={`px-3 py-1 rounded-full text-xs border transition-colors ${
-                tauxGlobal === t.toString()
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "border-border text-muted-foreground hover:border-foreground"
-              }`}>
-              {t === 0 ? "Exonéré (0%)" : `TVA ${t}%`}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* D43 : l'état de la TVA de la boutique, et s'il s'applique aux
+          articles existants (en une transaction). Remplace l'ancien
+          « Taux TVA global », qui envoyait une commande par article. */}
+      <EtatTvaBoutique onChange={() => { charger(); chargerResume(); }} />
 
       {/* Résumé TVA collectée */}
       <div className="border border-border rounded-lg p-4 space-y-3">
@@ -318,7 +253,7 @@ export function OngletDettes() {
   return (
     <div className="space-y-4">
       {totalDettes > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3
+        <div className="bg-card border border-border border-l-4 border-l-amber-600 rounded-lg px-4 py-3
                         flex items-center justify-between">
           <span className="text-sm font-medium text-amber-800">Total dettes fournisseurs</span>
           <span className="text-sm font-bold text-amber-900">{fmt(totalDettes)}</span>

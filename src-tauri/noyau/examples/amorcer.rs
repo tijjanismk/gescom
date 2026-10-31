@@ -30,7 +30,7 @@ fn main() {
             for (pseudo, mdp, role) in gescom_noyau::amorcage::COMPTES_USINE {
                 println!("  {pseudo:8} / {mdp:12} ({role})");
             }
-            println!("  Les deux exigent un changement à la première connexion.");
+            println!("  À la première connexion, l'assistant crée le dossier (D43) ; --demo l'en dispense.");
         }
         Ok(false) => println!("base déjà amorcée — rien à faire."),
         Err(e) => {

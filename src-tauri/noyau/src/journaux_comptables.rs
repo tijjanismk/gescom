@@ -416,37 +416,77 @@ fn paie(base: &mut Base, p: &Periode, a: &HashMap<String, String>) -> Result<Vec
     }
     let avances = base
         .lire_plusieurs(
-            "SELECT a.id, a.date_avance, a.montant, a.moyen, e.nom FROM avance a
+            "SELECT a.id, a.date_avance, a.montant, a.moyen, e.nom, a.nature FROM avance a
              JOIN employe e ON e.id = a.employe_id AND e.dossier_id = a.dossier_id
              WHERE a.dossier_id = ?1 AND SUBSTR(a.date_avance, 1, 10) >= ?2 AND SUBSTR(a.date_avance, 1, 10) <= ?3",
             &parametres![dossier.clone(), p.du.clone(), p.au.clone()],
-            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<String>(3)?, r.get::<String>(4)?)),
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<String>(3)?, r.get::<String>(4)?, r.get::<String>(5)?)),
         )
         .map_err(|e| e.0)?;
-    for (id, date, montant, moyen, nom) in avances {
-        v.extend(simple(
-            "PA",
-            &date,
-            piece_courte("AV", &id),
-            format!("Avance {} — {nom}", regles::libelle_mode(&moyen)),
-            &a["paie:avances"],
-            &a[cle_tresorerie(&moyen)],
-            montant,
-        ));
+    for (id, date, montant, moyen, nom, nature) in avances {
+        // D47 : un pret s'ecrit comme une avance (421 / tresorerie), son
+        // libelle le dit.
+        let quoi = if nature == crate::coeur::pret::NATURE { "Prêt" } else { "Avance" };
+        // Un trop-verse repris en avance (revue du 28/10, point 6) :
+        // l'argent est sorti avec les versements, rien ne sort de la
+        // tresorerie — la dette passe des remunerations dues (422, en
+        // debit apres la rectificative) aux avances (421).
+        let (contrepartie, libelle) = if moyen == crate::coeur::paie::MOYEN_TROP_VERSE {
+            (&a["paie:remunerations_dues"], format!("Versé en trop, repris en avance — {nom}"))
+        } else {
+            (&a[cle_tresorerie(&moyen)], format!("{quoi} {} — {nom}", regles::libelle_mode(&moyen)))
+        };
+        v.extend(simple("PA", &date, piece_courte("AV", &id), libelle, &a["paie:avances"], contrepartie, montant));
     }
     // Une avance annulee : l'ecriture inverse, le jour de l'annulation.
     let annulees = base
         .lire_plusieurs(
-            "SELECT a.id, a.annule_le, a.montant, a.moyen, e.nom FROM avance a
+            "SELECT a.id, a.annule_le, a.montant, a.moyen, e.nom, a.nature FROM avance a
              JOIN employe e ON e.id = a.employe_id AND e.dossier_id = a.dossier_id
              WHERE a.dossier_id = ?1 AND a.statut = 'annulee' AND a.annule_le IS NOT NULL
                AND SUBSTR(a.annule_le, 1, 10) >= ?2 AND SUBSTR(a.annule_le, 1, 10) <= ?3",
-            &parametres![dossier, p.du.clone(), p.au.clone()],
-            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<String>(3)?, r.get::<String>(4)?)),
+            &parametres![dossier.clone(), p.du.clone(), p.au.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<String>(3)?, r.get::<String>(4)?, r.get::<String>(5)?)),
         )
         .map_err(|e| e.0)?;
-    for (id, date, montant, moyen, nom) in annulees {
-        v.extend(simple("PA", &date, piece_courte("AV", &id), format!("Avance annulée — {nom}"), &a[cle_tresorerie(&moyen)], &a["paie:avances"], montant));
+    for (id, date, montant, moyen, nom, nature) in annulees {
+        let quoi = if nature == crate::coeur::pret::NATURE { "Prêt annulé" } else { "Avance annulée" };
+        let contrepartie = if moyen == crate::coeur::paie::MOYEN_TROP_VERSE {
+            &a["paie:remunerations_dues"]
+        } else {
+            &a[cle_tresorerie(&moyen)]
+        };
+        v.extend(simple("PA", &date, piece_courte("AV", &id), format!("{quoi} — {nom}"), contrepartie, &a["paie:avances"], montant));
+    }
+    // D47 : un pret rembourse hors paie (tresorerie / 421), ou son reste
+    // remis (charge / 421).
+    let reglements = base
+        .lire_plusieurs(
+            "SELECT r.id, r.date_reglement, r.genre, r.montant, r.moyen, e.nom FROM pret_reglement r
+             JOIN avance a ON a.id = r.pret_id AND a.dossier_id = r.dossier_id
+             JOIN employe e ON e.id = a.employe_id AND e.dossier_id = a.dossier_id
+             WHERE r.dossier_id = ?1 AND SUBSTR(r.date_reglement, 1, 10) >= ?2 AND SUBSTR(r.date_reglement, 1, 10) <= ?3",
+            &parametres![dossier, p.du.clone(), p.au.clone()],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<String>(1)?,
+                    r.get::<String>(2)?,
+                    r.get::<i64>(3)?,
+                    r.get::<Option<String>>(4)?,
+                    r.get::<String>(5)?,
+                ))
+            },
+        )
+        .map_err(|e| e.0)?;
+    for (id, date, genre, montant, moyen, nom) in reglements {
+        let (debit, libelle) = if genre == crate::coeur::pret::REMISE {
+            (&a["paie:prets_remis"], format!("Prêt remis — {nom}"))
+        } else {
+            let moyen = moyen.unwrap_or_default();
+            (&a[cle_tresorerie(&moyen)], format!("Prêt remboursé {} — {nom}", regles::libelle_mode(&moyen)))
+        };
+        v.extend(simple("PA", &date, piece_courte("PR", &id), libelle, debit, &a["paie:avances"], montant));
     }
     v.sort_by(|x, y| x.date.cmp(&y.date));
     Ok(v)

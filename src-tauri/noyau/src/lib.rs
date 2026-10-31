@@ -45,6 +45,7 @@ pub mod avoirs;
 pub mod chantiers;
 pub mod depots;
 pub mod fournisseurs;
+pub mod fournisseurs_csv;
 pub mod pieces;
 pub mod pieces_pos;
 pub mod livraisons;
@@ -61,11 +62,15 @@ pub mod journaux_comptables;
 pub mod personnel;
 pub mod presences;
 pub mod avances;
+pub mod prets;
 pub mod paie;
 pub mod crm;
+pub mod equipe_jour;
+pub mod crm_relances;
 pub mod passage;
 pub mod suivi_stock;
 pub mod menu;
+pub mod assistant;
 pub mod horloge;
 pub mod caisses;
 pub mod argent;
@@ -75,6 +80,7 @@ pub mod comptoir;
 pub mod images;
 pub mod installation;
 pub mod registre;
+pub mod etat_paie;
 
 /// Version du protocole client/serveur.
 ///

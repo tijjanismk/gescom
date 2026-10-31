@@ -111,7 +111,10 @@ CREATE TABLE IF NOT EXISTS article (
     cree_par            TEXT NOT NULL DEFAULT 'system',
     modifie_par         TEXT NOT NULL DEFAULT 'system',
     origine             TEXT NOT NULL DEFAULT 'app'
-, taux_tva_defaut REAL NOT NULL DEFAULT 0.0);
+, taux_tva_defaut REAL NOT NULL DEFAULT 0.0
+-- D45 : le seuil d'alerte de l'article, en unite de base. Vide : celui
+-- du dossier (5 d'office). 0 : pas d'alerte, seulement la rupture.
+, seuil_alerte REAL);
 
 CREATE TABLE IF NOT EXISTS unite_vente (
     id              TEXT PRIMARY KEY,
@@ -175,7 +178,16 @@ CREATE TABLE IF NOT EXISTS client (
     -- vient (salon, recommandation, passage...) — distincte d'`origine`
     -- ci-dessus, qui dit d'ou vient la LIGNE de donnees (app/demo/import).
     statut          TEXT NOT NULL DEFAULT 'client',
-    origine_prospect TEXT
+    origine_prospect TEXT,
+    -- D50 (points 10 a 16) : l'etape d'un prospect (vide = nouveau) ;
+    -- `raison_sortie` dit pourquoi un prospect est abandonne OU un
+    -- client parti (une fiche est l'un ou l'autre). `devenu_client_le`
+    -- et `revenu_le` sont poses par la vente (argent::prospect_devient_client).
+    etape_prospect  TEXT,
+    raison_sortie   TEXT,
+    devenu_client_le TEXT,
+    parti_le        TEXT,
+    revenu_le       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS fournisseur (
@@ -572,6 +584,9 @@ CREATE TABLE IF NOT EXISTS presence (
     etat        TEXT NOT NULL,
     saisi_par   TEXT,
     saisi_le    TEXT NOT NULL,
+    -- D52 : maladie, permission, conge, absence — d'un jour A ou ½ ;
+    -- la paie ne le lit pas.
+    motif       TEXT,
     UNIQUE (employe_id, jour)
 );
 
@@ -592,7 +607,35 @@ CREATE TABLE IF NOT EXISTS avance (
     mouvement_caisse_id  TEXT,
     cree_par             TEXT,
     cree_le              TEXT NOT NULL,
-    annule_le            TEXT
+    annule_le            TEXT,
+    -- Revue du 28/10 (point 6, D32) : une avance nee d'un trop-verse,
+    -- creee a la validation d'une rectificative ; la fiche qui l'a dit
+    -- (moyen `trop_verse`, rien ne sort de la tresorerie).
+    trop_verse_fiche_id  TEXT,
+    -- D42 : ce qu'une paie en retient au plus (l'accord passe avec
+    -- l'employe) ; vide = tout sur la prochaine paie.
+    mensualite           INTEGER,
+    -- D47 : `pret` = un pret sur plusieurs mois (mensualite par mois
+    -- civil, a partir du mois `retenir_des`, `AAAA-MM`). Pour un pret,
+    -- `retenu` compte aussi ce qui a ete rembourse ou remis
+    -- (`pret_reglement`) : ce qui n'est plus du.
+    nature               TEXT NOT NULL DEFAULT 'avance',
+    retenir_des          TEXT
+);
+
+-- Le remboursement direct d'un pret, ou la remise de son reste (D47) :
+-- date, pour le journal PA (tresorerie / 421, ou 658 / 421).
+CREATE TABLE IF NOT EXISTS pret_reglement (
+    id                   TEXT PRIMARY KEY,
+    dossier_id           TEXT NOT NULL,
+    pret_id              TEXT NOT NULL REFERENCES avance(id),
+    genre                TEXT NOT NULL,
+    montant              INTEGER NOT NULL,
+    moyen                TEXT,
+    motif                TEXT,
+    date_reglement       TEXT NOT NULL,
+    cree_par             TEXT,
+    cree_le              TEXT NOT NULL
 );
 
 -- La fiche de paie (PLAN-EQUIPE, G-2 — D31) : un papier qu'on remet,
@@ -621,7 +664,12 @@ CREATE TABLE IF NOT EXISTS fiche_paie (
     cree_le      TEXT NOT NULL,
     modifie_le   TEXT NOT NULL,
     valide_par   TEXT,
-    valide_le    TEXT
+    valide_le    TEXT,
+    -- Revue du 28/10 (point 4, D31) : ce qui a servi au calcul (salaire,
+    -- tarif, taux de commission, compte, declaration, cotisations), en
+    -- JSON, fige a la validation ; une rectificative le reprend. Vide
+    -- sur une fiche d'avant : elle se relit sur ses lignes.
+    conditions   TEXT
 );
 
 -- Les lignes d'une fiche : `montant` signe (gain +, retenue -) ;

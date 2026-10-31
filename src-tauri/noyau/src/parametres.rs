@@ -579,6 +579,20 @@ pub fn lire_articles_complets_sur_base(base: &mut Base) -> Result<Vec<serde_json
             }
         }
     }
+    // D45 : le seuil propre de chaque article (absent : celui du dossier).
+    let seuils: std::collections::HashMap<String, f64> = base
+        .lire_plusieurs(
+            "SELECT id, seuil_alerte FROM article WHERE seuil_alerte IS NOT NULL",
+            &[],
+            |r| Ok((r.get::<String>(0)?, r.get::<f64>(1)?)),
+        )
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    for a in articles.iter_mut() {
+        let id = a["id"].as_str().unwrap_or("").to_string();
+        a["seuil_alerte"] = seuils.get(&id).map(|s| serde_json::json!(s)).unwrap_or(serde_json::Value::Null);
+    }
     // D36 : l'ecran Articles dit si l'article suit son stock.
     let non_suivis: Vec<String> = base
         .lire_plusieurs("SELECT id FROM article WHERE gere_en_stock = 0", &[], |r| r.get::<String>(0))
@@ -596,19 +610,32 @@ pub fn creer_article_complet_sur_base(
     categorie_id: Option<String>,
     unite_base: String,
     prix_reference: i64,
+    seuil_alerte: Option<f64>,
 ) -> Result<String, String> {
+    // D45 : le seuil se juge avant tout (vide : celui du dossier).
+    if let Some(s) = seuil_alerte {
+        crate::coeur::stock::verifier_seuil(s)?;
+    }
+    // D44 : comme au comptoir — un nom, et pas deux fois le meme article.
+    let nom = nom.split_whitespace().collect::<Vec<_>>().join(" ");
+    if nom.is_empty() {
+        return Err("Le nom de l'article est obligatoire".to_string());
+    }
+    crate::catalogue_csv::refuser_doublon_article_sur(base, &nom)?;
     let dossier = base.dossier().to_string();
     let now = maintenant_iso();
     let art_id = uuid::Uuid::new_v4().to_string();
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    // D43 : un article neuf prend la TVA par defaut du dossier.
+    let tva = crate::assistant::taux_nouvel_article_sur(base);
 
     let mut tx = base.transaction().map_err(|e| e.0)?;
     tx.executer(
         "INSERT INTO article
          (id, nom, categorie_id, unite_base, gere_en_stock, attributs,
-          actif, cree_le, modifie_le, cree_par, modifie_par, origine)
-         VALUES (?1,?2,CAST(?3 AS TEXT),?4,1,'{}',1,?5,?5,?6,?6,'app')",
-        &parametres![art_id.clone(), nom, categorie_id, unite_base.clone(), now.clone(), auteur.clone()],
+          actif, cree_le, modifie_le, cree_par, modifie_par, origine, taux_tva_defaut, seuil_alerte)
+         VALUES (?1,?2,CAST(?3 AS TEXT),?4,1,'{}',1,?5,?5,?6,?6,'app',?7,CAST(?8 AS DOUBLE PRECISION))",
+        &parametres![art_id.clone(), nom, categorie_id, unite_base.clone(), now.clone(), auteur.clone(), tva, seuil_alerte],
     )
     .map_err(|e| e.0)?;
 
@@ -1086,5 +1113,38 @@ fn conclure_entretien(
         "taille_apres": apres,
         "gagne": (avant - apres).max(0),
         "reimputes": reimputes,
+    }))
+}
+
+/// D45 — le seuil d'alerte d'un article, apres sa creation. `None` :
+/// il reprend celui du dossier. Un article qui ne suit pas son stock
+/// n'a pas d'alerte : le refus le dit plutot que d'ecrire un seuil qui
+/// ne servirait a rien.
+pub fn definir_seuil_article_sur(
+    base: &mut Base,
+    article_id: String,
+    seuil_alerte: Option<f64>,
+) -> Result<serde_json::Value, String> {
+    if let Some(s) = seuil_alerte {
+        crate::coeur::stock::verifier_seuil(s)?;
+    }
+    let suivi: Option<i64> = base
+        .lire_une("SELECT gere_en_stock FROM article WHERE id = ?1", &parametres![article_id.clone()], |r| r.get::<i64>(0))
+        .map_err(|e| e.0)?;
+    match suivi {
+        None => return Err("Article introuvable".to_string()),
+        Some(0) => return Err("Cet article ne suit pas son stock : il n'a pas de seuil d'alerte.".to_string()),
+        Some(_) => {}
+    }
+    base.executer(
+        "UPDATE article SET seuil_alerte = CAST(?1 AS DOUBLE PRECISION), modifie_le = ?2 WHERE id = ?3",
+        &parametres![seuil_alerte, maintenant_iso(), article_id.clone()],
+    )
+    .map_err(|e| e.0)?;
+    let defaut = crate::assistant::seuil_defaut_sur(base);
+    Ok(serde_json::json!({
+        "article_id": article_id,
+        "seuil_alerte": seuil_alerte,
+        "seuil_effectif": seuil_alerte.unwrap_or(defaut),
     }))
 }

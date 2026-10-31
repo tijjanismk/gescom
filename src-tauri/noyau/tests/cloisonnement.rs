@@ -265,7 +265,7 @@ fn tout_ce_qui_est_porte_passe_le_detecteur() {
         "Ciment".into(),
         "sac".into(),
         5_000,
-        Some(4_000),
+        Some(4_000), None
     )
     .expect("créer un article");
 
@@ -308,7 +308,7 @@ fn un_second_dossier_ne_voit_pas_les_clients_du_premier_mais_voit_ses_articles()
     let mut base = base_amorcee();
     base.auditer(true);
     comptoir::creer_client_rapide_sur(&mut base, "Awa".into(), None).unwrap();
-    comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None)
+    comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None, None)
         .unwrap();
 
     base.choisir_dossier("dossier-b").unwrap();
@@ -492,7 +492,7 @@ fn un_mouvement_du_second_dossier_range_son_stock_dans_ce_dossier() {
         }
         Err(_) => base_amorcee(),
     };
-    let article = comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None)
+    let article = comptoir::creer_article_rapide_sur(&mut base, "Ciment".into(), "sac".into(), 5_000, None, None)
         .unwrap()["id"]
         .as_str()
         .unwrap()

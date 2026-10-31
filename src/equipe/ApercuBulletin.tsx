@@ -12,11 +12,14 @@ import { appeler as invoke } from "@/lib/pont";
 import { Button } from "@/components/ui/button";
 import { chargerHabillage } from "@/lib/impression";
 import { genererBulletinHTML, type DonneesBulletin } from "@/lib/genererBulletin";
+import { BoutonBulletinWhatsApp } from "@/equipe/WhatsApp";
 
 export function ApercuBulletin({ ficheId, fermer }: { ficheId: string; fermer: () => void }) {
   const [html, setHtml] = useState("");
   const [erreur, setErreur] = useState<string | null>(null);
   const [a5, setA5] = useState(false);
+  // Les donnees gardees pour le resume WhatsApp (D51).
+  const [donnees, setDonnees] = useState<DonneesBulletin | null>(null);
   const cadre = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -25,6 +28,7 @@ export function ApercuBulletin({ ficheId, fermer }: { ficheId: string; fermer: (
       .then(([d, h]) => {
         if (annule) return;
         setA5(h.reglage?.format === "a5");
+        setDonnees(d);
         setHtml(genererBulletinHTML(d, h));
       })
       .catch(e => { if (!annule) setErreur(String(e)); });
@@ -36,6 +40,7 @@ export function ApercuBulletin({ ficheId, fermer }: { ficheId: string; fermer: (
       <div className="bg-background rounded-lg shadow-xl flex flex-col" style={{ width: a5 ? 640 : 860, maxWidth: "96vw", height: "90vh" }}>
         <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
           <h3 className="font-semibold flex-1">Bulletin de paie</h3>
+          <BoutonBulletinWhatsApp d={donnees} />
           <Button size="sm" disabled={!html} onClick={() => cadre.current?.contentWindow?.print()}>
             <Printer className="h-4 w-4 mr-1" /> Imprimer
           </Button>

@@ -279,7 +279,7 @@ export function RetourFournisseur({ onTermine }: { onTermine: () => void }) {
                             )}
                           </p>
                           {bride && (
-                            <p className="text-xs text-amber-600">
+                            <p className="text-xs text-amber-800">
                               En stock : {l.stock_disponible} {l.unite_libelle}
                               {" "}— le reste a été vendu depuis.
                             </p>

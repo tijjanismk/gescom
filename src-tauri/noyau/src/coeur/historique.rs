@@ -52,6 +52,12 @@ pub const TYPES: &[(&str, &str)] = &[
     ("droits_dossiers_modifies", "Dossiers d'un compte modifiés"),
     ("dossier_cree", "Dossier créé"),
     ("dossier_renomme", "Dossier renommé"),
+    // D43 : l'assistant du premier démarrage.
+    ("assistant_dossier_fait", "Dossier créé par l'assistant"),
+    ("reglages_dossier_modifies", "Réglages du dossier modifiés"),
+    // D44 : les imports.
+    ("import_articles", "Import d'articles"),
+    ("import_fournisseurs", "Import de fournisseurs"),
     ("sous_compte_cree", "Sous-compte créé"),
     ("affectation_modifiee", "Affectation comptable modifiée"),
     ("employe_cree", "Personne ajoutée au personnel"),
@@ -60,6 +66,7 @@ pub const TYPES: &[(&str, &str)] = &[
     ("employe_revenu", "Retour dans le personnel"),
     ("avance_donnee", "Avance sur salaire"),
     ("avance_annulee", "Avance annulée"),
+    ("avance_trop_verse", "Versé en trop, repris en avance"),
     ("paie_preparee", "Fiche de paie préparée"),
     ("paie_supprimee", "Brouillon de paie jeté"),
     ("paie_validee", "Fiche de paie validée"),

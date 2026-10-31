@@ -160,6 +160,7 @@ fn une_facture_fournisseur_emise_garde_le_nom_ecrit_a_son_emission() {
 
     fournisseurs::modifier_fournisseur_sur_base(
         &mut base, f.clone(), "Diarra & Fils SARL".into(), Some("66 00 00 00".into()), None, None, None, None,
+        false,
     )
     .unwrap();
 
@@ -203,7 +204,7 @@ fn une_facture_fournisseur_emise_garde_le_nom_ecrit_a_son_emission() {
     // encore : il garde le nom de son emission, les autres le leur.
     achats::valider_facture_fournisseur_sur_base(&mut base, brouillon.clone(), "credit".into(), None, None, Some("patron".into()))
         .unwrap();
-    fournisseurs::modifier_fournisseur_sur_base(&mut base, f.clone(), "DD SARL".into(), None, None, None, None, None).unwrap();
+    fournisseurs::modifier_fournisseur_sur_base(&mut base, f.clone(), "DD SARL".into(), None, None, None, None, None, false).unwrap();
     assert_eq!(piece_imprimee(&mut base, &brouillon)["client_nom"], "Diarra & Fils SARL");
     assert_eq!(piece_imprimee(&mut base, &faf_credit)["client_nom"], "Ets Diarra");
 
@@ -213,7 +214,7 @@ fn une_facture_fournisseur_emise_garde_le_nom_ecrit_a_son_emission() {
         "SELECT COUNT(*) FROM piece_commerciale WHERE tiers_nom IS NOT NULL AND dossier_id = ?1",
         &parametres![dossier.clone()],
     );
-    let refus = fournisseurs::modifier_fournisseur_sur_base(&mut base, "inconnu".into(), "X".into(), None, None, None, None, None)
+    let refus = fournisseurs::modifier_fournisseur_sur_base(&mut base, "inconnu".into(), "X".into(), None, None, None, None, None, false)
         .unwrap_err();
     assert!(refus.contains("introuvable"), "{refus}");
     assert_eq!(
@@ -484,6 +485,7 @@ fn l_import_csv_pose_le_suivi_du_stock_sans_deviner() {
         "Nom;Categorie;Unite;Prix;Prix achat;TVA %;Code barre;Stock\nClous;Quincaillerie;kg;1500;1000;0;;40".into(),
         Some(true),
         true,
+        false,
     )
     .unwrap();
     assert_eq!((r["crees"].as_i64(), r["nb_erreurs"].as_i64()), (Some(1), Some(0)), "{r}");
@@ -502,7 +504,7 @@ fn l_import_csv_pose_le_suivi_du_stock_sans_deviner() {
          Sucre;;kg;950;;;;;non\n\
          Riz local;;kg;650;;;;;oui"
     );
-    let r = catalogue_csv::importer_articles_csv_sur_base(&mut base, csv, Some(true), true).unwrap();
+    let r = catalogue_csv::importer_articles_csv_sur_base(&mut base, csv, Some(true), true, false).unwrap();
     assert_eq!((r["crees"].as_i64(), r["mis_a_jour"].as_i64(), r["nb_erreurs"].as_i64()), (Some(3), Some(1), Some(2)), "{r}");
     let erreurs = r["erreurs"].to_string();
     assert!(erreurs.contains("Cordes") && erreurs.contains("oui ou non") && erreurs.contains("peut-être"), "{erreurs}");
@@ -531,6 +533,7 @@ fn l_import_csv_pose_le_suivi_du_stock_sans_deviner() {
         format!("{ENTETE}\nBidons;;u;400;;;;;non\nSeaux;;u;700;;;;;oui"),
         Some(true),
         false,
+        false,
     )
     .unwrap();
     assert_eq!((r["crees"].as_i64(), r["nb_erreurs"].as_i64()), (Some(1), Some(1)), "{r}");
@@ -541,10 +544,10 @@ fn l_import_csv_pose_le_suivi_du_stock_sans_deviner() {
     // L'export ecrit la colonne, et se reimporte sans une erreur.
     let export = catalogue_csv::exporter_articles_csv_sur_base(&mut base).unwrap();
     let entete = export.lines().next().unwrap().trim_start_matches('\u{FEFF}').to_string();
-    assert!(entete.ends_with(";Suivre le stock"), "{entete}");
-    assert!(export.lines().any(|l| l.starts_with("Sachets;") && l.ends_with(";non")), "{export}");
-    assert!(export.lines().any(|l| l.starts_with("Sucre;") && l.ends_with(";oui")), "{export}");
-    let r = catalogue_csv::importer_articles_csv_sur_base(&mut base, export, Some(true), false).unwrap();
+    assert!(entete.ends_with(";Suivre le stock;Seuil"), "{entete}");
+    assert!(export.lines().any(|l| l.starts_with("Sachets;") && l.ends_with(";non;")), "{export}");
+    assert!(export.lines().any(|l| l.starts_with("Sucre;") && l.ends_with(";oui;")), "{export}");
+    let r = catalogue_csv::importer_articles_csv_sur_base(&mut base, export, Some(true), false, false).unwrap();
     assert_eq!(r["nb_erreurs"], 0, "{r}");
     assert_eq!(r["crees"], 0, "{r}");
     assert_eq!(suivi(&mut base, "Sachets"), Some(0));
@@ -674,7 +677,7 @@ fn les_versions_de_la_fenetre_suivent() {
     assert_eq!(l["donnees"][0]["numero_facture"], numero.as_str());
     // D.11
     let export = catalogue_csv::exporter_articles_csv(conn).unwrap();
-    assert!(export.lines().next().unwrap().ends_with(";Suivre le stock"));
+    assert!(export.lines().next().unwrap().ends_with(";Suivre le stock;Seuil"));
     let conn = base.sqlite_mut().expect("SQLite");
     let r = catalogue_csv::importer_articles_csv(
         conn,
@@ -717,7 +720,7 @@ fn tout_passe_le_detecteur() {
 
     base.auditer(true);
     // D.9
-    fournisseurs::modifier_fournisseur_sur_base(&mut base, f.clone(), "Grossiste SA".into(), None, None, None, None, None).unwrap();
+    fournisseurs::modifier_fournisseur_sur_base(&mut base, f.clone(), "Grossiste SA".into(), None, None, None, None, None, false).unwrap();
     pieces::lire_donnees_piece_sur_base(&mut base, faf).unwrap();
     pieces::lire_toutes_pieces_fournisseur_sur_base(&mut base, None, None, Some("gross".into()), None, None, None).unwrap();
     // D.10
@@ -727,7 +730,7 @@ fn tout_passe_le_detecteur() {
     pieces::lire_toutes_pieces_client_sur_base(&mut base, None, None, Some("PAS".into()), None, None, None, None, None, None, None)
         .unwrap();
     // D.11
-    catalogue_csv::importer_articles_csv_sur_base(&mut base, format!("{ENTETE}\nSachets;;u;100;;;;;non\nSucre;;kg;800;;;;;oui"), None, true)
+    catalogue_csv::importer_articles_csv_sur_base(&mut base, format!("{ENTETE}\nSachets;;u;100;;;;;non\nSucre;;kg;800;;;;;oui"), None, true, false)
         .unwrap();
     catalogue_csv::exporter_articles_csv_sur_base(&mut base).unwrap();
     // D.12

@@ -1,7 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "La fenetre de Gescom Equipe : le coeur et les boites de dialogue, rien sur les fichiers.",
+  "description": "La fenetre de Gescom Equipe : le coeur, les boites de dialogue, et l'ouverture de WhatsApp (wa.me) seulement (D51). Rien sur les fichiers.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default"]
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://wa.me/*" }]
+    }
+  ]
 }

@@ -921,17 +921,20 @@ pub fn lire_stocks_pagines_sur_base(
     let de = "FROM stock_depot sd JOIN article a ON a.id = sd.article_id JOIN depot d ON d.id = sd.depot_id";
 
     let total = compter_sur(base, &format!("SELECT COUNT(*) {de} WHERE {ou}"), &f.valeurs)?;
-    let lignes: Vec<(String, String, String, String, f64, String)> = base
+    // D45 : le seuil de chaque ligne — celui de l'article, sinon celui du
+    // dossier. L'ecran compare la quantite du magasin a ce seuil.
+    let seuil_defaut = crate::assistant::seuil_defaut_sur(base);
+    let lignes: Vec<(String, String, String, String, f64, String, Option<f64>)> = base
         .lire_plusieurs(
             &format!(
-                "SELECT a.id, a.nom, a.unite_base, d.nom, sd.quantite, sd.depot_id
+                "SELECT a.id, a.nom, a.unite_base, d.nom, sd.quantite, sd.depot_id, a.seuil_alerte
                  {de} WHERE {ou}
                  ORDER BY sd.quantite ASC, a.nom ASC
                  LIMIT {} OFFSET {}",
                 limite.max(1), page.max(0) * limite.max(1)
             ),
             &f.valeurs,
-            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?, r.get::<String>(3)?, r.get::<f64>(4)?, r.get::<String>(5)?)),
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?, r.get::<String>(3)?, r.get::<f64>(4)?, r.get::<String>(5)?, r.get::<Option<f64>>(6)?)),
         )
         .map_err(|e| e.0)?;
 
@@ -965,8 +968,9 @@ pub fn lire_stocks_pagines_sur_base(
 
     let donnees = lignes
         .into_iter()
-        .map(|(id, nom, unite_base, depot_nom, quantite, depot_id)| {
+        .map(|(id, nom, unite_base, depot_nom, quantite, depot_id, seuil)| {
             let u = unites.get(&id).cloned().unwrap_or_default();
+            let seuil = seuil.unwrap_or(seuil_defaut);
             serde_json::json!({
                 "article_id":  id,
                 "article_nom": nom,
@@ -975,6 +979,8 @@ pub fn lire_stocks_pagines_sur_base(
                 "quantite":    quantite,
                 "depot_id":    depot_id,
                 "unites":      u,
+                "seuil":       seuil,
+                "statut":      crate::coeur::stock::statut_stock(quantite, seuil),
             })
         })
         .collect();

@@ -368,6 +368,14 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
                 std::process::exit(1);
             }
         }
+        // D43 : une base d'essai (le banc) s'ouvre sans assistant, avec
+        // le compte de l'employe — comme `seed` le fait sur SQLite. Seule
+        // une base qui attend encore son assistant est touchee.
+        if mode_demo() && gescom_noyau::assistant::a_faire_sur(&mut base) {
+            if let Err(e) = amorcage::mode_essai(&mut base) {
+                eprintln!("Base d'essai : {e}");
+            }
+        }
     }
     if est_postgres {
 
@@ -531,11 +539,9 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
     println!();
     if amorcage_fait {
         println!();
-        println!("  BASE NEUVE — comptes créés :");
-        println!("    admin   / admin123     (patron)");
-        println!("    employe / employe123   (employé)");
-        println!("    Les deux exigent un changement de mot de passe à la");
-        println!("    première connexion.");
+        println!("  BASE NEUVE — compte du patron : admin / admin123");
+        println!("    À la première connexion, l'assistant crée le dossier :");
+        println!("    société, dates de travail, nouveau mot de passe, vendeurs.");
     }
     println!("  Console : http://localhost:{}", options.port);
     println!("            a ouvrir dans un navigateur sur ce poste.");
@@ -822,4 +828,12 @@ fn chemin_journal_par_defaut(cible: &str, est_postgres: bool, service: bool) -> 
 
 fn chemin_base_par_defaut() -> String {
     role_poste::dossier_donnees().join("gescom.db").to_string_lossy().to_string()
+}
+
+/// `GESCOM_DEMO=1` : une base d'essai (le banc, les demonstrations),
+/// comme le lit `seed` sur SQLite.
+fn mode_demo() -> bool {
+    std::env::var("GESCOM_DEMO")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
 }

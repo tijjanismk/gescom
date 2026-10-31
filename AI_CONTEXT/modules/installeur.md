@@ -83,8 +83,8 @@ pas de npm), signe les deux exécutables (`outils\signer.ps1`,
 certificat auto-signé créé une fois dans `Cert:\CurrentUser\My`, partie
 publique exportée en `gescom.cer`), empaquette
 (`outils\installeur_serveur.nsi`, makensis de `%LOCALAPPDATA%\tauri\NSIS`)
-et signe l'installeur. 2,4 Mo sans la fenêtre (avec elle : pas encore
-mesuré, l'installeur n'a pas été reconstruit le 27/10).
+et signe l'installeur. 2,4 Mo sans la fenêtre ; **4,2 Mo avec elle**
+(version 0.2.0, construit le 28/10/2026, pas encore installé).
 
 **Piège** (27/10/2026) : un serveur lancé à la main dont on change le
 port depuis la console crée `ProgramData\Gescom\serveur.json` (port et
@@ -150,7 +150,8 @@ enregistré, et une modification après signature se voit. Voir
 ## La taille : 267 Mo
 
 `webviewInstallMode: offlineInstaller` embarque le runtime WebView2
-complet — **258 Mo sur les 267**. C'est cohérent avec un produit
+complet — **258 Mo sur les 267** (le 28/10/2026 : 205 sur 213,5, la
+version de WebView2 change la taille). C'est cohérent avec un produit
 local-first destiné à des postes sans Internet garanti, et c'est parfait
 sur une clé USB.
 

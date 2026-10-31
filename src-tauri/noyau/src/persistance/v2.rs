@@ -303,15 +303,28 @@ pub fn migrer(conn: &Connection) -> Result<()> {
         // Equipe, G-1 : le plafond des avances (employe ne en F-2).
         "ALTER TABLE employe ADD COLUMN avance_max INTEGER",
         "ALTER TABLE avance ADD COLUMN annule_le TEXT",
+        // Revue de la paie (28/10) : conditions figees, trop-verse.
+        "ALTER TABLE fiche_paie ADD COLUMN conditions TEXT",
+        "ALTER TABLE avance ADD COLUMN trop_verse_fiche_id TEXT",
+        // D42 : l'avance etalee (vide = tout sur la prochaine paie).
+        "ALTER TABLE avance ADD COLUMN mensualite INTEGER",
         // Equipe, H-2 (D34) : un prospect est un client sans vente encore.
         "ALTER TABLE client ADD COLUMN statut TEXT NOT NULL DEFAULT 'client'",
         "ALTER TABLE client ADD COLUMN origine_prospect TEXT",
+        // D50 (points 10 a 16) : l'etape du prospect, le client parti.
+        "ALTER TABLE client ADD COLUMN etape_prospect TEXT",
+        "ALTER TABLE client ADD COLUMN raison_sortie TEXT",
+        "ALTER TABLE client ADD COLUMN devenu_client_le TEXT",
+        "ALTER TABLE client ADD COLUMN parti_le TEXT",
+        "ALTER TABLE client ADD COLUMN revenu_le TEXT",
         // Le « Fournisseur divers » des achats sans fournisseur (25/09).
         "ALTER TABLE fournisseur ADD COLUMN est_generique INTEGER NOT NULL DEFAULT 0",
         // D35 : le nom du tiers fige a l'emission (25/10).
         "ALTER TABLE piece_commerciale ADD COLUMN tiers_nom TEXT",
         // Lot D.10 : le code du client fige a l'emission (27/10).
         "ALTER TABLE piece_commerciale ADD COLUMN tiers_code TEXT",
+        // D52 : le motif d'un jour non travaille (29/10).
+        "ALTER TABLE presence ADD COLUMN motif TEXT",
     ] {
         conn.execute(sql, []).ok();
     }

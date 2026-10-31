@@ -117,6 +117,9 @@ fn juger(base: &mut Base, f: &Fiche, soi: Option<&str>) -> Result<Propre, String
     if f.avance_max.is_some_and(|m| m <= 0) {
         return Err("Le plafond d'avance doit être plus grand que zéro — ou vide.".to_string());
     }
+    if let Some(m) = f.avance_max {
+        crate::coeur::saisie::borner_montant(m, "le plafond d'avance")?;
+    }
     Ok(Propre {
         avance_max: f.avance_max,
         nom,
@@ -296,9 +299,29 @@ pub fn creer_sur(base: &mut Base, f: Fiche) -> Result<serde_json::Value, String>
     lire_sur(base, &id)
 }
 
+/// Modifie une fiche, comme qui voit la paie (les tests, la fenetre).
 pub fn modifier_sur(base: &mut Base, id: String, f: Fiche) -> Result<serde_json::Value, String> {
+    modifier_selon_droits_sur(base, id, f, true)
+}
+
+/// Modifie une fiche. `voit_la_paie` : l'appelant a `paie:preparer` ou
+/// `paie:valider` (`coeur::lecture::voit_la_paie`). Sans, la
+/// remuneration et le plafond d'avance restent ceux de la fiche (revue
+/// du 28/10, point 3) : son ecran les recoit masques, il les renverrait
+/// vides, et le salaire s'effacait.
+pub fn modifier_selon_droits_sur(base: &mut Base, id: String, f: Fiche, voit_la_paie: bool) -> Result<serde_json::Value, String> {
     let avant = lire_sur(base, &id)?;
-    let p = juger(base, &f, Some(&id))?;
+    let mut p = juger(base, &f, Some(&id))?;
+    let remuneration_avant = Remuneration {
+        salaire_mensuel: avant["salaire_mensuel"].as_i64(),
+        tarif_journalier: avant["tarif_journalier"].as_i64(),
+        commission_pct: avant["commission_pct"].as_f64(),
+        a_la_tache: avant["a_la_tache"].as_bool().unwrap_or(false),
+    };
+    let (r, avance_max) =
+        regles::remuneration_a_ecrire(voit_la_paie, (&remuneration_avant, avant["avance_max"].as_i64()), (&p.r, p.avance_max));
+    p.r = r;
+    p.avance_max = avance_max;
     let dossier = base.dossier().to_string();
     let now = crate::utils::maintenant_iso();
     let mut tx = base.transaction().map_err(|e| e.0)?;
@@ -348,15 +371,51 @@ pub fn modifier_sur(base: &mut Base, id: String, f: Fiche) -> Result<serde_json:
     lire_sur(base, &id)
 }
 
-/// La personne part : sa fiche reste, avec la date et le motif.
+/// La personne part : sa fiche reste, avec la date et le motif. Refuse
+/// une date anterieure a des jours deja marques apres elle (revue du
+/// 28/10, point 1 : ils seraient payes ou perdus sans qu'on le sache),
+/// en disant quoi faire. Previent, sans refuser, s'il lui reste une
+/// avance en cours ou si une fiche validee la paie au-dela de cette date
+/// (`avertissements` ; `avance_en_cours`, masque a qui ne lit pas les
+/// avances).
 pub fn faire_partir_sur(base: &mut Base, id: String, date: Option<String>, motif: Option<String>) -> Result<serde_json::Value, String> {
     let avant = lire_sur(base, &id)?;
+    let nom = avant["nom"].as_str().unwrap_or("").to_string();
     if avant["statut"] == "partie" {
-        return Err(format!("{} est déjà partie.", avant["nom"].as_str().unwrap_or("")));
+        return Err(format!("{nom} est déjà partie."));
     }
     let date = jour(&date, "Date de départ")?.unwrap_or_else(|| crate::utils::maintenant_iso()[..10].to_string());
-    let motif = texte(&motif);
+    if let Some(e) = avant["date_entree"].as_str().filter(|e| date.as_str() < *e) {
+        return Err(format!("{nom} est entré(e) le {} : un départ ne peut pas venir avant.", crate::coeur::paie::date_dite(e)));
+    }
     let dossier = base.dossier().to_string();
+    let apres = base
+        .lire_plusieurs(
+            "SELECT jour FROM presence WHERE dossier_id = ?1 AND employe_id = ?2 AND jour > ?3 ORDER BY jour",
+            &parametres![dossier.clone(), id.clone(), date.clone()],
+            |r| r.get::<String>(0),
+        )
+        .map_err(|e| e.0)?;
+    crate::coeur::presences::verifier_depart(&nom, &date, &apres)?;
+    let en_cours = crate::avances::en_cours_sur(base, &id)?;
+    let mut avertissements = Vec::new();
+    if en_cours > 0 {
+        avertissements.push(format!(
+            "Il reste à {nom} une avance en cours : elle se retiendra sur sa dernière fiche de paie, ou restera due."
+        ));
+    }
+    // D47 : sans montant — qui gere le personnel ne lit pas forcement la paie.
+    if crate::prets::en_cours_sur(base, &id)? > 0 {
+        avertissements.push(format!(
+            "Il reste à {nom} un prêt en cours : la fiche de paie du départ en retiendra tout le reste, dans la limite du net ;              ce qui ne passe pas restera dû (onglet Prêts : remboursement ou remise)."
+        ));
+    }
+    for numero in crate::paie::fiches_validees_apres_sur(base, &id, &date)? {
+        avertissements.push(format!(
+            "La fiche {numero} paie des jours après ce départ : faire une rectificative (le trop-versé deviendra une avance)."
+        ));
+    }
+    let motif = texte(&motif);
     let mut tx = base.transaction().map_err(|e| e.0)?;
     tx.executer(
         "UPDATE employe SET statut = 'partie', date_depart = ?1, motif_depart = ?2, modifie_le = ?3
@@ -364,16 +423,50 @@ pub fn faire_partir_sur(base: &mut Base, id: String, date: Option<String>, motif
         &parametres![date.clone(), motif.clone(), crate::utils::maintenant_iso(), id.clone(), dossier],
     )
     .map_err(|e| e.0)?;
-    noter(&mut tx, "employe_parti", &id, None, serde_json::json!({ "nom": avant["nom"], "le": date, "motif": motif }))?;
+    noter(&mut tx, "employe_parti", &id, None, serde_json::json!({ "nom": nom, "le": date, "motif": motif }))?;
     tx.valider().map_err(|e| e.0)?;
-    lire_sur(base, &id)
+    let mut v = lire_sur(base, &id)?;
+    v["avertissements"] = avertissements.into();
+    v["avance_en_cours"] = en_cours.into();
+    Ok(v)
 }
 
-/// La personne revient : la meme fiche, active de nouveau.
-pub fn faire_revenir_sur(base: &mut Base, id: String) -> Result<serde_json::Value, String> {
+/// La personne revient le `date` (aujourd'hui si vide) : la meme fiche,
+/// active de nouveau. Apres une interruption, la date de retour devient
+/// sa nouvelle date d'entree (revue du 28/10, point 1) — l'ancienne et
+/// le depart restent au journal — pour que ses mois d'absence ne
+/// redeviennent pas « a preparer ». Un retour au plus le lendemain du
+/// depart n'interrompt rien (un depart saisi par erreur se defait) :
+/// l'entree ne bouge pas.
+///
+/// Avant une interruption, sa paie jusqu'au depart doit etre sur une
+/// fiche validee si elle a un salaire, un tarif ou une commission :
+/// ensuite cette periode ne serait plus proposee (choix le plus prudent,
+/// pris le 28/10 sans le proprietaire : refuser plutot que perdre une
+/// paie sans le dire).
+pub fn faire_revenir_sur(base: &mut Base, id: String, date: Option<String>) -> Result<serde_json::Value, String> {
     let avant = lire_sur(base, &id)?;
+    let nom = avant["nom"].as_str().unwrap_or("").to_string();
     if avant["statut"] == "actif" {
-        return Err(format!("{} est déjà là.", avant["nom"].as_str().unwrap_or("")));
+        return Err(format!("{nom} est déjà là."));
+    }
+    let date = jour(&date, "Date de retour")?.unwrap_or_else(|| crate::utils::maintenant_iso()[..10].to_string());
+    let ancienne_entree = avant["date_entree"].as_str().map(str::to_string);
+    let ancien_depart = avant["date_depart"].as_str().map(str::to_string);
+    let interrompu = ancien_depart.as_deref().is_some_and(|d| {
+        crate::coeur::dates::jour(d).is_some_and(|d| date > (d + chrono::Duration::days(1)).format("%Y-%m-%d").to_string())
+    });
+    if interrompu {
+        let d = ancien_depart.clone().unwrap_or_default();
+        let paye_quelque_chose = avant["modes"].as_array().is_some_and(|m| m.iter().any(|x| x != "rien de fixe" && x != "à la tâche"));
+        if paye_quelque_chose && !crate::paie::jour_paye_sur(base, &id, &d)? {
+            return Err(format!(
+                "Avant le retour de {nom} : sa paie jusqu'à son départ du {} n'est sur aucune fiche validée. \
+                 La préparer et la valider dans Paie → Fiches du mois, puis enregistrer le retour : \
+                 ensuite, cette période ne serait plus proposée.",
+                crate::coeur::paie::date_dite(&d)
+            ));
+        }
     }
     // Son compte a pu etre donne a quelqu'un d'autre entre-temps.
     if let Some(u) = avant["utilisateur_id"].as_str() {
@@ -389,15 +482,23 @@ pub fn faire_revenir_sur(base: &mut Base, id: String) -> Result<serde_json::Valu
             return Err(format!("Son compte est maintenant celui de {a} : le retirer de sa fiche d'abord."));
         }
     }
+    let entree = if interrompu { Some(date.clone()) } else { ancienne_entree.clone() };
     let dossier = base.dossier().to_string();
     let mut tx = base.transaction().map_err(|e| e.0)?;
     tx.executer(
-        "UPDATE employe SET statut = 'actif', date_depart = NULL, motif_depart = NULL, modifie_le = ?1
-         WHERE id = ?2 AND dossier_id = ?3",
-        &parametres![crate::utils::maintenant_iso(), id.clone(), dossier],
+        "UPDATE employe SET statut = 'actif', date_entree = ?1, date_depart = NULL, motif_depart = NULL, modifie_le = ?2
+         WHERE id = ?3 AND dossier_id = ?4",
+        &parametres![entree.clone(), crate::utils::maintenant_iso(), id.clone(), dossier],
     )
     .map_err(|e| e.0)?;
-    noter(&mut tx, "employe_revenu", &id, None, serde_json::json!({ "nom": avant["nom"] }))?;
+    // L'ancienne entree et le depart restent ici, au journal.
+    noter(
+        &mut tx,
+        "employe_revenu",
+        &id,
+        Some(serde_json::json!({ "date_entree": ancienne_entree, "date_depart": ancien_depart })),
+        serde_json::json!({ "nom": nom, "le": date, "date_entree": entree }),
+    )?;
     tx.valider().map_err(|e| e.0)?;
     lire_sur(base, &id)
 }

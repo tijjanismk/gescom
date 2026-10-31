@@ -20,6 +20,8 @@ import type {
 import { cn } from "@/lib/utils";
 import { peut } from "@/lib/droits";
 import { appeler as invoke } from "@/lib/pont";
+import { ChampSeuil, lireSeuil } from "@/components/ChampSeuil";
+import { avecHomonymeConfirme } from "@/lib/homonyme";
 import { SelectUnite } from "@/components/SelectUnite";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 
@@ -101,14 +103,16 @@ function ModalNouveauFournisseur({
       // creer_fournisseur renvoie un OBJET {id, nom}, pas une chaine.
       // L'annotation <string> le masquait : fournisseur.id valait alors
       // {id, nom} et Tauri refusait l'appel ("expected a string").
-      const res = await invoke<CreerFournisseurResultat>("creer_fournisseur", {
+      const res = await avecHomonymeConfirme(forcer => invoke<CreerFournisseurResultat>("creer_fournisseur", {
         nom: nom.trim(),
         telephone: telephone.trim() || null,
         nif: null,
         adresse: null,
         email: null,
         estVoisin: false,
-      });
+        forcer,
+      }));
+      if (!res) return;
       onCreer({ id: res.id, nom: nom.trim(), telephone: telephone.trim() || undefined });
       setNom(""); setTelephone("");
     } catch (e) {
@@ -263,6 +267,8 @@ export function Achats() {
   const [modalNouvelArticle, setModalNouvelArticle] = useState(false);
   const [naNom, setNaNom] = useState("");
   const [naUnite, setNaUnite] = useState("");
+  // D45 : le seuil d'alerte, connu a la reception ; vide = celui du dossier.
+  const [naSeuil, setNaSeuil] = useState("");
   const [naEnCours, setNaEnCours] = useState(false);
   const [articlesFiltres, setArticlesFiltres] = useState<ArticleAchat[]>([]);
   const [articleSelectionne, setArticleSelectionne] = useState<ArticleAchat | null>(null);
@@ -351,6 +357,7 @@ export function Achats() {
   function ouvrirNouvelArticle() {
     setNaNom(rechercheArticle.trim());
     setNaUnite("");
+    setNaSeuil("");
     setModalNouvelArticle(true);
   }
 
@@ -366,6 +373,7 @@ export function Achats() {
         uniteBase: naUnite.trim(),
         prixReference: 0,
         prixAchat: null,
+        seuilAlerte: lireSeuil(naSeuil),
       });
       const articles = await invoke<ArticleAchat[]>("lire_articles_avec_unites");
       setTousArticles(articles);
@@ -836,7 +844,7 @@ export function Achats() {
             {peutAntidater && (
               <div className={cn(
                 "flex items-center gap-2 rounded-md border px-3 py-2",
-                dateReception ? "border-amber-400 bg-amber-50" : "border-border",
+                dateReception ? "border-amber-600" : "border-border",
               )}>
                 <Label className="text-xs text-muted-foreground whitespace-nowrap">
                   Réception du
@@ -909,6 +917,8 @@ export function Achats() {
                 déclare après, dans Paramètres.
               </p>
             </div>
+            <ChampSeuil id="seuil-achat" valeur={naSeuil} onChange={setNaSeuil}
+              unite={naUnite.trim() || undefined} />
             <p className="text-xs text-muted-foreground">
               Le prix de vente reste à définir dans Paramètres — ici on
               n'enregistre que ce qui entre en stock.

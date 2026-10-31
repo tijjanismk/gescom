@@ -92,7 +92,7 @@ export function OngletDossiers() {
   return (
     <div className="space-y-6 max-w-3xl">
       {aNommer && !renomme && (
-        <div className="border border-amber-300 bg-amber-50 dark:bg-amber-950/30 rounded-lg px-4 py-3 text-sm flex items-center justify-between gap-3"
+        <div className="border border-border border-l-4 border-l-amber-600 bg-card dark:bg-amber-950/30 rounded-lg px-4 py-3 text-sm flex items-center justify-between gap-3"
           data-testid="a-nommer">
           <span>
             Tout ce que vous aviez avant est dans le dossier « {aNommer.societe} ». Donnez-lui le nom

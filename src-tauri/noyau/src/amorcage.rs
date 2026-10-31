@@ -202,6 +202,7 @@ fn tables_v2(base: &mut Base) {
         "ALTER TABLE session_caisse ADD COLUMN ferme_le TEXT",
         "ALTER TABLE parametres_societe ADD COLUMN logo_chemin TEXT",
         "ALTER TABLE article ADD COLUMN taux_tva_defaut REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE article ADD COLUMN seuil_alerte REAL",
         "ALTER TABLE vente ADD COLUMN piece_id TEXT",
         "ALTER TABLE mouvement_stock ADD COLUMN fournisseur_id TEXT",
         "ALTER TABLE mouvement_stock ADD COLUMN prix_achat_unitaire INTEGER",
@@ -216,6 +217,12 @@ fn tables_v2(base: &mut Base) {
         // Equipe, H-2 (D34) : un prospect est un client sans vente encore.
         "ALTER TABLE client ADD COLUMN statut TEXT NOT NULL DEFAULT 'client'",
         "ALTER TABLE client ADD COLUMN origine_prospect TEXT",
+        // D50 (points 10 a 16) : l'etape du prospect, le client parti.
+        "ALTER TABLE client ADD COLUMN etape_prospect TEXT",
+        "ALTER TABLE client ADD COLUMN raison_sortie TEXT",
+        "ALTER TABLE client ADD COLUMN devenu_client_le TEXT",
+        "ALTER TABLE client ADD COLUMN parti_le TEXT",
+        "ALTER TABLE client ADD COLUMN revenu_le TEXT",
         // Le « Fournisseur divers » des achats sans fournisseur (25/09).
         "ALTER TABLE fournisseur ADD COLUMN est_generique INTEGER NOT NULL DEFAULT 0",
         // D35 : le nom du tiers fige a l'emission (25/10).
@@ -223,6 +230,8 @@ fn tables_v2(base: &mut Base) {
         // Lot D.10 : le code du client fige a l'emission (27/10) — une
         // facture d'un passant rattache a un client garde son PAS-…
         "ALTER TABLE piece_commerciale ADD COLUMN tiers_code TEXT",
+        // D52 : le motif d'un jour non travaille (29/10).
+        "ALTER TABLE presence ADD COLUMN motif TEXT",
     ] {
         let _ = base.executer(&adapter(sql), &[]);
     }
@@ -264,6 +273,16 @@ fn colonnes_roles(base: &mut Base) {
         // `employe` a pu naitre en F-2, sans lui).
         "ALTER TABLE employe ADD COLUMN avance_max INTEGER",
         "ALTER TABLE avance ADD COLUMN annule_le TEXT",
+        // Revue de la paie (28/10) : les conditions figees d'une fiche
+        // (point 4) et l'avance nee d'un trop-verse (point 6).
+        "ALTER TABLE fiche_paie ADD COLUMN conditions TEXT",
+        "ALTER TABLE avance ADD COLUMN trop_verse_fiche_id TEXT",
+        // D42 : l'avance etalee (vide = tout sur la prochaine paie).
+        "ALTER TABLE avance ADD COLUMN mensualite INTEGER",
+        // D47 : le pret sur plusieurs mois est une avance d'une autre
+        // nature (la table `pret_reglement` nait de `schema.sql`).
+        "ALTER TABLE avance ADD COLUMN nature TEXT NOT NULL DEFAULT 'avance'",
+        "ALTER TABLE avance ADD COLUMN retenir_des TEXT",
         "CREATE TABLE IF NOT EXISTS utilisateur_permission (
             utilisateur_id TEXT NOT NULL REFERENCES utilisateur(id),
             permission     TEXT NOT NULL,
@@ -657,39 +676,12 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
         )?;
     }
 
-    // ---- Comptes ----
-    // Le patron et un employe. Les deux doivent changer leur mot de
-    // passe a la premiere connexion : un mot de passe d'usine qui
-    // reste en place est un mot de passe public.
-    for (pseudo, email, nom_affiche, role, mdp) in [
-        ("admin", "admin@gescom.ml", "Patron", "patron", "admin123"),
-        ("employe", "employe@gescom.ml", "Employé", "employe", "employe123"),
-    ] {
-        let role_id: String = base
-            .lire_une(
-                "SELECT id FROM role WHERE nom = ?1",
-                &parametres![role],
-                |r| r.get::<String>(0),
-            )?
-            .ok_or_else(|| crate::base::Erreur(format!("Rôle « {role} » absent")))?;
-
-        let utilisateur_id = uuid::Uuid::new_v4().to_string();
-        base.executer(
-            "INSERT INTO utilisateur
-               (id, nom, role_id, actif, cree_le, modifie_le, origine)
-             VALUES (?1, ?2, ?3, 1, ?4, ?4, 'amorcage')",
-            &parametres![utilisateur_id.clone(), nom_affiche, role_id, now.clone()],
-        )?;
-
-        let hash = crate::auth::hasher_mot_de_passe_pub(mdp)
-            .map_err(crate::base::Erreur)?;
-        base.executer(
-            "INSERT INTO utilisateur_auth
-               (utilisateur_id, pseudo, email, mot_de_passe, doit_changer_mdp)
-             VALUES (?1, ?2, ?3, ?4, 1)",
-            &parametres![utilisateur_id, pseudo, email, hash],
-        )?;
-    }
+    // ---- Le compte du patron ----
+    // Lui seul (D43) : il change son mot de passe d'usine dans
+    // l'assistant, et y cree ses vendeurs. Un deuxieme compte d'usine
+    // (`employe` / `employe123`) serait un deuxieme mot de passe public ;
+    // il n'existe plus que dans les donnees de demonstration.
+    creer_compte_usine(base, "admin", "admin@gescom.ml", "Patron", "patron", "admin123", &now)?;
 
     // ---- Le minimum pour vendre ----
     // Sans depot par defaut, aucune vente ne sort de stock ; sans
@@ -719,14 +711,64 @@ pub fn amorcer(base: &mut Base) -> Resultat<bool> {
     // des droits (et qui attendaient qu'ils existent) passent.
     migrations_de_donnees(base);
 
+    // D43 : une base neuve attend son assistant. Les donnees de
+    // demonstration retirent la marque (`donnees_demo`).
+    crate::assistant::marquer_a_faire(base);
+
     Ok(true)
 }
 
+/// Un compte d'usine, oblige de changer son mot de passe.
+fn creer_compte_usine(
+    base: &mut Base,
+    pseudo: &str,
+    email: &str,
+    nom_affiche: &str,
+    role: &str,
+    mdp: &str,
+    now: &str,
+) -> Resultat<()> {
+    let deja: Option<String> = base.lire_une(
+        "SELECT utilisateur_id FROM utilisateur_auth WHERE pseudo = ?1",
+        &parametres![pseudo],
+        |r| r.get::<String>(0),
+    )?;
+    if deja.is_some() {
+        return Ok(());
+    }
+    let role_id: String = base
+        .lire_une("SELECT id FROM role WHERE nom = ?1", &parametres![role], |r| r.get::<String>(0))?
+        .ok_or_else(|| crate::base::Erreur(format!("Rôle « {role} » absent")))?;
+    let utilisateur_id = uuid::Uuid::new_v4().to_string();
+    base.executer(
+        "INSERT INTO utilisateur
+           (id, nom, role_id, actif, cree_le, modifie_le, origine)
+         VALUES (?1, ?2, ?3, 1, ?4, ?4, 'amorcage')",
+        &parametres![utilisateur_id.clone(), nom_affiche, role_id, now],
+    )?;
+    let hash = crate::auth::hasher_mot_de_passe_pub(mdp).map_err(crate::base::Erreur)?;
+    base.executer(
+        "INSERT INTO utilisateur_auth
+           (utilisateur_id, pseudo, email, mot_de_passe, doit_changer_mdp)
+         VALUES (?1, ?2, ?3, ?4, 1)",
+        &parametres![utilisateur_id, pseudo, email, hash],
+    )?;
+    Ok(())
+}
+
+/// Une base d'essai (D43) : pas d'assistant — une base de
+/// demonstration n'est pas une boutique — et le compte de l'employe que
+/// les scenarios et le banc utilisent (`employe` / `employe123`).
+/// Appele par `donnees_demo`, et par le serveur sous `GESCOM_DEMO=1`.
+pub fn mode_essai(base: &mut Base) -> Resultat<()> {
+    creer_compte_usine(base, "employe", "employe@gescom.ml", "Employé", "employe", "employe123", &maintenant_iso())?;
+    crate::assistant::marquer_fait(base);
+    Ok(())
+}
+
 /// Les comptes crees, pour que le serveur les annonce au demarrage.
-pub const COMPTES_USINE: &[(&str, &str, &str)] = &[
-    ("admin", "admin123", "patron"),
-    ("employe", "employe123", "employé"),
-];
+/// D43 : le patron seul ; `employe` vient avec les donnees de demo.
+pub const COMPTES_USINE: &[(&str, &str, &str)] = &[("admin", "admin123", "patron")];
 
 // =====================================================================
 //  LES DONNEES DE DEMONSTRATION
@@ -743,6 +785,8 @@ pub const COMPTES_USINE: &[(&str, &str, &str)] = &[
 /// trouve les ecarts de dialecte avant un commercant.
 pub fn donnees_demo(base: &mut Base) -> Resultat<(usize, usize)> {
     let now = maintenant_iso();
+
+    mode_essai(base)?;
 
     // ---- Clients ----
     let clients = [

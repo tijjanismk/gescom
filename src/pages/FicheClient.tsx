@@ -140,7 +140,7 @@ const COULEURS_STATUT: Record<string, string> = {
   emis:                "bg-blue-100 text-blue-700",
   accepte:             "bg-green-100 text-green-700",
   refuse:              "bg-red-100 text-red-700",
-  partiellement_livre: "bg-orange-100 text-orange-700",
+  partiellement_livre: "bg-orange-100 text-orange-900",
   livre:               "bg-teal-100 text-teal-700",
   facture:             "bg-purple-100 text-purple-700",
   paye:                "bg-green-100 text-green-800",
@@ -395,7 +395,7 @@ function ModalNouvellePiece({
                         <td className="px-2 py-2 text-right">
                           <p className="font-semibold">{fmt(montant)}</p>
                           {remise > 0 && (
-                            <p className="text-xs text-orange-500">−{fmt(remise)}</p>
+                            <p className="text-xs text-orange-800">−{fmt(remise)}</p>
                           )}
                         </td>
                         <td className="px-2 py-2 text-center">
@@ -432,7 +432,7 @@ function ModalNouvellePiece({
                   <p className="text-sm text-muted-foreground">Brut : {fmt(totalHT)}</p>
                 )}
                 {remiseMt > 0 && (
-                  <p className="text-sm text-orange-600">Remise : −{fmt(remiseMt)}</p>
+                  <p className="text-sm text-orange-800">Remise : −{fmt(remiseMt)}</p>
                 )}
                 <p className="text-xl font-bold">Net : {fmt(totalNet)}</p>
               </div>
@@ -1141,7 +1141,7 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
                           </p>
                           <p className="text-xs font-medium">{fmt(p.total_net)}</p>
                           {p.remise_montant > 0 && (
-                            <p className="text-xs text-orange-600">
+                            <p className="text-xs text-orange-800">
                               remise − {fmt(p.remise_montant)}
                             </p>
                           )}
@@ -1194,7 +1194,7 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
               </p>
             ) : (
               <>
-                <div className="bg-orange-50 border border-orange-200 rounded-lg px-4 py-2.5
+                <div className="bg-card border border-border border-l-4 border-l-orange-600 rounded-lg px-4 py-2.5
                                 flex justify-between items-center">
                   <span className="text-sm font-medium text-orange-800">Total encours</span>
                   <span className="text-sm font-bold text-orange-900">
@@ -1214,7 +1214,7 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold text-orange-600">
+                      <span className="text-sm font-bold text-orange-800">
                         {fmt(c.reste)}
                       </span>
                       <Button size="sm" variant="outline"
@@ -1342,7 +1342,7 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
                         <td className={`px-3 py-2 text-right whitespace-nowrap
                                         text-xs ${
                           r.reste_apres > 0
-                            ? "text-orange-600" : "text-green-700"}`}>
+                            ? "text-orange-800" : "text-green-700"}`}>
                           {r.reste_apres > 0 ? fmt(r.reste_apres) : "soldée"}
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -1407,7 +1407,7 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
                 un total encaissé élevé ne dit rien de ce qui reste dû. */}
             {creances.length > 0 && (
               <div className="flex items-center justify-between px-4 py-3
-                              border border-orange-200 bg-orange-50 rounded-lg">
+                              border border-border border-l-4 border-l-orange-600 bg-card rounded-lg">
                 <span className="text-sm font-medium text-orange-800">
                   Reste dû aujourd'hui, toutes factures
                 </span>

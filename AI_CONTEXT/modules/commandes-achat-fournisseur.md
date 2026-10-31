@@ -54,3 +54,13 @@ sur `Base` : [achats_base.rs](../../src-tauri/noyau/tests/achats_base.rs),
 [fournisseurs_base.rs](../../src-tauri/noyau/tests/fournisseurs_base.rs),
 [gestion_base.rs](../../src-tauri/noyau/tests/gestion_base.rs) (chantiers),
 [donnees_base.rs](../../src-tauri/noyau/tests/donnees_base.rs) (nom figé, lot D.9).
+
+## Doublons, import et export (D44, 28/10/2026)
+
+- `fournisseurs_csv::exporter_fournisseurs_csv_sur_base` — `Nom;Téléphone;Adresse;NIF;Email;Voisin`, UTF-8 avec BOM, sans le « Fournisseur divers ».
+- `fournisseurs_csv::importer_fournisseurs_csv_sur_base(base, contenu, completer, simuler)` — crée, complète un doublon (champs vides seulement, jamais le nom) ou le laisse ; refuse nom vide, nom réservé, « Voisin » illisible, doublon dans le fichier. `simuler` : l'aperçu, transaction qui retombe. Journal `import_fournisseurs`.
+- `fournisseurs_csv::juger_saisie_sur` — appelée par `creer_fournisseur_sur_base` et `modifier_fournisseur_sur_base` (nouveau paramètre `forcer`) : même NIF refusé, même nom → `FOURNISSEUR_HOMONYME` sauf `forcer`.
+- Règle pure : `coeur/doublons.rs` (`normaliser_nom`, `normaliser_nif`, `ressemblance_fournisseur` — deux NIF différents ne se ressemblent jamais).
+- Les articles, même règle de nom : `catalogue_csv::article_du_meme_nom_sur`, `refuser_doublon_article_sur` (comptoir et Paramètres), import avec `simuler`.
+
+Preuves : [doublons_base.rs](../../src-tauri/noyau/tests/doublons_base.rs) (9, deux moteurs).

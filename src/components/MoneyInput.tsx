@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { cn } from "@/lib/utils";
+import { chiffresDuMontant, lireMontant } from "@/lib/montant";
 
 interface MoneyInputProps {
   value: string;
@@ -9,11 +10,13 @@ interface MoneyInputProps {
   autoFocus?: boolean;
   disabled?: boolean;
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  id?: string;
+  "aria-label"?: string;
 }
 
 export function MoneyInput({
   value, onChange, placeholder = "0",
-  className, autoFocus, disabled, onKeyDown,
+  className, autoFocus, disabled, onKeyDown, id, "aria-label": ariaLabel,
 }: MoneyInputProps) {
   const ref = useRef<HTMLInputElement>(null);
 
@@ -24,14 +27,13 @@ export function MoneyInput({
     return new Intl.NumberFormat("fr-ML").format(parseInt(num));
   }
 
-  // Extraire la valeur brute depuis la valeur affichée
-  function extraireValeur(affiche: string): string {
-    return affiche.replace(/\s/g, "").replace(/\u202f/g, "").replace(/,/g, "");
-  }
-
+  // Le franc CFA n'a pas de centimes : « 15.000 » collé ou tapé vaut
+  // 15 000 (lib/montant.ts). Un texte qui n'est pas un montant ne
+  // change rien.
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const brut = extraireValeur(e.target.value);
-    if (brut === "" || /^\d+$/.test(brut)) {
+    const tape = e.target.value;
+    const brut = chiffresDuMontant(tape);
+    if (brut !== "" || tape.trim() === "") {
       onChange(brut);
     }
   }
@@ -41,6 +43,8 @@ export function MoneyInput({
   return (
     <input
       ref={ref}
+      id={id}
+      aria-label={ariaLabel}
       type="text"
       inputMode="numeric"
       value={affichage}
@@ -61,8 +65,8 @@ export function MoneyInput({
   );
 }
 
-// Utilitaire : parse un string MoneyInput en entier
+// Utilitaire : un montant tapé en entier (0 si ce n'en est pas un).
+// « 15.000 » vaut 15 000 : le franc CFA n'a pas de centimes.
 export function parseMontant(val: string): number {
-  const brut = val.replace(/\s/g, "").replace(/\u202f/g, "").replace(/,/g, "");
-  return parseInt(brut) || 0;
+  return lireMontant(val) ?? 0;
 }

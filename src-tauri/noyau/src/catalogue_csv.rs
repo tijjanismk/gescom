@@ -32,8 +32,21 @@ use crate::utils::maintenant_iso;
 // sans en-tete garde l'ordre v1.3. Facultative a l'import : absente ou
 // vide, un article cree suit son stock et un article existant garde son
 // reglage.
+//
+// `Seuil` ajoutee par D45, EN DERNIER, lue par son nom seulement : vide,
+// l'article prend (ou garde) le seuil du dossier.
 const ENTETE: &str =
-    "Nom;Categorie;Unite;Facteur;Prix;Prix achat;TVA %;Code barre;Stock;Suivre le stock";
+    "Nom;Categorie;Unite;Facteur;Prix;Prix achat;TVA %;Code barre;Stock;Suivre le stock;Seuil";
+
+/// Ce que la colonne « Seuil » ecrit : vide quand l'article suit le
+/// seuil du dossier, entier quand c'est un entier.
+fn seuil_ecrit(seuil: Option<f64>) -> String {
+    match seuil {
+        None => String::new(),
+        Some(s) if s.fract() == 0.0 => format!("{}", s as i64),
+        Some(s) => format!("{s}"),
+    }
+}
 
 /// Ce que la colonne « Suivre le stock » ecrit a l'export.
 fn suivi_ecrit(gere_en_stock: i64) -> &'static str {
@@ -125,7 +138,8 @@ pub fn exporter_articles_csv(
                 COALESCE(uv.code_barre, a.code_barre, ''),
                 COALESCE((SELECT SUM(sd.quantite) FROM stock_depot sd
                           WHERE sd.article_id = a.id), 0),
-                a.gere_en_stock
+                a.gere_en_stock,
+                a.seuil_alerte
          FROM article a
          LEFT JOIN categorie c ON c.id = a.categorie_id
          LEFT JOIN unite_vente uv ON uv.article_id = a.id AND uv.actif = 1
@@ -138,7 +152,7 @@ pub fn exporter_articles_csv(
         let facteur: f64 = r.get(3)?;
         let taux: f64 = r.get(6)?;
         Ok(format!(
-            "{};{};{};{};{};{};{};{};{};{}",
+            "{};{};{};{};{};{};{};{};{};{};{}",
             echapper(&r.get::<_, String>(0)?),   // Nom
             echapper(&r.get::<_, String>(1)?),   // Categorie
             echapper(&r.get::<_, String>(2)?),   // Unite
@@ -155,6 +169,7 @@ pub fn exporter_articles_csv(
             echapper(&r.get::<_, String>(7)?),   // Code barre
             r.get::<_, f64>(8)?,                 // Stock
             suivi_ecrit(r.get::<_, i64>(9)?),    // Suivre le stock (D36)
+            seuil_ecrit(r.get::<_, Option<f64>>(10)?), // Seuil (D45)
         ))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
@@ -198,7 +213,7 @@ pub fn normaliser_entete(v: &str) -> String {
 
 /// Valeur d'une colonne : par nom si l'entete existe, par position
 /// sinon (ordre historique v1.3, sans `Facteur`).
-fn champ<'a>(
+pub(crate) fn champ<'a>(
     ch: &'a [String],
     cols: &std::collections::HashMap<String, usize>,
     nom: &str,
@@ -589,7 +604,8 @@ pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String>
                     COALESCE(uv.code_barre, a.code_barre, ''),
                     CAST(COALESCE((SELECT SUM(sd.quantite) FROM stock_depot sd
                                    WHERE sd.article_id = a.id AND sd.dossier_id = ?1), 0) AS DOUBLE PRECISION),
-                    a.gere_en_stock
+                    a.gere_en_stock,
+                    a.seuil_alerte
              FROM article a
              LEFT JOIN categorie c ON c.id = a.categorie_id
              LEFT JOIN unite_vente uv ON uv.article_id = a.id AND uv.actif = 1
@@ -600,7 +616,7 @@ pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String>
                 let facteur: f64 = r.get::<f64>(3)?;
                 let taux: f64 = r.get::<f64>(6)?;
                 Ok(format!(
-                    "{};{};{};{};{};{};{};{};{};{}",
+                    "{};{};{};{};{};{};{};{};{};{};{}",
                     echapper(&r.get::<String>(0)?),
                     echapper(&r.get::<String>(1)?),
                     echapper(&r.get::<String>(2)?),
@@ -612,6 +628,8 @@ pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String>
                     r.get::<f64>(8)?,
                     // D36 : « Suivre le stock », relue a l'import.
                     suivi_ecrit(r.get::<i64>(9)?),
+                    // D45 : vide = le seuil du dossier.
+                    seuil_ecrit(r.get::<Option<f64>>(10)?),
                 ))
             },
         )
@@ -619,20 +637,76 @@ pub fn exporter_articles_csv_sur_base(base: &mut Base) -> Result<String, String>
     Ok(format!("\u{FEFF}{}\n{}", ENTETE, lignes.join("\n")))
 }
 
+/// Un article deja en base, tel que l'import le rapproche (D44).
+struct Connu {
+    id: String,
+    nom: String,
+    gere_en_stock: bool,
+    actif: bool,
+}
+
+/// L'article du meme nom (casse et espaces en trop ignores, D44), actif
+/// ou non. Les articles sont communs a tous les dossiers : la recherche
+/// porte sur toute la base. Charge les noms et compare en Rust — `LOWER`
+/// ne baisse pas les accents sur SQLite, et ne ramene pas les espaces.
+pub fn article_du_meme_nom_sur(
+    acces: &mut impl crate::base::Acces,
+    nom: &str,
+) -> Result<Option<(String, String, bool)>, String> {
+    let cible = crate::coeur::doublons::normaliser_nom(nom);
+    let tous: Vec<(String, String, i64)> = acces
+        .lire_plusieurs("SELECT id, nom, actif FROM article ORDER BY actif DESC, cree_le", &[], |r| {
+            Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?))
+        })
+        .map_err(|e| e.0)?;
+    Ok(tous
+        .into_iter()
+        .find(|(_, n, _)| crate::coeur::doublons::normaliser_nom(n) == cible)
+        .map(|(id, n, actif)| (id, n, actif != 0)))
+}
+
+/// Le refus d'un article en double, a la creation (comptoir, Achats,
+/// Parametres) : le meme texte partout.
+pub fn refuser_doublon_article_sur(acces: &mut impl crate::base::Acces, nom: &str) -> Result<(), String> {
+    match article_du_meme_nom_sur(acces, nom)? {
+        Some((_, existant, true)) => Err(format!("L'article « {existant} » existe déjà.")),
+        Some((_, existant, false)) => Err(format!(
+            "L'article « {existant} » existe déjà, désactivé : pas de second article du même nom."
+        )),
+        None => Ok(()),
+    }
+}
+
 /// `peut_ne_pas_suivre` : l'appelant a-t-il le droit de regler le suivi
 /// du stock (`parametres:modifier`, D36) ? Sans lui, une ligne « Suivre
 /// le stock : non » qui creerait un article est refusee — le serveur le
 /// juge, l'ecran ne protege rien (D27).
+///
+/// `simuler` (D44) : l'apercu. Tout se joue dans la transaction, puis
+/// elle retombe sans etre validee — l'apercu dit exactement ce que
+/// l'import fera, parce que c'est le meme code.
+///
+/// Les doublons (D44) : un article se reconnait a son nom, sans la casse
+/// ni les espaces en trop. Deux lignes du fichier pour le meme article et
+/// la meme unite : la seconde est refusee. Un code-barre deja porte par
+/// un autre article : la ligne qui creerait l'article est refusee, une
+/// mise a jour garde l'ancien code et le dit. Avant D44, ce code-barre
+/// faisait echouer tout l'import sur une erreur SQL.
 pub fn importer_articles_csv_sur_base(
     base: &mut Base,
     contenu: String,
     mettre_a_jour: Option<bool>,
     peut_ne_pas_suivre: bool,
+    simuler: bool,
 ) -> Result<serde_json::Value, String> {
+    use crate::coeur::doublons::normaliser_nom;
+    use std::collections::{HashMap, HashSet};
+
     let dossier = base.dossier().to_string();
     let maj = mettre_a_jour.unwrap_or(true);
     let now = maintenant_iso();
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
+    let tva_du_dossier = crate::assistant::taux_nouvel_article_sur(base);
     let depot_defaut: String = base
         .lire_une(
             "SELECT id FROM depot WHERE est_defaut = 1 AND dossier_id = ?1 LIMIT 1",
@@ -642,14 +716,42 @@ pub fn importer_articles_csv_sur_base(
         .map_err(|e| e.0)?
         .ok_or_else(|| "Aucun magasin par défaut".to_string())?;
 
+    // Ce qui existe : par nom mis en forme, et chaque code-barre a qui
+    // il est (article ou unite de vente).
+    let mut connus: HashMap<String, Connu> = HashMap::new();
+    for (id, nom, gere, actif) in base
+        .lire_plusieurs("SELECT id, nom, gere_en_stock, actif FROM article ORDER BY actif ASC, cree_le DESC", &[], |r| {
+            Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<i64>(3)?))
+        })
+        .map_err(|e| e.0)?
+    {
+        // Le plus ancien actif l'emporte (ordre : les inactifs d'abord,
+        // ecrases par les actifs ; les recents d'abord, ecrases par les
+        // anciens).
+        connus.insert(normaliser_nom(&nom), Connu { id, nom, gere_en_stock: gere != 0, actif: actif != 0 });
+    }
+    let mut codes: HashMap<String, String> = HashMap::new();
+    for (code, article_id) in base
+        .lire_plusieurs(
+            "SELECT code_barre, id FROM article WHERE code_barre IS NOT NULL
+             UNION ALL
+             SELECT code_barre, article_id FROM unite_vente WHERE code_barre IS NOT NULL",
+            &[],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?)),
+        )
+        .map_err(|e| e.0)?
+    {
+        codes.entry(code).or_insert(article_id);
+    }
+
     let contenu = contenu.trim_start_matches('\u{FEFF}');
     let mut lignes = contenu.lines();
     let premiere = lignes.next().unwrap_or("");
     let a_entete = premiere.to_lowercase().starts_with("nom");
-    let cols: std::collections::HashMap<String, usize> = if a_entete {
+    let cols: HashMap<String, usize> = if a_entete {
         decouper(premiere).iter().enumerate().map(|(i, c)| (normaliser_entete(c), i)).collect()
     } else {
-        std::collections::HashMap::new()
+        HashMap::new()
     };
     let mut a_traiter: Vec<&str> = Vec::new();
     if !a_entete {
@@ -660,10 +762,17 @@ pub fn importer_articles_csv_sur_base(
     let mut tx = base.transaction().map_err(|e| e.0)?;
     let mut crees = 0;
     let mut majs = 0;
+    let mut ignores: Vec<String> = Vec::new();
     let mut erreurs: Vec<String> = Vec::new();
+    let mut avertissements: Vec<String> = Vec::new();
+    // (nom mis en forme, unite en minuscules) -> la ligne qui l'a donne.
+    let mut vus: HashMap<(String, String), usize> = HashMap::new();
+    // Les articles crees par CE fichier : leurs lignes suivantes ajoutent
+    // leurs unites, meme sans « mettre a jour ».
+    let mut crees_ici: HashSet<String> = HashSet::new();
 
     for (i, ligne) in a_traiter.iter().enumerate() {
-        let num = i + 2;
+        let num = if a_entete { i + 2 } else { i + 1 };
         if ligne.trim().is_empty() {
             continue;
         }
@@ -680,6 +789,8 @@ pub fn importer_articles_csv_sur_base(
             erreurs.push(format!("Ligne {} : nom vide", num));
             continue;
         }
+        let nom = nom.split_whitespace().collect::<Vec<_>>().join(" ");
+        let nom = nom.as_str();
         let brut_prix = champ(&ch, &cols, "prix", Some(3)).unwrap_or("");
         let prix = match parser_montant(brut_prix) {
             Some(p) if p > 0 => p,
@@ -695,12 +806,28 @@ pub fn importer_articles_csv_sur_base(
         };
         let facteur = champ(&ch, &cols, "facteur", None).and_then(parser_decimal).filter(|f| *f > 0.0).unwrap_or(1.0);
         let prix_achat = champ(&ch, &cols, "prixachat", Some(4)).and_then(parser_montant);
+        // Colonne vide ou absente : `None` — un article cree prend le taux
+        // du dossier (D43), un article existant garde le sien.
         let tva = champ(&ch, &cols, "tva", Some(5))
+            .filter(|s| !s.is_empty())
             .and_then(parser_decimal)
-            .map(|t| if t > 1.0 { t / 100.0 } else { t })
-            .unwrap_or(0.0);
+            .map(|t| if t > 1.0 { t / 100.0 } else { t });
         let code_barre = champ(&ch, &cols, "codebarre", Some(6)).filter(|s| !s.is_empty()).map(|s| s.to_string());
         let stock = champ(&ch, &cols, "stock", Some(7)).and_then(parser_decimal).unwrap_or(0.0);
+        // D45 : « Seuil », par son nom seulement ; vide = celui du
+        // dossier (ou celui que l'article a deja). Illisible : refusee.
+        let seuil = match champ(&ch, &cols, "seuil", None).filter(|s| !s.is_empty()) {
+            None => None,
+            Some(brut) => match parser_decimal(brut).ok_or_else(|| "illisible".to_string())
+                .and_then(|s| crate::coeur::stock::verifier_seuil(s).map(|_| s))
+            {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    erreurs.push(format!("Ligne {} « {} » : seuil « {} » refusé ({}).", num, nom, brut, e));
+                    continue;
+                }
+            },
+        };
 
         // D36, lot D.11 : « Suivre le stock », jugee AVANT toute ecriture
         // de la ligne (categorie comprise).
@@ -712,17 +839,30 @@ pub fn importer_articles_csv_sur_base(
             }
         };
 
-        let existant: Option<(String, i64)> = tx
-            .lire_une(
-                "SELECT id, gere_en_stock FROM article WHERE LOWER(nom) = LOWER(?1)",
-                &parametres![nom],
-                |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?)),
-            )
-            .map_err(|e| e.0)?;
+        // D44 : le meme article et la meme unite deux fois dans le fichier.
+        let cle_ligne = (normaliser_nom(nom), unite.to_lowercase());
+        if let Some(premiere) = vus.get(&cle_ligne) {
+            erreurs.push(format!(
+                "Ligne {} « {} » : même article et même unité que la ligne {} — doublon dans le fichier, ligne ignorée.",
+                num, nom, premiere
+            ));
+            continue;
+        }
+        vus.insert(cle_ligne, num);
+
+        let existant = connus.get(&normaliser_nom(nom)).map(|c| (c.id.clone(), c.nom.clone(), c.gere_en_stock, c.actif));
+        if let Some((_, nom_connu, _, false)) = &existant {
+            erreurs.push(format!(
+                "Ligne {} « {} » : l'article « {} » existe, désactivé — l'import ne le reprend pas. Ligne ignorée.",
+                num, nom, nom_connu
+            ));
+            continue;
+        }
+        let cree_ici = existant.as_ref().is_some_and(|(id, ..)| crees_ici.contains(id));
         match (&existant, suivi) {
             // Un article existant ne change pas de suivi par l'import.
-            (Some((_, actuel)), Some(voulu)) if maj && (*actuel != 0) != voulu => {
-                erreurs.push(refus_changement_suivi(num, nom, *actuel != 0));
+            (Some((_, _, actuel, _)), Some(voulu)) if maj && !cree_ici && *actuel != voulu => {
+                erreurs.push(refus_changement_suivi(num, nom, *actuel));
                 continue;
             }
             // Le creer non suivi : le droit de regler le suivi.
@@ -732,8 +872,37 @@ pub fn importer_articles_csv_sur_base(
             }
             _ => {}
         }
-        let existant = existant.map(|(id, _)| id);
 
+        // D44 : un code-barre deja porte par un AUTRE article.
+        let code_pris = code_barre.as_ref().and_then(|cb| {
+            codes.get(cb).filter(|proprio| existant.as_ref().is_none_or(|(id, ..)| *proprio != id)).cloned()
+        });
+        if existant.is_none() {
+            if let (Some(cb), Some(_)) = (&code_barre, &code_pris) {
+                erreurs.push(format!(
+                    "Ligne {} « {} » : le code-barre {} est déjà celui d'un autre article. Ligne ignorée.",
+                    num, nom, cb
+                ));
+                continue;
+            }
+        }
+        let code_barre = if code_pris.is_some() {
+            avertissements.push(format!(
+                "Ligne {} « {} » : le code-barre {} est déjà celui d'un autre article ; l'article garde le sien.",
+                num, nom, code_barre.as_deref().unwrap_or("")
+            ));
+            None
+        } else {
+            // Deja le sien (une autre de ses unites) : rien a poser.
+            code_barre.filter(|cb| !codes.contains_key(cb))
+        };
+
+        if let Some((_, nom_connu, ..)) = &existant {
+            if !maj && !cree_ici {
+                ignores.push(format!("Ligne {} « {} » : existe déjà (« {} »), laissé tel quel.", num, nom, nom_connu));
+                continue;
+            }
+        }
         // Categorie : creee si absente.
         let cat_id: Option<String> = if categorie.is_empty() {
             None
@@ -761,21 +930,24 @@ pub fn importer_articles_csv_sur_base(
         };
 
         match existant {
-            Some(art_id) if maj => {
+            Some((art_id, ..)) => {
                 tx.executer(
                     "UPDATE article SET categorie_id = COALESCE(CAST(?1 AS TEXT), categorie_id),
                         dernier_prix_achat = COALESCE(CAST(?2 AS BIGINT), dernier_prix_achat),
-                        taux_tva_defaut = ?3, modifie_le = ?4
+                        taux_tva_defaut = COALESCE(CAST(?3 AS DOUBLE PRECISION), taux_tva_defaut),
+                        seuil_alerte = COALESCE(CAST(?6 AS DOUBLE PRECISION), seuil_alerte),
+                        modifie_le = ?4
                      WHERE id = ?5",
-                    &parametres![cat_id, prix_achat, tva, now.clone(), art_id.clone()],
+                    &parametres![cat_id, prix_achat, tva, now.clone(), art_id.clone(), seuil],
                 )
                 .map_err(|e| e.0)?;
                 if let Some(ref cb) = code_barre {
-                    let _ = tx.executer(
-                        "UPDATE article SET code_barre = ?1 WHERE id = ?2
-                         AND NOT EXISTS (SELECT 1 FROM article WHERE code_barre = ?1 AND id <> ?2)",
+                    tx.executer(
+                        "UPDATE article SET code_barre = ?1 WHERE id = ?2 AND code_barre IS NULL",
                         &parametres![cb.clone(), art_id.clone()],
-                    );
+                    )
+                    .map_err(|e| e.0)?;
+                    codes.insert(cb.clone(), art_id.clone());
                 }
                 // Une unite absente est CREEE, pas ignoree.
                 let touchees = tx
@@ -786,7 +958,7 @@ pub fn importer_articles_csv_sur_base(
                          WHERE article_id = ?5 AND LOWER(libelle) = LOWER(?6)",
                         &parametres![prix, facteur, code_barre.clone(), now.clone(), art_id.clone(), unite],
                     )
-                    .unwrap_or(0);
+                    .map_err(|e| e.0)?;
                 if touchees == 0 {
                     tx.executer(
                         "INSERT INTO unite_vente
@@ -797,9 +969,10 @@ pub fn importer_articles_csv_sur_base(
                     )
                     .map_err(|e| e.0)?;
                 }
-                majs += 1;
+                if !cree_ici {
+                    majs += 1;
+                }
             }
-            Some(_) => {}
             None => {
                 let art_id = uuid::Uuid::new_v4().to_string();
                 // D36 : suivi par defaut ; « non » le cree hors des
@@ -809,11 +982,17 @@ pub fn importer_articles_csv_sur_base(
                     "INSERT INTO article
                      (id, nom, categorie_id, unite_base, gere_en_stock, attributs,
                       dernier_prix_achat, code_barre, actif,
-                      cree_le, modifie_le, cree_par, modifie_par, origine, taux_tva_defaut)
-                     VALUES (?1,?2,CAST(?3 AS TEXT),?4,?9,'{}',CAST(?5 AS BIGINT),CAST(?6 AS TEXT),1,?7,?7,'import','import','import',?8)",
-                    &parametres![art_id.clone(), nom, cat_id, unite, prix_achat, code_barre, now.clone(), tva, suivre as i64],
+                      cree_le, modifie_le, cree_par, modifie_par, origine, taux_tva_defaut, seuil_alerte)
+                     VALUES (?1,?2,CAST(?3 AS TEXT),?4,?9,'{}',CAST(?5 AS BIGINT),CAST(?6 AS TEXT),1,?7,?7,'import','import','import',?8,CAST(?10 AS DOUBLE PRECISION))",
+                    &parametres![
+                        art_id.clone(), nom, cat_id, unite, prix_achat, code_barre.clone(), now.clone(),
+                        tva.unwrap_or(tva_du_dossier), suivre as i64, seuil
+                    ],
                 )
                 .map_err(|e| e.0)?;
+                if let Some(cb) = &code_barre {
+                    codes.insert(cb.clone(), art_id.clone());
+                }
                 if !suivre {
                     tx.executer(
                         "INSERT INTO journal
@@ -843,28 +1022,62 @@ pub fn importer_articles_csv_sur_base(
                 // Le stock importe est une ENTREE, tracee ; le
                 // declencheur tient le compteur.
                 if stock != 0.0 {
-                    let _ = tx.executer(
+                    tx.executer(
                         "INSERT INTO mouvement_stock
                          (id, article_id, depot_id, type_mouvement, quantite_delta,
                           motif, auteur_id, date_mouvement, cree_le, cree_par, origine, dossier_id)
                          VALUES (?1,?2,?3,'entree',?4,?5,'import',?6,?6,'import','import',?7)",
                         &parametres![
-                            uuid::Uuid::new_v4().to_string(), art_id, depot_defaut.clone(), stock,
+                            uuid::Uuid::new_v4().to_string(), art_id.clone(), depot_defaut.clone(), stock,
                             "Import CSV du catalogue", now.clone(), dossier.clone()
                         ],
-                    );
+                    )
+                    .map_err(|e| e.0)?;
                 }
+                connus.insert(
+                    normaliser_nom(nom),
+                    Connu { id: art_id.clone(), nom: nom.to_string(), gere_en_stock: suivre, actif: true },
+                );
+                crees_ici.insert(art_id);
                 crees += 1;
             }
         }
     }
-    tx.valider().map_err(|e| e.0)?;
-    Ok(serde_json::json!({
+
+    let bilan = serde_json::json!({
         "crees": crees,
         "mis_a_jour": majs,
+        "ignores": ignores,
+        "nb_ignores": ignores.len(),
         "erreurs": erreurs,
         "nb_erreurs": erreurs.len(),
-    }))
+        "avertissements": avertissements,
+        "simule": simuler,
+    });
+    if simuler {
+        // La transaction retombe : rien n'est ecrit.
+        drop(tx);
+        return Ok(bilan);
+    }
+    if crees + majs > 0 {
+        tx.executer(
+            "INSERT INTO journal
+               (id, type_evenement, entite_type, entite_id, auteur_id,
+                nouveau_valeur, origine, date_evenement, dossier_id)
+             VALUES (?1,'import_articles','article','import',?2,?3,'import',?4,?5)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                auteur,
+                serde_json::json!({ "crees": crees, "mis_a_jour": majs, "ignores": ignores.len(), "refuses": erreurs.len() })
+                    .to_string(),
+                now,
+                dossier
+            ],
+        )
+        .map_err(|e| e.0)?;
+    }
+    tx.valider().map_err(|e| e.0)?;
+    Ok(bilan)
 }
 
 pub fn lire_etat_stock_sur_base(

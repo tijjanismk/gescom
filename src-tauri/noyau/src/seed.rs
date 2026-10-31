@@ -21,9 +21,10 @@
 //! Chez un commerçant, les données de démo seraient à supprimer une par
 //! une. On ne les crée donc jamais en production.
 //!
-//! Comptes : admin/admin123 (patron), employe/employe123 (employé).
-//! Les deux exigent un changement de mot de passe à la première
-//! connexion.
+//! Comptes : admin/admin123 (patron), qui le change dans l'assistant
+//! du premier démarrage (D43). employe/employe123 n'existe qu'avec les
+//! données de démonstration : un deuxième mot de passe d'usine serait
+//! un deuxième mot de passe public.
 
 use rusqlite::{Connection, Result, params};
 use uuid::Uuid;
@@ -95,7 +96,6 @@ pub fn seeder(conn: &Connection) -> Result<()> {
 
     // ---- Utilisateurs ----
     let user_patron_id = Uuid::new_v4().to_string();
-    let user_employe_id = Uuid::new_v4().to_string();
 
     conn.execute(
         "INSERT OR IGNORE INTO utilisateur
@@ -103,28 +103,15 @@ pub fn seeder(conn: &Connection) -> Result<()> {
          VALUES (?1, 'Patron', ?2, 1, ?3, ?4, ?5)",
         params![user_patron_id, role_patron_id, now, now, origine],
     )?;
-    conn.execute(
-        "INSERT OR IGNORE INTO utilisateur
-         (id, nom, role_id, actif, cree_le, modifie_le, origine)
-         VALUES (?1, 'Employé', ?2, 1, ?3, ?4, ?5)",
-        params![user_employe_id, role_employe_id, now, now, origine],
-    )?;
 
     // ---- Auth ----
     let hash_patron = hasher_mot_de_passe_pub("admin123").unwrap_or_default();
-    let hash_employe = hasher_mot_de_passe_pub("employe123").unwrap_or_default();
 
     conn.execute(
         "INSERT OR IGNORE INTO utilisateur_auth
          (utilisateur_id, pseudo, email, mot_de_passe, doit_changer_mdp)
          VALUES (?1, 'admin', 'admin@gescom.ml', ?2, 1)",
         params![user_patron_id, hash_patron],
-    )?;
-    conn.execute(
-        "INSERT OR IGNORE INTO utilisateur_auth
-         (utilisateur_id, pseudo, email, mot_de_passe, doit_changer_mdp)
-         VALUES (?1, 'employe', 'employe@gescom.ml', ?2, 1)",
-        params![user_employe_id, hash_employe],
     )?;
 
     // ---- Dépôt par défaut ----
@@ -168,11 +155,36 @@ pub fn seeder(conn: &Connection) -> Result<()> {
         .unwrap_or(false);
 
     if !mode_demo {
+        // D43 : une base neuve attend l'assistant du patron.
+        conn.execute(
+            "INSERT OR IGNORE INTO config_app (cle, valeur) VALUES (?1, ?2)",
+            params![
+                crate::coeur::assistant::ASSISTANT_CLE,
+                crate::coeur::assistant::ASSISTANT_A_FAIRE
+            ],
+        )?;
         println!("[seed] Base initialisée avec succès (mode production)");
         return Ok(());
     }
 
     println!("[seed] GESCOM_DEMO=1 — Insertion des données de test");
+
+    // Le compte d'essai de l'employe (D43 : seulement en demonstration),
+    // et pas d'assistant : une base de demonstration n'est pas une boutique.
+    let user_employe_id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT OR IGNORE INTO utilisateur
+         (id, nom, role_id, actif, cree_le, modifie_le, origine)
+         VALUES (?1, 'Employé', ?2, 1, ?3, ?4, ?5)",
+        params![user_employe_id, role_employe_id, now, now, origine],
+    )?;
+    let hash_employe = hasher_mot_de_passe_pub("employe123").unwrap_or_default();
+    conn.execute(
+        "INSERT OR IGNORE INTO utilisateur_auth
+         (utilisateur_id, pseudo, email, mot_de_passe, doit_changer_mdp)
+         VALUES (?1, 'employe', 'employe@gescom.ml', ?2, 1)",
+        params![user_employe_id, hash_employe],
+    )?;
 
     // ---- Clients de test ----
     let clients = vec![

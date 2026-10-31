@@ -59,7 +59,17 @@ passe par les yeux et par le réseau.
 
 | # | Faire | Attendu | ☐ |
 |---|---|---|---|
-| C1 | `admin` / `admin123` sur une base neuve | Changement de mot de passe **imposé** avant tout | ☐ |
+| C1 | `admin` / `admin123` sur une base neuve | L'écran de connexion rappelle le compte d'usine ; après connexion, **l'assistant de création du dossier** prend l'écran (D43) ; `admin123` y est refusé comme nouveau mot de passe | ☐ |
+| C1b | Sur un autre poste, se connecter pendant que l'assistant n'est pas fini | « Le dossier n'est pas encore créé » pour un vendeur ; aucun écran ne s'ouvre | ☐ |
+| C1c | Finir l'assistant (société, dates, TVA 18 %, premier numéro 1251, fond 25 000, une vendeuse) | Tableau de bord ; en-tête des factures au nom de la société ; première facture `FAC-<année>-01251` ; un article créé au comptoir a 18 % ; la caisse propose 25 000 ; la vendeuse doit changer son mot de passe | ☐ |
+| C1d | Fournisseurs → Import / export : exporter, réimporter le même fichier | L'aperçu ne crée rien (« déjà présents, laissés ») ; une ligne au même NIF complète la fiche sans la renommer | ☐ |
+| C1e | Créer à la main un fournisseur du même nom qu'un autre | « Créer quand même ? » ; même NIF qu'un autre : refusé | ☐ |
+| C1f | Importer un catalogue avec « riz  25 KG » alors que « Riz 25 kg » existe, et un code-barre déjà pris | L'aperçu dit « mis à jour » pour le riz, refuse la seule ligne au code-barre pris ; rien n'est écrit avant « Importer pour de vrai » | ☐ |
+| C1h | Paramètres → TVA : passer de « Non » à « Oui, 18 % », choisir « Aussi les articles existants » | Tous les articles à 18 % ; un article créé ensuite aussi ; Historique : « Réglages du dossier modifiés » ; avec « Seulement les nouveaux », les anciens gardent leur taux | ☐ |
+| C1i | Caisse → Historique après une clôture avec écart | Chiffres sans pictogramme, lisibles ; le bandeau d'alerte en texte foncé sur blanc, liseré orange ; aucun fond pêche à travers les blocs | ☐ |
+| C1j | Créer un article avec un seuil de 10 (Paramètres → Articles, puis Achats → nouvel article), lui donner 6 en stock ; Paramètres → Société : seuil du dossier 3 | Badge orange dans Stock, « 1 alerte » au tableau de bord, statut « alerte » au rapport du stock ; seuil 0 : plus d'alerte ; un article sans seuil à 2 en stock passe en alerte, à 3 non | ☐ |
+| C1k | Parcourir Caisse → Historique, un import avec erreurs, Relances, Pièces, Clients, le tableau de bord | Aucun texte coloré sur fond de la même couleur : encadrés blancs à liseré orange, pastilles à texte foncé ; tout se lit sans effort, même de loin | ☐ |
+| C1g | Regarder les trois icônes (bureau, barre des tâches) | Gescom sans pastille, Gescom Serveur pastille bleue (tour), Gescom Équipe pastille verte (personnes) | ☐ |
 | C2 | Mauvais mot de passe | Refus, sans dire lequel des deux est faux | ☐ |
 | C3 | Se connecter en `employe` | Pas de prix d'achat, pas de rapports, pas de Paramètres → Utilisateurs | ☐ |
 | C4 | Patron : Utilisateurs → Permissions → retirer *ventes:creer* à employe | L'employé ne voit plus Ventes dans le menu ni dans Ctrl+K ; un appel direct est refusé par le serveur | ☐ |

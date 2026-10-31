@@ -24,7 +24,7 @@ export const MODULES: ModuleEquipe[] = [
   },
   {
     cle: "paie", libelle: "Paie", icone: Wallet,
-    description: "Avances, fiches du mois, versements depuis la caisse, bulletins.",
+    description: "Avances, fiches du mois, versements (hors caisse ou pris dans le tiroir), bulletins.",
     droits: ["paie:preparer", "paie:valider", "personnel:avancer"],
   },
   {

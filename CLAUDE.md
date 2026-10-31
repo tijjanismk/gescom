@@ -56,6 +56,7 @@ Avant de corriger quoi que ce soit : [AI_CONTEXT/ALERTES.md](AI_CONTEXT/ALERTES.
 .\outils\cargo-tenace.ps1 test --workspace        # SQLite ; cargo nu est bloqué par Smart App Control (4551)
 GESCOM_PG="postgresql://…/gescom_test" cargo test -p gescom-noyau --test <fichier> -- --test-threads=1
 # + GESCOM_PG_LIMITE=1 GESCOM_PG_SAUVEGARDE=<même URL> : sous le compte limité (RLS, v3 D-6)
+npx tsc --noEmit ; node --test src/lib/*.test.ts   # l'écran, dont le garde-fou de lisibilité (D46)
 ```
 
 - **Jamais `GESCOM_PG` sur la base du serveur** (`gescom`) : les

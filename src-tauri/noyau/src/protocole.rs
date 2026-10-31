@@ -262,4 +262,8 @@ pub struct Sante {
     pub base_saine: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub derniere_sauvegarde: Option<String>,
+    /// D43 : la base est neuve, le patron n'a pas encore fait
+    /// l'assistant de creation du dossier.
+    #[serde(default)]
+    pub assistant_a_faire: bool,
 }

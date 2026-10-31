@@ -132,8 +132,11 @@ pub fn registre() -> Registre {
     r.sur_base("creer_employe", Some("personnel:gerer"), true, |c, p| {
         gescom_noyau::personnel::creer_sur(c.base, arg(&p, "fiche", "fiche")?)
     });
+    // Revue du 28/10, point 3 : qui gere sans voir la paie ne reecrit
+    // pas la remuneration (son ecran la recoit masquee).
     r.sur_base("modifier_employe", Some("personnel:gerer"), true, |c, p| {
-        gescom_noyau::personnel::modifier_sur(c.base, arg(&p, "employeId", "employe_id")?, arg(&p, "fiche", "fiche")?)
+        let voit = voit_la_paie(c);
+        gescom_noyau::personnel::modifier_selon_droits_sur(c.base, arg(&p, "employeId", "employe_id")?, arg(&p, "fiche", "fiche")?, voit)
     });
     r.sur_base("faire_partir_employe", Some("personnel:gerer"), true, |c, p| {
         gescom_noyau::personnel::faire_partir_sur(
@@ -144,19 +147,24 @@ pub fn registre() -> Registre {
         )
     });
     r.sur_base("faire_revenir_employe", Some("personnel:gerer"), true, |c, p| {
-        gescom_noyau::personnel::faire_revenir_sur(c.base, arg(&p, "employeId", "employe_id")?)
+        gescom_noyau::personnel::faire_revenir_sur(c.base, arg(&p, "employeId", "employe_id")?, arg(&p, "date", "date")?)
     });
     // F-3 : les jours travailles.
     r.sur_base("lire_presences_mois", None, false, |c, p| {
         gescom_noyau::presences::lire_mois_sur(c.base, &arg::<String>(&p, "mois", "mois")?)
     });
     r.sur_base("marquer_presence", Some("personnel:gerer"), true, |c, p| {
-        gescom_noyau::presences::marquer_sur(
+        gescom_noyau::presences::marquer_avec_motif_sur(
             c.base,
             arg(&p, "employeId", "employe_id")?,
             arg(&p, "jour", "jour")?,
             arg(&p, "etat", "etat")?,
+            arg(&p, "motif", "motif")?,
         )
+    });
+    // D52 : le compte de l'annee par motif, sur la fiche.
+    r.sur_base("lire_absences_annee", None, false, |c, p| {
+        gescom_noyau::presences::absences_annee_sur(c.base, &arg::<String>(&p, "annee", "annee")?)
     });
     r.sur_base("marquer_tous_presents", Some("personnel:gerer"), true, |c, p| {
         gescom_noyau::presences::tous_presents_sur(c.base, arg(&p, "jour", "jour")?)
@@ -172,16 +180,69 @@ pub fn registre() -> Registre {
         .map_err(|e| e.to_string())
     });
     r.sur_base("donner_avance", Some("personnel:avancer"), true, |c, p| {
-        gescom_noyau::avances::donner_sur(
+        // Le refus ne chiffre le plafond qu'a qui le voit (point 3).
+        let voit = voit_la_paie(c);
+        // D42 : la date, l'etalement, l'argent pris dans le tiroir.
+        let du_tiroir: Option<bool> = arg(&p, "duTiroir", "du_tiroir")?;
+        let saisie = gescom_noyau::avances::Saisie {
+            moyen: arg(&p, "moyen", "moyen")?,
+            motif: arg(&p, "motif", "motif")?,
+            date: arg(&p, "date", "date")?,
+            mensualite: arg(&p, "mensualite", "mensualite")?,
+            du_tiroir: du_tiroir.unwrap_or(false),
+        };
+        gescom_noyau::avances::donner_avance_sur(
             c.base,
             arg(&p, "employeId", "employe_id")?,
+            arg(&p, "montant", "montant")?,
+            saisie,
+            voit,
+        )
+    });
+    r.sur_base("annuler_avance", Some("personnel:avancer"), true, |c, p| {
+        gescom_noyau::avances::annuler_sur(c.base, arg(&p, "avanceId", "avance_id")?, arg(&p, "motif", "motif")?)
+    });
+    // EQ-1 (D47) : le pret sur plusieurs mois. Preter, rembourser,
+    // remettre, annuler : le patron (`paie:valider`) ; lire : qui lit la
+    // paie (`coeur::lecture`).
+    r.sur_base("lire_prets", None, false, |c, p| {
+        let en_cours: Option<bool> = arg(&p, "enCoursSeulement", "en_cours_seulement")?;
+        serde_json::to_value(gescom_noyau::prets::lister_sur(
+            c.base,
+            arg(&p, "employeId", "employe_id")?,
+            en_cours.unwrap_or(false),
+        )?)
+        .map_err(|e| e.to_string())
+    });
+    r.sur_base("lire_pret", None, false, |c, p| {
+        gescom_noyau::prets::lire_sur(c.base, &arg::<String>(&p, "pretId", "pret_id")?)
+    });
+    r.sur_base("preter", Some("paie:valider"), true, |c, p| {
+        let du_tiroir: Option<bool> = arg(&p, "duTiroir", "du_tiroir")?;
+        let saisie = gescom_noyau::prets::Saisie {
+            moyen: arg(&p, "moyen", "moyen")?,
+            motif: arg(&p, "motif", "motif")?,
+            date: arg(&p, "date", "date")?,
+            mensualite: arg(&p, "mensualite", "mensualite")?,
+            premier_mois: arg(&p, "premierMois", "premier_mois")?,
+            du_tiroir: du_tiroir.unwrap_or(false),
+        };
+        gescom_noyau::prets::preter_sur(c.base, arg(&p, "employeId", "employe_id")?, arg(&p, "montant", "montant")?, saisie)
+    });
+    r.sur_base("rembourser_pret", Some("paie:valider"), true, |c, p| {
+        gescom_noyau::prets::rembourser_sur(
+            c.base,
+            arg(&p, "pretId", "pret_id")?,
             arg(&p, "montant", "montant")?,
             arg(&p, "moyen", "moyen")?,
             arg(&p, "motif", "motif")?,
         )
     });
-    r.sur_base("annuler_avance", Some("personnel:avancer"), true, |c, p| {
-        gescom_noyau::avances::annuler_sur(c.base, arg(&p, "avanceId", "avance_id")?, arg(&p, "motif", "motif")?)
+    r.sur_base("remettre_pret", Some("paie:valider"), true, |c, p| {
+        gescom_noyau::prets::remettre_sur(c.base, arg(&p, "pretId", "pret_id")?, arg(&p, "motif", "motif")?)
+    });
+    r.sur_base("annuler_pret", Some("paie:valider"), true, |c, p| {
+        gescom_noyau::prets::annuler_sur(c.base, arg(&p, "pretId", "pret_id")?, arg(&p, "motif", "motif")?)
     });
     // G-2 (D31) : la fiche de paie. Preparer et corriger un brouillon :
     // `paie:preparer` ; valider et rectifier : `paie:valider`. Lire :
@@ -228,9 +289,16 @@ pub fn registre() -> Registre {
     r.sur_base("rectifier_fiche_paie", Some("paie:valider"), true, |c, p| {
         gescom_noyau::paie::rectifier_sur(c.base, arg(&p, "ficheId", "fiche_id")?)
     });
-    // G-3 : payer (une sortie de caisse par versement) et le bulletin.
+    // G-3 : payer, hors caisse (24/09) ou pris dans le tiroir (D42).
     r.sur_base("verser_paie", Some("paie:valider"), true, |c, p| {
-        gescom_noyau::paie::verser_sur(c.base, arg(&p, "ficheId", "fiche_id")?, arg(&p, "montant", "montant")?, arg(&p, "moyen", "moyen")?)
+        let du_tiroir: Option<bool> = arg(&p, "duTiroir", "du_tiroir")?;
+        gescom_noyau::paie::verser_avec_sur(
+            c.base,
+            arg(&p, "ficheId", "fiche_id")?,
+            arg(&p, "montant", "montant")?,
+            arg(&p, "moyen", "moyen")?,
+            du_tiroir.unwrap_or(false),
+        )
     });
     // G-4 (D33) : les cotisations du dossier, vides par defaut.
     r.sur_base("lire_cotisations", None, false, |c, _| {
@@ -244,6 +312,14 @@ pub fn registre() -> Registre {
     });
     r.sur_base("lire_donnees_bulletin", None, false, |c, p| {
         gescom_noyau::paie::donnees_bulletin_sur(c.base, arg(&p, "ficheId", "fiche_id")?)
+    });
+    // EQ-2 (D48) : l'etat de paie du mois, en lecture seule. La lecture
+    // (paie:preparer ou paie:valider) se regle dans `coeur::lecture`.
+    r.sur_base("lire_etat_paie", None, false, |c, p| {
+        gescom_noyau::etat_paie::lire_sur(c.base, arg(&p, "mois", "mois")?)
+    });
+    r.sur_base("exporter_etat_paie_csv", None, false, |c, p| {
+        gescom_noyau::etat_paie::csv_sur(c.base, arg(&p, "mois", "mois")?)
     });
     // H-1/H-2 (D34) : le suivi client — echanges, rappels, prospects.
     // Une seule permission d'ecriture ET de lecture (`crm:suivre`) ; la
@@ -293,6 +369,45 @@ pub fn registre() -> Registre {
     });
     r.sur_base("lire_prospects", None, false, |c, _| {
         serde_json::to_value(gescom_noyau::crm::lister_prospects_sur(c.base)?).map_err(|e| e.to_string())
+    });
+    // EQ-3 (D49) : l'accueil du jour d'Equipe. Ouvert a toute session :
+    // chaque bloc suit le droit de la commande qui le lit en entier
+    // (`coeur::lecture::accueil_equipe`), les montants la paie seulement ;
+    // les rappels sont ceux de la session, pas d'un parametre.
+    r.sur_base("lire_accueil_equipe", None, false, |c, _| {
+        let perms = gescom_noyau::portes::permissions_de_sur(c.base, &c.appelant.utilisateur_id, &c.appelant.role);
+        let droits = gescom_noyau::coeur::lecture::accueil_equipe(|p| perms.contains(p));
+        let moi = c.appelant.utilisateur_id.clone();
+        gescom_noyau::equipe_jour::accueil_sur(c.base, droits, &moi, &gescom_noyau::utils::maintenant_iso())
+    });
+    // EQ-4 (D50) : les clients a relancer. La lecture et ses masques
+    // sont dans `coeur::lecture` ; le reglage N, comme les autres
+    // reglages du dossier, avec `parametres:modifier`.
+    r.sur_base("lire_clients_a_relancer", None, false, |c, p| {
+        let avec_creances: Option<bool> = arg(&p, "avecCreances", "avec_creances")?;
+        gescom_noyau::crm_relances::lire_clients_a_relancer_sur(c.base, avec_creances.unwrap_or(true))
+    });
+    r.sur_base("definir_jours_dormant", Some("parametres:modifier"), true, |c, p| {
+        gescom_noyau::crm_relances::definir_jours_dormant_sur(c.base, arg(&p, "jours", "jours")?)
+    });
+    // D50 (10-16) : l'etape d'un prospect, le client parti, le compte
+    // des prospects — tout avec `crm:suivre`.
+    r.sur_base("changer_etape_prospect", Some("crm:suivre"), true, |c, p| {
+        gescom_noyau::crm::changer_etape_prospect_sur(
+            c.base,
+            arg(&p, "clientId", "client_id")?,
+            arg(&p, "etape", "etape")?,
+            arg(&p, "raison", "raison")?,
+        )
+    });
+    r.sur_base("marquer_client_parti", Some("crm:suivre"), true, |c, p| {
+        gescom_noyau::crm::marquer_client_parti_sur(c.base, arg(&p, "clientId", "client_id")?, arg(&p, "raison", "raison")?)
+    });
+    r.sur_base("annuler_client_parti", Some("crm:suivre"), true, |c, p| {
+        gescom_noyau::crm::annuler_client_parti_sur(c.base, arg(&p, "clientId", "client_id")?)
+    });
+    r.sur_base("lire_compte_prospects", None, false, |c, p| {
+        gescom_noyau::crm::lire_compte_prospects_sur(c.base, arg(&p, "mois", "mois")?)
     });
     // v3, E-3 : les journaux, fabriques a la lecture, et leur export.
     // Ce sont les chiffres de la boutique : `rapports:lire`.
@@ -367,9 +482,14 @@ pub fn registre() -> Registre {
     });
     // ---- v3, B-1 : l'Historique. La premiere lecture filtree (C1). ----
     r.sur_base("lire_historique", Some("journal:lire"), false, |c, p| {
+        // Revue du 28/10, point 9 : `avecPaie` est pose a faux par
+        // `coeur::lecture` pour qui ne voit pas la paie — au niveau des
+        // parametres, jamais dans le filtre de l'ecran.
+        let avec_paie = p.get("avecPaie").and_then(Value::as_bool).unwrap_or(true);
         let brut = p.get("filtre").cloned().unwrap_or(p);
-        let filtre: gescom_noyau::historique::Filtre = serde_json::from_value(brut)
+        let mut filtre: gescom_noyau::historique::Filtre = serde_json::from_value(brut)
             .map_err(|e| format!("Filtre illisible : {e}"))?;
+        filtre.sans_paie = !avec_paie;
         gescom_noyau::historique::lire_historique_sur(c.base, filtre)
     });
     r.sur_base("lire_filtres_historique", Some("journal:lire"), false, |c, _| {
@@ -466,6 +586,33 @@ pub fn registre() -> Registre {
 
     // D37 : le menu du dossier — ce qu'il cache (un affichage seulement).
     r.sur_base("lire_menu", None, false, |c, _| gescom_noyau::menu::lire_menu_sur(c.base));
+
+    // D43 : l'assistant du premier demarrage, et les reglages du dossier
+    // qu'il pose (TVA par defaut, fond de caisse habituel).
+    r.sur_base("lire_assistant", None, false, |c, _| {
+        let id = c.appelant.utilisateur_id.clone();
+        gescom_noyau::assistant::lire_sur(c.base, &id)
+    });
+    r.sur_base("terminer_assistant", Some("dossiers:gerer"), true, |c, p| {
+        let saisie: gescom_noyau::assistant::Saisie = arg(&p, "saisie", "saisie")?;
+        let id = c.appelant.utilisateur_id.clone();
+        gescom_noyau::assistant::terminer_sur(c.base, &id, saisie)
+    });
+    r.sur_base("lire_reglages_dossier", None, false, |c, _| {
+        gescom_noyau::assistant::lire_reglages_dossier_sur(c.base)
+    });
+    r.sur_base("definir_tva_boutique", Some("parametres:modifier"), true, |c, p| {
+        let appliquer: Option<bool> = arg(&p, "appliquerAuxArticles", "appliquer_aux_articles")?;
+        gescom_noyau::assistant::definir_tva_boutique_sur(c.base, arg(&p, "tvaPct", "tva_pct")?, appliquer.unwrap_or(false))
+    });
+    r.sur_base("definir_reglages_dossier", Some("parametres:modifier"), true, |c, p| {
+        gescom_noyau::assistant::definir_reglages_dossier_sur(
+            c.base,
+            arg(&p, "tvaPct", "tva_pct")?,
+            arg(&p, "fondCaisse", "fond_caisse")?,
+            arg(&p, "seuilDefaut", "seuil_defaut")?,
+        )
+    });
     r.sur_base("definir_menu", Some("parametres:modifier"), true, |c, p| {
         let caches: Vec<String> = arg(&p, "caches", "caches")?;
         gescom_noyau::menu::definir_menu_sur(c.base, caches)
@@ -508,6 +655,8 @@ pub fn registre() -> Registre {
                 .or_else(|| entier(&p, "prix_reference"))
                 .unwrap_or(0),
             entier(&p, "prixAchat").or_else(|| entier(&p, "prix_achat")),
+            // D45 : le seuil d'alerte, saisi a la reception (Achats).
+            arg(&p, "seuilAlerte", "seuil_alerte")?,
         )
     });
 
@@ -1173,7 +1322,11 @@ pub fn registre() -> Registre {
         };
         let peut_ne_pas_suivre =
             gescom_noyau::portes::verifier_permission_sur(c.base, &ctx, "parametres:modifier").is_ok();
-        let v = catalogue_csv::importer_articles_csv_sur_base(c.base, contenu, mettre_a_jour, peut_ne_pas_suivre)?;
+        // D44 : l'apercu joue l'import et le laisse retomber.
+        let simuler: Option<bool> = arg(&p, "simuler", "simuler")?;
+        let v = catalogue_csv::importer_articles_csv_sur_base(
+            c.base, contenu, mettre_a_jour, peut_ne_pas_suivre, simuler.unwrap_or(false),
+        )?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1455,7 +1608,11 @@ pub fn registre() -> Registre {
         let nif: Option<String> = arg(&p, "nif", "nif")?;
         let email: Option<String> = arg(&p, "email", "email")?;
         let est_voisin: Option<bool> = arg(&p, "estVoisin", "est_voisin")?;
-        let v = fournisseurs::creer_fournisseur_sur_base(c.base, nom, telephone, adresse, nif, email, est_voisin)?;
+        // D44 : « créer quand même » un homonyme.
+        let forcer: Option<bool> = arg(&p, "forcer", "forcer")?;
+        let v = fournisseurs::creer_fournisseur_sur_base(
+            c.base, nom, telephone, adresse, nif, email, est_voisin, forcer.unwrap_or(false),
+        )?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -1467,8 +1624,26 @@ pub fn registre() -> Registre {
         let nif: Option<String> = arg(&p, "nif", "nif")?;
         let email: Option<String> = arg(&p, "email", "email")?;
         let est_voisin: Option<bool> = arg(&p, "estVoisin", "est_voisin")?;
-        let v = fournisseurs::modifier_fournisseur_sur_base(c.base, fournisseur_id, nom, telephone, adresse, nif, email, est_voisin)?;
+        let forcer: Option<bool> = arg(&p, "forcer", "forcer")?;
+        let v = fournisseurs::modifier_fournisseur_sur_base(
+            c.base, fournisseur_id, nom, telephone, adresse, nif, email, est_voisin, forcer.unwrap_or(false),
+        )?;
         serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    // D44 : les fournisseurs en CSV. L'export suit la lecture de la
+    // liste ; l'import, la creation d'un fournisseur.
+    r.sur_base("exporter_fournisseurs_csv", None, false, |c, _p| {
+        let v = gescom_noyau::fournisseurs_csv::exporter_fournisseurs_csv_sur_base(c.base)?;
+        serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+    r.sur_base("importer_fournisseurs_csv", Some("fournisseurs:regler"), true, |c, p| {
+        let contenu: String = arg(&p, "contenu", "contenu")?;
+        let completer: Option<bool> = arg(&p, "completer", "completer")?;
+        let simuler: Option<bool> = arg(&p, "simuler", "simuler")?;
+        gescom_noyau::fournisseurs_csv::importer_fournisseurs_csv_sur_base(
+            c.base, contenu, completer.unwrap_or(true), simuler.unwrap_or(false),
+        )
     });
 
     r.sur_base("lire_etat_dette_fournisseur", None, false, |c, p| {
@@ -1624,8 +1799,18 @@ pub fn registre() -> Registre {
         let categorie_id: Option<String> = arg(&p, "categorieId", "categorie_id")?;
         let unite_base: String = arg(&p, "uniteBase", "unite_base")?;
         let prix_reference: i64 = arg(&p, "prixReference", "prix_reference")?;
-        let v = parametres::creer_article_complet_sur_base(c.base, nom, categorie_id, unite_base, prix_reference)?;
+        let seuil_alerte: Option<f64> = arg(&p, "seuilAlerte", "seuil_alerte")?;
+        let v = parametres::creer_article_complet_sur_base(c.base, nom, categorie_id, unite_base, prix_reference, seuil_alerte)?;
         serde_json::to_value(v).map_err(|e| e.to_string())
+    });
+
+    // D45 : le seuil d'alerte d'un article (vide : celui du dossier).
+    r.sur_base("definir_seuil_article", Some("parametres:modifier"), true, |c, p| {
+        parametres::definir_seuil_article_sur(
+            c.base,
+            arg(&p, "articleId", "article_id")?,
+            arg(&p, "seuilAlerte", "seuil_alerte")?,
+        )
     });
 
     r.sur_base("ajouter_unite_vente", Some("parametres:modifier"), true, |c, p| {
@@ -2064,6 +2249,14 @@ fn entier(p: &Value, cle: &str) -> Option<i64> {
 /// changerait rien au comportement.
 fn option_texte(p: &Value, cle: &str) -> Option<String> {
     p.get(cle).and_then(Value::as_str).map(str::to_string)
+}
+
+/// L'appelant voit-il ce que gagne une personne (`paie:preparer` ou
+/// `paie:valider`) ? Lu en base a chaque appel, comme toutes les
+/// permissions ; la regle est celle de la lecture (`coeur::lecture`).
+fn voit_la_paie(c: &mut gescom_noyau::registre::ContexteBase) -> bool {
+    let perms = gescom_noyau::portes::permissions_de_sur(c.base, &c.appelant.utilisateur_id, &c.appelant.role);
+    gescom_noyau::coeur::lecture::voit_la_paie(|p| perms.contains(p))
 }
 
 /// Lit un parametre, quel que soit son type.

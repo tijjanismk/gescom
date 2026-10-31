@@ -5,6 +5,8 @@
 #   .\outils\banc\lancer.ps1 sqlite      [-Neuf]   serveur sur SQLite (comme lancer.sh)
 #   .\outils\banc\lancer.ps1 multiposte  [-Neuf]   serveur sur PostgreSQL gescom_test
 #   .\outils\banc\lancer.ps1 monoposte   [-Neuf]   la vraie fenetre Tauri + son serveur SQLite
+#   ... -SansDemo   sans GESCOM_DEMO : une base neuve comme chez un commercant,
+#                   l'assistant du premier demarrage a faire (D43, p1)
 #   .\outils\banc\lancer.ps1 arreter                arrete ce que le banc a lance
 #
 # Ce que chaque mode laisse tourner :
@@ -39,7 +41,9 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet("sqlite", "multiposte", "monoposte", "arreter")]
     [string] $Mode = "sqlite",
-    [switch] $Neuf
+    [switch] $Neuf,
+    # D43 : pas de demonstration, la base neuve attend l'assistant.
+    [switch] $SansDemo
 )
 
 # Pas « Stop » : cargo et psql parlent sur stderr sans echouer, et
@@ -170,7 +174,7 @@ if ($Mode -eq "monoposte") { Exiger-Le-Sien $DonneesMonoposte $MarqueBanc }
 Arreter-Tout
 if ($Mode -eq "arreter") { Write-Output "ARRETE"; exit 0 }
 
-$env:GESCOM_DEMO = "1"
+if ($SansDemo) { Remove-Item Env:GESCOM_DEMO -ErrorAction SilentlyContinue } else { $env:GESCOM_DEMO = "1" }
 
 switch ($Mode) {
     "sqlite" {

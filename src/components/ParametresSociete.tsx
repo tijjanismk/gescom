@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { message } from "@tauri-apps/plugin-dialog";
+import { ReglagesDuDossier } from "@/components/ReglagesDuDossier";
 
 interface ParamsSociete {
   nom: string;
@@ -33,7 +34,7 @@ function enBase64(octets: Uint8Array): string {
 }
 
 // Lit le fichier choisi et l'envoie en contenu a la commande donnee.
-async function envoyerImage(commande: string, fichier: string): Promise<void> {
+export async function envoyerImage(commande: string, fichier: string): Promise<void> {
   const octets = await readFile(fichier);
   const nom = fichier.split(/[\\/]/).pop() || "image.png";
   await invoke(commande, { nom, contenu: enBase64(octets) });
@@ -304,6 +305,8 @@ export function ParametresSociete() {
           : <><Save className="h-4 w-4 mr-2" /> Sauvegarder</>
         }
       </Button>
+
+      <ReglagesDuDossier />
     </div>
   );
 }

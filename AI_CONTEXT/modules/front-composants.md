@@ -34,7 +34,7 @@ Deux étages à ne pas confondre :
 | [ModalChangerMdp.tsx](../../src/components/ModalChangerMdp.tsx) | 136 | App.tsx | `changer_mot_de_passe` |
 | [ModalOuvrirCaisse.tsx](../../src/components/ModalOuvrirCaisse.tsx) | 105 | Caisse | exporte `estCaisseFermee` — **le détecteur de `CAISSE_FERMEE`** |
 | [SelectUnite.tsx](../../src/components/SelectUnite.tsx) | 83 | Ventes, Achats, Parametres | choix d'unité de vente |
-| [MoneyInput.tsx](../../src/components/MoneyInput.tsx) | 69 | 10 fichiers | saisie de montant ; exporte `parseMontant` |
+| [MoneyInput.tsx](../../src/components/MoneyInput.tsx) | 72 | 15 fichiers | saisie de montant ; exporte `parseMontant`. Lecture par `lib/montant.ts` (28/10) : « 15.000 », « 15 000 », « 15,000 » valent 15 000 F (le franc CFA n'a pas de centimes) ; `aria-label`, `id` transmis. Équipe : avance, versement, prime / retenue / prix d'une tâche, salaire, tarif, plafond d'avance, plafond de cotisation |
 | [Pagination.tsx](../../src/components/Pagination.tsx) | 74 | Clients, Fournisseurs, Stock | contrôles de page |
 | [SelecteurProfil.tsx](../../src/components/SelecteurProfil.tsx) | 110 | **aucun** | mort, cf. [ALERTES.md](../ALERTES.md) |
 
@@ -114,3 +114,12 @@ composants maison (effet verre, tuiles de KPI).
   Tauri (`estDansTauri`, exportée de `pont.ts`). Dans `PageServeur`
   (branchement d'une caisse) et `OngletReseau` (poste caisse). Fiche :
   [serveur-fenetre.md](serveur-fenetre.md).
+
+## La lisibilité (D46, 29/10/2026)
+
+Niveau **WCAG 2.2 AA**. Un **encadré d'alerte** : `bg-card border
+border-border border-l-4 border-l-orange-600` (ou `amber-600`), texte
+normal, icône 700. Une **pastille d'état** : `bg-*-100 text-*-900`. Un
+**texte** orange, ambre ou jaune : 700 au moins. Un **bouton plein** :
+700. Le garde-fou `src/lib/lisibilite.test.ts` (`node --test`) refuse le
+reste, ligne par ligne.

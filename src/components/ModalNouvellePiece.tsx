@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { avecHomonymeConfirme } from "@/lib/homonyme";
 import { Loader2, X, UserPlus, Package, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -175,10 +176,13 @@ export function ModalNouvellePiece({
     setCreerTiersEnCours(true);
     try {
       const cmd = cote === "client" ? "creer_client_rapide" : "creer_fournisseur";
-      const res = await invoke<any>(cmd, {
+      // D44 : un fournisseur homonyme se confirme (le client a ses règles).
+      const res = await avecHomonymeConfirme(forcer => invoke<any>(cmd, {
         nom: nomNouveauTiers.trim(),
         telephone: telNouveauTiers.trim() || null,
-      });
+        ...(cote === "fournisseur" ? { forcer } : {}),
+      }));
+      if (res === null) return;
       const id = typeof res === "string" ? res : (res.id ?? res);
       setTiersId(id);
       setTiersNom(nomNouveauTiers.trim());
@@ -471,7 +475,7 @@ export function ModalNouvellePiece({
                 <Input type="date" value={datePiece}
                   max={new Date().toISOString().slice(0, 10)}
                   onChange={e => setDatePiece(e.target.value)}
-                  className={cn("mt-1 h-9", datePiece && "border-amber-400 bg-amber-50")}
+                  className={cn("mt-1 h-9", datePiece && "border-amber-600")}
                   title="Vide = aujourd'hui" />
               </div>
             )}
@@ -503,7 +507,7 @@ export function ModalNouvellePiece({
             peutAccorder ? (
               <div className={cn(
                 "flex items-center gap-3 rounded-md border px-3 py-2",
-                parseMontant(montantAvoir) > 0 ? "border-amber-400 bg-amber-50" : "border-border",
+                parseMontant(montantAvoir) > 0 ? "border-amber-600" : "border-border",
               )}>
                 <Label className="text-xs whitespace-nowrap">Avoir sans marchandise — montant (F)</Label>
                 <MoneyInput value={montantAvoir} onChange={setMontantAvoir} className="h-8 w-40" />
@@ -703,7 +707,7 @@ export function ModalNouvellePiece({
                         <td className="px-2 py-2 text-right">
                           <p className="font-semibold">{fmt(montant)}</p>
                           {remise > 0 && (
-                            <p className="text-xs text-orange-500">−{fmt(remise)}</p>
+                            <p className="text-xs text-orange-800">−{fmt(remise)}</p>
                           )}
                         </td>
                         <td className="px-2 py-2 text-center">
@@ -740,7 +744,7 @@ export function ModalNouvellePiece({
                 {remiseMt > 0 && (
                   <>
                     <p className="text-sm text-muted-foreground">Brut : {fmt(totalHT)}</p>
-                    <p className="text-sm text-orange-600">Remise : −{fmt(remiseMt)}</p>
+                    <p className="text-sm text-orange-800">Remise : −{fmt(remiseMt)}</p>
                   </>
                 )}
                 <p className="text-xl font-bold">Net : {fmt(totalNet)}</p>

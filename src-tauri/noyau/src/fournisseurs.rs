@@ -1005,7 +1005,12 @@ pub fn creer_fournisseur_sur_base(
     nif: Option<String>,
     email: Option<String>,
     est_voisin: Option<bool>,
+    forcer: bool,
 ) -> Result<serde_json::Value, String> {
+    // D44 : un nom, pas un NIF deja connu, un homonyme confirme.
+    let vide = |o: Option<String>| o.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let (telephone, adresse, nif, email) = (vide(telephone), vide(adresse), vide(nif), vide(email));
+    let nom = crate::fournisseurs_csv::juger_saisie_sur(base, &nom, nif.as_deref(), None, forcer)?;
     let dossier = base.dossier().to_string();
     let id = uuid::Uuid::new_v4().to_string();
     let now = maintenant_iso();
@@ -1029,10 +1034,19 @@ pub fn modifier_fournisseur_sur_base(
     nif: Option<String>,
     email: Option<String>,
     est_voisin: Option<bool>,
+    forcer: bool,
 ) -> Result<(), String> {
     if nom.trim().is_empty() {
         return Err("Le nom est obligatoire".to_string());
     }
+    // D44 : pas le NIF d'un autre ; un homonyme confirme.
+    let nom = crate::fournisseurs_csv::juger_saisie_sur(
+        base,
+        &nom,
+        nif.as_deref().filter(|s| !s.trim().is_empty()),
+        Some(&fournisseur_id),
+        forcer,
+    )?;
     // Comme le client generique : le « Fournisseur divers » ne se
     // modifie pas, l'ecran Achats le nomme par sa constante.
     crate::coeur::tiers::refuser_si_fournisseur_divers(

@@ -75,3 +75,26 @@ importée deux fois (`App.tsx` pour l'écran, et pour son type
 - [DÉDUIT] Cinq pages dépassent 800 lignes. Chercher un comportement
   précis dedans coûte plus cher que de repartir du nom de la commande
   `invoke` — la table commande → écran est dans les fiches `commandes-*`.
+
+## AssistantDossier (D43, 28/10/2026)
+
+`pages/AssistantDossier.tsx` — montré par `App.tsx` à la place de tout
+(Layout compris) quand `lire_assistant` rend `a_faire`. Huit étapes :
+bienvenue, vous, société (logo par `envoyerImage`, exporté de
+`ParametresSociete`), dates, réglages, vendeurs, récapitulatif →
+`terminer_assistant` (une `saisie` en snake_case), puis reprise des
+données (`ImportCsvAvecApercu`, `ImportExportFournisseurs`). Sans
+`dossiers:gerer` : « le patron n'a pas encore créé le dossier ».
+`PageLogin` lit `sante().assistant_a_faire` pour rappeler le compte
+d'usine. `ModalOuvrirCaisse` et `Caisse` proposent le fond habituel
+(`lib/reglagesDossier.ts`) ; `ReglagesDuDossier.tsx` sous Paramètres →
+Société (le fond de caisse, D45 le seuil d'alerte par défaut) ;
+`ChampSeuil.tsx` (D45 : création dans Paramètres et Achats,
+`SeuilArticle` sur la fiche dépliée ; le badge de `Stock.tsx` lit
+`statut` du serveur) ; `EtatTvaBoutique.tsx` en tête de
+Paramètres → TVA (`OngletTVA`, à la place de l'ancien « Taux TVA
+global ») ; `lib/homonyme.ts` pose « créer quand même ? » aux quatre
+endroits qui créent ou modifient un fournisseur. `OngletHistoriqueCaisse`
+(28/10) : `relative z-[1]` — la page Caisse peint ses halos par-dessus ce
+qui n'est pas positionné —, pas de pictogramme devant les chiffres,
+couleurs de texte ≥ 4,5:1.

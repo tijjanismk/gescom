@@ -2599,3 +2599,501 @@ une fois par une panne réseau, repris là où il était), relu et rejoué.
 serveur 13 + routes 18 ; `gescom-serveur-fenetre` 2 ; `plage_de_ports` 3
 (la CSP de la nouvelle fenêtre et sa copie de la plage) ; noyau 291 ;
 `tsc` propre. **Pas vu en vrai** — section K de TESTS-MANUELS.
+
+## 28/10/2026 — D41, la paie relue et corrigée
+
+Le propriétaire, avant de construire les installeurs : « la paie aussi,
+mais vérifie-la pour d'éventuelles erreurs de logique ». Relecture par un
+agent qui n'avait pas écrit le code, chaque doute rejoué par un test
+jetable : **10 défauts confirmés**. Les plus lourds en argent : un départ
+le 15 payé le mois entier (et sa dernière fiche impossible à faire à
+l'écran) ; un prorata compté sur les jours *marqués* (une entrée au 15
+payée entière, deux absences marquées → 0 F) ; un gestionnaire sans droit
+de paie qui efface un salaire en changeant un téléphone ; une
+rectificative qui reprend le salaire d'aujourd'hui (5 000 F de prime
+oubliée → 20 000 F à verser). Et « 15.000 » tapé à l'écran faisait 15 F.
+
+Quatre choix tranchés par le propriétaire, tous dans le sens proposé : un
+jour non marqué compte présent ; valider avant la fin du mois est permis,
+puis les jours sont figés ; le trop-versé devient une avance ; la
+commission se calcule nette des retours. Le reste suit (D41). Corrigé
+par un second agent, puis rejoué ici. Les questions de principe (paie
+hors caisse, maximum de retenue, avance datée du jour, commission sur
+crédit impayé, barème ITS) restent ouvertes dans D41.
+
+**Preuves** : `paie_corrections_base` 17 — chaque exemple de la relecture
+au franc près (Bakary 30 000 F, Issa 21 935 F en octobre, Moussa
+37 500 F, Awa 37 500 F, deux absences 56 000 F, rectificative 5 000 F,
+trop-versé repris → octobre 52 000 F, CA de septembre 60 000 F) — sur
+SQLite, PostgreSQL et compte limité ; les tests de la paie existants
+ajustés aux nouvelles règles ; noyau + serveur SQLite 837/837 ;
+`tsc` propre. **Écrans d'Équipe pas vus.**
+
+## 28/10/2026 (suite) — la paie commitée, les trois installeurs construits
+
+Commit `5fd5c82` sur `rh` (la paie, D41), à la demande du propriétaire ;
+rien de poussé. Puis les trois installeurs, depuis ce commit, sans rien
+installer :
+
+| installeur | où | taille |
+|---|---|---|
+| caisse | `src-tauri\target\release\bundle\nsis\Gescom_1.12.0_x64-setup.exe` | 213,5 Mo (dont WebView2 hors ligne 205 Mo) |
+| Gescom Équipe | `src-tauri\target\release\bundle\nsis\Gescom Equipe_0.1.0_x64-setup.exe` | 2,5 Mo |
+| serveur | `dist\Gescom-Serveur_0.2.0_x64-setup.exe` | 4,2 Mo, signé et horodaté (service + fenêtre signés aussi) |
+
+Ordre suivi : `preparer_serveur.ps1`, `npm run tauri build`,
+`npm run equipe:build`, `construire_installeur_serveur.ps1` (après le
+client : `vite build` vide `dist\`). **Deux ralentissements** : Microsoft
+avait publié un nouveau WebView2, que Tauri retélécharge (la copie du
+23/10 n'est pas reprise) — le téléchargement s'est figé sur une coupure
+d'Internet, et une liaison figée ne repart pas : arrêter `tauri build` et
+relancer ; et 0,3 Go de mémoire libre (Chrome, un Playwright d'un autre
+projet) a fait traîner `vite build`. Disque : 4,2 Go libres après coup ;
+`%LOCALAPPDATA%\tauri\x64` garde sept WebView2 (~1,6 Go), un seul sert.
+**Pas essayé** : aucune installation, la fenêtre Gescom Serveur, l'accord
+administrateur (TESTS-MANUELS, section K), les écrans d'Équipe.
+
+Le propriétaire a ensuite tranché les cinq questions de D41, chacune dans
+le sens proposé — **D42** : case « pris dans le tiroir » ; l'avance
+étalée à la saisie et datée dans le passé (31 jours au plus) ; la
+commission sur l'encaissé ; l'ITS saisi à la main.
+
+## 28/10/2026 (fin) — D42 codée
+
+Plan en cinq lots et huit choix de détail, acceptés tels quels. **Le
+tiroir** : `caisses::mouvement_especes_sur`, appelée dans la transaction
+de l'avance ou du versement avant toute autre écriture — caisse fermée,
+rien ne s'écrit. Une avance du tiroir est d'aujourd'hui ; annulée,
+l'argent revient au tiroir (caisse ouverte exigée). Le journal comptable
+CA ne lit que les dépenses : rien n'est compté deux fois. **L'avance** :
+`Saisie` (date, mensualité, tiroir) ; la date suit la règle des ventes
+(31 jours), jamais avant l'entrée ; la retenue s'arrête à la mensualité,
+par paie. **La commission** : l'argent reçu dans la période sur les
+ventes du compte faites pendant l'emploi, moins les retours non-échange
+diminués de la dette qu'ils éteignent ; la bascule lit la dernière fiche
+« sur le vendu » (`vendu_jusqu_au`). Trois anciens tests commissionnaient
+des ventes à crédit jamais payées : leurs ventes sont maintenant payées,
+ce qu'ils prouvent reste vrai.
+
+**Incident** : la suite complète en debug a rempli le disque (0 octet,
+`LNK1180`, `no space on device`). `target\debug\incremental` supprimé
+(6,7 Go rendus), suite relancée avec `CARGO_INCREMENTAL=0 -j 2` : 2,75 Go
+libres au plus bas. Le serveur de l'essai à la main ne tournait pas.
+
+**Preuves** : workspace SQLite 877/877 ; PostgreSQL `gescom_test` (huit
+séries de la paie, des avances, du personnel, des journaux et de
+l'Historique), compte limité (cinq) ; `tsc` propre. **Pas vu** : les
+écrans d'Équipe et l'avertissement de la caisse dans la vraie fenêtre ;
+les installeurs du jour ne contiennent pas D42.
+
+**Commit `b03ac85`**, puis les trois installeurs reconstruits avec D42
+(13 h 32 → 13 h 46), sans rien installer : caisse 213,5 Mo, Équipe
+2,5 Mo, serveur 4,2 Mo signé et horodaté ; `gescom-serveur.exe` porte bien
+le motif `avance_salaire`. Place faite d'abord, avec l'accord du
+propriétaire : les six anciennes copies de WebView2 de
+`%LOCALAPPDATA%\tauri\x64` supprimées (celle du jour gardée).
+
+## 28/10/2026 (soir) — le guide d'installation et les manuels en PDF
+
+Demande du propriétaire : « tous les cas » d'installation et les
+manuels en PDF ; trois documents choisis, rangés dans `docs/manuels/`.
+Trois agents ont relevé dans le code les libellés exacts (installation,
+nouveautés de la caisse depuis le 25/10, écrans d'Équipe).
+
+- **`INSTALLATION.md`** (nouveau, 15 chapitres) : les trois programmes,
+  un seul poste, plusieurs caisses avec le service, sans service
+  (déconseillé), PostgreSQL et le compte limité, Équipe (sur quels
+  postes), ajouter/renommer, passer d'un poste unique à plusieurs
+  caisses, mise à jour, port, désinstallation, sauvegarde, problèmes.
+- **`MANUEL.md`** 2.1 : section 0 réduite à l'essentiel (40000,
+  « Rechercher le serveur »), le menu par dossier, les passages, le
+  duplicata, les retours groupés, les articles non suivis, la colonne
+  CSV, la sauvegarde quotidienne (elle disait « une fois par semaine »),
+  la restauration **avec `--base`** (sans lui, elle allait dans la
+  mauvaise base), « 13 bis » exercices et horloge, l'avertissement de la
+  dépense « Salaire ».
+- **`MANUEL-EQUIPE.md`** (nouveau) : connexion et droits, personnel et
+  jours, avances (tiroir, date, morceaux), fiches, rectificative,
+  versements, bulletin, cotisations et ITS, suivi clients.
+- **`outils/manuels_pdf.ps1`** : pandoc (Anaconda) → HTML à la mise en
+  page de `genererManuel.ts` → Edge sans fenêtre → PDF A4. Le script
+  reste en ASCII (PowerShell 5.1 lit mal l'UTF-8 sans BOM). L'ancien
+  `Gescom_Manuel.pdf` de la racine (09/09) est retiré.
+- En route, trois libellés faux depuis D42 corrigés : la permission
+  `personnel:avancer` (« sortie de caisse »), l'accueil d'Équipe
+  (« versements depuis la caisse »), la ligne D42 du récapitulatif.
+
+Les relevés ont trouvé des risques réels (désinstallation qui peut
+effacer la base, passage monoposte → service, écran de connexion sans
+lien réseau, Équipe sans caisse) : ALERTES, « Trouvé le 28/10/2026 en
+écrivant le guide ». **Rien n'a été essayé à l'écran** ; les manuels
+décrivent le code.
+
+## 28/10/2026 (nuit) — D43 l'assistant du premier démarrage, D44 les doublons
+
+Demande du propriétaire : un assistant de création du dossier « comme
+dans Ciel » ; en cours de route, l'import/export des fournisseurs et la
+gestion des doublons (articles aussi), des icônes qui distinguent les
+trois applications, l'Historique de caisse « jaune sur jaune » avec des
+pictogrammes inutiles, et « changer l'état de la TVA dans l'app ».
+Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
+
+- **Relevé** : une base neuve démarrait « Ma boutique », année civile,
+  `admin123` et `employe123` ; rien ne savait qu'elle était neuve ; la
+  devise n'était écrite qu'à l'amorçage ; ni TVA par défaut, ni
+  numérotation réglable, ni fond proposé ; l'import d'articles perdait
+  TOUT sur un code-barre déjà pris (erreur SQL) et remettait à 0 la TVA
+  d'un article existant quand la colonne était vide ; aucun import ni
+  export de fournisseurs, aucune vérification de doublon à leur création.
+- **D43** : marque `assistant_dossier` posée par l'amorçage, retirée par
+  la démonstration (`amorcage::mode_essai`, le banc et les scénarios) ;
+  verrou dans `api.rs` ; `/sante.assistant_a_faire` ; `AssistantDossier`
+  en huit étapes, tout en une transaction ; `employe` / `employe123`
+  seulement en démonstration ; TVA des nouveaux articles appliquée par le
+  comptoir, Paramètres et l'import ; premier numéro de facture ; fond
+  habituel ; puis l'état de la TVA en tête de Paramètres → TVA
+  (`definir_tva_boutique`, « aussi les articles existants ? »), qui
+  remplace un « Taux global » non transactionnel.
+- **D44** : `coeur/doublons.rs`, aperçu `simuler` (le même code dans une
+  transaction qui retombe), `fournisseurs_csv.rs`, `forcer` pour un
+  homonyme, `ImportCsvAvecApercu`, `ImportExportFournisseurs`.
+- **Icônes** : `outils/icones/pastilles.py` + `tauri icon` ;
+  `serveur-fenetre/icons` et `equipe/icons` à part.
+- **Historique de caisse** : le halo de la page Caisse se peignait par-
+  dessus les blocs non positionnés (`relative z-[1]` manquait) ; orange
+  500 à 2,80:1 remplacé par orange 800 (7,31:1), rouge 700, vert 700 ;
+  pictogrammes retirés devant les chiffres.
+- **Branche** : le travail est parti de `main` (8372aa4) ; `rh` avait
+  D41 et D42 en plus. Remis par-dessus `rh` (même contenu de base),
+  sans conflit ; mes décisions renumérotées D43/D44.
+- **Tests** : `assistant_base` 10, `doublons_base` 9 (SQLite, PostgreSQL,
+  compte limité) ; trois tests réalignés sur la fin du compte employé
+  d'usine (`seed`, `auth_base`, `postgres_amorcage`) ; la sauvegarde du
+  matin attendait la première apparition d'un fichier et voyait parfois
+  le `-journal` d'une copie en cours (une fois sur deux après D43, le
+  démarrage étant plus rapide d'un bcrypt) : elle attend la fin de la
+  copie. La recherche UDP a échoué une fois puis passé : le poste.
+- **Vu dans le navigateur** (serveur jetable 40060, base neuve, l'écran
+  par Vite) : rappel du compte d'usine, assistant complet, refus de
+  `admin123`, dossier créé et renommé dans la barre, TVA, caisse ouverte
+  avec 25 000 proposés, Historique après une clôture à −500 F. Le serveur
+  du poste sur 40000 (pas le mien) n'a pas été touché : le banc l'aurait
+  arrêté.
+- **Reste** : la vraie fenêtre (logo, import de fichiers, icônes
+  installées, `p1` avec `-SansDemo`) ; Gescom Équipe sur une base neuve
+  dit seulement « dossier pas encore créé » ; fusionner deux fiches déjà
+  en double reste un autre chantier. Rien n'est commité.
+
+## 29/10/2026 — D45 le seuil d'alerte ; l'assistant retiré puis rétabli
+
+- **Le seuil** (« on définit le seuil pour les articles lors de la
+  création ») : relevé d'abord — aucun seuil par article, 5 en dur au
+  tableau de bord et aux rapports, 10 dans la page Stock. Deux choix
+  posés : sans seuil, celui du dossier (5 d'office) ; un seuil par
+  article, pas par magasin. Codé sur les trois chemins de schéma,
+  `coeur::stock::statut_stock`, création (Paramètres, Achats), fiche,
+  import/export, tableau de bord, rapport, page Stock ; Paramètres →
+  Société porte le seuil du dossier.
+- **Deux demandes du propriétaire en route.** « La création de dossier
+  doit être la même et deux dossiers peuvent coexister » : relevé —
+  `parametres_societe` est une ligne pour l'installation (37 lectures) ;
+  trois choix posés, réponse « on laisse pour cette version » (ALERTES).
+  « On enlève l'assistant de création au 1er démarrage » : retiré
+  (module renommé `reglages_dossier`, rappel du compte d'usine gardé),
+  puis « on peut revenir ici » : retour à l'état du commit `86f7ba8` en
+  gardant le seuil (choix posé). Le travail du retrait est gardé dans un
+  patch hors du dépôt.
+- **Tests** : `seuil_base` 5 (SQLite, PostgreSQL, compte limité),
+  workspace SQLite 915/915 ; la ligne exportée finit désormais par la
+  colonne « Seuil » (`donnees_base` réaligné).
+- **Vu dans le navigateur** (serveur jetable 40060) : le champ à la
+  création (« celui du dossier : 5 »), le badge orange à 6 sous 10,
+  « 1 alerte » au tableau de bord, la fiche qui dit « en alerte sous
+  10 », puis 0 qui coupe l'alerte. **Pas commité.**
+
+## 29/10/2026 (suite) — l'essai dans la vraie fenêtre, D46 la lisibilité
+
+- **La vraie fenêtre** : `gescom.exe` de débogage construit depuis ce
+  travail, son écran Vite sur 1420, un `poste.json` d'essai qui la
+  branche sur un serveur jetable (40060, base vierge) — le serveur du
+  propriétaire sur 40000 n'a pas été touché (le banc l'aurait arrêté).
+  Construire la fenêtre recopie l'ancien serveur embarqué sur
+  `target/debug/gescom-serveur.exe` : serveur reconstruit après (piège
+  connu du banc). Le propriétaire a fait l'essai : connexion qui rappelle
+  le compte d'usine, assistant complet, **logo par la boîte Windows**,
+  **import d'articles** (3 créés avec leurs seuils ; « riz  LOCAL »
+  doublon dans le fichier et le code-barre déjà pris refusés), import de
+  fournisseurs depuis la page Fournisseurs (l'étape de l'assistant avait
+  été sautée). Deux CSV d'essai posés sur son Bureau (`essai-gescom`).
+- **« Jaune sur jaune » dans le résultat de l'import**, « regarder si
+  le problème est récurrent » : relevé — 43 encadrés sur fond orange,
+  ambre ou jaune pâle dans 22 écrans, 25 textes orange clair, des
+  boutons orange 600 à 3,56:1. Deux choix posés : partout avec un
+  garde-fou ; pastilles à fond pâle et texte 900. 105 lignes par règle
+  (script), puis relues à la main : les champs surlignés ont un bord
+  plein (le liseré y faisait bizarre), une ligne de tableau ne porte pas
+  de bordure (fond neutre), les bords internes des encadrés passent au
+  gris. `src/lib/lisibilite.test.ts` refuse désormais chaque rechute
+  (prouvé sur un faux écran : trois fautes nommées). Le propriétaire a
+  refait l'import : « c'est lisible ». D46. **Pas commité.**
+
+## 29/10/2026 (fin) — l'accueil d'Équipe sur toute la largeur, les captures
+
+- **L'accueil de Gescom Équipe** (« trois cards dans l'accueil ne
+  prennent pas la largeur totale, deux en haut et une en bas ») : il
+  tenait dans 768 px (`max-w-3xl`) sur deux colonnes ; ses cartes
+  prennent désormais toute la largeur, autant par ligne que la place le
+  permet (comme les tuiles de la caisse). L'accueil de la caisse, lui,
+  remplissait déjà la largeur (vérifié à 1600 px).
+- **Pas d'installeurs** : la construction prend trop de place (9,7 Go
+  libres). À la place, 18 captures à 1600 × 900 sur trois serveurs
+  jetables (40062 base neuve pour l'assistant, 40061 démonstration avec
+  six ventes et une clôture à −500 F), par Edge déjà installé (rien
+  d'installé) ; posées sur le Bureau du propriétaire,
+  `essai-gescom\captures`. Gescom Équipe ne s'ouvre pas en fenêtre
+  d'essai : elle lit le `poste.json` de la vraie caisse, donc le vrai
+  serveur — vue dans le navigateur.
+- **L'Historique de caisse en tuiles** (« enlève l'emoji danger et le
+  tiret rouge à côté, utilise des cards comme dans le dashboard ») :
+  clôtures, justes, manques, excédents, puis cumul, moyenne et pire
+  manque en `KpiPetit` sur la grille du tableau de bord, chacun avec son
+  mot (« écart nul », « moins d'argent que prévu ») ; le diagnostic dans
+  une tuile de texte. Plus de triangle ni de liseré.
+- **La fiche client d'Équipe** (Suivi clients) sur toute la largeur, ses
+  chiffres en tuiles ; puis, à la demande, **tous les écrans d'Équipe**
+  (Personnel, Paie, Fiches du mois, Cotisations, Suivi clients et ses
+  listes) sans largeur limitée. Restent étroits, exprès : « Bientôt » et
+  le message « serveur injoignable » (du texte à lire). Captures 18 à 22.
+
+## 29/10/2026 (soir) — le logo TIJ sur les trois applications
+
+- **Le plan pour compléter Équipe** (« qu'est-ce qu'on peut ajouter à
+  Équipe ») : EQ-1 à EQ-6 dans [PLAN-EQUIPE.md](PLAN-EQUIPE.md) § 5,
+  une session chacune, décisions D47 à D52 réservées, une base
+  PostgreSQL par session (`gescom_test_eq1` … `eq6`, créées). Les six
+  ont proposé leur décision et attendent l'accord.
+- **Une icône moderne avec TIJ, en lien avec la gestion commerciale** :
+  quatre propositions (barres qui montent, monogramme, ticket de caisse,
+  sac de boutique), rendues en grand et à 32 px sur barre claire et
+  sombre (capture 24). **Choix du propriétaire : A, les barres** — T, I
+  et J en trois barres de plus en plus hautes, le J finit en flèche.
+- Le logo vit en vectoriel (`outils/icones/tij.svg`, des formes, aucune
+  police) ; `rendre.mjs` le rend en 1024 px par Edge (rien installé) ;
+  `tauri icon` en tire les jeux des trois applications.
+- **Les pastilles passent en haut à gauche** : en bas à droite, elles
+  cachaient le crochet du J et on lisait « TI ». Le coin haut gauche est
+  vide dans le nouveau logo. Capture 25 : les trois, lisibles à 32 px.
+- Les écrans n'affichaient pas l'ancien logo (une icône `Store` sur le
+  choix du profil) : rien à changer dedans. Pas d'installeur construit :
+  les icônes se verront à la prochaine construction.
+
+## 29-30/10/2026 — D47 le prêt au personnel (EQ-1)
+
+- **Le relevé d'abord** : l'avance étalée de D42 (« X F par paie ») faisait
+  déjà l'essentiel d'un prêt — retenue bornée, report, rectificative,
+  trop-versé, journal PA. Plutôt qu'un second circuit, D47 fait du prêt
+  une **avance d'une autre nature** (`avance.nature = 'pret'`) et n'ajoute
+  que ce qu'il a de plus : l'échéance **par mois civil** (un journalier
+  à la quinzaine ne la paie qu'une fois), la première retenue le mois
+  suivant (reculable de trois mois), une échéance manquée qui allonge le
+  prêt sans se doubler, les avances retenues d'abord, un seul prêt à la
+  fois, le départ qui retient tout le reste, puis le remboursement à part
+  ou la remise (`pret_reglement`, PA trésorerie / 421 et 658 / 421).
+  Proposé, accepté tel quel. Droit : `paie:valider`.
+- **Soldé ne s'écrit pas** : `montant - retenu = 0`. La rectificative rend
+  ce qu'elle avait retenu et retient de nouveau : un prêt soldé par une
+  fiche qu'on rectifie se rouvre de lui-même (scénario).
+- **Une régression trouvée par la suite complète** : en généralisant le
+  libellé d'annulation au prêt, « Avance annulée » était devenu « Avance
+  annulé(e) » — `paie_base` le cherchait. Rétabli (« Avance annulée »,
+  « Prêt annulé »).
+- **Le disque** : six sessions compilaient en même temps, C: est tombé à
+  2,4 Go (LNK1180, os error 112). Pause demandée, `target` effacé,
+  reprise une à une. `--workspace` ne passe plus dans un worktree neuf
+  (la fenêtre Tauri veut `binaires\gescom-serveur-*.exe`) : noyau et
+  serveur testés à part, 909/909.
+- **L'écran dans le navigateur** (serveur jetable 40071, Vite 1441) : le
+  prêt annonce « 6 échéances, de novembre 2026 à avril 2027 », la fiche
+  de novembre porte « Prêt du 30/10/2026 (reste 50 000 F après cette
+  paie) − 10 000 F », le remboursement à part laisse 45 000 F. Au passage,
+  hors EQ-1 : dans un navigateur, la boîte « changer le mot de passe par
+  défaut » reste ouverte après un changement réussi (la confirmation est
+  une boîte Tauri) — noté, pas corrigé.
+- **Après fusion** (plan § 5) : EQ-2 et EQ-3 lisent `avance` — filtrer
+  `nature = 'avance'` ou montrer les prêts à part.
+
+
+## 31/10/2026 — D48 l'état de paie du mois (EQ-2)
+
+- **Le besoin** (PLAN-EQUIPE EQ-2) : voir d'un coup ce que le mois
+  coûte et ce qui reste à payer, sans ouvrir les fiches une à une. La
+  décision D48 a été écrite avant le code et acceptée telle quelle.
+- **La règle** (`coeur/etat_paie.rs`, pure) : chaque ligne d'une fiche
+  validée est rangée par son genre, sans rien recalculer ; un net qui ne
+  colle pas à la somme est un refus, pas un arrondi. Une fiche compte au
+  mois où finit sa période, comme `salaires_par_mois_sur` : le coût du
+  mois est le chiffre de Rapports → CA mensuel, et le test le vérifie.
+- **La lecture** (`etat_paie.rs`) : `lire_sur` et `csv_sur`, commandes
+  `lire_etat_paie` et `exporter_etat_paie_csv`, refusées sans
+  `paie:preparer` ni `paie:valider`. Les brouillons et les employés sans
+  fiche sont dits sous le tableau, hors des totaux : l'état sert de
+  liste de contrôle au patron, mais un brouillon n'est pas une dette.
+- **L'écran** : onglet « État du mois » dans Paie, aperçu A4 avec
+  l'habillage du bulletin, CSV fabriqué par le serveur. Vu sur un
+  serveur jetable (40072) : sur l'aperçu, neuf colonnes débordaient de
+  50 px à droite ; les entêtes passent maintenant à la ligne et le
+  tableau est en 8,5 pt.
+- **Le disque** : deux arrêts, le 30/10 à 0,58 Go puis à 1,9 Go libres,
+  avec plusieurs sessions qui compilaient en même temps. La reprise
+  s'est faite en profil léger (`CARGO_PROFILE_DEV_DEBUG=0`,
+  `CARGO_INCREMENTAL=0`) : le serveur et ses tests tiennent en 426 Mo au
+  lieu de 13,5 Go. La première passe de `routes` (10 échecs « le
+  serveur ne répond pas sur /sante ») venait de la charge ; un à un,
+  20/20.
+- **Pour EQ-1** : la colonne « prêt » reste à ajouter après fusion
+  (`ventiler` et `colonnesEtat`).
+
+## 30/10/2026 — D49 l'accueil du jour d'Équipe (EQ-3)
+
+- **Le besoin** : en ouvrant Équipe, ce qui attend la personne
+  connectée. Sept choix écrits puis acceptés (D49) : une commande qui
+  rassemble (`lire_accueil_equipe`) plutôt que quatre lectures que
+  l'écran additionnerait mois par mois ; un bloc n'existe que pour qui a
+  le droit de le lire, règle pure `coeur::lecture::accueil_equipe` ; « dû »
+  = aujourd'hui et en retard ; toutes les périodes du dossier (un
+  brouillon de septembre oublié est ce qu'il faut voir).
+- **L'écran** : un bloc « Aujourd'hui » de quatre `KpiPetit` au-dessus
+  des modules ; chaque tuile ouvre l'onglet (une propriété `vue`
+  facultative sur `Paie` et `SuiviClients`). Une tuile à 0 reste ;
+  une lecture qui échoue le dit, les modules restent.
+- **Vu dans le navigateur** (serveur jetable 40073, trois employés, une
+  fiche à moitié versée, un brouillon, une avance, trois rappels) :
+  « 2 dont 1 en retard », le rappel de dans trois jours absent ; marqué
+  fait, il disparaît ; les tuiles de paie ouvrent « Fiches du mois » et
+  « Avances ».
+- **Le disque plein** a coupé la séance deux fois : la compilation du
+  workspace entier échoue faute de place (six worktrees, chacun son
+  `target`). Vérifié paquet par paquet : noyau 867, serveur 13 + routes
+  20, puis `equipe_jour_base` 7 sur PostgreSQL et sous le compte limité.
+  `target` effacé ensuite (4,9 Go).
+- **Reste** : après la fusion avec EQ-1, filtrer `nature = 'avance'` et
+  ajouter la tuile « Prêts » ; à la fusion des onglets de la paie, une
+  ligne à résoudre dans `Paie()`. **Pas commité.**
+
+## 30/10/2026 — EQ-6, D52 : les absences notées, sans calcul légal
+
+- **Le besoin** (PLAN-EQUIPE § 5) : la grille des jours dit qu'Awa n'est
+  pas venue, pas pourquoi. Proposé le 29/10, accepté : une colonne
+  `presence.motif` (maladie, permission, congé, absence), sur un jour A
+  ou ½ seulement ; rien de choisi = absence ; pas de texte libre (jamais
+  le diagnostic). Détail et pourquoi dans D52.
+- **La paie ne change pas** : `paie.rs` ne lit pas le motif. Le scénario
+  le prouve avec deux journaliers aux mêmes jours, l'un avec motifs,
+  l'autre sans : même net (46 250 F pour 18,5 jours). Au prorata, le
+  congé retire comme une absence ; la grille le dit en une ligne (« un
+  congé payé se marque P »).
+- **Après la paie** : sur un jour figé par une fiche validée, le motif
+  se corrige (le certificat arrive tard), l'état non — jugé dans la
+  transaction ; la fiche validée garde son net.
+- **Écran** : le clic sur une case ouvre un petit menu au lieu de faire
+  tourner P → ½ → A ; la case affiche la lettre du motif. Sous chaque
+  personne du Personnel, le compte de l'année s'il y a des absences.
+- **Interruption** : la séance s'est arrêtée le 29/10 sur un disque C:
+  plein (0 octet) puis sur la limite de la semaine ; reprise le 30/10
+  avec 8,9 Go libres, rien effacé. Nouvelle pause le 30/10 (C: à
+  3,8 Go, les autres lots d'abord), `target` gardé, reprise ensuite.
+- **Tests** : `absences_base` 5 et `presences_base` 5 sur SQLite,
+  PostgreSQL et sous le compte limité ; noyau + serveur SQLite 900/900
+  (71 suites ; `--package` plutôt que `--workspace` pour la place
+  disque — ce lot ne touche pas `src-tauri/src`) ; `tsc` propre,
+  `node --test` 5/5.
+- **Écran** : vu par le propriétaire le 31/10 dans le navigateur
+  (serveur d'essai 40066, Vite 1466, une vendeuse avec maladie,
+  permission ½, congé et absence en octobre) : accepté tel quel, « 0,5 »
+  gardé sur la fiche. Pas vu dans la fenêtre Tauri. Au passage :
+  `cargo-tenace.ps1` avale `-p` (déjà noté dans ETAPES) — passer
+  `--package`.
+
+## 29-30/10/2026 — EQ-4 : les clients à relancer, l'étape du prospect, le client parti (D50)
+
+- **La liste « À relancer »** (D50, points 1 à 9, acceptés le 29/10) :
+  un onglet du Suivi clients d'Équipe, tiré de la base sans rien saisir.
+  Créances de plus de 30 jours, meilleurs clients qui ralentissent,
+  clients sans achat depuis N jours (60 d'office, réglage du dossier de
+  15 à 365). Un clic note l'échange ou pose le rappel ; le client sort
+  alors de la liste 14 jours, ou tant que le rappel n'est pas fait. Sans
+  `tiers:lire_solde`, le motif créance n'est pas calculé ; sans
+  `rapports:lire`, pas de chiffre d'affaires.
+- **Les ajouts 10 à 16** (demandés par le propriétaire, proposés le
+  29/10, tous acceptés le 30/10) : l'étape d'un prospect (nouveau,
+  contacté, intéressé, abandonné avec sa raison), qui passe « contacté »
+  au premier échange ; le compte des prospects du mois en tuiles ; le
+  client « parti » avec sa raison, qui revient tout seul à sa prochaine
+  vente (« reconquis »). **Point 15 tranché** : un parti qui doit de
+  l'argent reste dans « À relancer », pour la créance seulement.
+- **Deux interruptions** : la limite de la session, puis la pause pour le
+  disque (C: à 0 octet libre ; `target` de ce worktree supprimé, 5,17 Go).
+  Reprise au signal de la session principale. Pour ne pas croiser les
+  séries des autres sessions sur `gescom_test`, PostgreSQL tourne sur
+  une base jetable à part, `gescom_test_eq4`.
+- **Nommé** : un prospect devenu client avant ce changement n'a pas de
+  `devenu_client_le` et n'est compté dans aucun mois. « Il est revenu »
+  (erreur de clic) n'est pas un reconquis.
+
+## 29-30/10/2026 — EQ-5 : WhatsApp sans service payant (D51)
+
+- **Relevé avant D51** : téléphones des employés et des clients en texte
+  libre, jugés nulle part ; la coque d'Équipe ne savait ouvrir aucun lien
+  (une commande, `lire_config_reseau`) ; la caisse (`Relances.tsx`)
+  préfixe « 223 » à l'aveugle — un « 00223 76… » y devient
+  « 22300223 76… » (noté dans D51, pas corrigé ici).
+- **D51 acceptée telle qu'écrite** : le lien `wa.me`, pas l'envoi ; un
+  numéro douteux désactive le bouton avec sa raison, la fiche n'est pas
+  réécrite ; le bulletin d'une fiche validée seulement, le montant ne
+  sortant que de `lire_donnees_bulletin` (déjà refusée sans droit de
+  paie) ; l'échange client noté au « Oui » ; le plugin opener limité à
+  `https://wa.me/*` plutôt que `cmd /C start` (les `%` du texte encodé).
+- **Code** : `src/lib/whatsapp.ts` (pur) et son test ; `src/equipe/WhatsApp.tsx`
+  (les deux boutons), une ligne dans `ApercuBulletin.tsx` et dans la fiche
+  360 de `SuiviClients.tsx` ; la coque : `Cargo.toml`, `main.rs`,
+  `capabilities/default.json`. « (+223) 76 11 22 33 » se lit aussi : le
+  « + » se juge sans séparateurs.
+- **Banc** `eq5-whatsapp.mjs` (24) : `window.open` remplacé pour relire le
+  lien. Serveur d'essai sur 40075 : copie du `gescom-serveur.exe` du
+  worktree de base (aucun code serveur touché), base SQLite de
+  démonstration dans le scratchpad ; Vite 1445 servi par le
+  `node_modules` du dépôt principal.
+- **Disque plein deux fois pendant la séance** (six sessions qui
+  compilent ensemble) : mon `target` (1,8 Go) et un `npm install` à
+  moitié fait effacés ; la jonction `outils/banc/node_modules` pointe sur
+  celle du dépôt principal (à retirer par `rmdir`, jamais `Remove-Item
+  -Recurse`, qui viderait la cible).
+
+## 31/10/2026 — la fusion d'EQ-1 à EQ-6
+
+- **Six branches, une à une** (EQ-1, EQ-2, EQ-3, EQ-6, EQ-4, EQ-5), sur la
+  branche du plan. Les conflits : surtout des sections ajoutées des deux
+  côtés (DECISIONS, ETAPES, JOURNAL, fiche Équipe), gardées toutes ; dans
+  le code, des lignes voisines — les droits de `lire_prets` et
+  `lire_etat_paie`, les onglets de la Paie (« Prêts » et « État du mois »,
+  même droit) et du Suivi clients (« À relancer »), `vue` d'ouverture
+  (D49) étendue à `prets` et `relancer`, les routes de l'accueil et des
+  relances dans `socle.rs`. Les numéros D47 à D52 ne se marchaient pas.
+- **Le prêt dans la table `avance`** (D47) : l'état de paie le rangeait
+  dans « Avances retenues » (la ligne de fiche est du genre `avance`) et
+  l'accueil le comptait dans la tuile des avances. L'état relit la nature
+  de la source et lui donne sa colonne « Prêts » (montrée si le mois en
+  a ; CSV « Prêts retenus ») ; l'accueil filtre `nature` et ajoute la
+  tuile « Prêts en cours » (droit : la paie, comme `lire_prets`). Deux
+  scénarios de plus (`etat_paie_base`, `equipe_jour_base`).
+- **Vérifié** : noyau + serveur 958/958 (SQLite, `--no-fail-fast`), tsc,
+  node 14/14. Le banc `eq-tout.mjs` (nouveau) passe les six ajouts dans
+  le vrai écran contre le serveur fusionné : 20/20. Joué sur des ports à
+  part (40080, 1480) ; Vite refuse deux polices par `/@fs/` dans un
+  worktree dont `node_modules` pointe sur le dépôt principal — écarté du
+  compte d'erreurs, ce n'est pas l'écran.
+- **Le service « Gescom Serveur » installé** tenait le port 40000 : arrêté
+  à la demande du propriétaire (fenêtre d'autorisation Windows). Il
+  repart au démarrage de Windows.
+- PostgreSQL et le compte limité n'ont pas été rejoués sur la fusion :
+  chaque lot les avait passés seul.

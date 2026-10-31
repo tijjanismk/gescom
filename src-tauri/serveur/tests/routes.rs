@@ -1000,7 +1000,9 @@ fn un_serveur_rallume_chaque_matin_est_sauvegarde_sans_attendre_un_jour() {
     let mut srv = Serveur { enfant: demarrer(), port, base: base.clone() };
     attendre_sante();
     let debut = Instant::now();
-    while copies().is_empty() {
+    // Une copie EN COURS a son `-journal` a cote : attendre qu'elle soit
+    // finie. Compter a la premiere apparition voyait parfois les deux.
+    while copies().is_empty() || copies().iter().any(|n| n.ends_with("-journal")) {
         assert!(debut.elapsed() < Duration::from_secs(30), "aucune copie automatique après le démarrage");
         std::thread::sleep(Duration::from_millis(300));
     }
@@ -1292,4 +1294,119 @@ fn un_port_change_reecrit_serveur_json_passe_a_l_historique_et_le_serveur_y_rede
     drop(_relance);
     drop(srv);
     let _ = std::fs::remove_dir_all(&dossier);
+}
+
+/// Revue de la paie du 28/10 (points 3 et 11), de bout en bout par le
+/// serveur : qui gere le personnel sans voir la paie n'efface pas le
+/// salaire en enregistrant la fiche, recoit les reponses masquees, et un
+/// refus d'avance qui ne chiffre pas le plafond ; un montant enorme est
+/// refuse sans faire tomber la base (avant : panique, « Base
+/// indisponible »).
+#[test]
+fn un_gestionnaire_sans_la_paie_n_efface_pas_le_salaire_et_un_montant_enorme_ne_tue_pas_la_base() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+    let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+        "nom": "Issa", "pseudo": "issa", "email": null, "motDePasse": "issa-secret", "roleNom": "magasinier"
+    }));
+    assert_eq!(code, 200, "{v}");
+    let issa_id = v["donnee"].as_str().unwrap().to_string();
+    for p in ["personnel:gerer", "personnel:avancer"] {
+        let (code, v) = rpc(port, &admin, "definir_permission_utilisateur", json!({ "utilisateurId": issa_id, "permission": p, "accorde": true }));
+        assert_eq!(code, 200, "{v}");
+    }
+    let (code, v) = rpc(port, &admin, "creer_employe", json!({ "fiche": {
+        "nom": "Awa", "fonction": "vendeuse", "salaire_mensuel": 60000, "avance_max": 15000
+    }}));
+    assert_eq!(code, 200, "{v}");
+    let awa = v["donnee"]["id"].as_str().unwrap().to_string();
+    assert_eq!(v["donnee"]["salaire_mensuel"], 60000, "le patron lit ce qu'il écrit");
+    let (code, v) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({ "identifiant": "issa", "mot_de_passe": "issa-secret", "poste_nom": "p", "poste_empreinte": "routes-paie", "version_protocole": 1 })),
+        None,
+    ).unwrap();
+    assert_eq!(code, 200, "{v}");
+    let issa = v["jeton"].as_str().unwrap().to_string();
+
+    // Son écran renvoie la fiche sans montants : le salaire reste.
+    let (code, v) = rpc(port, &issa, "modifier_employe", json!({ "employeId": awa, "fiche": { "nom": "Awa", "fonction": "caissière" } }));
+    assert_eq!(code, 200, "{v}");
+    assert!(v["donnee"]["salaire_mensuel"].is_null() && v["donnee"]["avance_max"].is_null(), "réponse masquée : {v}");
+    assert_eq!(v["donnee"]["fonction"], "caissière");
+    let (_, v) = rpc(port, &admin, "lire_employe", json!({ "employeId": awa }));
+    assert_eq!((v["donnee"]["salaire_mensuel"].as_i64(), v["donnee"]["avance_max"].as_i64()), (Some(60000), Some(15000)), "{v}");
+    let (code, v) = rpc(port, &issa, "creer_employe", json!({ "fiche": { "nom": "Ali", "fonction": "livreur", "tarif_journalier": 2000 } }));
+    assert_eq!(code, 200, "{v}");
+    assert!(v["donnee"]["tarif_journalier"].is_null(), "{v}");
+
+    // Le refus d'une avance ne lui dit pas le plafond ; au patron, si.
+    let (code, v) = rpc(port, &issa, "donner_avance", json!({ "employeId": awa, "montant": 20000 }));
+    assert_eq!(code, 409, "{v}");
+    let m = v["message"].as_str().unwrap_or("");
+    assert!(m.contains("dépasserait son plafond") && !m.contains("15 000"), "{v}");
+    let (_, v) = rpc(port, &admin, "donner_avance", json!({ "employeId": awa, "montant": 20000 }));
+    assert!(v["message"].as_str().unwrap_or("").contains("15 000"), "{v}");
+
+    // Un montant énorme : un refus, et la base répond encore.
+    let (code, v) = rpc(port, &admin, "preparer_fiche_paie", json!({ "employeId": awa, "du": "2026-09-01", "au": "2026-09-30", "prorata": false }));
+    assert_eq!(code, 200, "{v}");
+    let fiche = v["donnee"]["id"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &admin, "ajouter_ligne_paie", json!({ "ficheId": fiche, "genre": "prime", "libelle": "x", "montant": i64::MAX }));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap_or("").contains("trop grand"), "{v}");
+    let (code, v) = rpc(port, &admin, "donner_avance", json!({ "employeId": awa, "montant": i64::MAX }));
+    assert_eq!(code, 409, "{v}");
+    let (code, v) = rpc(port, &admin, "lire_fiche_paie", json!({ "ficheId": fiche }));
+    assert_eq!(code, 200, "la base répond toujours : {v}");
+    assert_eq!(v["donnee"]["net"], 60000);
+}
+
+/// D43 — une base neuve (sans `GESCOM_DEMO`) : `/sante` le dit, le
+/// serveur ne sert que l'assistant, et l'assistant fini, tout repart sans
+/// redemarrer. Le JSON est celui que l'ecran envoie (`saisie` imbriquee).
+#[test]
+fn une_base_neuve_ne_sert_que_l_assistant_jusqu_a_ce_qu_il_soit_fait() {
+    let srv = lancer_avec(|c| {
+        c.env_remove("GESCOM_DEMO");
+    });
+    let port = srv.port;
+    let (_, sante) = requete(port, "GET", "/sante", None, None).unwrap();
+    assert_eq!(sante["assistant_a_faire"], true, "{sante}");
+
+    let (jeton, _) = connexion(port);
+    let (code, v) = rpc(port, &jeton, "lire_clients", json!({}));
+    assert_eq!(code, 409, "{v}");
+    assert!(v["message"].as_str().unwrap_or("").contains("ASSISTANT_A_FAIRE"), "{v}");
+    let (code, v) = rpc(port, &jeton, "lire_assistant", json!({}));
+    assert_eq!((code, v["donnee"]["a_faire"].as_bool()), (200, Some(true)), "{v}");
+
+    let annee = v["donnee"]["annee"].as_str().unwrap().to_string();
+    let (code, v) = rpc(port, &jeton, "terminer_assistant", json!({ "saisie": {
+        "patron_nom": "Moussa Traoré", "patron_pseudo": "moussa", "mot_de_passe": "Bamako-2026",
+        "societe": "Quincaillerie Traoré", "nif": "084123456M",
+        "date_debut": format!("{annee}-01-01"), "date_fin": format!("{annee}-12-31"),
+        "tva_pct": 0, "numero_depart": null, "magasin": "Boutique Médine", "fond_caisse": 25000,
+        "vendeurs": [{ "nom": "Awa Diallo", "pseudo": "awa", "mot_de_passe": "awa-2026" }]
+    }}));
+    assert_eq!(code, 200, "{v}");
+
+    // Fait : la meme session travaille, sans redemarrage.
+    let (code, v) = rpc(port, &jeton, "lire_clients", json!({}));
+    assert_eq!(code, 200, "{v}");
+    let (_, sante) = requete(port, "GET", "/sante", None, None).unwrap();
+    assert_eq!(sante["assistant_a_faire"], false, "{sante}");
+    let (code, v) = rpc(port, &jeton, "lire_reglages_dossier", json!({}));
+    assert_eq!((code, v["donnee"]["fond_caisse"].as_i64()), (200, Some(25000)), "{v}");
+    // Le mot de passe d'usine ne sert plus.
+    let (code, _) = requete(
+        port, "POST", "/connexion",
+        Some(&json!({
+            "identifiant": "admin", "mot_de_passe": "admin123",
+            "poste_nom": "Caisse test", "poste_empreinte": "routes-1", "version_protocole": 1
+        })),
+        None,
+    ).unwrap();
+    assert_ne!(code, 200);
 }

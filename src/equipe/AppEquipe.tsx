@@ -49,6 +49,8 @@ export function AppEquipe() {
     return u;
   });
   const [page, setPage] = useState("accueil");
+  // D49 : l'onglet ou mène une tuile de l'accueil ; le menu n'en donne pas.
+  const [vue, setVue] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     synchroniserConfig().finally(() => setPontPret(true));
@@ -147,7 +149,7 @@ export function AppEquipe() {
           {visibles.map(m => {
             const Icone = m.icone;
             return (
-              <button key={m.cle} onClick={() => setPage(m.cle)}
+              <button key={m.cle} onClick={() => { setPage(m.cle); setVue(undefined); }}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
                   courant.cle === m.cle ? "bg-primary text-primary-foreground" : "hover:bg-muted"
                 }`}>
@@ -171,10 +173,10 @@ export function AppEquipe() {
       </aside>
       <main className="flex-1 overflow-auto p-8">
         {courant.cle === "accueil"
-          ? <Accueil nom={utilisateur.nom} modules={visibles.filter(m => m.cle !== "accueil")} onOuvrir={setPage} />
+          ? <Accueil nom={utilisateur.nom} modules={visibles.filter(m => m.cle !== "accueil")} onOuvrir={(cle, v) => { setPage(cle); setVue(v); }} />
           : courant.cle === "personnel" ? <Personnel />
-          : courant.cle === "paie" ? <Paie />
-          : courant.cle === "clients" ? <SuiviClients moi={{ id: utilisateur.id, nom: utilisateur.nom }} />
+          : courant.cle === "paie" ? <Paie vue={vue === "fiches" || vue === "avances" || vue === "prets" ? vue : undefined} />
+          : courant.cle === "clients" ? <SuiviClients moi={{ id: utilisateur.id, nom: utilisateur.nom }} vue={vue === "rappels" ? vue : undefined} />
           : <Bientot module={courant} />}
       </main>
 

@@ -351,6 +351,8 @@ fn promouvoir_un_compte_inconnu_refuse() {
 #[test]
 fn promouvoir_deux_fois_est_sans_effet() {
     let mut base = base_amorcee();
+    // D43 : `employe` n'est plus livre que dans une base d'essai.
+    amorcage::mode_essai(&mut base).unwrap();
     auth::promouvoir_superadmin_sur(&mut base, "employe").expect("première promotion");
     let second = auth::promouvoir_superadmin_sur(&mut base, "employe").expect("seconde promotion");
     assert!(second.contains("déjà"), "message reçu : {second}");

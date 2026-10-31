@@ -250,3 +250,63 @@ mod tests {
         assert_eq!(libelle("inventaire_v2"), "Autre");
     }
 }
+
+// =====================================================================
+//  D45 — le seuil d'alerte d'un article
+// =====================================================================
+
+/// Le seuil d'un dossier qui n'en a pas regle : 5, la valeur ecrite en
+/// dur avant D45 (tableau de bord, rapports).
+pub const SEUIL_ALERTE_DEFAUT: f64 = 5.0;
+
+/// Au-dela, une faute de frappe (des zeros de trop).
+pub const SEUIL_ALERTE_MAX: f64 = 1_000_000.0;
+
+/// Un seuil saisi : positif ou nul, borne. 0 = pas d'alerte, seulement
+/// la rupture.
+pub fn verifier_seuil(seuil: f64) -> Result<(), String> {
+    if !seuil.is_finite() || seuil < 0.0 {
+        return Err("Le seuil d'alerte est un nombre positif (0 : pas d'alerte).".to_string());
+    }
+    if seuil > SEUIL_ALERTE_MAX {
+        return Err("Un seuil d'alerte de plus d'un million : vérifier le nombre de zéros.".to_string());
+    }
+    Ok(())
+}
+
+/// L'etat d'un stock face a son seuil : « rupture » a 0 ou moins,
+/// « alerte » sous le seuil (strictement, comme le stock minimum de
+/// Ciel), « ok » sinon.
+pub fn statut_stock(quantite: f64, seuil: f64) -> &'static str {
+    if quantite <= 0.0 {
+        "rupture"
+    } else if quantite < seuil {
+        "alerte"
+    } else {
+        "ok"
+    }
+}
+
+#[cfg(test)]
+mod tests_seuil {
+    use super::*;
+
+    #[test]
+    fn le_statut_suit_le_seuil_et_zero_coupe_l_alerte() {
+        assert_eq!(statut_stock(0.0, 5.0), "rupture");
+        assert_eq!(statut_stock(-2.0, 5.0), "rupture");
+        assert_eq!(statut_stock(4.5, 5.0), "alerte");
+        assert_eq!(statut_stock(5.0, 5.0), "ok", "strictement sous le seuil");
+        assert_eq!(statut_stock(1.0, 0.0), "ok", "0 : pas d'alerte");
+        assert_eq!(statut_stock(15.0, 20.0), "alerte");
+    }
+
+    #[test]
+    fn un_seuil_se_juge() {
+        assert!(verifier_seuil(0.0).is_ok());
+        assert!(verifier_seuil(12.5).is_ok());
+        assert!(verifier_seuil(-1.0).is_err());
+        assert!(verifier_seuil(f64::NAN).is_err());
+        assert!(verifier_seuil(2_000_000.0).is_err());
+    }
+}

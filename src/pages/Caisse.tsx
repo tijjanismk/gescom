@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { appeler as invoke } from "@/lib/pont";
+import { useFondHabituel } from "@/lib/reglagesDossier";
 import {
   Wallet, RefreshCw, Loader2,
   // `History` entre en collision avec window.History, une classe
@@ -103,6 +104,8 @@ function ModalOuvertureSession({
 }) {
   const [fondOuverture, setFondOuverture] = useState("");
   const [chargement, setChargement] = useState(false);
+  // D43 : le fond habituel du dossier, proposé.
+  useFondHabituel(ouvert, setFondOuverture);
 
   async function handleOuvrir() {
     setChargement(true);
@@ -242,6 +245,14 @@ function ModalDepense({
                 <option key={c.value} value={c.value}>{c.label}</option>
               ))}
             </select>
+            {/* D42 : le personnel d'Équipe se paie depuis Équipe, case
+                « pris dans le tiroir » — sinon le salaire compte deux fois. */}
+            {categorie === "salaire" && (
+              <p className="mt-1 text-xs text-amber-700" role="note">
+                Pour la main-d'œuvre d'un jour (porteur, déchargeur). Le personnel suivi dans Gescom Équipe se paie
+                depuis Équipe, case « pris dans le tiroir » : saisi ici aussi, son salaire serait compté deux fois.
+              </p>
+            )}
           </div>
           <div>
             <Label>Moyen</Label>
@@ -512,7 +523,7 @@ export function Caisse() {
       {/* Statut de la session */}
       {resume?.statut === "aucune" && (
         <div className="relative z-[1] flex items-center gap-3 p-4 bg-muted/70 border border-border mb-6">
-          <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0" />
+          <AlertTriangle className="h-5 w-5 text-orange-800 shrink-0" />
           <div>
             <p className="text-sm font-medium">Aucune session ouverte</p>
             <p className="text-xs text-muted-foreground">
