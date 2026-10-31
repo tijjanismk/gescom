@@ -44,14 +44,21 @@ pub fn lire_mois_sur(base: &mut Base, mois: &str) -> Result<serde_json::Value, S
         .map_err(|e| e.0)?;
     let marques = base
         .lire_plusieurs(
-            "SELECT employe_id, jour, etat FROM presence
+            "SELECT employe_id, jour, etat, motif FROM presence
              WHERE dossier_id = ?1 AND jour >= ?2 AND jour <= ?3",
             &parametres![dossier, premier, dernier],
-            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?)),
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?, r.get::<Option<String>>(3)?)),
         )
         .map_err(|e| e.0)?;
     let mut par_personne: HashMap<String, serde_json::Map<String, serde_json::Value>> = HashMap::new();
-    for (e, j, etat) in marques {
+    // D52 : le motif des jours A et ½, a part pour que `etats` reste ce
+    // qu'il etait ; un jour non travaille d'avant D52 se lit « absence ».
+    let mut motifs: HashMap<String, serde_json::Map<String, serde_json::Value>> = HashMap::new();
+    for (e, j, etat, motif) in marques {
+        if etat == "absent" || etat == "demi" {
+            let m = motif.unwrap_or_else(|| "absence".to_string());
+            motifs.entry(e.clone()).or_default().insert(j.clone(), serde_json::Value::String(m));
+        }
         par_personne.entry(e).or_default().insert(j, serde_json::Value::String(etat));
     }
     // Les fiches validees (non en cours de rectification) qui touchent
@@ -77,10 +84,11 @@ pub fn lire_mois_sur(base: &mut Base, mois: &str) -> Result<serde_json::Value, S
             let etats = par_personne.remove(&id).unwrap_or_default();
             let total = regles::jours_travailles(etats.values().filter_map(|v| v.as_str()));
             let fiches = figes.remove(&id).unwrap_or_default();
+            let motifs = motifs.remove(&id).unwrap_or_default();
             serde_json::json!({
                 "employe_id": id, "nom": nom, "fonction": fonction,
                 "date_entree": entree, "date_depart": depart,
-                "etats": etats, "jours_travailles": total, "fiches_validees": fiches,
+                "etats": etats, "motifs": motifs, "jours_travailles": total, "fiches_validees": fiches,
             })
         })
         .collect();
@@ -123,21 +131,54 @@ fn jour_lisible(jour: &str) -> Result<String, String> {
 
 /// Marque (ou efface, `etat = None`) un jour d'une personne.
 pub fn marquer_sur(base: &mut Base, employe_id: String, jour: String, etat: Option<String>) -> Result<serde_json::Value, String> {
+    marquer_avec_motif_sur(base, employe_id, jour, etat, None)
+}
+
+/// Marque un jour avec le motif d'un jour non travaille (D52) : maladie,
+/// permission, conge, absence (ce que vaut un A ou un ½ sans motif). Le
+/// motif ne change pas la paie ; sur un jour fige par une fiche validee,
+/// il se corrige encore, l'etat non.
+pub fn marquer_avec_motif_sur(
+    base: &mut Base,
+    employe_id: String,
+    jour: String,
+    etat: Option<String>,
+    motif: Option<String>,
+) -> Result<serde_json::Value, String> {
     let jour = jour_lisible(&jour)?;
     if let Some(e) = &etat {
         if regles::valeur(e).is_none() {
             return Err(format!("État inconnu : « {e} ». Attendu : {}.", regles::ETATS.join(", ")));
         }
     }
+    let motif = regles::verifier_motif(etat.as_deref(), motif.as_deref())?;
     let nom = employe_marquable(base, &employe_id, &jour)?;
     let dossier = base.dossier().to_string();
     let auteur = crate::argent::id_utilisateur_courant_sur(base);
     let mut tx = base.transaction().map_err(|e| e.0)?;
     // Revue du 28/10, point 5 : un jour paye par une fiche validee est
     // fige — le marquer ensuite ne serait paye nulle part. Juge dans la
-    // transaction qui ecrit.
+    // transaction qui ecrit. D52 : le motif seul se corrige encore (le
+    // certificat arrive apres la paie), la paie ne le lit pas.
     if let Some(numero) = crate::paie::fiche_validee_du_jour_sur(&mut tx, &employe_id, &jour)? {
-        return Err(regles::refus_jour_fige(&nom, &numero));
+        let actuel = tx
+            .lire_une(
+                "SELECT etat FROM presence WHERE dossier_id = ?1 AND employe_id = ?2 AND jour = ?3",
+                &parametres![dossier.clone(), employe_id.clone(), jour.clone()],
+                |r| r.get::<String>(0),
+            )
+            .map_err(|e| e.0)?;
+        if actuel.is_none() || actuel != etat {
+            return Err(regles::refus_jour_fige(&nom, &numero));
+        }
+        tx.executer(
+            "UPDATE presence SET motif = ?1, saisi_par = ?2, saisi_le = ?3
+             WHERE dossier_id = ?4 AND employe_id = ?5 AND jour = ?6",
+            &parametres![motif.clone(), auteur, crate::utils::maintenant_iso(), dossier, employe_id.clone(), jour.clone()],
+        )
+        .map_err(|e| e.0)?;
+        tx.valider().map_err(|e| e.0)?;
+        return Ok(serde_json::json!({ "employe_id": employe_id, "jour": jour, "etat": etat, "motif": motif }));
     }
     tx.executer(
         "DELETE FROM presence WHERE dossier_id = ?1 AND employe_id = ?2 AND jour = ?3",
@@ -146,14 +187,15 @@ pub fn marquer_sur(base: &mut Base, employe_id: String, jour: String, etat: Opti
     .map_err(|e| e.0)?;
     if let Some(e) = &etat {
         tx.executer(
-            "INSERT INTO presence (id, dossier_id, employe_id, jour, etat, saisi_par, saisi_le)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO presence (id, dossier_id, employe_id, jour, etat, motif, saisi_par, saisi_le)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             &parametres![
                 uuid::Uuid::new_v4().to_string(),
                 dossier,
                 employe_id.clone(),
                 jour.clone(),
                 e.clone(),
+                motif.clone(),
                 auteur,
                 crate::utils::maintenant_iso()
             ],
@@ -161,7 +203,45 @@ pub fn marquer_sur(base: &mut Base, employe_id: String, jour: String, etat: Opti
         .map_err(|e| e.0)?;
     }
     tx.valider().map_err(|e| e.0)?;
-    Ok(serde_json::json!({ "employe_id": employe_id, "jour": jour, "etat": etat }))
+    Ok(serde_json::json!({ "employe_id": employe_id, "jour": jour, "etat": etat, "motif": motif }))
+}
+
+/// Le compte de l'annee civile `AAAA` par motif (D52), pour chaque
+/// personne du dossier qui a au moins un jour A ou ½ : ce que la fiche
+/// affiche. En jours, une demi-journee pour ½.
+pub fn absences_annee_sur(base: &mut Base, annee: &str) -> Result<serde_json::Value, String> {
+    let annee = annee.trim();
+    if annee.len() != 4 || annee.parse::<u16>().is_err() {
+        return Err(format!("Année illisible : « {annee} » (attendu AAAA)."));
+    }
+    let dossier = base.dossier().to_string();
+    let lignes = base
+        .lire_plusieurs(
+            "SELECT employe_id, etat, motif FROM presence
+             WHERE dossier_id = ?1 AND jour >= ?2 AND jour <= ?3 AND etat IN ('absent', 'demi')
+             ORDER BY employe_id",
+            &parametres![dossier, format!("{annee}-01-01"), format!("{annee}-12-31")],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<Option<String>>(2)?)),
+        )
+        .map_err(|e| e.0)?;
+    let mut par_personne: Vec<(String, Vec<(String, Option<String>)>)> = Vec::new();
+    for (e, etat, motif) in lignes {
+        match par_personne.last_mut() {
+            Some((id, v)) if *id == e => v.push((etat, motif)),
+            _ => par_personne.push((e, vec![(etat, motif)])),
+        }
+    }
+    let personnes: Vec<serde_json::Value> = par_personne
+        .into_iter()
+        .map(|(id, jours)| {
+            let compte = regles::compter_motifs(jours.iter().map(|(e, m)| (e.as_str(), m.as_deref())));
+            let total: f64 = compte.iter().map(|(_, n)| n).sum::<f64>() + 0.0;
+            let motifs: serde_json::Map<String, serde_json::Value> =
+                compte.into_iter().map(|(m, n)| (m.to_string(), serde_json::json!(n))).collect();
+            serde_json::json!({ "employe_id": id, "motifs": motifs, "total": total })
+        })
+        .collect();
+    Ok(serde_json::json!({ "annee": annee, "personnes": personnes }))
 }
 
 /// « Tout le monde est venu » : marque present, pour ce jour, chaque

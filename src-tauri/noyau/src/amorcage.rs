@@ -224,6 +224,8 @@ fn tables_v2(base: &mut Base) {
         // Lot D.10 : le code du client fige a l'emission (27/10) — une
         // facture d'un passant rattache a un client garde son PAS-…
         "ALTER TABLE piece_commerciale ADD COLUMN tiers_code TEXT",
+        // D52 : le motif d'un jour non travaille (29/10).
+        "ALTER TABLE presence ADD COLUMN motif TEXT",
     ] {
         let _ = base.executer(&adapter(sql), &[]);
     }

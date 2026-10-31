@@ -216,6 +216,8 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         // gere ou le paie ; ce qu'il gagne, par qui prepare ou valide la
         // paie seulement. ---
         "lire_presences_mois" => &[RefusSaufUne(PERSONNEL_LIRE)],
+        // D52 : le motif d'une absence (maladie…) se lit comme la grille.
+        "lire_absences_annee" => &[RefusSaufUne(PERSONNEL_LIRE)],
         "lire_avances" => &[RefusSaufUne(AVANCES_LIRE)],
         // G-4 : le journal de paie nomme ce que chacun gagne. Sans le
         // droit de lire la paie, il n'est ni fabrique ni rendu. Lire la

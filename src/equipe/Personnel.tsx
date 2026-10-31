@@ -248,6 +248,15 @@ export function Personnel() {
   );
 }
 
+/** « maladie 2 · permission 0,5 · congé 1 » : les motifs non nuls, en jours (D52). */
+function absencesDites(motifs: Record<string, number>): string {
+  const libelle: Record<string, string> = { maladie: "maladie", permission: "permission", conge: "congé", absence: "absence" };
+  return Object.entries(libelle)
+    .filter(([cle]) => (motifs[cle] ?? 0) > 0)
+    .map(([cle, mot]) => `${mot} ${motifs[cle].toLocaleString("fr-FR")}`)
+    .join(" · ");
+}
+
 function Fiches() {
   const [liste, setListe] = useState<Employe[] | null>(null);
   const [avecPartis, setAvecPartis] = useState(false);
@@ -258,13 +267,20 @@ function Fiches() {
   const gere = peut("personnel:gerer");
   const voitMontants = peut("paie:preparer") || peut("paie:valider");
 
+  // D52 : le compte de l'année par motif, sous chaque personne.
+  const annee = new Date().getFullYear().toString();
+  const [absences, setAbsences] = useState<Record<string, Record<string, number>>>({});
+
   const charger = useCallback(async () => {
     try {
       setListe(await invoke<Employe[]>("lire_personnel", { avecPartis }));
     } catch (e) {
       setAvis({ texte: String(e), erreur: true });
     }
-  }, [avecPartis]);
+    invoke<{ personnes: { employe_id: string; motifs: Record<string, number> }[] }>("lire_absences_annee", { annee })
+      .then(r => setAbsences(Object.fromEntries(r.personnes.map(p => [p.employe_id, p.motifs]))))
+      .catch(() => setAbsences({}));
+  }, [avecPartis, annee]);
   useEffect(() => { charger(); }, [charger]);
 
   async function agir(fn: () => Promise<{ nom: string; avertissements?: string[] }>, texte: (nom: string) => string) {
@@ -335,6 +351,11 @@ function Fiches() {
                   {e.telephone ? ` · ${e.telephone}` : ""}
                   {!e.contrat_ecrit ? " · sans contrat écrit" : ""}
                 </div>
+                {absences[e.id] && (
+                  <div className="text-xs text-muted-foreground" data-testid="absences-annee">
+                    Absences {annee} : {absencesDites(absences[e.id])}
+                  </div>
+                )}
               </div>
               {gere && e.statut === "actif" && (
                 <>

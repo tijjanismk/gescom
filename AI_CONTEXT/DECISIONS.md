@@ -1429,3 +1429,53 @@ ALERTES.
 **Mise en œuvre.** 105 lignes dans 28 fichiers, par règle (script),
 puis les encadrés relus à la main : lignes de tableau (fond neutre, une
 bordure de `<tr>` ne s'affiche pas), bords internes des encadrés.
+
+## D52 — Les absences notées, sans calcul légal (29/10/2026)
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-6) : la grille des jours (F-3) dit
+qu'Awa n'est pas venue, pas pourquoi. Le patron veut savoir, à la fin
+de l'année, combien de jours de maladie, de permission, de congé et
+d'absence chacun a eus — sans que Gescom calcule un droit à congé ni
+une paie de maladie (§ 4 l'écarte).
+
+**Retenu** (proposé, accepté par le propriétaire le 29/10) :
+
+1. **Une colonne `presence.motif`**, pas une table à part : le motif
+   décrit un jour marqué ; une table séparée pourrait dire « maladie »
+   d'un jour effacé ou présent. Dans `schema.sql`, `amorcage.rs` et la
+   migration de la fenêtre (`persistance/v2.rs`).
+2. **Quatre motifs** : maladie, permission, congé (`conge`), absence. Un
+   jour A ou ½ sans motif choisi **est une absence** (enregistré
+   `absence` ; une ligne d'avant D52, motif vide, se lit pareil). Pas de
+   texte libre : on écrit « maladie », jamais le diagnostic.
+3. **Le motif ne change pas la paie.** `paie.rs` et `coeur/paie.rs` ne
+   le lisent pas : le journalier est payé de ses jours travaillés comme
+   avant ; au prorata, chaque A ou ½ retire quel que soit son motif,
+   **congé compris**. Un congé que le patron paie se marque P. La grille
+   le dit en une ligne.
+4. **Une demi-journée peut avoir un motif** (permission l'après-midi) ;
+   elle compte ½ dans le compte de l'année. Un jour P ou effacé n'a pas
+   de motif : refusé.
+5. **Sur un jour figé par une fiche validée, le motif se corrige encore,
+   l'état non** : la paie ne lit pas le motif, et le certificat arrive
+   souvent après la paie. Jugé dans la transaction qui écrit.
+6. **Commandes** : `marquer_presence` prend un `motif` facultatif
+   (`presences::marquer_avec_motif_sur` ; `marquer_sur` reste, sans
+   motif) ; `lire_absences_annee(annee)` rend, pour chaque personne qui
+   a au moins un A ou ½ dans l'année civile, ses jours par motif. Lecture
+   comme la grille (`PERSONNEL_LIRE`). Règle pure : `coeur::presences`
+   (`MOTIFS`, `verifier_motif`, `compter_motifs`).
+7. **Écran** : un clic sur une case ouvre un petit menu (Présent ;
+   Absent ou Demi-journée × les quatre motifs ; Effacer) — deux clics
+   pour une absence au lieu de trois. La case affiche A, M, Pe, C, ou ½
+   suivi de la lettre ; couleurs inchangées (D46). Sous chaque personne
+   de la liste du Personnel : « Absences 2026 : maladie 2 · congé 1 »,
+   seulement s'il y en a.
+
+**Pas fait, exprès** : solde de congés, jours acquis, certificat joint,
+paie de la maladie, congé payé au prorata (§ 4 ; le point 3 le dit à
+l'écran).
+
+**Mise en œuvre.** `noyau/src/presences.rs`, `coeur/presences.rs`,
+`coeur/lecture.rs`, `serveur/src/socle.rs`, `src/equipe/JoursTravailles.tsx`,
+`src/equipe/Personnel.tsx`. Tests : `noyau/tests/absences_base.rs`.

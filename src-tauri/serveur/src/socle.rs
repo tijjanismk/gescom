@@ -154,12 +154,17 @@ pub fn registre() -> Registre {
         gescom_noyau::presences::lire_mois_sur(c.base, &arg::<String>(&p, "mois", "mois")?)
     });
     r.sur_base("marquer_presence", Some("personnel:gerer"), true, |c, p| {
-        gescom_noyau::presences::marquer_sur(
+        gescom_noyau::presences::marquer_avec_motif_sur(
             c.base,
             arg(&p, "employeId", "employe_id")?,
             arg(&p, "jour", "jour")?,
             arg(&p, "etat", "etat")?,
+            arg(&p, "motif", "motif")?,
         )
+    });
+    // D52 : le compte de l'annee par motif, sur la fiche.
+    r.sur_base("lire_absences_annee", None, false, |c, p| {
+        gescom_noyau::presences::absences_annee_sur(c.base, &arg::<String>(&p, "annee", "annee")?)
     });
     r.sur_base("marquer_tous_presents", Some("personnel:gerer"), true, |c, p| {
         gescom_noyau::presences::tous_presents_sur(c.base, arg(&p, "jour", "jour")?)

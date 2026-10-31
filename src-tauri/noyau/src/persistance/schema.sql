@@ -575,6 +575,9 @@ CREATE TABLE IF NOT EXISTS presence (
     etat        TEXT NOT NULL,
     saisi_par   TEXT,
     saisi_le    TEXT NOT NULL,
+    -- D52 : maladie, permission, conge, absence — d'un jour A ou ½ ;
+    -- la paie ne le lit pas.
+    motif       TEXT,
     UNIQUE (employe_id, jour)
 );
 
