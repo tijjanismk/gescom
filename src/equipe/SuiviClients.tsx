@@ -14,9 +14,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { KpiPetit, GRILLE } from "@/components/ui/KpiVerre";
+import { ClientsARelancer } from "./ClientsARelancer";
+import { ETAPES_PROSPECT, RAISONS_ABANDON, RAISONS_DEPART, libelle } from "./raisonsCrm";
 
 interface Utilisateur { id: string; nom: string; role: string; actif: boolean; }
-interface ClientLigne { id: string; code: string; nom: string; telephone: string | null; statut?: string; }
+interface ClientLigne {
+  id: string; code: string; nom: string; telephone: string | null; statut?: string;
+  // D50 (10-13), lus par la fiche seulement.
+  etape_prospect?: string | null; raison_sortie?: string | null; parti_le?: string | null;
+}
 interface Echange {
   id: string; genre: string; quoi: string; suite_prevue: string | null;
   date: string; auteur_nom: string | null; source: string; canal?: string;
@@ -25,7 +31,15 @@ interface Rappel {
   id: string; client_id: string; client_nom: string; pour_utilisateur_id: string; pour_nom: string | null;
   quand: string; quoi: string; fait: boolean; fait_le: string | null;
 }
-interface Prospect { id: string; code: string; nom: string; telephone: string | null; origine_prospect: string | null; cree_le: string; }
+interface Prospect {
+  id: string; code: string; nom: string; telephone: string | null; origine_prospect: string | null; cree_le: string;
+  etape: string; raison_abandon: string | null;
+}
+interface CompteProspects {
+  mois: string; crees: number; devenus_clients: number;
+  par_origine: { origine: string | null; crees: number; devenus_clients: number }[];
+  abandons: { raison: string | null; nombre: number }[];
+}
 
 const f = (n: number) => `${n.toLocaleString("fr-FR")} F`;
 const dateFr = (d: string) => d.slice(0, 10).split("-").reverse().join("/");
@@ -42,6 +56,63 @@ function IconeGenre({ genre }: { genre: string }) {
 // =====================================================================
 //  Fiche 360
 // =====================================================================
+
+// D50 (10-13) : l'etape d'un prospect, ou le depart d'un client. Rien
+// ici ne bloque une vente : la prochaine fait revenir un parti.
+function SuiviEtat({ client, agir }: { client: ClientLigne; agir: (geste: () => Promise<unknown>, fait: string) => Promise<void> }) {
+  const prospect = client.statut === "prospect";
+  const [etape, setEtape] = useState(client.etape_prospect || "nouveau");
+  const [raison, setRaison] = useState("");
+  useEffect(() => { setEtape(client.etape_prospect || "nouveau"); setRaison(""); }, [client.etape_prospect, client.parti_le]);
+  const choix = "h-9 px-2 text-sm border border-border rounded-md bg-background min-w-40";
+
+  if (prospect) {
+    const actuelle = client.etape_prospect || "nouveau";
+    const abandon = etape === "abandonne";
+    return (
+      <div className="flex gap-2 flex-wrap items-end text-sm" data-testid="etape-prospect">
+        <label className="text-xs text-muted-foreground flex flex-col gap-1">Étape
+          <select value={etape} onChange={e => setEtape(e.target.value)} aria-label="Étape du prospect" className={choix}>
+            {ETAPES_PROSPECT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select></label>
+        {abandon && (
+          <label className="text-xs text-muted-foreground flex flex-col gap-1">Pourquoi ?
+            <select value={raison} onChange={e => setRaison(e.target.value)} aria-label="Raison de l'abandon" className={choix}>
+              <option value="">— choisir —</option>
+              {RAISONS_ABANDON.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select></label>
+        )}
+        <Button size="sm" variant="outline" disabled={etape === actuelle && !abandon || (abandon && !raison)}
+          onClick={() => agir(() => invoke("changer_etape_prospect", { clientId: client.id, etape, raison: abandon ? raison : null }), `Étape : ${libelle(etape)}.`)}>
+          Changer
+        </Button>
+        {actuelle === "abandonne" && client.raison_sortie && <span className="text-xs text-muted-foreground">abandonné : {libelle(client.raison_sortie)}</span>}
+      </div>
+    );
+  }
+
+  if (client.parti_le) {
+    return (
+      <div className="flex gap-2 flex-wrap items-center text-sm" data-testid="client-parti">
+        <Badge variant="outline">parti</Badge>
+        <span className="text-muted-foreground">le {dateFr(client.parti_le)} · {libelle(client.raison_sortie)} — sa prochaine vente le fera revenir.</span>
+        <Button size="sm" variant="ghost" onClick={() => agir(() => invoke("annuler_client_parti", { clientId: client.id }), "N'est plus marqué parti.")}>Il est revenu</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-2 flex-wrap items-end text-sm" data-testid="marquer-parti">
+      <label className="text-xs text-muted-foreground flex flex-col gap-1">Client parti ?
+        <select value={raison} onChange={e => setRaison(e.target.value)} aria-label="Raison du départ" className={choix}>
+          <option value="">— pourquoi —</option>
+          {RAISONS_DEPART.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select></label>
+      <Button size="sm" variant="outline" disabled={!raison}
+        onClick={() => agir(() => invoke("marquer_client_parti", { clientId: client.id, raison }), "Marqué parti.")}>Marquer parti</Button>
+    </div>
+  );
+}
 
 function Fiche360({ clientId, moi, onRetour }: { clientId: string; moi: { id: string; nom: string }; onRetour: () => void }) {
   const [fiche, setFiche] = useState<{ client: ClientLigne & { code: string }; stats: { ca_total: number; nb_ventes: number; encours: number | null } } | null>(null);
@@ -122,6 +193,20 @@ function Fiche360({ clientId, moi, onRetour }: { clientId: string; moi: { id: st
     }
   }
 
+  async function agirEtat(geste: () => Promise<unknown>, fait: string) {
+    setEnCours(true);
+    setAvis(null);
+    try {
+      await geste();
+      await charger();
+      setAvis({ texte: fait });
+    } catch (e) {
+      setAvis({ texte: String(e), erreur: true });
+    } finally {
+      setEnCours(false);
+    }
+  }
+
   // Le bouton Retour et l'avis restent visibles meme quand la fiche ne
   // charge pas : sinon un echec initial laisse un tourniquet sans issue.
   const client = fiche?.client;
@@ -144,6 +229,7 @@ function Fiche360({ clientId, moi, onRetour }: { clientId: string; moi: { id: st
         {estProspect ? <Badge variant="secondary">prospect</Badge> : null}
       </div>
       {client.telephone && <p className="text-sm text-muted-foreground">{client.telephone}</p>}
+      {ecrit && <SuiviEtat client={client} agir={agirEtat} />}
 
       <div style={GRILLE}>
         <KpiPetit titre="Chiffre d'affaires" valeur={f(stats.ca_total)} />
@@ -289,9 +375,19 @@ function Prospects({ onOuvrir }: { onOuvrir: (id: string) => void }) {
   const [enCours, setEnCours] = useState(false);
   const [avis, setAvis] = useState<{ texte: string; erreur?: boolean } | null>(null);
   const ecrit = peut("crm:suivre");
+  // D50, point 12 : le compte du mois choisi, les abandonnes caches d'office.
+  const [mois, setMois] = useState(() => new Date().toISOString().slice(0, 7));
+  const [compte, setCompte] = useState<CompteProspects | null>(null);
+  const [voirAbandonnes, setVoirAbandonnes] = useState(false);
 
   const charger = useCallback(async () => setListe(await invoke<Prospect[]>("lire_prospects")), []);
   useEffect(() => { charger().catch(e => setAvis({ texte: String(e), erreur: true })); }, [charger]);
+  useEffect(() => {
+    if (!/^\d{4}-\d{2}$/.test(mois)) return;
+    invoke<CompteProspects>("lire_compte_prospects", { mois }).then(setCompte).catch(e => setAvis({ texte: String(e), erreur: true }));
+  }, [mois, liste]);
+  const visibles = (liste ?? []).filter(p => voirAbandonnes || p.etape !== "abandonne");
+  const nbAbandonnes = (liste ?? []).length - (liste ?? []).filter(p => p.etape !== "abandonne").length;
 
   async function ajouter() {
     setEnCours(true);
@@ -309,6 +405,21 @@ function Prospects({ onOuvrir }: { onOuvrir: (id: string) => void }) {
 
   return (
     <div className="space-y-4">
+      <div className="space-y-2" data-testid="compte-prospects">
+        <label className="text-xs text-muted-foreground flex items-center gap-2">Mois
+          <Input type="month" value={mois} onChange={e => setMois(e.target.value)} aria-label="Mois du compte" className="h-9 w-44" /></label>
+        {compte && (
+          <div style={GRILLE}>
+            <KpiPetit titre="Prospects créés" valeur={String(compte.crees)} />
+            <KpiPetit titre="Devenus clients" valeur={String(compte.devenus_clients)} />
+            {compte.par_origine.map(o => (
+              <KpiPetit key={o.origine ?? ""} titre={o.origine ?? "Origine non dite"} valeur={`${o.crees} créés · ${o.devenus_clients} clients`} />
+            ))}
+            <KpiPetit titre="Abandons en cours"
+              valeur={compte.abandons.length === 0 ? "aucun" : compte.abandons.map(a => `${libelle(a.raison)} ${a.nombre}`).join(" · ")} />
+          </div>
+        )}
+      </div>
       {ecrit && (
         <div className="border border-border rounded-lg p-4 space-y-3" data-testid="nouveau-prospect">
           <h3 className="text-sm font-semibold">Nouveau prospect</h3>
@@ -325,10 +436,16 @@ function Prospects({ onOuvrir }: { onOuvrir: (id: string) => void }) {
         </div>
       )}
       {avis && <p className={`text-sm ${avis.erreur ? "text-red-600" : "text-emerald-700"}`} role="status">{avis.texte}</p>}
+      {nbAbandonnes > 0 && (
+        <label className="text-sm flex items-center gap-2">
+          <input type="checkbox" checked={voirAbandonnes} onChange={e => setVoirAbandonnes(e.target.checked)} />
+          Voir les abandonnés ({nbAbandonnes})
+        </label>
+      )}
       {!liste ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
         <div className="border border-border rounded-lg divide-y divide-border" data-testid="liste-prospects">
-          {liste.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">Aucun prospect.</p>}
-          {liste.map(p => (
+          {visibles.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">Aucun prospect.</p>}
+          {visibles.map(p => (
             <button key={p.id} onClick={() => onOuvrir(p.id)} data-testid="prospect"
               className="w-full flex items-center gap-3 px-4 py-2 text-sm text-left hover:bg-muted">
               <div className="flex-1">
@@ -337,6 +454,9 @@ function Prospects({ onOuvrir }: { onOuvrir: (id: string) => void }) {
                   {p.telephone ? `${p.telephone} · ` : ""}depuis le {dateFr(p.cree_le)}{p.origine_prospect ? ` · ${p.origine_prospect}` : ""}
                 </div>
               </div>
+              <Badge variant={p.etape === "abandonne" ? "outline" : "secondary"}>
+                {libelle(p.etape)}{p.etape === "abandonne" && p.raison_abandon ? ` · ${libelle(p.raison_abandon)}` : ""}
+              </Badge>
             </button>
           ))}
         </div>
@@ -401,7 +521,7 @@ function MesRappels({ moi, onOuvrir }: { moi: { id: string }; onOuvrir: (id: str
 // =====================================================================
 
 export function SuiviClients({ moi }: { moi: { id: string; nom: string } }) {
-  const [vue, setVue] = useState<"clients" | "prospects" | "rappels">("clients");
+  const [vue, setVue] = useState<"clients" | "prospects" | "rappels" | "relancer">("clients");
   const [clientOuvert, setClientOuvert] = useState<string | null>(null);
 
   if (clientOuvert) {
@@ -412,7 +532,7 @@ export function SuiviClients({ moi }: { moi: { id: string; nom: string } }) {
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Suivi clients</h1>
       <div className="flex gap-1" role="tablist">
-        {([["clients", "Clients"], ["prospects", "Prospects"], ["rappels", "Mes rappels"]] as const).map(([cle, libelle]) => (
+        {([["clients", "Clients"], ["prospects", "Prospects"], ["rappels", "Mes rappels"], ["relancer", "À relancer"]] as const).map(([cle, libelle]) => (
           <button key={cle} role="tab" aria-selected={vue === cle} onClick={() => setVue(cle)}
             className={`px-3 py-1.5 text-sm rounded-lg ${vue === cle ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
             {libelle}
@@ -421,6 +541,7 @@ export function SuiviClients({ moi }: { moi: { id: string; nom: string } }) {
       </div>
       {vue === "clients" ? <Clients onOuvrir={setClientOuvert} />
         : vue === "prospects" ? <Prospects onOuvrir={setClientOuvert} />
+        : vue === "relancer" ? <ClientsARelancer moi={moi} onOuvrir={setClientOuvert} />
         : <MesRappels moi={moi} onOuvrir={setClientOuvert} />}
     </div>
   );

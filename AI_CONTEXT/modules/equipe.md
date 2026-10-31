@@ -149,3 +149,58 @@ Preuves : 2 unitaires `coeur::crm`, `crm_base.rs` (11, trois moteurs :
 dossier, prospect qui devient client — au comptoir et par une facture
 validée —, cloisonnement, détecteur) ; bancs
 `h1-echanges-360.mjs`, `h2-rappels-prospects.mjs`.
+
+### Les clients à relancer (EQ-4 — D50)
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Règle (pure) | [coeur/crm_relances.rs](../../src-tauri/noyau/src/coeur/crm_relances.rs) | `juger(releves, jours_dormant, avec_creances)` : motifs `creance` / `ralentit` / `dormant`, ordre de D50, `mis_de_cote` ; `ralentit`, `texte_propose` (sans montant), `valider_jours_dormant` ; constantes (60, 15–365, 30, 90, 360, 10, 3, 14) |
+| Lecture (base) | [crm_relances.rs](../../src-tauri/noyau/src/crm_relances.rs) | `lire_clients_a_relancer_sur(base, avec_creances)` ; `jours_dormant_sur`, `definir_jours_dormant_sur` |
+| Écran | [src/equipe/ClientsARelancer.tsx](../../src/equipe/ClientsARelancer.tsx) | onglet « À relancer » du Suivi clients : la liste, « Noter… » (échange prérempli), « Me le rappeler » (rappel pour soi, demain), le réglage N |
+
+Rien de neuf en base : les âges se comptent en Rust (`utils::jours_depuis`),
+la borne des 360 jours se compare par `SUBSTR(date_vente, 1, 10)`. Le
+réglage N vit dans `config_app`, clé `crm_jours_dormant:<dossier>` (60
+d'office). Le clic réutilise `creer_echange` et `creer_rappel` : le
+client sort alors de la liste (contact de moins de 14 jours, ou rappel
+non fait — échanges **et** relances de créance comptent).
+
+**Commandes** : `lire_clients_a_relancer` (`avecCreances`, vrai
+d'office) et `definir_jours_dormant` (`jours`, `parametres:modifier`) ;
+`changer_etape_prospect` (`clientId`, `etape`, `raison`),
+`marquer_client_parti` (`clientId`, `raison`), `annuler_client_parti`
+(`clientId`) — `crm:suivre` ; `lire_compte_prospects` (`mois` AAAA-MM,
+le mois en cours d'office), refusée sans `crm:suivre`.
+**Lecture** (`coeur::lecture`) : refus sans `crm:suivre` ; sans
+`tiers:lire_solde`, `avecCreances` est forcé à faux (les créances ne
+sont pas lues) et `reste_en_retard` masqué ; sans `rapports:lire`,
+`ca_reference` et `ca_recent` valent `null`.
+
+**Ajouts 10 à 16 (acceptés le 30/10)** — l'étape du prospect et le
+client parti. Cinq colonnes sur `client` : `etape_prospect` (vide =
+`nouveau`), `raison_sortie` (abandon d'un prospect OU départ d'un
+client), `devenu_client_le`, `parti_le`, `revenu_le`. Règles pures dans
+`coeur::crm` (`valider_etape`, `valider_raison_depart`, `valider_mois`,
+`etape_lue`, listes `ETAPES_PROSPECT`, `RAISONS_ABANDON`,
+`RAISONS_DEPART`) ; en base dans `crm.rs` : `changer_etape_prospect_sur`,
+`marquer_client_parti_sur`, `annuler_client_parti_sur` (journal
+`prospect_etape`, `client_parti`, `client_parti_annule`),
+`lire_compte_prospects_sur(mois)`. `creer_echange_sur` passe un prospect
+`nouveau` à `contacte` dans sa transaction. **La vente** :
+`argent::prospect_devient_client[_sur]` date `devenu_client_le` et fait
+revenir un parti (`parti_le` vidé, `revenu_le` daté) — même aide, mêmes
+cinq chemins. `lire_clients_a_relancer` : un parti ne garde que le motif
+`creance`, n'est pas parmi les meilleurs ; bloc `partis` (`nombre`,
+`par_raison`, `reconquis_mois`, `liste`, sans montant). La fiche client
+(deux versions) rend `etape_prospect`, `raison_sortie`, `parti_le`.
+Écran : libellés dans `src/equipe/raisonsCrm.ts` ; fiche 360
+(`SuiviEtat`), onglet Prospects (tuiles du mois, case « voir les
+abandonnés »), « À relancer » (ligne des partis, « Parti… », « Il est
+revenu »).
+
+Preuves : 9 unitaires `coeur::crm_relances`, 2 de plus dans `coeur::crm`,
+1 `coeur::lecture` ; `crm_relances_base.rs` (10, trois moteurs : dormant
+/ en retard / actif absent, sans les soldes, meilleur client qui
+ralentit, contact et rappel qui mettent de côté, réglage jugé, étape et
+compte du mois, parti qui reste pour sa dette et revient en rachetant,
+partis cloisonnés, cloisonnement, détecteur).

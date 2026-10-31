@@ -1309,7 +1309,9 @@ pub fn lire_fiche_client(
     let client = conn.query_row(
         // `statut` (PLAN-EQUIPE H-2, D34) : meme forme que la version
         // serveur — une commande, deux versions, la meme reponse.
-        "SELECT id, code, nom, telephone, adresse, nif, email, cree_le, statut
+        // D50 (10-13) : l'etape du prospect, le depart du client.
+        "SELECT id, code, nom, telephone, adresse, nif, email, cree_le, statut,
+                etape_prospect, raison_sortie, parti_le
          FROM client WHERE id = ?1",
         rusqlite::params![client_id],
         |row| Ok(serde_json::json!({
@@ -1322,6 +1324,9 @@ pub fn lire_fiche_client(
             "email":     row.get::<_,Option<String>>(6)?,
             "cree_le":   row.get::<_,String>(7)?,
             "statut":    row.get::<_,String>(8)?,
+            "etape_prospect": row.get::<_,Option<String>>(9)?,
+            "raison_sortie":  row.get::<_,Option<String>>(10)?,
+            "parti_le":       row.get::<_,Option<String>>(11)?,
         }))
     ).map_err(|e| e.to_string())?;
 
@@ -3715,7 +3720,9 @@ pub fn lire_fiche_client_sur_base(
             // `statut` (PLAN-EQUIPE H-2, D34) : un prospect sans vente
             // encore, ou un client. Ajoute a la fin : rien de casse pour
             // qui lisait deja cette fiche sans ce champ.
-            "SELECT id, code, nom, telephone, adresse, nif, email, cree_le, statut
+            // D50 (10-13) : l'etape du prospect, le depart du client.
+            "SELECT id, code, nom, telephone, adresse, nif, email, cree_le, statut,
+                    etape_prospect, raison_sortie, parti_le
              FROM client WHERE id = ?1 AND dossier_id = ?2",
             &parametres![client_id.clone(), dossier.clone()],
             |r| {
@@ -3729,6 +3736,9 @@ pub fn lire_fiche_client_sur_base(
                     "email":     r.get::<Option<String>>(6)?,
                     "cree_le":   r.get::<String>(7)?,
                     "statut":    r.get::<String>(8)?,
+                    "etape_prospect": r.get::<Option<String>>(9)?,
+                    "raison_sortie":  r.get::<Option<String>>(10)?,
+                    "parti_le":       r.get::<Option<String>>(11)?,
                 }))
             },
         )

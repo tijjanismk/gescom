@@ -315,6 +315,35 @@ pub fn registre() -> Registre {
     r.sur_base("lire_prospects", None, false, |c, _| {
         serde_json::to_value(gescom_noyau::crm::lister_prospects_sur(c.base)?).map_err(|e| e.to_string())
     });
+    // EQ-4 (D50) : les clients a relancer. La lecture et ses masques
+    // sont dans `coeur::lecture` ; le reglage N, comme les autres
+    // reglages du dossier, avec `parametres:modifier`.
+    r.sur_base("lire_clients_a_relancer", None, false, |c, p| {
+        let avec_creances: Option<bool> = arg(&p, "avecCreances", "avec_creances")?;
+        gescom_noyau::crm_relances::lire_clients_a_relancer_sur(c.base, avec_creances.unwrap_or(true))
+    });
+    r.sur_base("definir_jours_dormant", Some("parametres:modifier"), true, |c, p| {
+        gescom_noyau::crm_relances::definir_jours_dormant_sur(c.base, arg(&p, "jours", "jours")?)
+    });
+    // D50 (10-16) : l'etape d'un prospect, le client parti, le compte
+    // des prospects — tout avec `crm:suivre`.
+    r.sur_base("changer_etape_prospect", Some("crm:suivre"), true, |c, p| {
+        gescom_noyau::crm::changer_etape_prospect_sur(
+            c.base,
+            arg(&p, "clientId", "client_id")?,
+            arg(&p, "etape", "etape")?,
+            arg(&p, "raison", "raison")?,
+        )
+    });
+    r.sur_base("marquer_client_parti", Some("crm:suivre"), true, |c, p| {
+        gescom_noyau::crm::marquer_client_parti_sur(c.base, arg(&p, "clientId", "client_id")?, arg(&p, "raison", "raison")?)
+    });
+    r.sur_base("annuler_client_parti", Some("crm:suivre"), true, |c, p| {
+        gescom_noyau::crm::annuler_client_parti_sur(c.base, arg(&p, "clientId", "client_id")?)
+    });
+    r.sur_base("lire_compte_prospects", None, false, |c, p| {
+        gescom_noyau::crm::lire_compte_prospects_sur(c.base, arg(&p, "mois", "mois")?)
+    });
     // v3, E-3 : les journaux, fabriques a la lecture, et leur export.
     // Ce sont les chiffres de la boutique : `rapports:lire`.
     r.sur_base("lire_journaux_comptables", Some("rapports:lire"), false, |c, p| {

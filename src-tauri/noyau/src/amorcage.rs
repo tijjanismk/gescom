@@ -217,6 +217,12 @@ fn tables_v2(base: &mut Base) {
         // Equipe, H-2 (D34) : un prospect est un client sans vente encore.
         "ALTER TABLE client ADD COLUMN statut TEXT NOT NULL DEFAULT 'client'",
         "ALTER TABLE client ADD COLUMN origine_prospect TEXT",
+        // D50 (points 10 a 16) : l'etape du prospect, le client parti.
+        "ALTER TABLE client ADD COLUMN etape_prospect TEXT",
+        "ALTER TABLE client ADD COLUMN raison_sortie TEXT",
+        "ALTER TABLE client ADD COLUMN devenu_client_le TEXT",
+        "ALTER TABLE client ADD COLUMN parti_le TEXT",
+        "ALTER TABLE client ADD COLUMN revenu_le TEXT",
         // Le « Fournisseur divers » des achats sans fournisseur (25/09).
         "ALTER TABLE fournisseur ADD COLUMN est_generique INTEGER NOT NULL DEFAULT 0",
         // D35 : le nom du tiers fige a l'emission (25/10).

@@ -64,6 +64,7 @@ pub mod presences;
 pub mod avances;
 pub mod paie;
 pub mod crm;
+pub mod crm_relances;
 pub mod passage;
 pub mod suivi_stock;
 pub mod menu;
