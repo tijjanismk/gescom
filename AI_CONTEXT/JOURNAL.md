@@ -3097,3 +3097,13 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   repart au démarrage de Windows.
 - PostgreSQL et le compte limité n'ont pas été rejoués sur la fusion :
   chaque lot les avait passés seul.
+- **La nouvelle version** : Gescom 1.13.0, Gescom Équipe 0.2.0, Gescom
+  Serveur 0.3.0 (noyau 0.3.0). Les trois installeurs construits depuis
+  ce commit (02 h 41 → 03 h 20), sans rien installer : caisse
+  `src-tauri\target\release\bundle\nsis\Gescom_1.13.0_x64-setup.exe`
+  (224 Mo, WebView2 hors ligne compris), Équipe `Gescom
+  Equipe_0.2.0_x64-setup.exe` (2,6 Mo), serveur
+  `dist\Gescom-Serveur_0.3.0_x64-setup.exe` (4,5 Mo, signé, service et
+  fenêtre signés aussi). Le `target\debug` effacé avant, 35 Go libres au
+  départ, 33 au plus bas. **Pas essayé** : aucune installation ; le
+  service installé (0.2.0) reste celui d'avant.

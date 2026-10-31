@@ -1,6 +1,6 @@
 [package]
 name = "gescom-equipe"
-version = "0.1.0"
+version = "0.2.0"
 description = "Gescom Equipe : personnel, paie, suivi des clients (PLAN-EQUIPE)"
 edition = "2021"
 

@@ -1,6 +1,6 @@
 [package]
 name = "gescom-serveur-fenetre"
-version = "0.2.0"
+version = "0.3.0"
 description = "Gescom Serveur : la fenetre du serveur (D25), une coque qui affiche sa console"
 edition = "2021"
 
