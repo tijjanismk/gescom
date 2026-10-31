@@ -2865,3 +2865,33 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   listes) sans largeur limitée. Restent étroits, exprès : « Bientôt » et
   le message « serveur injoignable » (du texte à lire). Captures 18 à 22.
 
+
+## 31/10/2026 — D48 l'état de paie du mois (EQ-2)
+
+- **Le besoin** (PLAN-EQUIPE EQ-2) : voir d'un coup ce que le mois
+  coûte et ce qui reste à payer, sans ouvrir les fiches une à une. La
+  décision D48 a été écrite avant le code et acceptée telle quelle.
+- **La règle** (`coeur/etat_paie.rs`, pure) : chaque ligne d'une fiche
+  validée est rangée par son genre, sans rien recalculer ; un net qui ne
+  colle pas à la somme est un refus, pas un arrondi. Une fiche compte au
+  mois où finit sa période, comme `salaires_par_mois_sur` : le coût du
+  mois est le chiffre de Rapports → CA mensuel, et le test le vérifie.
+- **La lecture** (`etat_paie.rs`) : `lire_sur` et `csv_sur`, commandes
+  `lire_etat_paie` et `exporter_etat_paie_csv`, refusées sans
+  `paie:preparer` ni `paie:valider`. Les brouillons et les employés sans
+  fiche sont dits sous le tableau, hors des totaux : l'état sert de
+  liste de contrôle au patron, mais un brouillon n'est pas une dette.
+- **L'écran** : onglet « État du mois » dans Paie, aperçu A4 avec
+  l'habillage du bulletin, CSV fabriqué par le serveur. Vu sur un
+  serveur jetable (40072) : sur l'aperçu, neuf colonnes débordaient de
+  50 px à droite ; les entêtes passent maintenant à la ligne et le
+  tableau est en 8,5 pt.
+- **Le disque** : deux arrêts, le 30/10 à 0,58 Go puis à 1,9 Go libres,
+  avec plusieurs sessions qui compilaient en même temps. La reprise
+  s'est faite en profil léger (`CARGO_PROFILE_DEV_DEBUG=0`,
+  `CARGO_INCREMENTAL=0`) : le serveur et ses tests tiennent en 426 Mo au
+  lieu de 13,5 Go. La première passe de `routes` (10 échecs « le
+  serveur ne répond pas sur /sante ») venait de la charge ; un à un,
+  20/20.
+- **Pour EQ-1** : la colonne « prêt » reste à ajouter après fusion
+  (`ventiler` et `colonnesEtat`).

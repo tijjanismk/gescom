@@ -224,6 +224,9 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         // lit aussi depuis le 28/10, comme les fiches et le CA mensuel.
         "lire_journaux_comptables" | "exporter_journaux_csv" => &[Neutre(PAIE_LIRE, &[("avecPaie", ParamNeutre::Faux)])],
         "lire_fiches_paie" | "lire_fiche_paie" | "lire_donnees_bulletin" | "lire_cotisations" => &[RefusSaufUne(PAIE_LIRE)],
+        // EQ-2 (D48) : l'etat de paie n'est fait que de montants — refus,
+        // a l'ecran comme pour le fichier.
+        "lire_etat_paie" | "exporter_etat_paie_csv" => &[RefusSaufUne(PAIE_LIRE)],
         "lire_personnel" | "lire_employe" => &[
             RefusSaufUne(PERSONNEL_LIRE),
             Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None },

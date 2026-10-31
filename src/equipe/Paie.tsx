@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { FichesPaie } from "./FichesPaie";
 import { Cotisations } from "./Cotisations";
+import { EtatPaie } from "./EtatPaie";
 
 interface Avance {
   id: string; employe_id: string; nom: string; montant: number; retenu: number; reste: number;
@@ -203,19 +204,21 @@ function Avances() {
 }
 
 export function Paie() {
-  const [vue, setVue] = useState<"avances" | "fiches" | "cotisations">("avances");
+  const [vue, setVue] = useState<"avances" | "fiches" | "cotisations" | "etat">("avances");
+  // EQ-2 (D48) : l'état du mois n'est fait que de montants.
+  const voitLaPaie = peut("paie:preparer") || peut("paie:valider");
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Paie</h1>
       <div className="flex gap-1" role="tablist">
-        {([["avances", "Avances"], ["fiches", "Fiches du mois"], ["cotisations", "Cotisations"]] as const).map(([cle, libelle]) => (
+        {([["avances", "Avances"], ["fiches", "Fiches du mois"], ["cotisations", "Cotisations"], ...(voitLaPaie ? [["etat", "État du mois"]] : [])] as [typeof vue, string][]).map(([cle, libelle]) => (
           <button key={cle} role="tab" aria-selected={vue === cle} onClick={() => setVue(cle)}
             className={`px-3 py-1.5 text-sm rounded-lg ${vue === cle ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
             {libelle}
           </button>
         ))}
       </div>
-      {vue === "avances" ? <Avances /> : vue === "fiches" ? <FichesPaie /> : <Cotisations />}
+      {vue === "avances" ? <Avances /> : vue === "fiches" ? <FichesPaie /> : vue === "etat" ? <EtatPaie /> : <Cotisations />}
     </div>
   );
 }
