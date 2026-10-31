@@ -409,6 +409,55 @@ Ces points ne demandent pas d'arbitrage — seulement qu'on s'y mette :
 
 Ce sont les deux endroits où un défaut ne se verra qu'en s'en servant.
 
+## D49 — L'accueil du jour d'Équipe (29/10/2026)
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-3) : en ouvrant Équipe, ce qui attend
+la personne connectée — ses rappels dus, les fiches de paie en brouillon,
+les fiches validées pas soldées, les avances en cours — chaque ligne
+menant à l'écran, selon ses droits.
+
+**Retenu** (sept choix posés, acceptés le 29/10/2026) :
+
+1. **Une commande qui rassemble**, `lire_accueil_equipe`, ouverte à toute
+   session (`equipe_jour::accueil_sur`). Les fiches à solder couvrent
+   plusieurs mois et `lire_fiches_paie` exige une période : avec quatre
+   lectures, l'écran bouclerait sur les mois et additionnerait. Une
+   réponse : un endroit où juger les droits, un seul à tester.
+2. **Un bloc n'existe que pour qui a le droit de le lire**, règle pure
+   `coeur::lecture::accueil_equipe` à côté de C-1 : ses rappels
+   (`crm:suivre`, ceux attribués à la personne de la session — D26, pas
+   un paramètre de l'écran) ; brouillons et fiches à solder
+   (`paie:preparer` ou `paie:valider`, la règle de `lire_fiches_paie`) ;
+   avances en cours (`personnel:avancer` ou la paie, la règle de
+   `lire_avances`), **le total seulement avec la paie** — qui n'a que
+   `personnel:avancer` voit le nombre de personnes. Écart assumé avec
+   Paie → Avances : l'accueil reste ouvert devant le comptoir. Un bloc
+   sans droit n'est **ni calculé ni rendu** ; un montant non lisible vaut
+   `null`, jamais 0. Un caissier voit ses rappels ; le patron, tout.
+3. **« Dû » = aujourd'hui et en retard** (`quand <= aujourd'hui`, pas
+   fait), « dont N en retard ». Aujourd'hui = l'horloge du serveur
+   (Bamako est à UTC+0). Les rappels à venir restent dans « Mes rappels ».
+4. **Toutes les périodes du dossier** : un brouillon de septembre oublié
+   est ce qu'il faut voir. Brouillons : nombre et net total. À solder :
+   validées dont le reste à verser est positif (`coeur::paie::reste_a_verser`,
+   le calcul de la fiche), les remplacées non. Avances : ouvertes, montant
+   au-delà du retenu. Chaque tuile nomme la période la plus ancienne.
+5. **Chaque tuile mène à l'écran** : Suivi clients → « Mes rappels » ;
+   Paie → « Fiches du mois » ; Paie → « Avances » (une propriété `vue`
+   facultative sur `Paie` et `SuiviClients`). Risque nommé : la session
+   « Onglets de la paie » retouche ces onglets — une ligne à résoudre à
+   la fusion. FichesPaie s'ouvre sur le mois courant : le sous-titre
+   nomme le mois ; le lien jusqu'au mois, après la fusion des onglets.
+6. **Un bloc « Aujourd'hui »** au-dessus des modules, `KpiPetit` dans
+   `GRILLE`, chaque tuile dans un bouton (`KpiVerre` inchangé). Une tuile
+   à 0 reste (« rien en attente ») ; une lecture qui échoue le dit, les
+   modules restent. La grille des modules ne change pas.
+7. **Les prêts (EQ-1)** : une tuile de plus après fusion.
+
+**Mise en œuvre.** `noyau/src/equipe_jour.rs`, `coeur::lecture::accueil_equipe`,
+`lire_accueil_equipe` dans `socle.rs`, `src/equipe/Accueil.tsx`. Tests :
+`noyau/tests/equipe_jour_base.rs`.
+
 ---
 
 ## Récapitulatif

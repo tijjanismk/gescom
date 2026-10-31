@@ -171,3 +171,21 @@ Preuves : 2 unitaires `coeur::crm`, `crm_base.rs` (11, trois moteurs :
 dossier, prospect qui devient client — au comptoir et par une facture
 validée —, cloisonnement, détecteur) ; bancs
 `h1-echanges-360.mjs`, `h2-rappels-prospects.mjs`.
+
+## L'accueil du jour (EQ-3 — D49)
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Droits (pur) | [coeur/lecture.rs](../../src-tauri/noyau/src/coeur/lecture.rs) | `accueil_equipe(a) -> AccueilEquipe { rappels, fiches, avances, montants }` : chaque bloc la règle de la commande qui le lit en entier (`crm:suivre` ; paie ; avances), les montants la paie seulement |
+| Base | [equipe_jour.rs](../../src-tauri/noyau/src/equipe_jour.rs) | `accueil_sur(base, droits, moi, aujourd_hui)` : `rappels {nombre, en_retard}` (ceux de `moi`, `quand <= aujourd'hui`, pas faits), `brouillons {nombre, net, plus_ancien}`, `a_solder {nombre, reste, plus_ancien}` (validées, `coeur::paie::reste_a_verser > 0`), `avances {nombre, personnes, reste}` — toutes périodes du dossier |
+| Serveur | `lire_accueil_equipe` (socle.rs) | ouverte à toute session ; droits relus (`portes::permissions_de_sur`), `moi` = la session, aujourd'hui = l'horloge du serveur |
+| Écran | [src/equipe/Accueil.tsx](../../src/equipe/Accueil.tsx) | bloc « Aujourd'hui » (`KpiPetit` dans `GRILLE`) au-dessus des modules ; une tuile mène à Suivi clients → Mes rappels, Paie → Fiches du mois, Paie → Avances (prop `vue` de `Paie` et `SuiviClients`) |
+
+Un bloc sans droit n'est **ni calculé ni rendu** ; un montant non lisible
+vaut `null`. Un caissier voit ses rappels ; `personnel:avancer` seul
+compte les avances sans les chiffrer. **Après fusion avec EQ-1** : filtrer
+`nature = 'avance'` dans la requête des avances, et une tuile « Prêts ».
+
+Preuves : `equipe_jour_base.rs` (7, trois moteurs : le patron voit tout,
+le caissier aucun montant, l'avanceur sans chiffre, un rappel fait
+disparaît, une fiche soldée sort, cloisonnement, détecteur).

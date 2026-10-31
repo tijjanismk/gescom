@@ -204,8 +204,9 @@ function Avances() {
   );
 }
 
-export function Paie() {
-  const [vue, setVue] = useState<"avances" | "fiches" | "cotisations" | "prets" | "etat">("avances");
+// D49 : `vue`, l'onglet ou ouvrir (une tuile de l'accueil).
+export function Paie({ vue: depart }: { vue?: "avances" | "fiches" | "prets" } = {}) {
+  const [vue, setVue] = useState<"avances" | "fiches" | "cotisations" | "prets" | "etat">(depart ?? "avances");
   // D47 : les prêts se lisent comme la paie. EQ-2 (D48) : l'état du mois
   // n'est fait que de montants — même droit.
   const voitLaPaie = peut("paie:preparer") || peut("paie:valider");
