@@ -3014,3 +3014,29 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   `cargo-tenace.ps1` avale `-p` (déjà noté dans ETAPES) — passer
   `--package`.
 
+## 29-30/10/2026 — EQ-4 : les clients à relancer, l'étape du prospect, le client parti (D50)
+
+- **La liste « À relancer »** (D50, points 1 à 9, acceptés le 29/10) :
+  un onglet du Suivi clients d'Équipe, tiré de la base sans rien saisir.
+  Créances de plus de 30 jours, meilleurs clients qui ralentissent,
+  clients sans achat depuis N jours (60 d'office, réglage du dossier de
+  15 à 365). Un clic note l'échange ou pose le rappel ; le client sort
+  alors de la liste 14 jours, ou tant que le rappel n'est pas fait. Sans
+  `tiers:lire_solde`, le motif créance n'est pas calculé ; sans
+  `rapports:lire`, pas de chiffre d'affaires.
+- **Les ajouts 10 à 16** (demandés par le propriétaire, proposés le
+  29/10, tous acceptés le 30/10) : l'étape d'un prospect (nouveau,
+  contacté, intéressé, abandonné avec sa raison), qui passe « contacté »
+  au premier échange ; le compte des prospects du mois en tuiles ; le
+  client « parti » avec sa raison, qui revient tout seul à sa prochaine
+  vente (« reconquis »). **Point 15 tranché** : un parti qui doit de
+  l'argent reste dans « À relancer », pour la créance seulement.
+- **Deux interruptions** : la limite de la session, puis la pause pour le
+  disque (C: à 0 octet libre ; `target` de ce worktree supprimé, 5,17 Go).
+  Reprise au signal de la session principale. Pour ne pas croiser les
+  séries des autres sessions sur `gescom_test`, PostgreSQL tourne sur
+  une base jetable à part, `gescom_test_eq4`.
+- **Nommé** : un prospect devenu client avant ce changement n'a pas de
+  `devenu_client_le` et n'est compté dans aucun mois. « Il est revenu »
+  (erreur de clic) n'est pas un reconquis.
+

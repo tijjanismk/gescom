@@ -281,7 +281,16 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         ],
 
         // --- H-1/H-2 (D34) : le suivi client, une seule permission ---
-        "lire_echanges_client" | "lire_rappels" | "lire_prospects" => &[Refus(CRM_SUIVRE)],
+        "lire_echanges_client" | "lire_rappels" | "lire_prospects" | "lire_compte_prospects" => &[Refus(CRM_SUIVRE)],
+        // D50 : sans les soldes, le motif creance n'est pas calcule — la
+        // presence du client dans la liste trahirait sa dette ; sans les
+        // rapports, pas de chiffre d'affaires par client.
+        "lire_clients_a_relancer" => &[
+            Refus(CRM_SUIVRE),
+            Neutre(&[TIERS_LIRE_SOLDE], &[("avecCreances", ParamNeutre::Faux), ("avec_creances", ParamNeutre::Faux)]),
+            Masque { permissions: &[TIERS_LIRE_SOLDE], cles: &["reste_en_retard"], si: None },
+            Masque { permissions: &[RAPPORTS_LIRE], cles: &["ca_reference", "ca_recent"], si: None },
+        ],
 
         // --- caisse:lire_autres : les sessions des autres ---
         "lire_sessions_caisse" => &[AMoi(CAISSE_LIRE_AUTRES, "ouvert_par_id")],
@@ -490,6 +499,28 @@ mod tests {
         neutraliser("lire_clients_pagines", sans, &mut r);
         assert_eq!(r["tri"], "nom");
         assert_eq!(r["page"], 0);
+    }
+
+    #[test]
+    fn la_liste_a_relancer_ne_trahit_ni_la_dette_ni_le_chiffre() {
+        assert_eq!(refus("lire_clients_a_relancer", sans), Some(CRM_SUIVRE));
+        assert_eq!(refus("lire_clients_a_relancer", avec(CRM_SUIVRE)), None);
+        assert_eq!(refus("lire_compte_prospects", sans), Some(CRM_SUIVRE), "D50, point 12");
+        // Absent, le parametre est pose quand meme : d'office, la liste
+        // calcule les creances.
+        let mut p = json!({});
+        neutraliser("lire_clients_a_relancer", avec(CRM_SUIVRE), &mut p);
+        assert_eq!(p["avecCreances"], false);
+        let mut q = json!({});
+        neutraliser("lire_clients_a_relancer", avec(TIERS_LIRE_SOLDE), &mut q);
+        assert!(q.get("avecCreances").is_none());
+
+        let mut v = json!({ "lignes": [{ "nom": "Awa", "ca_reference": 270000, "ca_recent": 0, "reste_en_retard": 5000, "nb_achats_reference": 3 }] });
+        filtrer("lire_clients_a_relancer", avec(CRM_SUIVRE), "moi", &mut v);
+        assert_eq!(v["lignes"][0]["ca_reference"], Value::Null);
+        assert_eq!(v["lignes"][0]["ca_recent"], Value::Null);
+        assert_eq!(v["lignes"][0]["reste_en_retard"], Value::Null);
+        assert_eq!(v["lignes"][0]["nb_achats_reference"], 3, "le nombre d'achats reste");
     }
 
     #[test]

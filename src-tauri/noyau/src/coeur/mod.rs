@@ -23,6 +23,7 @@ pub mod avances;
 pub mod pret;
 pub mod paie;
 pub mod crm;
+pub mod crm_relances;
 pub mod menu;
 pub mod reseau_serveur;
 pub mod assistant;

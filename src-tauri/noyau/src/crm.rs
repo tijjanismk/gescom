@@ -90,9 +90,18 @@ pub fn creer_echange_sur(
            (id, dossier_id, client_id, genre, quoi, suite_prevue, auteur_id, date_echange, cree_le)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?8)",
         &parametres![
-            id.clone(), dossier, client_id.clone(), genre.clone(), quoi.clone(),
+            id.clone(), dossier.clone(), client_id.clone(), genre.clone(), quoi.clone(),
             suite_prevue.clone(), auteur.clone(), now.clone()
         ],
+    )
+    .map_err(|e| e.0)?;
+    // D50, point 10 : un echange sur un prospect « nouveau » le passe
+    // « contacte », sans rien saisir. Les autres etapes ne bougent pas.
+    tx.executer(
+        "UPDATE client SET etape_prospect = ?1, modifie_le = ?2
+         WHERE id = ?3 AND dossier_id = ?4 AND statut = 'prospect'
+           AND (etape_prospect IS NULL OR etape_prospect = ?5)",
+        &parametres![regles::ETAPE_CONTACTE, now.clone(), client_id.clone(), dossier, regles::ETAPE_NOUVEAU],
     )
     .map_err(|e| e.0)?;
     noter(&mut tx, "echange_cree", "echange", &id, serde_json::json!({ "client": nom, "genre": genre }))?;
@@ -320,15 +329,17 @@ pub fn creer_prospect_sur(
 }
 
 /// Les prospects du dossier — des clients sans vente encore — les plus
-/// recents d'abord.
+/// recents d'abord, abandonnes compris : l'ecran les cache d'office
+/// (D50, point 12).
 pub fn lister_prospects_sur(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
     let dossier = base.dossier().to_string();
     base.lire_plusieurs(
-        "SELECT id, code, nom, telephone, origine_prospect, cree_le
+        "SELECT id, code, nom, telephone, origine_prospect, cree_le, etape_prospect, raison_sortie
          FROM client WHERE dossier_id = ?1 AND statut = 'prospect'
          ORDER BY cree_le DESC",
         &parametres![dossier],
         |r| {
+            let etape = r.get::<Option<String>>(6)?;
             Ok(serde_json::json!({
                 "id": r.get::<String>(0)?,
                 "code": r.get::<String>(1)?,
@@ -336,8 +347,166 @@ pub fn lister_prospects_sur(base: &mut Base) -> Result<Vec<serde_json::Value>, S
                 "telephone": r.get::<Option<String>>(3)?,
                 "origine_prospect": r.get::<Option<String>>(4)?,
                 "cree_le": r.get::<String>(5)?,
+                "etape": regles::etape_lue(etape.as_deref()),
+                "raison_abandon": r.get::<Option<String>>(7)?,
             }))
         },
     )
     .map_err(|e| e.0)
+}
+
+/// D50, points 10-11 : change l'etape d'un prospect. `abandonne` exige
+/// une raison ; un client (deja achete) n'a plus d'etape.
+pub fn changer_etape_prospect_sur(
+    base: &mut Base,
+    client_id: String,
+    etape: String,
+    raison: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (etape, raison) = regles::valider_etape(&etape, raison.as_deref())?;
+    let dossier = base.dossier().to_string();
+    let (nom, statut): (String, String) = base
+        .lire_une(
+            "SELECT nom, statut FROM client WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![client_id.clone(), dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Client introuvable.".to_string())?;
+    if statut != "prospect" {
+        return Err(format!("{nom} a déjà acheté : ce n'est plus un prospect."));
+    }
+    let now = crate::utils::maintenant_iso();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE client SET etape_prospect = ?1, raison_sortie = ?2, modifie_le = ?3
+         WHERE id = ?4 AND dossier_id = ?5 AND statut = 'prospect'",
+        &parametres![etape.clone(), raison.clone(), now, client_id.clone(), dossier],
+    )
+    .map_err(|e| e.0)?;
+    noter(&mut tx, "prospect_etape", "client", &client_id, serde_json::json!({ "nom": nom, "etape": etape, "raison": raison }))?;
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({ "id": client_id, "etape": etape, "raison_abandon": raison }))
+}
+
+/// D50, point 13 : marque un client « parti ». Ne bloque aucune vente,
+/// n'efface rien (point 15) : sa prochaine vente le fait revenir tout
+/// seul (`argent::prospect_devient_client[_sur]`).
+pub fn marquer_client_parti_sur(base: &mut Base, client_id: String, raison: String) -> Result<serde_json::Value, String> {
+    let raison = regles::valider_raison_depart(&raison)?;
+    let dossier = base.dossier().to_string();
+    let (nom, statut, generique, parti): (String, String, i64, Option<String>) = base
+        .lire_une(
+            "SELECT nom, statut, est_generique, parti_le FROM client WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![client_id.clone(), dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<Option<String>>(3)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Client introuvable.".to_string())?;
+    if generique != 0 {
+        return Err("Le client divers ne part pas : il n'est personne.".to_string());
+    }
+    if statut != "client" {
+        return Err(format!("{nom} n'a jamais acheté : abandonner le prospect plutôt."));
+    }
+    if parti.is_some() {
+        return Err(format!("{nom} est déjà marqué parti."));
+    }
+    let now = crate::utils::maintenant_iso();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    // `revenu_le` vide : un reconquis qui repart n'est plus un reconquis.
+    tx.executer(
+        "UPDATE client SET parti_le = ?1, raison_sortie = ?2, revenu_le = NULL, modifie_le = ?1
+         WHERE id = ?3 AND dossier_id = ?4",
+        &parametres![now.clone(), raison.clone(), client_id.clone(), dossier],
+    )
+    .map_err(|e| e.0)?;
+    noter(&mut tx, "client_parti", "client", &client_id, serde_json::json!({ "nom": nom, "raison": raison }))?;
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({ "id": client_id, "parti_le": now, "raison": raison }))
+}
+
+/// D50, point 13 : « Il est revenu » — annule un depart marque par
+/// erreur. Ce n'est pas un reconquis (`revenu_le` ne bouge pas).
+pub fn annuler_client_parti_sur(base: &mut Base, client_id: String) -> Result<serde_json::Value, String> {
+    let dossier = base.dossier().to_string();
+    let (nom, parti): (String, Option<String>) = base
+        .lire_une(
+            "SELECT nom, parti_le FROM client WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![client_id.clone(), dossier.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<Option<String>>(1)?)),
+        )
+        .map_err(|e| e.0)?
+        .ok_or_else(|| "Client introuvable.".to_string())?;
+    if parti.is_none() {
+        return Err(format!("{nom} n'est pas marqué parti."));
+    }
+    let now = crate::utils::maintenant_iso();
+    let mut tx = base.transaction().map_err(|e| e.0)?;
+    tx.executer(
+        "UPDATE client SET parti_le = NULL, raison_sortie = NULL, modifie_le = ?1
+         WHERE id = ?2 AND dossier_id = ?3",
+        &parametres![now, client_id.clone(), dossier],
+    )
+    .map_err(|e| e.0)?;
+    noter(&mut tx, "client_parti_annule", "client", &client_id, serde_json::json!({ "nom": nom }))?;
+    tx.valider().map_err(|e| e.0)?;
+    Ok(serde_json::json!({ "id": client_id, "parti_le": serde_json::Value::Null }))
+}
+
+/// D50, point 12 : le compte des prospects d'un mois (« AAAA-MM », le
+/// mois en cours d'office). Un prospect devenu client se reconnait a
+/// son `devenu_client_le`. Aucun montant.
+pub fn lire_compte_prospects_sur(base: &mut Base, mois: Option<String>) -> Result<serde_json::Value, String> {
+    let mois = match mois.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+        Some(m) => regles::valider_mois(m)?,
+        None => crate::utils::maintenant_iso()[..7].to_string(),
+    };
+    let dossier = base.dossier().to_string();
+    // (origine, cree ce mois, devenu client ce mois) — une ligne par
+    // fiche, comptee en Rust : pas de GROUP BY sur deux conditions.
+    let fiches: Vec<(Option<String>, String, Option<String>)> = base
+        .lire_plusieurs(
+            "SELECT origine_prospect, cree_le, devenu_client_le FROM client
+             WHERE dossier_id = ?1 AND (statut = 'prospect' OR devenu_client_le IS NOT NULL)
+               AND (SUBSTR(cree_le, 1, 7) = ?2 OR SUBSTR(devenu_client_le, 1, 7) = ?2)",
+            &parametres![dossier.clone(), mois.clone()],
+            |r| Ok((r.get::<Option<String>>(0)?, r.get::<String>(1)?, r.get::<Option<String>>(2)?)),
+        )
+        .map_err(|e| e.0)?;
+    let mut crees = 0i64;
+    let mut devenus = 0i64;
+    let mut par_origine: std::collections::BTreeMap<String, (i64, i64)> = std::collections::BTreeMap::new();
+    for (origine, cree_le, devenu) in fiches {
+        let origine = origine.map(|o| o.trim().to_string()).filter(|o| !o.is_empty()).unwrap_or_default();
+        let e = par_origine.entry(origine).or_default();
+        if cree_le.starts_with(&mois) {
+            crees += 1;
+            e.0 += 1;
+        }
+        if devenu.as_deref().is_some_and(|d| d.starts_with(&mois)) {
+            devenus += 1;
+            e.1 += 1;
+        }
+    }
+    let abandons: Vec<(Option<String>, i64)> = base
+        .lire_plusieurs(
+            "SELECT raison_sortie, COUNT(*) FROM client
+             WHERE dossier_id = ?1 AND statut = 'prospect' AND etape_prospect = ?2
+             GROUP BY raison_sortie",
+            &parametres![dossier, regles::ETAPE_ABANDONNE],
+            |r| Ok((r.get::<Option<String>>(0)?, r.get::<i64>(1)?)),
+        )
+        .map_err(|e| e.0)?;
+    Ok(serde_json::json!({
+        "mois": mois,
+        "crees": crees,
+        "devenus_clients": devenus,
+        "par_origine": par_origine.into_iter()
+            .map(|(o, (c, d))| serde_json::json!({ "origine": if o.is_empty() { serde_json::Value::Null } else { o.into() }, "crees": c, "devenus_clients": d }))
+            .collect::<Vec<_>>(),
+        "abandons": abandons.into_iter()
+            .map(|(r, n)| serde_json::json!({ "raison": r, "nombre": n }))
+            .collect::<Vec<_>>(),
+    }))
 }

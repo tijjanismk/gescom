@@ -178,7 +178,16 @@ CREATE TABLE IF NOT EXISTS client (
     -- vient (salon, recommandation, passage...) — distincte d'`origine`
     -- ci-dessus, qui dit d'ou vient la LIGNE de donnees (app/demo/import).
     statut          TEXT NOT NULL DEFAULT 'client',
-    origine_prospect TEXT
+    origine_prospect TEXT,
+    -- D50 (points 10 a 16) : l'etape d'un prospect (vide = nouveau) ;
+    -- `raison_sortie` dit pourquoi un prospect est abandonne OU un
+    -- client parti (une fiche est l'un ou l'autre). `devenu_client_le`
+    -- et `revenu_le` sont poses par la vente (argent::prospect_devient_client).
+    etape_prospect  TEXT,
+    raison_sortie   TEXT,
+    devenu_client_le TEXT,
+    parti_le        TEXT,
+    revenu_le       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS fournisseur (

@@ -1661,3 +1661,95 @@ l'écran).
 **Mise en œuvre.** `noyau/src/presences.rs`, `coeur/presences.rs`,
 `coeur/lecture.rs`, `serveur/src/socle.rs`, `src/equipe/JoursTravailles.tsx`,
 `src/equipe/Personnel.tsx`. Tests : `noyau/tests/absences_base.rs`.
+
+## D50 — Les clients à relancer (29/10/2026)
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-4) : dans le Suivi clients de Gescom
+Équipe, une liste tirée de la base, sans rien saisir — les clients qui
+n'achètent plus, ceux qui doivent depuis longtemps, les meilleurs qui
+ralentissent ; un clic note l'échange ou pose le rappel (D34).
+
+**Retenu** (proposé, accepté par le propriétaire le 29/10) :
+
+1. **Qui entre** : les clients nommés et actifs (`statut = 'client'`,
+   `actif = 1`, non générique). Une vente annulée n'est pas un achat. La
+   vente au comptant passe par « client divers » : **la liste ne connaît
+   que les clients qu'on a nommés** — nommé, pas corrigé.
+2. **Dormant** : dernier achat il y a **N jours ou plus** ; N = **60
+   d'office**, réglage du dossier (`config_app crm_jours_dormant:<dossier>`),
+   **15 à 365**, changé avec `parametres:modifier`.
+3. **Créance en retard** : une vente non soldée de **plus de 30 jours** —
+   la même règle que l'écran Relances de Gescom ; la constante vit dans
+   `coeur::crm_relances`. Pas de date d'échéance sur la vente.
+4. **Meilleur client qui ralentit** : référence = du 91ᵉ au 360ᵉ jour
+   avant aujourd'hui, ramenée à 90 jours (÷ 3) ; « meilleur » = parmi les
+   **10 premiers** du dossier par chiffre de référence, avec **au moins
+   3 achats** dans la référence ; **ralentit** si son chiffre des **90
+   derniers jours** est sous la **moitié** de sa moyenne de référence.
+   Des constantes, pas des réglages. Nommé : les retours ne sont pas
+   déduits du chiffre ; sur une base de moins d'un an la référence est
+   maigre (peu de faux signaux).
+5. **Une ligne par client**, ses motifs ensemble. Ordre : créances en
+   retard (la plus vieille d'abord), puis ceux qui ralentissent (le plus
+   gros chiffre de référence d'abord), puis les dormants (les plus
+   récemment endormis d'abord, les plus faciles à faire revenir).
+6. **Garde-fou contre le harcèlement** : un client **sort de la liste 14
+   jours** après un échange ou une relance de créance, et tant qu'un
+   **rappel non fait** l'attend. La liste dit combien sont mis de côté.
+7. **Le clic** réutilise les commandes du CRM : « Noter » crée un
+   **échange** (genre et texte préremplis, modifiables) ; « Me le
+   rappeler » pose un **rappel** pour soi, demain d'office. Même sur une
+   ligne de créance, c'est un échange (un seul chemin) — **nommé** :
+   l'écran Relances de Gescom ne le compte pas comme relance.
+8. **Lecture** : refusée sans `crm:suivre`. Sans `tiers:lire_solde`, le
+   motif créance **n'est pas calculé** (paramètre neutralisé, comme le
+   filtre « avec dettes » des clients : la présence du client trahirait
+   sa dette), et le reste dû est masqué. Sans `rapports:lire`, les
+   chiffres d'affaires valent `null` ; le nombre d'achats et la date du
+   dernier restent. Le caissier voit dormants et ralentis, sans montant.
+9. **Les prospects** restent hors de cette liste : ils ont leur onglet,
+   et « dormant » n'a pas de sens pour qui n'a jamais acheté.
+
+**Ajouts** (demandés par le propriétaire, proposés le 29/10, **tous
+acceptés le 30/10** — « Oui, tout accepté ») :
+
+10. **L'étape d'un prospect** : `client.etape_prospect` = `nouveau`,
+    `contacte`, `interesse` ou `abandonne` ; vide vaut `nouveau`. Pas
+    d'autre statut : `statut` reste `prospect` jusqu'à la première vente.
+    Un échange noté sur un prospect `nouveau` le passe `contacte`, sans
+    rien saisir. Un abandonné qui achète devient client quand même — rien
+    ne bloque une vente. Quatre mots, pas un pipeline à étapes (§ 4).
+11. **La raison d'un abandon**, obligatoire : trop cher, a acheté
+    ailleurs, plus besoin, injoignable, **autre** (une liste fermée
+    obligerait à mentir).
+12. **Le compte des prospects**, en tuiles en tête de l'onglet Prospects,
+    pour un mois choisi (le mois en cours d'office) : créés, **devenus
+    clients** (`client.devenu_client_le`, posé par la bascule), les deux
+    par origine ; les abandons en cours par raison (un état, pas un
+    flux). Les abandonnés sont cachés de la liste d'office (case « voir
+    les abandonnés »). Nommé : un prospect devenu client avant ce
+    changement n'a pas de `devenu_client_le` et n'est compté nulle part.
+13. **Un client « parti »** : `client.parti_le` et `client.raison_sortie`
+    (la même colonne que la raison d'un abandon — une fiche est prospect
+    ou client, pas les deux). Raisons : prix, concurrent, mécontent, a
+    déménagé, autre. Le bouton est sur la fiche 360 et sur la ligne « À
+    relancer » ; il s'annule (« Il est revenu ») en cas d'erreur de clic,
+    sans compter un reconquis. Le geste est noté au journal.
+14. **Il rachète, il redevient actif tout seul**, dans la même aide que
+    la bascule prospect (`argent::prospect_devient_client[_sur]`), donc
+    dans la transaction de la vente : `parti_le` vidé, `revenu_le` = la
+    date. Les **reconquis du mois** se comptent par `revenu_le`.
+15. **Garde-fous** : « parti » ne bloque **jamais** une vente, n'efface
+    ni l'historique, ni les échanges, ni la créance. **Un client parti qui
+    doit de l'argent reste dans « À relancer », pour la créance
+    seulement** (l'argent dû ne part pas avec lui) ; il n'est plus ni
+    dormant, ni compté parmi les meilleurs clients.
+16. **Les partis se voient** en tête de « À relancer » : « Partis : 5
+    (prix 2, concurrent 2, a déménagé 1) · reconquis ce mois : 1 », qui
+    s'ouvre sur la liste des partis et leur raison. Tout avec
+    `crm:suivre` ; ces comptes ne disent aucun montant.
+
+Commandes : `changer_etape_prospect`, `marquer_client_parti`,
+`annuler_client_parti` (écritures, `crm:suivre`), `lire_compte_prospects`
+(lecture refusée sans `crm:suivre`) ; les partis viennent avec
+`lire_clients_a_relancer`.
