@@ -2980,3 +2980,37 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   ajouter la tuile « Prêts » ; à la fusion des onglets de la paie, une
   ligne à résoudre dans `Paie()`. **Pas commité.**
 
+## 30/10/2026 — EQ-6, D52 : les absences notées, sans calcul légal
+
+- **Le besoin** (PLAN-EQUIPE § 5) : la grille des jours dit qu'Awa n'est
+  pas venue, pas pourquoi. Proposé le 29/10, accepté : une colonne
+  `presence.motif` (maladie, permission, congé, absence), sur un jour A
+  ou ½ seulement ; rien de choisi = absence ; pas de texte libre (jamais
+  le diagnostic). Détail et pourquoi dans D52.
+- **La paie ne change pas** : `paie.rs` ne lit pas le motif. Le scénario
+  le prouve avec deux journaliers aux mêmes jours, l'un avec motifs,
+  l'autre sans : même net (46 250 F pour 18,5 jours). Au prorata, le
+  congé retire comme une absence ; la grille le dit en une ligne (« un
+  congé payé se marque P »).
+- **Après la paie** : sur un jour figé par une fiche validée, le motif
+  se corrige (le certificat arrive tard), l'état non — jugé dans la
+  transaction ; la fiche validée garde son net.
+- **Écran** : le clic sur une case ouvre un petit menu au lieu de faire
+  tourner P → ½ → A ; la case affiche la lettre du motif. Sous chaque
+  personne du Personnel, le compte de l'année s'il y a des absences.
+- **Interruption** : la séance s'est arrêtée le 29/10 sur un disque C:
+  plein (0 octet) puis sur la limite de la semaine ; reprise le 30/10
+  avec 8,9 Go libres, rien effacé. Nouvelle pause le 30/10 (C: à
+  3,8 Go, les autres lots d'abord), `target` gardé, reprise ensuite.
+- **Tests** : `absences_base` 5 et `presences_base` 5 sur SQLite,
+  PostgreSQL et sous le compte limité ; noyau + serveur SQLite 900/900
+  (71 suites ; `--package` plutôt que `--workspace` pour la place
+  disque — ce lot ne touche pas `src-tauri/src`) ; `tsc` propre,
+  `node --test` 5/5.
+- **Écran** : vu par le propriétaire le 31/10 dans le navigateur
+  (serveur d'essai 40066, Vite 1466, une vendeuse avec maladie,
+  permission ½, congé et absence en octobre) : accepté tel quel, « 0,5 »
+  gardé sur la fiche. Pas vu dans la fenêtre Tauri. Au passage :
+  `cargo-tenace.ps1` avale `-p` (déjà noté dans ETAPES) — passer
+  `--package`.
+
