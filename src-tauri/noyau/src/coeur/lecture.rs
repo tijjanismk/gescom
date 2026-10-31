@@ -226,6 +226,9 @@ pub fn regles(commande: &str) -> &'static [Regle] {
         "lire_fiches_paie" | "lire_fiche_paie" | "lire_donnees_bulletin" | "lire_cotisations" => &[RefusSaufUne(PAIE_LIRE)],
         // D47 : les prets se lisent comme la paie.
         "lire_prets" | "lire_pret" => &[RefusSaufUne(PAIE_LIRE)],
+        // EQ-2 (D48) : l'etat de paie n'est fait que de montants — refus,
+        // a l'ecran comme pour le fichier.
+        "lire_etat_paie" | "exporter_etat_paie_csv" => &[RefusSaufUne(PAIE_LIRE)],
         "lire_personnel" | "lire_employe" => &[
             RefusSaufUne(PERSONNEL_LIRE),
             Masque { permissions: PAIE_LIRE, cles: REMUNERATION, si: None },

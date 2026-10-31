@@ -1490,3 +1490,75 @@ même instant pourraient retenir chacune l'échéance (la validation
 recalcule avant de figer : la fenêtre est étroite, pas nulle). Après
 fusion, EQ-2 (état de paie) et EQ-3 (accueil) lisent la table `avance` :
 les prêts y entrent s'ils ne filtrent pas `nature`.
+
+## D48 — L'état de paie du mois (29/10/2026) — acceptée le 29/10
+
+**Le besoin** (PLAN-EQUIPE § 5, EQ-2) : savoir d'un coup d'œil ce que le
+mois coûte et ce qui reste à payer, personne par personne. Relevé :
+aujourd'hui il faut ouvrir les fiches une à une (`FichesPaie.tsx`) ; le
+seul total est le coût des salaires de Rapports → CA mensuel
+(`paie::salaires_par_mois_sur` : brut + charges patronales des fiches
+validées, rangées au mois de la **fin** de leur période). Le CSV existe
+pour les journaux (`coeur::journaux::csv` : point-virgule, BOM,
+montants entiers) ; l'impression d'Équipe passe par une iframe
+(`ApercuBulletin.tsx`) et l'habillage de `lib/impression.ts`.
+
+**Retenu** (accepté tel quel) :
+
+1. **Le mois d'une fiche est celui de la fin de sa période** — la règle
+   de `salaires_par_mois_sur`. Une semaine du 28/09 au 04/10 compte en
+   octobre, une seule fois. *Pourquoi* : prendre « les fiches qui
+   touchent le mois » (comme la liste des fiches) compterait deux fois
+   une quinzaine à cheval, et le total ne collerait plus à Rapports.
+2. **Une ligne par personne** : la somme de ses fiches **validées** du
+   mois (un journalier payé à la semaine en a quatre), avec leurs
+   numéros. **Les fiches remplacées ne comptent pas** : leur
+   rectificative les remplace, et leurs versements l'ont suivie (D41).
+3. **Colonnes** : brut, avances retenues, autres retenues (casse,
+   absence, ITS saisi), cotisations salariales, **net**, déjà versé,
+   **reste dû** ; et, seulement si le mois en a, les charges patronales
+   (hors du net). Le classement se fait sur le **genre** de chaque ligne
+   de la fiche, jamais en recalculant : l'état relit ce que la fiche a
+   figé. Un genre inconnu (le prêt d'EQ-1, avant fusion) tombe dans
+   « autres retenues » : le net reste juste, la colonne « prêt » viendra
+   après fusion.
+4. **Les totaux** : chaque colonne, plus **le coût du mois** = brut +
+   charges patronales — **le même chiffre que Rapports → CA mensuel**,
+   et le test le vérifie. Reste dû : la somme des restes positifs ; un
+   versé en trop non repris (rare : une avance de trop-versé annulée)
+   se dit à part, sur sa ligne et en total, pas soustrait en silence.
+5. **Ce qui n'est pas fini se signale, hors des totaux** :
+   - les **brouillons** du mois : nom et net provisoire, sous le
+     tableau, « à valider — pas comptés » ;
+   - les personnes **employées au moins un jour du mois sans aucune
+     fiche** (la liste « à préparer » de `paie::lister_sur`) : « pas de
+     fiche ». *Pourquoi* : la personne oubliée à la paie est le trou le
+     plus probable ; l'état est la liste de contrôle du patron. Mais un
+     brouillon n'est pas une dette : il peut encore changer.
+6. **Qui le lit : `paie:preparer` ou `paie:valider`, sinon refus**
+   (`coeur::lecture`, `RefusSaufUne(PAIE_LIRE)`) — l'état n'est fait
+   que de montants, comme le relevé d'une dette (C-1). Un caissier, ou
+   qui n'a que `personnel:avancer`, est refusé et ne voit pas l'onglet.
+   Dossier courant seulement (C-2).
+7. **Lecture seule** : aucune action depuis l'état ; on paie et on
+   corrige dans « Fiches du mois ». Le « déjà versé » est celui du jour
+   où on lit : l'impression dit « établi le … ».
+8. **Imprimer** : A4, par l'habillage du **bulletin** (en-tête, pied,
+   filigrane de la société), sans nouveau réglage dans Paramètres →
+   Documents ; titre « État de paie — octobre 2026 », tableau, totaux,
+   brouillons et « pas de fiche » en bas, « établi le … par … ».
+9. **CSV** : fabriqué **par le serveur** (`exporter_etat_paie_csv`),
+   même règle de lecture que l'état ; le format des journaux
+   (point-virgule pour Excel français, BOM, francs entiers, une ligne
+   par personne, une ligne TOTAL) ; nom `etat_paie_2026-10.csv`.
+   *Pourquoi* : un seul format, et le refus s'applique au fichier comme
+   à l'écran.
+
+**Pas pris** : une ligne par fiche plutôt que par personne (le patron
+pense en personnes ; les numéros restent sur la ligne) ; les brouillons
+dans les totaux (un chiffre qui bouge encore) ; un état sur une période
+libre (le mois suffit ; la semaine se lit dans « Fiches du mois »).
+
+**Risques nommés** : une fiche à cheval sur deux mois apparaît dans le
+mois de sa fin seulement (dit en bas de l'état) ; le « déjà versé »
+change d'un jour à l'autre (daté à l'impression).

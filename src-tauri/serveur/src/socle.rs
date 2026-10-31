@@ -308,6 +308,14 @@ pub fn registre() -> Registre {
     r.sur_base("lire_donnees_bulletin", None, false, |c, p| {
         gescom_noyau::paie::donnees_bulletin_sur(c.base, arg(&p, "ficheId", "fiche_id")?)
     });
+    // EQ-2 (D48) : l'etat de paie du mois, en lecture seule. La lecture
+    // (paie:preparer ou paie:valider) se regle dans `coeur::lecture`.
+    r.sur_base("lire_etat_paie", None, false, |c, p| {
+        gescom_noyau::etat_paie::lire_sur(c.base, arg(&p, "mois", "mois")?)
+    });
+    r.sur_base("exporter_etat_paie_csv", None, false, |c, p| {
+        gescom_noyau::etat_paie::csv_sur(c.base, arg(&p, "mois", "mois")?)
+    });
     // H-1/H-2 (D34) : le suivi client — echanges, rappels, prospects.
     // Une seule permission d'ecriture ET de lecture (`crm:suivre`) ; la
     // lecture est refusee par `coeur::lecture`, pas ici.

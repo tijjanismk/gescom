@@ -27,3 +27,4 @@ pub mod menu;
 pub mod reseau_serveur;
 pub mod assistant;
 pub mod doublons;
+pub mod etat_paie;

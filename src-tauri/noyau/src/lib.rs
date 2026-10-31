@@ -78,6 +78,7 @@ pub mod comptoir;
 pub mod images;
 pub mod installation;
 pub mod registre;
+pub mod etat_paie;
 
 /// Version du protocole client/serveur.
 ///
