@@ -3,7 +3,7 @@
 //!
 //! Une lecture qui rassemble ce qui attend la personne connectee : ses
 //! rappels dus, les fiches en brouillon, les fiches validees pas
-//! soldees, les avances en cours — sur toutes les periodes du dossier
+//! soldees, les avances et les prets en cours — sur toutes les periodes du dossier
 //! (un brouillon de septembre oublie est justement ce qu'il faut voir).
 //!
 //! Chaque bloc n'existe que pour qui a le droit de le lire
@@ -13,7 +13,7 @@
 
 use crate::base::Base;
 use crate::coeur::lecture::AccueilEquipe;
-use crate::coeur::{avances as regles_avances, paie as regles_paie};
+use crate::coeur::{avances as regles_avances, paie as regles_paie, pret};
 use crate::parametres;
 
 /// Ce qui attend `moi` (l'utilisateur de la session, D26) le jour
@@ -102,26 +102,38 @@ pub fn accueil_sur(
     }
 
     // Les avances qui restent a retenir (comme `avances::lister_sur`
-    // « en cours seulement »).
+    // « en cours seulement »), puis les prets (D47) : la meme table,
+    // `nature` les separe — chaque bloc avec son droit.
     if droits.avances {
-        let ouvertes: Vec<(String, i64)> = base
-            .lire_plusieurs(
-                "SELECT employe_id, montant, retenu FROM avance
-                 WHERE dossier_id = ?1 AND statut = 'ouverte' AND montant > retenu",
-                &parametres![dossier],
-                |l| Ok((l.get::<String>(0)?, regles_avances::reste(l.get::<i64>(1)?, l.get::<i64>(2)?))),
-            )
-            .map_err(|e| e.0)?;
-        let personnes: std::collections::HashSet<&str> = ouvertes.iter().map(|o| o.0.as_str()).collect();
-        r.insert(
-            "avances".into(),
-            serde_json::json!({
-                "nombre": ouvertes.len(),
-                "personnes": personnes.len(),
-                "reste": montant(ouvertes.iter().fold(0i64, |s, o| s.saturating_add(o.1))),
-            }),
-        );
+        r.insert("avances".into(), en_cours(base, &dossier, "avance", &montant)?);
+    }
+    if droits.prets {
+        r.insert("prets".into(), en_cours(base, &dossier, pret::NATURE, &montant)?);
     }
 
     Ok(serde_json::Value::Object(r))
+}
+
+/// Les lignes `avance` de `nature` qui restent a retenir : combien, pour
+/// combien de personnes, et ce qui reste (un montant, ou `null`).
+fn en_cours(
+    base: &mut Base,
+    dossier: &str,
+    nature: &str,
+    montant: &dyn Fn(i64) -> serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let ouvertes: Vec<(String, i64)> = base
+        .lire_plusieurs(
+            "SELECT employe_id, montant, retenu FROM avance
+             WHERE dossier_id = ?1 AND statut = 'ouverte' AND montant > retenu AND nature = ?2",
+            &parametres![dossier, nature],
+            |l| Ok((l.get::<String>(0)?, regles_avances::reste(l.get::<i64>(1)?, l.get::<i64>(2)?))),
+        )
+        .map_err(|e| e.0)?;
+    let personnes: std::collections::HashSet<&str> = ouvertes.iter().map(|o| o.0.as_str()).collect();
+    Ok(serde_json::json!({
+        "nombre": ouvertes.len(),
+        "personnes": personnes.len(),
+        "reste": montant(ouvertes.iter().fold(0i64, |s, o| s.saturating_add(o.1))),
+    }))
 }

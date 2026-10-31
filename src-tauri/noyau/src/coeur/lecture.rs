@@ -126,6 +126,8 @@ pub struct AccueilEquipe {
     pub fiches: bool,
     /// Les avances en cours — comme `lire_avances`.
     pub avances: bool,
+    /// Les prets en cours (D47) — comme `lire_prets` : qui lit la paie.
+    pub prets: bool,
     /// Les montants : la paie seulement (C-1), avances comprises.
     pub montants: bool,
 }
@@ -135,6 +137,7 @@ pub fn accueil_equipe(a: impl Fn(&str) -> bool) -> AccueilEquipe {
         rappels: a(CRM_SUIVRE),
         fiches: PAIE_LIRE.iter().any(|p| a(p)),
         avances: AVANCES_LIRE.iter().any(|p| a(p)),
+        prets: PAIE_LIRE.iter().any(|p| a(p)),
         montants: voit_la_paie(&a),
     }
 }

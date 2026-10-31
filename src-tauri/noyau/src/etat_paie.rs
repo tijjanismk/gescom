@@ -63,16 +63,24 @@ fn lignes_du_mois(base: &mut Base, mois: &str) -> Result<(Vec<LigneEtat>, Montan
         )
         .map_err(|e| e.0)?;
     let mut par_fiche: HashMap<String, Vec<(String, i64)>> = HashMap::new();
-    for (fiche, genre, montant) in base
+    // D47 : la ligne d'un pret est du genre `avance` sur la fiche ; sa
+    // source dit sa nature, et l'etat la range dans la colonne des prets.
+    for (fiche, genre, montant, nature) in base
         .lire_plusieurs(
-            "SELECT l.fiche_id, l.genre, l.montant FROM ligne_paie l
+            "SELECT l.fiche_id, l.genre, l.montant, a.nature FROM ligne_paie l
              JOIN fiche_paie f ON f.id = l.fiche_id AND f.dossier_id = l.dossier_id
+             LEFT JOIN avance a ON a.id = l.source AND a.dossier_id = l.dossier_id
              WHERE l.dossier_id = ?1 AND f.statut = 'validee' AND SUBSTR(f.au, 1, 7) = ?2",
             &parametres![dossier, mois],
-            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?)),
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<Option<String>>(3)?)),
         )
         .map_err(|e| e.0)?
     {
+        let genre = if genre == crate::coeur::paie::AVANCE && nature.as_deref() == Some(crate::coeur::pret::NATURE) {
+            regles::PRET.to_string()
+        } else {
+            genre
+        };
         par_fiche.entry(fiche).or_default().push((genre, montant));
     }
 

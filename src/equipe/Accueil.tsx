@@ -21,6 +21,8 @@ interface AccueilJour {
   brouillons?: { nombre: number; net: number | null; plus_ancien: string | null };
   a_solder?: { nombre: number; reste: number | null; plus_ancien: string | null };
   avances?: { nombre: number; personnes: number; reste: number | null };
+  // D47 : les prêts, à part des avances (même forme), pour qui lit la paie.
+  prets?: { nombre: number; personnes: number; reste: number | null };
 }
 
 const f = (n: number) => `${n.toLocaleString("fr-FR")} F`;
@@ -60,9 +62,9 @@ function Aujourdhui({ onOuvrir }: { onOuvrir: (cle: string, vue?: string) => voi
     );
   }
   if (!jour) return null;
-  const { rappels, brouillons, a_solder, avances } = jour;
+  const { rappels, brouillons, a_solder, avances, prets } = jour;
   // Aucun bloc ouvert à ce compte : rien à montrer, pas une grille vide.
-  if (!rappels && !brouillons && !a_solder && !avances) return null;
+  if (!rappels && !brouillons && !a_solder && !avances && !prets) return null;
 
   return (
     <section className="space-y-2" aria-label="Aujourd'hui" data-testid="aujourdhui">
@@ -94,6 +96,13 @@ function Aujourdhui({ onOuvrir }: { onOuvrir: (cle: string, vue?: string) => voi
             sous={avances.nombre === 0 ? "rien en attente"
               : [pluriel(avances.personnes, "personne", "personnes"),
                  avances.reste != null ? `${f(avances.reste)} à retenir` : null].filter(Boolean).join(" · ")} />
+        )}
+        {prets && (
+          <Tuile testid="jour-prets" onClick={() => onOuvrir("paie", "prets")}
+            titre="Prêts en cours" valeur={String(prets.nombre)}
+            sous={prets.nombre === 0 ? "rien en attente"
+              : [pluriel(prets.personnes, "personne", "personnes"),
+                 prets.reste != null ? `${f(prets.reste)} à retenir` : null].filter(Boolean).join(" · ")} />
         )}
       </div>
     </section>

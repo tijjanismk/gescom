@@ -8,7 +8,7 @@
 import { type Habillage, esc, blocSociete, mention, documentHTML } from "@/lib/impression";
 
 export interface MontantsEtat {
-  brut: number; avances: number; retenues: number; cotisations: number; charges: number;
+  brut: number; avances: number; prets: number; retenues: number; cotisations: number; charges: number;
   net: number; verse: number; reste: number; trop_verse: number;
 }
 export interface LigneEtat extends MontantsEtat {
@@ -36,11 +36,14 @@ export function moisDit(mois: string): string {
   return new Date(a, m - 1, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 }
 
-/** Les colonnes de l'état, dans l'ordre ; les charges et le versé en trop
- *  seulement si le mois en a. Partagées par l'écran et le papier. */
+/** Les colonnes de l'état, dans l'ordre ; les prêts (D47), les charges et
+ *  le versé en trop seulement si le mois en a. Partagées par l'écran et le
+ *  papier. */
 export function colonnesEtat(total: MontantsEtat): [keyof MontantsEtat, string][] {
   const c: [keyof MontantsEtat, string][] = [
-    ["brut", "Brut"], ["avances", "Avances"], ["retenues", "Autres retenues"], ["cotisations", "Cotisations"],
+    ["brut", "Brut"], ["avances", "Avances"],
+    ...(total.prets > 0 ? [["prets", "Prêts"] as [keyof MontantsEtat, string]] : []),
+    ["retenues", "Autres retenues"], ["cotisations", "Cotisations"],
     ["net", "Net"], ["verse", "Déjà versé"], ["reste", "Reste dû"],
   ];
   if (total.trop_verse > 0) c.push(["trop_verse", "Versé en trop"]);

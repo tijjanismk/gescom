@@ -175,7 +175,7 @@ export function AppEquipe() {
         {courant.cle === "accueil"
           ? <Accueil nom={utilisateur.nom} modules={visibles.filter(m => m.cle !== "accueil")} onOuvrir={(cle, v) => { setPage(cle); setVue(v); }} />
           : courant.cle === "personnel" ? <Personnel />
-          : courant.cle === "paie" ? <Paie vue={vue === "fiches" || vue === "avances" ? vue : undefined} />
+          : courant.cle === "paie" ? <Paie vue={vue === "fiches" || vue === "avances" || vue === "prets" ? vue : undefined} />
           : courant.cle === "clients" ? <SuiviClients moi={{ id: utilisateur.id, nom: utilisateur.nom }} vue={vue === "rappels" ? vue : undefined} />
           : <Bientot module={courant} />}
       </main>

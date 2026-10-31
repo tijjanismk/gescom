@@ -10,7 +10,7 @@ use commun::*;
 use gescom_noyau::base::Base;
 use gescom_noyau::coeur::lecture::{self, AccueilEquipe};
 use gescom_noyau::personnel::{self, Fiche};
-use gescom_noyau::{auth, avances, crm, dossiers, equipe_jour, paie, parametres, portes};
+use gescom_noyau::{auth, avances, crm, dossiers, equipe_jour, paie, parametres, portes, prets};
 use serde_json::{json, Value};
 
 fn jour(decalage: i64) -> String {
@@ -112,7 +112,7 @@ fn le_patron_voit_tout() {
     let mut base = base_avec_demo();
     let j = journee(&mut base);
     let d = droits_de(&mut base, &j.patron);
-    assert_eq!(d, AccueilEquipe { rappels: true, fiches: true, avances: true, montants: true });
+    assert_eq!(d, AccueilEquipe { rappels: true, fiches: true, avances: true, prets: true, montants: true });
     let a = accueil(&mut base, d, &j.patron);
 
     // « Du » = aujourd'hui et en retard ; celui de demain attend.
@@ -133,11 +133,11 @@ fn un_caissier_ne_voit_aucun_montant() {
     let mut base = base_avec_demo();
     let j = journee(&mut base);
     let d = droits_de(&mut base, &j.caissier);
-    assert_eq!(d, AccueilEquipe { rappels: true, fiches: false, avances: false, montants: false });
+    assert_eq!(d, AccueilEquipe { rappels: true, fiches: false, avances: false, prets: false, montants: false });
     let a = accueil(&mut base, d, &j.caissier);
     // Ses rappels a lui, pas ceux du patron ; rien de la paie, pas meme un zero.
     assert_eq!(a["rappels"], json!({ "nombre": 1, "en_retard": 0 }));
-    for bloc in ["brouillons", "a_solder", "avances"] {
+    for bloc in ["brouillons", "a_solder", "avances", "prets"] {
         assert!(a.get(bloc).is_none(), "{bloc} ne doit pas exister pour un caissier : {a}");
     }
     assert!(montants(&a).is_empty(), "{:?}", montants(&a));
@@ -155,9 +155,33 @@ fn qui_donne_les_avances_les_compte_sans_les_chiffrer() {
 
     // Le comptable (`paie:preparer`) voit les fiches et leurs montants.
     let d = lecture::accueil_equipe(|p| p == "paie:preparer");
-    assert_eq!(d, AccueilEquipe { rappels: false, fiches: true, avances: true, montants: true });
+    assert_eq!(d, AccueilEquipe { rappels: false, fiches: true, avances: true, prets: true, montants: true });
     let a = accueil(&mut base, d, &j.caissier);
     assert_eq!(a["a_solder"]["reste"], 35_000);
+}
+
+#[test]
+fn un_pret_se_compte_a_part_des_avances() {
+    // D47 apres fusion : le pret vit dans la table `avance` (nature
+    // `pret`) ; l'accueil ne le compte pas parmi les avances, il a son
+    // bloc, pour qui lit la paie seulement.
+    let mut base = base_avec_demo();
+    let j = journee(&mut base);
+    let awa = base
+        .lire_une("SELECT id FROM employe WHERE nom = 'Awa'", &[], |r| r.get::<String>(0))
+        .unwrap()
+        .unwrap();
+    let s = prets::Saisie { mensualite: Some(10_000), ..prets::Saisie::default() };
+    prets::preter_sur(&mut base, awa, 60_000, s).unwrap();
+
+    let d = droits_de(&mut base, &j.patron);
+    let a = accueil(&mut base, d, &j.patron);
+    assert_eq!(a["avances"], json!({ "nombre": 1, "personnes": 1, "reste": 10_000 }), "le pret n'est pas une avance : {a}");
+    assert_eq!(a["prets"], json!({ "nombre": 1, "personnes": 1, "reste": 60_000 }));
+
+    // `personnel:avancer` seul : les avances, pas les prets.
+    let a = accueil(&mut base, lecture::accueil_equipe(|p| p == "personnel:avancer"), &j.caissier);
+    assert!(a.get("prets").is_none(), "{a}");
 }
 
 #[test]

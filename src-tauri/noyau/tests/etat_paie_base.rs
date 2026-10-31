@@ -119,7 +119,7 @@ fn n(v: &Value, c: &str) -> i64 {
     v[c].as_i64().unwrap_or_else(|| panic!("{c} : {v}"))
 }
 
-const COLONNES: [&str; 9] = ["brut", "avances", "retenues", "cotisations", "charges", "net", "verse", "reste", "trop_verse"];
+const COLONNES: [&str; 10] = ["brut", "avances", "prets", "retenues", "cotisations", "charges", "net", "verse", "reste", "trop_verse"];
 
 #[test]
 fn trois_personnes_deux_versements_partiels() {
@@ -133,12 +133,12 @@ fn trois_personnes_deux_versements_partiels() {
     let awa = ligne(&m.awa);
     assert_eq!(
         COLONNES.map(|c| n(awa, c)),
-        [65_000, 10_000, 2_000, 0, 0, 53_000, 20_000, 33_000, 0],
+        [65_000, 10_000, 0, 2_000, 0, 0, 53_000, 20_000, 33_000, 0],
         "la rectificative remplace l'ancienne, et le versement l'a suivie"
     );
     assert_eq!(awa["numeros"].as_array().unwrap().len(), 1, "la fiche remplacée ne compte pas");
-    assert_eq!(COLONNES.map(|c| n(ligne(&m.moussa), c)), [55_000, 0, 0, 0, 0, 55_000, 30_000, 25_000, 0]);
-    assert_eq!(COLONNES.map(|c| n(ligne(&m.kadia), c)), [100_000, 0, 0, 3_600, 16_400, 96_400, 0, 96_400, 0]);
+    assert_eq!(COLONNES.map(|c| n(ligne(&m.moussa), c)), [55_000, 0, 0, 0, 0, 0, 55_000, 30_000, 25_000, 0]);
+    assert_eq!(COLONNES.map(|c| n(ligne(&m.kadia), c)), [100_000, 0, 0, 0, 3_600, 16_400, 96_400, 0, 96_400, 0]);
 
     // Les totaux : la somme des lignes, et la somme des fiches.
     let total = &e["total"];
@@ -150,9 +150,9 @@ fn trois_personnes_deux_versements_partiels() {
         assert_eq!(n(total, c), fiches.iter().map(|f| n(f, c)).sum::<i64>(), "{c} : la somme des fiches");
     }
     assert_eq!(
-        n(total, "avances") + n(total, "retenues") + n(total, "cotisations"),
+        n(total, "avances") + n(total, "prets") + n(total, "retenues") + n(total, "cotisations"),
         fiches.iter().map(|f| n(f, "retenues")).sum::<i64>(),
-        "les trois colonnes de retenues font les retenues des fiches"
+        "les colonnes de retenues font les retenues des fiches"
     );
     assert_eq!(n(total, "net"), 204_400);
     assert_eq!(n(total, "reste"), 204_400 - 50_000);
@@ -176,6 +176,24 @@ fn trois_personnes_deux_versements_partiels() {
     assert!(vide["lignes"].as_array().unwrap().is_empty());
     assert_eq!(n(&vide["total"], "net"), 0);
     assert!(etat_paie::lire_sur(&mut base, "2026-13".into()).unwrap_err().contains("Mois illisible"));
+}
+
+/// D47 apres fusion : l'echeance d'un pret a sa colonne, pas celle des
+/// avances ; le net de la fiche ne bouge pas.
+#[test]
+fn l_echeance_d_un_pret_a_sa_colonne() {
+    let mut base = base_avec_demo();
+    let awa = creer(&mut base, json!({ "nom": "Awa", "fonction": "vendeuse", "salaire_mensuel": 60000 }));
+    let s = gescom_noyau::prets::Saisie { mensualite: Some(10_000), ..Default::default() };
+    gescom_noyau::prets::preter_sur(&mut base, awa.clone(), 60_000, s).unwrap();
+    // La premiere retenue tombe le mois suivant le pret.
+    let (suivant, du, au) = mois(1);
+    let f = preparer_et_valider(&mut base, &awa, &du, &au);
+    let e = etat_paie::lire_sur(&mut base, suivant).unwrap();
+    let l = &e["lignes"][0];
+    assert_eq!((n(l, "avances"), n(l, "prets"), n(l, "retenues")), (0, 10_000, 0), "{l}");
+    assert_eq!(n(l, "net"), f["net"].as_i64().unwrap());
+    assert_eq!(n(l, "net"), 50_000);
 }
 
 /// Une semaine a cheval compte dans le mois ou elle finit, une fois.
@@ -204,7 +222,7 @@ fn le_csv_redit_l_etat() {
     let lignes: Vec<&str> = contenu.trim_end().split("\r\n").collect();
     assert_eq!(lignes.len(), 5, "en-tête, trois personnes, TOTAL");
     assert!(lignes[1].starts_with("Awa;vendeuse;PAIE-"));
-    assert_eq!(lignes[4], "TOTAL;;;220000;10000;2000;3600;204400;50000;154400;0;16400");
+    assert_eq!(lignes[4], "TOTAL;;;220000;10000;0;2000;3600;204400;50000;154400;0;16400");
 }
 
 #[test]
