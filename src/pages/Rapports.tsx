@@ -38,9 +38,15 @@ interface StockRapport {
   nom: string; unite: string; quantite: number;
   prix_achat: number; valeur_stock: number; depot: string; statut: string;
 }
+// D53 : base HT et TVA nettes des retours datés dans la période ;
+// `tva_retours` dit ce qui en a été déduit (sans TVA, jamais de HT).
 interface TVARapport {
-  par_taux: { taux: number; total_tva: number; total_ht: number; nb_ventes: number }[];
+  par_taux: {
+    taux: number; total_tva: number; total_ht: number; nb_ventes: number;
+    tva_retours: number; nb_retours: number;
+  }[];
   total_tva: number;
+  tva_retours: number;
 }
 
 interface CreanceRapport {
@@ -175,6 +181,8 @@ export function Rapports() {
   const [stock, setStock] = useState<StockRapport[]>([]);
   const [creances, setCreances] = useState<CreanceRapport | null>(null);
   const [tva, setTva] = useState<TVARapport | null>(null);
+  // La colonne « TVA des retours », seulement si la période en a (D53).
+  const avecRetoursTva = !!tva?.par_taux.some(t => t.nb_retours > 0);
 
   const charger = useCallback(async () => {
     setChargement(true);
@@ -778,6 +786,7 @@ export function Rapports() {
                     const lignes = tva.par_taux.map(t =>
                       `<tr><td>${t.taux * 100}%</td>
                        <td class="droite">${fmt(t.total_ht)}</td>
+                       ${avecRetoursTva ? `<td class="droite">${t.tva_retours ? "−" + fmt(t.tva_retours) : "—"}</td>` : ""}
                        <td class="droite">${fmt(t.total_tva)}</td>
                        <td class="droite">${t.nb_ventes}</td></tr>`
                     ).join("");
@@ -786,16 +795,19 @@ export function Rapports() {
                         <thead><tr>
                           <th>Taux</th>
                           <th class="droite">Base HT (F)</th>
+                          ${avecRetoursTva ? `<th class="droite">TVA des retours (F)</th>` : ""}
                           <th class="droite">TVA (F)</th>
                           <th class="droite">Ventes</th>
                         </tr></thead>
                         <tbody>${lignes}</tbody>
                         <tfoot><tr class="total">
-                          <td colspan="2">TOTAL TVA COLLECTÉE</td>
+                          <td colspan="${avecRetoursTva ? 3 : 2}">TOTAL TVA COLLECTÉE</td>
                           <td class="droite">${fmt(tva.total_tva)}</td>
                           <td></td>
                         </tr></tfoot>
-                      </table>`, `Du ${dateDebut} au ${dateFin}`);
+                      </table>
+                      ${avecRetoursTva ? `<p>TVA nette des articles rendus pendant la période,
+                        déduite à la date du retour.</p>` : ""}`, `Du ${dateDebut} au ${dateFin}`);
                     await imprimerRapport(html, "rapport_tva");
                   }}>
                     <Printer className="h-3.5 w-3.5 mr-1.5" /> Imprimer
@@ -804,6 +816,7 @@ export function Rapports() {
                     await exporterExcel([{ nom: "TVA", donnees: tva.par_taux.map(t => ({
                       "Taux": `${t.taux * 100}%`,
                       "Base HT (F)": t.total_ht,
+                      ...(avecRetoursTva ? { "TVA des retours (F)": -t.tva_retours } : {}),
                       "TVA collectée (F)": t.total_tva,
                       "Nb ventes": t.nb_ventes,
                     }))}], "rapport_tva.xlsx");
@@ -824,6 +837,9 @@ export function Rapports() {
                           <tr>
                             <th className="text-left px-4 py-2.5">Taux TVA</th>
                             <th className="text-right px-4 py-2.5">Base HT</th>
+                            {avecRetoursTva && (
+                              <th className="text-right px-4 py-2.5">TVA des retours</th>
+                            )}
                             <th className="text-right px-4 py-2.5">TVA collectée</th>
                             <th className="text-right px-4 py-2.5">Nb ventes</th>
                           </tr>
@@ -834,6 +850,11 @@ export function Rapports() {
                               className={`border-t border-border ${i % 2 === 1 ? "bg-muted/20" : ""}`}>
                               <td className="px-4 py-2 font-medium">{t.taux * 100}%</td>
                               <td className="px-4 py-2 text-right">{fmt(t.total_ht)}</td>
+                              {avecRetoursTva && (
+                                <td className="px-4 py-2 text-right text-muted-foreground">
+                                  {t.tva_retours ? `−${fmt(t.tva_retours)}` : "—"}
+                                </td>
+                              )}
                               <td className="px-4 py-2 text-right font-semibold text-blue-600">
                                 {fmt(t.total_tva)}
                               </td>
@@ -845,7 +866,7 @@ export function Rapports() {
                         </tbody>
                         <tfoot className="border-t-2 border-border bg-muted/50">
                           <tr>
-                            <td colSpan={2} className="px-4 py-2 font-bold">
+                            <td colSpan={avecRetoursTva ? 3 : 2} className="px-4 py-2 font-bold">
                               Total TVA collectée
                             </td>
                             <td className="px-4 py-2 text-right font-bold text-blue-700">

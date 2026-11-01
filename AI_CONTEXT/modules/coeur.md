@@ -72,6 +72,17 @@ Une règle qui n'est pas ici est une règle qu'aucun test ne protège.
   rend pas la vente, le remplacement n'est pas une `ligne_vente`) ;
   limite : sa différence (reliquat/complément) ne bouge pas le chiffre.
   Le SQL lie la constante en paramètre, ne la recopie pas.
+- `MODE_ETEINT_PAR_RETOUR = "retour"` et `refuser_si_eteint_par_retour(mode,
+  refus)` (D53) — la dette éteinte par un retour n'est pas un règlement :
+  `annuler_reglement` et `lire_donnees_recu` la refusent (deux versions).
+- **`coeur/tva.rs`** (D53) — la TVA des marchandises rendues :
+  `tva_rendue_par_retour(tva_ligne, qté_vendue, quantités)` (cumulée par
+  ligne : 33 + 34 + 33 sur 100 F), `retours_par_taux(&[RetourTaxe])`
+  (seuls les retours `dans_periode` et non échange se déduisent, tous
+  font le cumul), `fusionner(ventes, retours) -> Vec<LigneTva>` (net par
+  taux, un taux sans vente finit négatif). Lu par
+  `rapports::tva_des_retours_sur/_conn` (rapport TVA, résumé de
+  Chantiers, cahier du jour) — rien n'est stocké.
 - `statut_vente(total, payé) -> StatutVente` — ⚠️ le 2ᵉ argument est le
   **payé**. `statut_vente_depuis_reste(total, reste)` pour l'autre sens.
 - `effet_caisse_annulation(remboursement, session_ouverte, touche_caisse) -> EffetCaisse`

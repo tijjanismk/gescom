@@ -196,6 +196,29 @@ pub fn acompte_verse(total_paye: i64, eteint_par_retour: i64, regle_par_avoir: i
     encaisse(total_paye, eteint_par_retour) - regle_par_avoir
 }
 
+/// Le mode du paiement qu'ecrit un retour sur une vente a credit : la
+/// dette eteinte par la marchandise rendue.
+pub const MODE_ETEINT_PAR_RETOUR: &str = "retour";
+
+/// Refuse un geste de reglement sur la dette eteinte par un retour (D53).
+///
+/// Ce n'est pas un reglement : aucun argent n'est entre. L'annuler
+/// « avec remboursement » sortirait du tiroir de l'argent qu'aucun client
+/// n'a verse, et son « recu de reglement » attesterait un versement qui
+/// n'a pas eu lieu. Le justificatif du retour est sa piece d'avoir.
+/// `refus` dit ce qu'on ne fait pas (« elle ne s'annule pas »).
+pub fn refuser_si_eteint_par_retour(mode: &str, refus: &str) -> Result<(), String> {
+    if mode == MODE_ETEINT_PAR_RETOUR {
+        return Err(format!(
+            "Cette ligne est la dette éteinte par un retour de marchandise : \
+             aucun argent n'est entré, {}. Le retour se justifie par sa \
+             pièce d'avoir.",
+            refus
+        ));
+    }
+    Ok(())
+}
+
 /// Le mode de resolution d'un retour qui ne se deduit PAS du chiffre
 /// d'affaires : l'echange.
 ///
@@ -248,6 +271,13 @@ mod tests_ca_net {
         // Tout par avoir : rien de verse.
         assert_eq!(acompte_verse(10_000, 0, 10_000), 0);
         assert_eq!(acompte_verse(4_000, 1_000, 1_000), 2_000);
+    }
+
+    #[test]
+    fn la_dette_eteinte_par_un_retour_ne_s_annule_ni_ne_s_imprime_en_recu() {
+        assert!(refuser_si_eteint_par_retour("retour", "elle ne s'annule pas").is_err());
+        assert!(refuser_si_eteint_par_retour("especes", "elle ne s'annule pas").is_ok());
+        assert!(refuser_si_eteint_par_retour("avoir", "elle n'a pas de reçu").is_ok());
     }
 }
 

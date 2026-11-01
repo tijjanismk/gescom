@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 pub mod calcul;
+pub mod tva;
 pub mod stock;
 pub mod caisse;
 pub mod pieces;

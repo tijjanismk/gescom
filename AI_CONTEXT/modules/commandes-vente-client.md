@@ -198,6 +198,9 @@ Sortant : `coeur::calcul` (montants, statuts, répartition, effet caisse),
   ([creances.rs:289](../../src-tauri/src/commandes/creances.rs#L289), un
   `Some(...)`) : c'est l'application directe de `effet_caisse_annulation`
   — une erreur de saisie sur session close ne doit toucher à rien.
+  **D53** : elle refuse une ligne `mode = 'retour'` (dette éteinte par un
+  retour), comme `lire_donnees_recu` ; `lire_etat_creances_client` rend
+  par facture `rendu` (cette dette) et `paye` (l'argent reçu).
 - [CONFIRMÉ] Le prédicat « client générique » existe en deux exemplaires
   — `lire_client_generique` ici et `utils::est_client_generique`
   ([utils.rs:13](../../src-tauri/noyau/src/utils.rs#L13)). Le commentaire dit

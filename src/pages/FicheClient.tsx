@@ -1346,6 +1346,15 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
                           {r.reste_apres > 0 ? fmt(r.reste_apres) : "soldée"}
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
+                          {/* D53 : la dette éteinte par un retour n'est
+                              pas un règlement — ni reçu ni annulation
+                              (le serveur refuse les deux). */}
+                          {r.mode === MODE_ETEINT_PAR_RETOUR ? (
+                            <span className="text-[10px] text-muted-foreground"
+                              title="Marchandise rendue : aucun argent reçu. Le retour se justifie par sa pièce d'avoir.">
+                              Retour
+                            </span>
+                          ) : (<>
                           {/* Le reçu s'imprime pour n'importe quelle
                               ligne, y compris une annulation : c'est
                               alors le justificatif de la correction. */}
@@ -1369,6 +1378,7 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
                               <RotateCcw className="h-3 w-3" /> Annuler
                             </Button>
                           )}
+                          </>)}
                         </td>
                       </tr>
                     ))}

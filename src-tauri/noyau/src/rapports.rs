@@ -378,23 +378,139 @@ pub fn lire_rapport_tva(
          ORDER BY lv.taux_tva"
     ).map_err(|e| e.to_string())?;
 
-    let par_taux: Vec<serde_json::Value> = stmt.query_map(
+    let ventes: Vec<(f64, i64, i64, i64)> = stmt.query_map(
         rusqlite::params![date_debut, date_fin],
-        |row| Ok(serde_json::json!({
-            "taux":      row.get::<_,f64>(0)?,
-            "total_tva": row.get::<_,i64>(1)?,
-            "total_ht":  row.get::<_,i64>(2)?,
-            "nb_ventes": row.get::<_,i64>(3)?,
-        }))
+        |row| Ok((row.get::<_,f64>(0)?, row.get::<_,i64>(1)?, row.get::<_,i64>(2)?, row.get::<_,i64>(3)?))
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
-    let total_tva: i64 = par_taux.iter()
-        .filter_map(|v| v["total_tva"].as_i64()).sum();
+    // D53 : nette des retours dates dans la periode.
+    let retours = tva_des_retours_conn(conn, &date_fin, None, |d| entre(d, &date_debut, &date_fin))?;
+    Ok(rapport_tva(&ventes, &retours))
+}
 
-    Ok(serde_json::json!({
-        "par_taux":  par_taux,
-        "total_tva": total_tva,
-    }))
+// =====================================================================
+//  TVA des retours (D53) — commune au rapport TVA, au resume de
+//  l'onglet Chantiers et au cahier du jour
+// =====================================================================
+
+/// `date` dans `[du, au]`, comparee comme le `BETWEEN` des ventes.
+pub(crate) fn entre(date: &str, du: &str, au: &str) -> bool {
+    date >= du && date <= au
+}
+
+/// Le rapport TVA par taux, net des retours (`coeur::tva::fusionner`).
+/// `total_tva` est la TVA collectee nette ; `tva_retours` ce qui en a
+/// ete deduit.
+pub(crate) fn rapport_tva(ventes: &[(f64, i64, i64, i64)], retours: &[crate::coeur::tva::TvaRendue]) -> serde_json::Value {
+    let lignes = crate::coeur::tva::fusionner(ventes, retours);
+    let total_tva: i64 = lignes.iter().map(|l| l.total_tva).sum();
+    let tva_retours: i64 = lignes.iter().map(|l| l.tva_retours).sum();
+    let par_taux: Vec<serde_json::Value> = lignes
+        .into_iter()
+        .map(|l| {
+            serde_json::json!({
+                "taux":        l.taux,
+                "total_tva":   l.total_tva,
+                "total_ht":    l.total_ht,
+                "nb_ventes":   l.nb_ventes,
+                "tva_retours": l.tva_retours,
+                "ht_retours":  l.ht_retours,
+                "nb_retours":  l.nb_retours,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "par_taux":    par_taux,
+        "total_tva":   total_tva,
+        "tva_retours": tva_retours,
+    })
+}
+
+/// Les retours vus par la TVA : tous ceux des lignes taxees dont le jour
+/// ne depasse pas celui de `au` (ceux d'avant la periode font le cumul
+/// de leur ligne), dans l'ordre ou ils ont eu lieu. Un retour d'avant
+/// v1.3 (sans ligne) prend la premiere ligne du meme article. Le magasin
+/// est celui de la vente, comme pour le chiffre d'affaires.
+const SQL_RETOURS_TAXES: &str =
+    "SELECT lv.id, lv.taux_tva, CAST(lv.montant_tva AS BIGINT), lv.quantite,
+            rt.quantite, CAST(rt.montant_credit AS BIGINT), rt.date_retour, rt.mode_resolution
+     FROM retour rt
+     JOIN vente v ON v.id = rt.vente_id
+     JOIN ligne_vente lv ON lv.id = COALESCE(rt.ligne_vente_id,
+          (SELECT MIN(l2.id) FROM ligne_vente l2
+           WHERE l2.vente_id = rt.vente_id AND l2.article_id = rt.article_id))
+     WHERE v.statut != 'annulee'
+       AND lv.taux_tva > 0
+       AND SUBSTR(rt.date_retour, 1, 10) <= ?1
+       AND (CAST(?2 AS TEXT) IS NULL OR v.depot_id = ?2)
+       AND rt.dossier_id = ?3
+     ORDER BY rt.date_retour, rt.cree_le, rt.id";
+
+/// (ligne, taux, tva de la ligne, qte de la ligne, qte rendue, credit, date, mode).
+type LigneRetourTaxe = (String, f64, i64, f64, f64, i64, String, String);
+
+fn retours_taxes(lignes: Vec<LigneRetourTaxe>, dans_periode: impl Fn(&str) -> bool) -> Vec<crate::coeur::tva::TvaRendue> {
+    let retours: Vec<crate::coeur::tva::RetourTaxe> = lignes
+        .into_iter()
+        .map(|(ligne, taux, tva_ligne, qte_ligne, quantite, credit, date, mode)| crate::coeur::tva::RetourTaxe {
+            ligne,
+            taux,
+            tva_ligne,
+            qte_ligne,
+            quantite,
+            credit,
+            dans_periode: dans_periode(&date),
+            deduit: mode != crate::coeur::calcul::RETOUR_HORS_CA,
+        })
+        .collect();
+    crate::coeur::tva::retours_par_taux(&retours)
+}
+
+/// La TVA rendue par les retours dont la date passe `dans_periode`,
+/// par taux — sur l'un ou l'autre moteur, dedans ou hors transaction.
+pub(crate) fn tva_des_retours_sur(
+    acces: &mut impl crate::base::Acces,
+    au: &str,
+    depot: Option<String>,
+    dans_periode: impl Fn(&str) -> bool,
+) -> Result<Vec<crate::coeur::tva::TvaRendue>, String> {
+    let dossier = acces.dossier().to_string();
+    let jour: String = au.chars().take(10).collect();
+    let lignes = acces
+        .lire_plusieurs(SQL_RETOURS_TAXES, &crate::parametres![jour, depot, dossier], |r| {
+            Ok((
+                r.get::<String>(0)?,
+                r.get::<f64>(1)?,
+                r.get::<i64>(2)?,
+                r.get::<f64>(3)?,
+                r.get::<f64>(4)?,
+                r.get::<i64>(5)?,
+                r.get::<String>(6)?,
+                r.get::<String>(7)?,
+            ))
+        })
+        .map_err(|e| e.0)?;
+    Ok(retours_taxes(lignes, dans_periode))
+}
+
+/// La meme lecture sur la connexion de la fenetre (un seul dossier).
+pub(crate) fn tva_des_retours_conn(
+    conn: &rusqlite::Connection,
+    au: &str,
+    depot: Option<String>,
+    dans_periode: impl Fn(&str) -> bool,
+) -> Result<Vec<crate::coeur::tva::TvaRendue>, String> {
+    let jour: String = au.chars().take(10).collect();
+    let sql = SQL_RETOURS_TAXES.replace("AND rt.dossier_id = ?3", "");
+    let mut st = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let lignes: Vec<LigneRetourTaxe> = st
+        .query_map(rusqlite::params![jour, depot], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(retours_taxes(lignes, dans_periode))
 }
 // =====================================================================
 //  SUR L'UN OU L'AUTRE MOTEUR
@@ -641,7 +757,7 @@ pub fn lire_rapport_tva_sur_base(
     date_fin: String,
 ) -> Result<serde_json::Value, String> {
     let dossier = base.dossier().to_string();
-    let par_taux: Vec<serde_json::Value> = base
+    let ventes: Vec<(f64, i64, i64, i64)> = base
         .lire_plusieurs(
             "SELECT lv.taux_tva,
                     CAST(SUM(lv.montant_tva) AS BIGINT),
@@ -655,17 +771,11 @@ pub fn lire_rapport_tva_sur_base(
                AND v.dossier_id = ?3
              GROUP BY lv.taux_tva
              ORDER BY lv.taux_tva",
-            &parametres![date_debut, date_fin, dossier],
-            |r| {
-                Ok(serde_json::json!({
-                    "taux":      r.get::<f64>(0)?,
-                    "total_tva": r.get::<i64>(1)?,
-                    "total_ht":  r.get::<i64>(2)?,
-                    "nb_ventes": r.get::<i64>(3)?,
-                }))
-            },
+            &parametres![date_debut.clone(), date_fin.clone(), dossier],
+            |r| Ok((r.get::<f64>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?, r.get::<i64>(3)?)),
         )
         .map_err(|e| e.0)?;
-    let total_tva: i64 = par_taux.iter().filter_map(|v| v["total_tva"].as_i64()).sum();
-    Ok(serde_json::json!({ "par_taux": par_taux, "total_tva": total_tva }))
+    // D53 : nette des retours dates dans la periode.
+    let retours = tva_des_retours_sur(base, &date_fin, None, |d| entre(d, &date_debut, &date_fin))?;
+    Ok(rapport_tva(&ventes, &retours))
 }
