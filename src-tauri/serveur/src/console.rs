@@ -64,8 +64,9 @@ pub fn page(port: u16) -> String {
   <section class="carte">
     <h2>Pour brancher une caisse</h2>
     <p class="aide">
-      Sur le poste caisse : <b>Paramètres → Réseau → « Rechercher le
-      serveur »</b>, ou saisir cette adresse.
+      Sur le poste caisse ou Gescom Équipe : <b>écran de connexion →
+      « Réglage du serveur » → « Rechercher le serveur »</b>, ou saisir
+      cette adresse.
     </p>
     <p><code id="adresse">…:{port}</code></p>
     <p class="aide" id="note-parefeu"></p>
@@ -103,8 +104,8 @@ pub fn page(port: u16) -> String {
     <h3>Sur les caisses, taper</h3>
     <div id="reseau-a-saisir" class="a-saisir"></div>
     <p class="aide">
-      Ou, sur la caisse&nbsp;: Paramètres → Réseau → « Rechercher le
-      serveur ». Le nom du poste vaut mieux que l'adresse IP&nbsp;: il ne
+      Ou, sur la caisse et Gescom Équipe&nbsp;: écran de connexion →
+      « Réglage du serveur » → « Rechercher le serveur ». Le nom du poste vaut mieux que l'adresse IP&nbsp;: il ne
       change pas quand la box redistribue les adresses.
     </p>
     <h3>Changer le port ou l'écoute</h3>
@@ -606,8 +607,8 @@ $("form-reseau").addEventListener("submit", (e) => {
     " Le serveur va redémarrer sur le port " + port +
     (ecoute === "127.0.0.1" ? ", pour ce poste seulement : aucune caisse ne le joindra plus." : ".") +
     " Pendant le redémarrage" + (reseau.en_service ? " (quelques secondes, jusqu'à une minute)" : "") +
-    ", personne ne peut vendre. Ensuite, sur chaque caisse : Paramètres → Réseau → « Rechercher le serveur » " +
-    "(ou taper la nouvelle adresse).";
+    ", personne ne peut vendre. Ensuite, sur chaque caisse et chaque Gescom Équipe : écran de connexion → " +
+    "« Réglage du serveur » → « Rechercher le serveur » (ou taper la nouvelle adresse).";
   demandeReseau = { port, ecoute };
   $("reseau-confirmation").classList.remove("cachee");
   $("btn-reseau-confirmer").focus();

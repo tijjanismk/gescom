@@ -1,40 +1,23 @@
 //! Gescom Equipe — la coque (PLAN-EQUIPE, D28-D29).
 //!
 //! Une fenetre qui affiche `equipe.html` et ne parle qu'au serveur
-//! Gescom. Elle n'ouvre aucune base. Sa seule commande dit a la page ou
-//! joindre le serveur : celui que la caisse de ce poste utilise deja
-//! (`poste.json` de Gescom), sinon le serveur de cette machine (D22 :
-//! en monoposte, on lance le serveur sur la meme base).
+//! Gescom. Elle n'ouvre aucune base. Ses commandes disent a la page ou
+//! joindre le serveur, et laissent regler cette adresse depuis l'ecran de
+//! connexion (D55) : la sienne si on l'a reglee ici (`equipe.json`), sinon
+//! celle de la caisse de ce poste (`poste.json` de Gescom), sinon le
+//! serveur de cette machine (D22 : en monoposte, on lance le serveur sur
+//! la meme base). La regle, l'essai et la recherche du serveur sont ceux
+//! de la caisse (`gescom_noyau::recherche_serveur`, D40) : il n'y en a
+//! qu'un.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
-/// La plage du serveur Gescom (D39), recopiee de `gescom_noyau::protocole`
-/// — Equipe ne depend pas du noyau. `noyau/tests/plage_de_ports.rs`
-/// verifie que la copie suit.
-const PORT_DEFAUT: u16 = 40000;
-const PORT_MAX: u16 = 40100;
-
-/// L'adresse de `poste.json` si son port est dans la plage (sans port :
-/// `PORT_DEFAUT`). Un ancien reglage en 7300 (abandonne le 27/10/2026)
-/// n'est plus joignable par la fenetre.
-fn joignable(adresse: &str) -> bool {
-    // Meme lecture que `protocole::port_ecrit` : « [::1]:40000 »,
-    // « 192.168.1.10:40000 » ; une IPv6 nue n'a pas de port.
-    let hote = adresse.trim().trim_start_matches("http://").split('/').next().unwrap_or("");
-    let port = match hote.strip_prefix('[') {
-        Some(reste) => reste.split_once("]:").map(|(_, p)| p),
-        None if hote.matches(':').count() == 1 => hote.split_once(':').map(|(_, p)| p),
-        None => None,
-    };
-    match port {
-        None => true,
-        Some(p) => p.trim().parse::<u16>().map(|p| (PORT_DEFAUT..=PORT_MAX).contains(&p)).unwrap_or(false),
-    }
-}
+use gescom_noyau::decouverte::ServeurTrouve;
+use gescom_noyau::recherche_serveur::{self, AdresseEquipe};
 
 /// Ce que la page attend (`src/lib/pont.ts`, `lire_config_reseau`).
 #[derive(Serialize)]
@@ -43,6 +26,12 @@ struct ConfigReseau {
     serveur: String,
     poste_nom: String,
     poste_empreinte: String,
+    /// D55 : d'ou vient l'adresse — « equipe » (reglee ici), « caisse »
+    /// (celle de la caisse de ce poste) ou « defaut » (cette machine).
+    source: String,
+    /// L'adresse de la caisse de ce poste, si elle en a une utilisable :
+    /// l'ecran propose de la reprendre.
+    serveur_caisse: Option<String>,
 }
 
 /// Le reglage de la caisse Gescom de ce poste, s'il existe.
@@ -58,21 +47,27 @@ struct PosteGescom {
     poste_empreinte: String,
 }
 
-/// L'identite propre d'Equipe sur ce poste, tiree une fois.
-#[derive(Serialize, Deserialize)]
-struct IdentiteEquipe {
-    empreinte: String,
-}
-
 fn nom_machine() -> String {
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "Poste".to_string())
 }
 
+fn nos_donnees(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map_err(|e| format!("Répertoire de données introuvable : {e}"))
+}
+
+/// `equipe.json` : l'empreinte d'Equipe et, depuis D55, son adresse.
+fn fichier_equipe(nos_donnees: &Path) -> PathBuf {
+    nos_donnees.join("equipe.json")
+}
+
 /// `poste.json` de Gescom : son dossier de donnees est le voisin du
-/// notre (`ml.gescom.app` a cote de `ml.gescom.equipe`).
-fn poste_gescom(nos_donnees: &PathBuf) -> PosteGescom {
+/// notre (`ml.gescom.app` a cote de `ml.gescom.equipe`). Equipe le lit,
+/// ne l'ecrit jamais : il porte aussi le role de la caisse.
+fn poste_gescom(nos_donnees: &Path) -> PosteGescom {
     nos_donnees
         .parent()
         .map(|p| p.join("ml.gescom.app").join("poste.json"))
@@ -85,54 +80,92 @@ fn poste_gescom(nos_donnees: &PathBuf) -> PosteGescom {
 /// L'empreinte d'Equipe : la meme machine que la caisse, mais un autre
 /// poste pour le serveur — sinon les deux fenetres se renommeraient
 /// l'une l'autre dans la liste des postes.
-fn empreinte(nos_donnees: &PathBuf, gescom: &PosteGescom) -> String {
+fn empreinte(nos_donnees: &Path, gescom: &PosteGescom) -> String {
     if !gescom.poste_empreinte.is_empty() {
         return format!("{}-equipe", gescom.poste_empreinte);
     }
-    let fichier = nos_donnees.join("equipe.json");
-    if let Some(i) = std::fs::read_to_string(&fichier)
-        .ok()
-        .and_then(|t| serde_json::from_str::<IdentiteEquipe>(&t).ok())
-    {
-        return i.empreinte;
+    let fichier = fichier_equipe(nos_donnees);
+    if let Some(e) = recherche_serveur::lire_reglage_equipe(&fichier).empreinte {
+        return e;
     }
-    let i = IdentiteEquipe { empreinte: uuid::Uuid::new_v4().to_string() };
-    let _ = std::fs::create_dir_all(nos_donnees);
-    let _ = std::fs::write(&fichier, serde_json::to_string_pretty(&i).unwrap_or_default());
-    i.empreinte
+    let e = uuid::Uuid::new_v4().to_string();
+    // Garde l'adresse deja reglee dans le meme fichier.
+    let _ = recherche_serveur::ecrire_empreinte_equipe(&fichier, &e);
+    e
+}
+
+/// L'adresse d'Equipe et sa source (`recherche_serveur::adresse_equipe`).
+fn adresse(nos_donnees: &Path, gescom: &PosteGescom) -> AdresseEquipe {
+    let propre = recherche_serveur::lire_reglage_equipe(&fichier_equipe(nos_donnees)).serveur;
+    recherche_serveur::adresse_equipe(propre.as_deref(), &gescom.mode, &gescom.serveur)
+}
+
+fn config(app: &tauri::AppHandle) -> Result<ConfigReseau, String> {
+    let nos_donnees = nos_donnees(app)?;
+    let gescom = poste_gescom(&nos_donnees);
+    let a = adresse(&nos_donnees, &gescom);
+    // L'adresse de la caisse seule, telle qu'Equipe la prendrait sans la
+    // sienne : ce que « Reprendre celle de la caisse » donnerait.
+    let caisse = recherche_serveur::adresse_equipe(None, &gescom.mode, &gescom.serveur);
+    let nom = if gescom.poste_nom.trim().is_empty() { nom_machine() } else { gescom.poste_nom.clone() };
+    Ok(ConfigReseau {
+        // Toujours « poste » : Equipe n'a pas de base locale (D28).
+        mode: "poste".to_string(),
+        serveur: a.serveur,
+        poste_nom: format!("{nom} (Équipe)"),
+        poste_empreinte: empreinte(&nos_donnees, &gescom),
+        source: a.source.to_string(),
+        serveur_caisse: (caisse.source == recherche_serveur::SOURCE_CAISSE).then_some(caisse.serveur),
+    })
 }
 
 #[tauri::command]
 fn lire_config_reseau(app: tauri::AppHandle) -> Result<ConfigReseau, String> {
-    let nos_donnees = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Répertoire de données introuvable : {e}"))?;
-    let gescom = poste_gescom(&nos_donnees);
-    // Toujours « poste » : Equipe n'a pas de base locale (D28). Le
-    // serveur de la caisse de ce poste — en monoposte, le serveur local
-    // au port qu'il a pris dans la plage (D39) —, sinon celui de cette
-    // machine au port par defaut.
-    let ecrit = gescom.serveur.trim();
-    let serveur = if (gescom.mode == "poste" || gescom.mode == "monoposte") && !ecrit.is_empty() && joignable(ecrit) {
-        ecrit.to_string()
-    } else {
-        format!("127.0.0.1:{PORT_DEFAUT}")
-    };
-    let nom = if gescom.poste_nom.trim().is_empty() { nom_machine() } else { gescom.poste_nom.clone() };
-    Ok(ConfigReseau {
-        mode: "poste".to_string(),
-        serveur,
-        poste_nom: format!("{nom} (Équipe)"),
-        poste_empreinte: empreinte(&nos_donnees, &gescom),
-    })
+    config(&app)
+}
+
+/// L'ecran de reglage (D55) enregistre l'adresse d'Equipe, apres un essai
+/// reussi. Meme signature que dans la caisse ; seul `poste` a un sens ici
+/// — Equipe ne garde jamais de base — et le nom du poste ne se regle pas :
+/// il suit celui de la caisse. `serveur` absent : on reprend l'adresse de
+/// la caisse de ce poste.
+#[tauri::command]
+fn definir_config_reseau(
+    app: tauri::AppHandle,
+    mode: String,
+    serveur: Option<String>,
+) -> Result<ConfigReseau, String> {
+    if mode != "poste" {
+        return Err("Gescom Équipe ne garde pas de base : elle se branche sur le serveur de la boutique.".to_string());
+    }
+    let nos_donnees = nos_donnees(&app)?;
+    recherche_serveur::enregistrer_adresse_equipe(&fichier_equipe(&nos_donnees), serveur.as_deref())?;
+    config(&app)
+}
+
+#[tauri::command]
+fn tester_serveur(adresse: String) -> Result<serde_json::Value, String> {
+    recherche_serveur::tester_serveur(&adresse)
+}
+
+/// La recherche de la caisse (D40), sans attendre sur le fil de la fenetre.
+#[tauri::command]
+async fn rechercher_serveurs() -> Result<Vec<ServeurTrouve>, String> {
+    tauri::async_runtime::spawn_blocking(recherche_serveur::rechercher)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![lire_config_reseau])
+        .invoke_handler(tauri::generate_handler![
+            lire_config_reseau,
+            definir_config_reseau,
+            tester_serveur,
+            rechercher_serveurs
+        ])
         .run(tauri::generate_context!())
         .expect("Gescom Équipe n'a pas pu démarrer");
 }

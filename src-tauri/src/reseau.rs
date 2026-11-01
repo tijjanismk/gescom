@@ -35,13 +35,13 @@
 //! si elle disparait du magasin.
 
 use std::path::PathBuf;
-use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
-use std::time::{Duration, Instant};
+use std::net::TcpStream;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use gescom_noyau::decouverte::{self, ServeurTrouve};
+use gescom_noyau::decouverte::ServeurTrouve;
+use gescom_noyau::recherche_serveur;
 use gescom_noyau::protocole::{adresse_joignable, port_dans_la_plage, port_ecrit, ports_de_la_plage, PORT_DEFAUT, PORT_MAX};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,42 +186,11 @@ pub fn definir_config_reseau(
     Ok(c)
 }
 
-/// Interroge `/sante` du serveur.
-///
-/// Fait en Rust et non depuis la fenetre : le diagnostic doit
-/// distinguer « serveur injoignable » de « le navigateur embarque a
-/// refuse la réponse », deux pannes que `fetch` renvoie a l'identique.
+/// Interroge `/sante` du serveur : la regle partagee avec Gescom Equipe
+/// (`noyau::recherche_serveur`, D55). Refuse une adresse hors de la plage.
 #[tauri::command]
 pub fn tester_serveur(adresse: String) -> Result<serde_json::Value, String> {
-    let adresse = adresse.trim().trim_start_matches("http://").to_string();
-    let hote = adresse
-        .split('/')
-        .next()
-        .filter(|s| !s.is_empty())
-        .ok_or("Adresse vide.")?
-        .to_string();
-
-    let cible = hote
-        .to_socket_addrs_premiere()
-        .ok_or_else(|| format!("Adresse illisible : « {hote} »."))?;
-
-    let mut flux = TcpStream::connect_timeout(&cible, Duration::from_secs(3))
-        .map_err(|e| format!("Serveur injoignable sur {hote} : {e}"))?;
-    flux.set_read_timeout(Some(Duration::from_secs(5))).ok();
-
-    let requete = format!("GET /sante HTTP/1.1\r\nHost: {hote}\r\nConnection: close\r\n\r\n");
-    flux.write_all(requete.as_bytes())
-        .map_err(|e| e.to_string())?;
-
-    let mut reponse = String::new();
-    flux.read_to_string(&mut reponse).map_err(|e| e.to_string())?;
-
-    let corps = reponse
-        .split_once("\r\n\r\n")
-        .map(|(_, c)| c)
-        .ok_or("Réponse du serveur incomplète.")?;
-    serde_json::from_str(corps)
-        .map_err(|_| "Ce port répond, mais ce n'est pas un serveur Gescom.".to_string())
+    recherche_serveur::tester_serveur(&adresse)
 }
 
 /// Le serveur de CETTE machine, demarre s'il ne repond pas.
@@ -385,7 +354,7 @@ fn lancer_sur(exe: &std::path::Path, arguments: &[String], port: u16) -> Result<
             if let Ok(sante) = tester_serveur(adresse.clone()) {
                 return Ok(Some(sante));
             }
-            if let Some(cible) = adresse.to_socket_addrs_premiere() {
+            if let Some(cible) = recherche_serveur::premiere_adresse(&adresse) {
                 if TcpStream::connect_timeout(&cible, Duration::from_secs(1)).is_ok() {
                     return Ok(None);
                 }
@@ -428,110 +397,11 @@ fn port_du_service() -> Option<u16> {
 //  « Rechercher le serveur » (27/10/2026)
 // =====================================================================
 
-/// Les serveurs Gescom du reseau local : la question part en diffusion
-/// UDP sur le port 40000 (et a ce poste meme), on ecoute deux secondes,
-/// une ligne par serveur (`noyau::decouverte`, la regle partagee). Rien
-/// n'est enregistre : l'ecran remplit l'adresse, qui est ensuite TESTEE
-/// et enregistree comme une adresse tapee. Une liste vide n'est pas une
-/// erreur : l'ecran dit les causes probables et laisse saisir a la main.
+/// Les serveurs Gescom du reseau local (`noyau::recherche_serveur`, la
+/// meme recherche que Gescom Equipe, D55). Rien n'est enregistre : l'ecran
+/// remplit l'adresse, qui est ensuite TESTEE et enregistree comme une
+/// adresse tapee.
 #[tauri::command]
 pub async fn rechercher_serveurs() -> Result<Vec<ServeurTrouve>, String> {
-    tauri::async_runtime::spawn_blocking(rechercher).await.map_err(|e| e.to_string())?
-}
-
-fn rechercher() -> Result<Vec<ServeurTrouve>, String> {
-    let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("Recherche impossible sur ce poste : {e}"))?;
-    socket
-        .set_broadcast(true)
-        .map_err(|e| format!("Recherche impossible sur ce poste : {e}"))?;
-    let question = decouverte::question();
-    // 255.255.255.255, la diffusion du reseau de ce poste (un /24, celui
-    // des box : Windows n'envoie pas toujours la premiere sur toutes les
-    // cartes), et ce poste lui-meme (un serveur ici, ecoutant ce seul poste).
-    let mut cibles: Vec<SocketAddr> = vec![
-        SocketAddr::from((Ipv4Addr::BROADCAST, decouverte::PORT)),
-        SocketAddr::from((Ipv4Addr::LOCALHOST, decouverte::PORT)),
-    ];
-    if let Some(ip) = adresse_locale_ipv4() {
-        let o = ip.octets();
-        cibles.push(SocketAddr::from((Ipv4Addr::new(o[0], o[1], o[2], 255), decouverte::PORT)));
-    }
-    let envoyer = |cibles: &[SocketAddr]| cibles.iter().filter(|c| socket.send_to(&question, c).is_ok()).count();
-    if envoyer(&cibles) == 0 {
-        return Err("La question n'a pas pu partir sur le réseau : ce poste a-t-il une carte réseau branchée ?".to_string());
-    }
-
-    // Deux secondes d'ecoute ; la question repart une fois a mi-chemin :
-    // un paquet UDP peut se perdre, surtout en Wi-Fi.
-    let debut = Instant::now();
-    let duree = Duration::from_secs(2);
-    let mut relancee = false;
-    let mut recues: Vec<(decouverte::Annonce, IpAddr)> = Vec::new();
-    let mut tampon = vec![0u8; decouverte::TAILLE_REPONSE_MAX];
-    while debut.elapsed() < duree {
-        if !relancee && debut.elapsed() >= duree / 2 {
-            envoyer(&cibles);
-            relancee = true;
-        }
-        let reste = duree.saturating_sub(debut.elapsed()).clamp(Duration::from_millis(10), Duration::from_millis(250));
-        socket.set_read_timeout(Some(reste)).ok();
-        // Une erreur ici : le delai, ou, sous Windows, la question envoyee
-        // a ce poste sans serveur qui revient en « connexion
-        // reinitialisee ». On continue d'ecouter.
-        if let Ok((n, de)) = socket.recv_from(&mut tampon) {
-            if let Some(a) = decouverte::lire_reponse(&tampon[..n]) {
-                if recues.len() < 64 {
-                    recues.push((a, de.ip()));
-                }
-            }
-        }
-    }
-    Ok(decouverte::regrouper(&recues, gescom_noyau::VERSION_PROTOCOLE, resoudre_vite))
-}
-
-/// L'adresse IPv4 de ce poste sur le reseau local (la carte que Windows
-/// choisirait pour sortir) ; aucun paquet ne part.
-fn adresse_locale_ipv4() -> Option<Ipv4Addr> {
-    let s = UdpSocket::bind("0.0.0.0:0").ok()?;
-    s.connect("192.0.2.1:9").ok()?;
-    match s.local_addr().ok()?.ip() {
-        IpAddr::V4(ip) if !ip.is_unspecified() && !ip.is_loopback() => Some(ip),
-        _ => None,
-    }
-}
-
-/// Un nom de poste → ses adresses vues d'ici, une seconde et demie au
-/// plus : un nom inconnu peut faire attendre la resolution Windows
-/// (NetBIOS) bien plus longtemps. Pas de reponse a temps : on conseillera
-/// l'adresse IP.
-fn resoudre_vite(nom: &str) -> Vec<IpAddr> {
-    let nom = nom.to_string();
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let adresses: Vec<IpAddr> = (nom.as_str(), 0u16)
-            .to_socket_addrs()
-            .map(|it| it.map(|a| a.ip()).collect())
-            .unwrap_or_default();
-        let _ = tx.send(adresses);
-    });
-    rx.recv_timeout(Duration::from_millis(1500)).unwrap_or_default()
-}
-
-/// Petit utilitaire : « hote:port » -> adresse resolue.
-trait ResoudrePremiere {
-    fn to_socket_addrs_premiere(&self) -> Option<std::net::SocketAddr>;
-}
-
-impl ResoudrePremiere for String {
-    fn to_socket_addrs_premiere(&self) -> Option<std::net::SocketAddr> {
-        use std::net::ToSocketAddrs;
-        // Sans port explicite on prend celui par defaut : le commercant
-        // tape « 192.168.1.10 », pas « 192.168.1.10:40000 ».
-        let avec_port = if self.contains(':') {
-            self.clone()
-        } else {
-            format!("{self}:{PORT_DEFAUT}")
-        };
-        avec_port.to_socket_addrs().ok()?.next()
-    }
+    tauri::async_runtime::spawn_blocking(recherche_serveur::rechercher).await.map_err(|e| e.to_string())?
 }

@@ -181,16 +181,21 @@ disent aux utilisateurs en attendant.
   l'installeur pas vues** (TESTS-MANUELS L1-L12).
 - ~~**`--restaurer` sans `--base`**~~ **fait le 01/11 (D54)** : sur un
   ordinateur qui a `serveur.json`, refus qui nomme les deux bases.
-- **L'écran de connexion n'a pas de lien vers le réglage du réseau**, et
+- ~~**L'écran de connexion n'a pas de lien vers le réglage du réseau**, et
   Paramètres → Réseau demande d'être connecté : une caisse qui ne trouve
   plus son serveur (port changé, IP changée) est coincée sans technicien.
   La console de D40 conseille pourtant « Paramètres → Réseau → Rechercher
-  le serveur ».
-- **Gescom Équipe sur un poste sans caisse** ne peut pas recevoir
+  le serveur ».~~ **Fait le 01/11 (D55)** : « Réglage du serveur » sur
+  l'écran de connexion d'une caisse d'un autre poste (rechercher ou
+  taper, essayée avant d'être enregistrée), et « Le serveur ne répond
+  pas à … » avec Réessayer. La console de D40 renvoie à ce lien.
+- ~~**Gescom Équipe sur un poste sans caisse** ne peut pas recevoir
   d'adresse (elle lit le `poste.json` de la caisse, sinon 127.0.0.1:40000).
   L'écran « Gescom Équipe a besoin du serveur Gescom » (`AppEquipe.tsx`)
   ne s'affiche jamais (le mode vaut toujours « poste ») et son texte est
-  périmé.
+  périmé.~~ **Fait le 01/11 (D55)** : Équipe garde son adresse dans
+  `equipe.json` (elle passe devant la caisse), réglée par le même lien ;
+  l'écran mort est retiré, la connexion dit quand le serveur ne répond pas.
 - ~~`outils\parefeu.ps1` n'est pas livré, alors que des messages y renvoient ;
   le message de `--compte-limite` dit « dans poste.json » ;
   `GESCOM_PG_SAUVEGARDE` lu par le service LocalSystem : non vérifié.~~

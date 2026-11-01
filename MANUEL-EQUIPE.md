@@ -17,8 +17,9 @@ comptoir :
 
 Équipe n'a **pas de base à elle** : elle parle au même serveur que la
 caisse, avec **les mêmes comptes et les mêmes droits**, dans le dossier
-choisi à la connexion. Elle s'installe après la caisse du même poste
-(Guide d'installation, chapitre 7).
+choisi à la connexion. Sur un poste qui a la caisse, elle prend son
+adresse ; sans caisse, on la lui donne une fois par **Réglage du
+serveur**, sur l'écran de connexion (Guide d'installation, chapitre 7).
 
 **Les montants se tapent comme on les dit** : « 15.000 », « 15 000 » et
 « 15,000 » valent tous **15 000 F**. Un pourcentage ou une quantité
@@ -43,10 +44,16 @@ déconnecter de l'une ne ferme pas l'autre.
 faire : Accueil, Personnel, Paie, Suivi clients. En bas : le nom, le
 rôle, **Se déconnecter**.
 
-**« Serveur injoignable (…) »** : le serveur ne répond pas. Vérifier le
-réseau, et que Gescom Serveur tourne sur l'ordinateur principal (ou que
-la caisse de ce poste, sur un ordinateur unique, est ouverte). Si le
-serveur redémarre, Équipe revient à l'écran de connexion.
+**« Le serveur ne répond pas à … »**, sur l'écran de connexion :
+vérifier le réseau, et que Gescom Serveur tourne sur l'ordinateur
+principal (ou que la caisse de ce poste, sur un ordinateur unique, est
+ouverte), puis **Réessayer**. Si le serveur a changé d'adresse ou de
+port : **Réglage du serveur** → **Rechercher le serveur** (ou taper son
+adresse) → **Essayer** → **Enregistrer**. Une adresse qui ne répond pas
+n'est pas enregistrée : l'ancienne reste. L'adresse réglée dans Équipe
+passe devant celle de la caisse du poste ; **Reprendre celle de la
+caisse** l'efface. Si le serveur redémarre, Équipe revient à l'écran de
+connexion.
 
 ## Qui fait quoi
 

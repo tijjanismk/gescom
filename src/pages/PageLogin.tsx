@@ -3,7 +3,7 @@ import {
   appeler as invoke, connecterServeur, choisirDossier, enReseau, etatReseau, sante,
   type DossierOuvrable,
 } from "@/lib/pont";
-import { Store, Eye, EyeOff, Loader2, Lock, User } from "lucide-react";
+import { Store, Eye, EyeOff, Loader2, Lock, User, Network, ServerOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,9 +27,16 @@ interface PageLoginProps {
   /** Gescom Équipe se présente sous son nom (PLAN-EQUIPE, D28). */
   titre?: string;
   sousTitre?: string;
+  /**
+   * D55 : « Réglage du serveur », avant connexion — chercher le serveur
+   * ou taper son adresse quand il a changé de port ou d'IP. Donné par
+   * une caisse d'un autre poste et par Gescom Équipe ; pas par le poste
+   * qui garde la base (son serveur est ici, rien à régler).
+   */
+  onReglageServeur?: () => void;
 }
 
-export function PageLogin({ onConnecte, titre = "Gescom", sousTitre = "Gestion commerciale" }: PageLoginProps) {
+export function PageLogin({ onConnecte, titre = "Gescom", sousTitre = "Gestion commerciale", onReglageServeur }: PageLoginProps) {
   const [identifiant, setIdentifiant] = useState("");
   const [motDePasse, setMotDePasse] = useState("");
   const [visible, setVisible] = useState(false);
@@ -44,10 +51,20 @@ export function PageLogin({ onConnecte, titre = "Gescom", sousTitre = "Gestion c
   // D43 : une base neuve le dit, avec le compte d'usine — il est déjà
   // public (manuel), et le patron le change dans l'assistant qui suit.
   const [baseNeuve, setBaseNeuve] = useState(false);
-  useEffect(() => {
+  // D55 : le serveur ne répond pas — le dire ici, avant qu'on tape un mot
+  // de passe pour rien, avec le réglage à côté. `null` : pas encore su.
+  const [injoignable, setInjoignable] = useState<boolean | null>(null);
+  function sonder() {
     if (!enReseau()) return;
-    sante().then(s => setBaseNeuve(!!(s as { assistant_a_faire?: boolean })?.assistant_a_faire)).catch(() => {});
-  }, []);
+    setInjoignable(null);
+    sante()
+      .then(s => {
+        setInjoignable(false);
+        setBaseNeuve(!!(s as { assistant_a_faire?: boolean })?.assistant_a_faire);
+      })
+      .catch(() => setInjoignable(true));
+  }
+  useEffect(sonder, []);
 
   async function handleChoixDossier(d: DossierOuvrable) {
     if (!aChoisir) return;
@@ -221,6 +238,29 @@ export function PageLogin({ onConnecte, titre = "Gescom", sousTitre = "Gestion c
             </div>
           </div>
 
+          {injoignable && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm space-y-1"
+                 role="alert" data-testid="serveur-injoignable">
+              <p className="flex items-center gap-2 font-medium text-destructive">
+                <ServerOff className="h-4 w-4 shrink-0" />
+                Le serveur ne répond pas à <span className="font-mono">{etatReseau().serveur}</span>
+              </p>
+              <p className="text-muted-foreground">
+                {onReglageServeur
+                  ? "Il a peut-être changé d'adresse ou de port : le rechercher dans Réglage du serveur. Sinon, vérifier qu'il est démarré sur le poste principal."
+                  : "Vérifier que Gescom Serveur est démarré, puis réessayer."}
+              </p>
+              <div className="flex gap-3">
+                <button type="button" className="underline" onClick={sonder}>Réessayer</button>
+                {onReglageServeur && (
+                  <button type="button" className="underline font-medium" onClick={onReglageServeur}>
+                    Réglage du serveur
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {erreur && (
             <p className="text-sm text-destructive text-center">{erreur}</p>
           )}
@@ -236,6 +276,15 @@ export function PageLogin({ onConnecte, titre = "Gescom", sousTitre = "Gestion c
               : "Se connecter"
             }
           </Button>
+
+          {onReglageServeur && (
+            <p className="text-center">
+              <button type="button" onClick={onReglageServeur} data-testid="lien-reglage-serveur"
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground underline hover:text-foreground">
+                <Network className="h-4 w-4" /> Réglage du serveur
+              </button>
+            </p>
+          )}
         </div>
       </div>
     </div>

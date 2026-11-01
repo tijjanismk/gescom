@@ -21,13 +21,18 @@ L'installation a son propre document : le **Guide d'installation**
 - Le serveur écoute sur le port **40000** (de 40000 à 40100). Sa
   fenêtre, **Gescom Serveur** au menu Démarrer, donne son nom, son
   adresse et les postes connectés.
-- **Gescom Équipe** (personnel, paie, suivi clients) s'installe après la
-  caisse du même poste ; elle a son propre manuel.
+- **Gescom Équipe** (personnel, paie, suivi clients) prend l'adresse de
+  la caisse du même poste ; sur un poste sans caisse, on la lui donne par
+  **Réglage du serveur**, sur son écran de connexion. Elle a son propre
+  manuel.
 
 Si la caisse dit **« Serveur injoignable »** : le serveur tourne-t-il
 (fenêtre Gescom Serveur → « Démarrer le service ») ? l'ordinateur
-principal est-il allumé ? le réseau Wi-Fi est-il en « Privé » ? Le
-Guide d'installation, chapitre 14, détaille les autres cas.
+principal est-il allumé ? le réseau Wi-Fi est-il en « Privé » ? Si le
+serveur a changé d'adresse ou de port, la caisse le retrouve depuis
+l'écran de connexion : **Réglage du serveur** → **Rechercher le
+serveur** → **Essayer** → **Enregistrer**. Le Guide d'installation,
+chapitre 14, détaille les autres cas.
 
 ---
 
@@ -1047,7 +1052,7 @@ masquer.
 | Le stock est faux | Stock → Ajuster, en indiquant le motif |
 | Un montant semble faux | Journal, retrouver l'opération à l'heure près |
 | L'application ne démarre pas | Redémarrer l'ordinateur, puis appeler |
-| « Serveur injoignable » | Le service tourne-t-il (fenêtre Gescom Serveur → Démarrer le service) ? L'ordinateur principal est-il allumé, le Wi-Fi en « Privé » ? Paramètres → Réseau → Rechercher le serveur |
+| « Serveur injoignable », « Le serveur ne répond pas » | Le service tourne-t-il (fenêtre Gescom Serveur → Démarrer le service) ? L'ordinateur principal est-il allumé, le Wi-Fi en « Privé » ? Sur une caisse, l'écran de connexion → **Réglage du serveur** → Rechercher le serveur (connecté : Paramètres → Réseau) |
 | La date saisie est refusée | Plus de 31 jours en arrière, dans le futur, le compte n'a pas la permission *antidater*, ou la date sort des dates de travail (13 bis) |
 | « HORLOGE_RECULE » | L'heure de l'ordinateur du serveur a reculé : la remettre juste (13 bis) |
 | « … est hors des dates de travail » | L'exercice est fini : le patron le prolonge (13 bis) |
