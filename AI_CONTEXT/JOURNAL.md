@@ -3456,3 +3456,31 @@ deux bases ont des ventes, le garde-fou de la marque, le refus de
   absent de ce poste (`outils\manuels_pdf.ps1`).
 - **Remarque, pas corrigée** : dans Équipe, le bandeau de connexion dit
   « Poste caisse — connexion au serveur ».
+
+## 01/11/2026 — les défauts connus, sept sessions, la 1.13.1
+
+- **Le propriétaire** : « laisse SmartScreen, je ne peux pas payer de
+  certificat, corrige les autres », chaque tâche dans sa session. Choix
+  tranchés avant de lancer : retours à la date du retour (D53),
+  désinstallation qui ne touche plus aux données et reprise de la base
+  d'un poste seul (D54), lien « Réglage du serveur » à la connexion, avec
+  recherche et adresse (D55), avance étalée par mois et commission
+  reprise (D56), caissier qui nomme un passant et suivi du stock décidé
+  dès la création (D57) ; puis les colonnes des pièces cochées, sans
+  « auto », ni TVA ni remise d'office (D58). « La plupart de mes futurs
+  clients ne travaillent pas avec la TVA, mais je veux être prêt au cas
+  où » : une boutique sans TVA ne voit rien de plus.
+- **Sept branches, deux vagues** (le disque : 26 Go pour toutes), une base
+  PostgreSQL à chacune (`gescom_test_eq1`…`eq6`) — les scénarios font
+  `DROP SCHEMA`, partager `gescom_test` les aurait fait s'effacer.
+- **La fusion** : surtout des sections ajoutées des deux côtés ; à la
+  main, `coeur/calcul.rs` (l'acompte avec l'avoir, et le refus sur la
+  dette éteinte par un retour, côte à côte), les colonnes du schéma
+  (`vente.client_nom/client_code` et `piece_commerciale.colonnes`) et
+  `ALERTES.md` (chaque point barré par sa session).
+- **Vérifié sur la fusion** : noyau + serveur 1039/1039 (SQLite,
+  `--no-fail-fast`), tsc, node 23/23 ; bancs `eq-tout` 20/20 et
+  `a2-rendu` 13/13 sur un serveur d'essai (40080). Pas rejoué sur la
+  fusion : PostgreSQL (chaque branche l'a passé seule, sauf D58).
+- **Version 1.13.1** (Équipe 0.2.1, Serveur 0.3.1). **Pas vu** : les
+  boîtes de l'installeur (reprise, désinstallation) — TESTS-MANUELS L1-L15.
