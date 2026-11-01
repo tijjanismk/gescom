@@ -18,6 +18,10 @@
 use crate::base::{Acces, Base};
 use crate::parametres;
 
+/// Le droit de regler le suivi : changer la case, et des la creation
+/// (Parametres, import CSV) creer un article qui ne suit pas (D36, D57).
+pub const DROIT: &str = "parametres:modifier";
+
 /// L'article suit-il son stock ? (Inconnu : oui — le comportement d'avant.)
 pub fn est_suivi_sur(acces: &mut impl Acces, article_id: &str) -> bool {
     acces

@@ -250,12 +250,14 @@ les chiffres, mais on la retrouve.
 - **Sur le papier**, la facture et le reçu portent le code `PAS-…`,
   jamais « Client de passage ».
 - **Clients → Passages** : les retrouver par leur code ou par le numéro
-  de facture. Deux gestes (permission « modifier les clients ») :
-  - **Passer en client ordinaire** : lui donner un nom (obligatoire) et
-    un téléphone ; il devient un client comme les autres ;
-  - **Rattacher à un client** : le passant était en fait un client
-    connu ; ses ventes, paiements, retours et pièces passent sur la
-    fiche de ce client. **Ce geste ne se défait pas.**
+  de facture. Deux gestes :
+  - **Passer en client ordinaire** (qui peut créer un client, le
+    caissier compris) : lui donner un nom (obligatoire) et un
+    téléphone ; il devient un client comme les autres ;
+  - **Rattacher à un client** (qui peut modifier les clients) : le
+    passant était en fait un client connu ; ses ventes, paiements,
+    retours et pièces passent sur la fiche de ce client. **Ce geste ne
+    se défait pas.**
 - Un passant qui rapporte un article est remboursé ou fait un échange :
   pas d'avoir.
 
@@ -733,7 +735,9 @@ vide : emportez-le dans les rayons, cochez à la main, puis saisissez les
 Sachets, recharges, services, vrac : certains articles se vendent sans
 qu'on suive leur stock. **Paramètres → Articles**, case **« Suivre le
 stock »** décochée à la création ; pour un article existant, le déplier
-puis **Ne plus suivre le stock** (le patron).
+puis **Ne plus suivre le stock**. Dans les deux cas, il faut la
+permission « modifier les paramètres » (le patron) : sans elle, la case
+reste cochée et grisée, et l'import refuse la ligne « non ».
 
 - Il se vend normalement, jamais « à découvert » ;
 - il sort de l'écran Stock (la pastille **Non suivis** le montre) et de

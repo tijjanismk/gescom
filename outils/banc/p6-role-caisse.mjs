@@ -7,7 +7,8 @@
 // 2. Le serveur lance comme par le raccourci de demarrage (sans --base)
 //    s'efface sur la caisse d'une AUTRE machine — et tourne sur le poste
 //    principal, meme regle « poste » sur 127.0.0.1 (le reglage d'avant
-//    la revision). Joue sur un dossier a part, port 7301.
+//    la revision). Joue sur un dossier a part, port 40090 (dans la plage
+//    D39, loin de 40000-40001 du banc et de 40050 de l'essai a la main).
 // 3. Paramètres → Réseau : la caisse redevient le poste qui garde la base
 //    par un geste volontaire ; la fenetre rejoint son serveur.
 //
@@ -66,13 +67,14 @@ await capture(page, "p6-01-caisse");
 const ROLE = path.join(TRAVAIL, "role-poste");
 fs.rmSync(ROLE, { recursive: true, force: true });
 fs.mkdirSync(ROLE, { recursive: true });
-// Le port 7301 libre : un serveur d'un essai precedent peut le tenir encore.
-arreterPort(7301);
+// Le port de ce role libre : un serveur d'un essai precedent peut le tenir encore.
+const PORT_ROLE = 40090;
+arreterPort(PORT_ROLE);
 const raccourci = (serveur) => new Promise(resolve => {
   fs.writeFileSync(path.join(ROLE, "poste.json"), JSON.stringify({ mode: "poste", serveur, poste_nom: "C", poste_empreinte: "e" }));
   // Sans --base : comme le raccourci. GESCOM_DONNEES (debogage) au lieu
   // de %APPDATA% : jamais la base du proprietaire.
-  const enfant = spawn(SERVEUR, ["--port", "7301", "--hote", "127.0.0.1"], { env: { ...process.env, GESCOM_DONNEES: ROLE }, stdio: "pipe" });
+  const enfant = spawn(SERVEUR, ["--port", String(PORT_ROLE), "--hote", "127.0.0.1"], { env: { ...process.env, GESCOM_DONNEES: ROLE }, stdio: "pipe" });
   let sortie = "";
   enfant.stdout.on("data", d => sortie += d);
   enfant.stderr.on("data", d => sortie += d);
@@ -85,9 +87,9 @@ const journal = fs.existsSync(path.join(ROLE, "gescom.log")) ? fs.readFileSync(p
 ok(journal.includes("Serveur non démarré") && journal.includes("192.0.2.50"), "et son journal dit pourquoi");
 ok(!fs.existsSync(path.join(ROLE, "gescom.db")), "sans avoir créé de base");
 const ici = await raccourci("127.0.0.1:40000");
-ok(ici.tourne && !!(await sante(7301)), "« caisse » de 127.0.0.1 (le poste principal d'avant) : le serveur tourne");
+ok(ici.tourne && !!(await sante(PORT_ROLE)), "« caisse » de 127.0.0.1 (le poste principal d'avant) : le serveur tourne");
 ici.enfant?.kill();
-arreterPort(7301);
+arreterPort(PORT_ROLE);
 
 // ---- 3. Paramètres → Réseau : redevenir le poste qui garde la base.
 await connecter(page, "admin", "Admin-2026!", "Admin-2026!", "Ma boutique", URL_FENETRE);

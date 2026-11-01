@@ -62,9 +62,9 @@ fn un_article_se_reconnait_sans_la_casse_ni_les_espaces() {
     // A la main aussi.
     let e = gescom_noyau::comptoir::creer_article_rapide_sur(&mut base, "riz  local".into(), "kg".into(), 1, None, None).unwrap_err();
     assert!(e.contains("existe déjà"), "{e}");
-    let e = parametres::creer_article_complet_sur_base(&mut base, " SUCRE ".into(), None, "kg".into(), 1, None).unwrap_err();
+    let e = parametres::creer_article_complet_sur_base(&mut base, " SUCRE ".into(), None, "kg".into(), 1, None, true, false).unwrap_err();
     assert!(e.contains("existe déjà"), "{e}");
-    assert!(parametres::creer_article_complet_sur_base(&mut base, "  ".into(), None, "kg".into(), 1, None).is_err());
+    assert!(parametres::creer_article_complet_sur_base(&mut base, "  ".into(), None, "kg".into(), 1, None, true, false).is_err());
 }
 
 #[test]

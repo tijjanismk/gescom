@@ -2080,3 +2080,82 @@ modification d'une pièce (`Pieces.tsx`, quantités seulement).
 `colonnes`, écrites dans leur transaction ; `lire_donnees_piece` la
 rend (deux versions). Écran : `ModalNouvellePiece.tsx` (menu,
 bandeau, totaux), `OngletDocuments.tsx` (cases), `genererPDF.ts`.
+
+## D57 — Le caissier nomme un passant ; « ne pas suivre le stock » se décide dès la création (01/11/2026)
+
+**Les décisions du propriétaire (01/11/2026)** : (1) « Passer en client
+ordinaire » demandait `clients:modifier`, que l'employé a et le caissier
+non : le permettre au caissier. (2) Un employé pouvait décocher
+« Suivre le stock » à la création mais pas le changer ensuite : demander
+`parametres:modifier` dès la création, comme ensuite.
+
+**Ce que le code disait vraiment (relevé le 01/11)** : la création
+depuis Paramètres → Articles (`creer_article_complet`) exigeait déjà
+`parametres:modifier` côté serveur, alors que l'onglet s'affiche avec
+`articles:creer` : l'employé voyait le formulaire, cochait ou non, et
+TOUTE création était refusée. L'import CSV refusait déjà un article créé
+non suivi sans `parametres:modifier` (lot D.11). L'écran créait l'article
+puis appelait `changer_suivi_stock` : deux écritures, un article suivi
+restait créé si la seconde échouait.
+
+**Retenu** (proposé par l'assistant, choisi par le propriétaire le
+01/11/2026) :
+
+1. **Promouvoir demande `clients:creer`**, pas `clients:modifier`, et pas
+   de permission nouvelle. Pourquoi : nommer un passant, c'est créer un
+   client à partir d'une fiche sans nom — rien d'un client existant ne
+   change. Le caissier, l'employé et le patron ont déjà `clients:creer`,
+   sur une base neuve (`amorcage::roles`) comme sur une base existante
+   (`persistance/v2.rs`) : **aucune migration**, rien de nouveau dans
+   Paramètres → Rôles. La permission est une constante du noyau
+   (`passage::DROIT_PROMOUVOIR`) que lit la route : le test et la porte
+   ne peuvent pas diverger.
+   - **Ce que le caissier n'a toujours pas** : `modifier_client` et
+     `rattacher_passage` restent `clients:modifier` — rattacher verse
+     l'histoire d'un passage sur la fiche d'un client connu, c'est
+     toucher un client existant. L'écran le suit : « Passer en client
+     ordinaire » avec `clients:creer`, « Rattacher à un client » avec
+     `clients:modifier`.
+   - **Écarté** : donner tout `clients:modifier` au caissier (il
+     renommerait n'importe quel client, changerait téléphone et NIF) ;
+     une permission à part (une case de plus, qui ne réglerait rien que
+     `clients:creer` ne règle déjà).
+   - **Limite assumée** : un rôle fait main qui aurait `clients:modifier`
+     sans `clients:creer` perd le geste ; le patron coche « Créer un
+     client ». Le geste reste au journal (`passage_promu`, l'Historique).
+2. **Créer un article dans Paramètres demande `articles:creer`**, comme
+   au comptoir, aux Achats et à l'import — ce que l'onglet promettait.
+   `creer_article_complet` reçoit `suivreStock` ; **un article créé non
+   suivi demande `parametres:modifier`** (`suivi_stock::DROIT`, la même
+   constante que `changer_suivi_stock` et l'import). La règle est jugée
+   dans le noyau (`creer_article_complet_sur_base(…, suivre,
+   peut_regler_suivi)`), avant toute écriture, et le refus nomme le
+   droit. Pourquoi l'élargir plutôt que griser le bouton : l'employé crée
+   déjà des articles par trois portes ; lui fermer la quatrième ne
+   protège rien, et la seule chose qu'il ne doit pas faire seul — sortir
+   un article des écrans de stock (D36) — est gardée partout.
+   - **Une seule écriture** : article, unité, ligne de stock et, s'il
+     n'est pas suivi, le journal `suivi_stock_change` (comme l'import),
+     dans la même transaction. L'écran ne rappelle plus
+     `changer_suivi_stock` après la création.
+   - **Écran** : sans `parametres:modifier`, la case « Suivre le stock »
+     est cochée, grisée, et dit pourquoi (« décocher demande le droit
+     Modifier les paramètres »).
+   - **Ce qui ne change pas** : les autres gestes de l'onglet (catégories,
+     unités, seuil d'un article existant) restent `parametres:modifier`.
+     L'employé crée, il ne retouche pas : noté, pas tranché ici.
+   - La version `Connection` de `creer_article_complet` n'est plus
+     atteignable (les façades refusent toutes, `REFUS_SANS_BASE`, lot
+     E) : elle reste telle quelle, au grand nettoyage des façades.
+3. **L'import CSV** suivait déjà la règle (lot D.11) ; il lit maintenant
+   la même constante. Prouvé avec le reste.
+4. **Le test D40 du matin** attend que `/sante` annonce la copie : la date
+   n'est posée qu'après `VACUUM INTO` ET la relecture de la copie, donc
+   plus de `-journal` à voir. Il compte toujours une seule copie, qui se
+   relit, et pas de recopie au redémarrage.
+
+**Preuves** : `noyau/tests/droits_d57_base.rs` (le caissier promeut un
+passant, stock, caisse et créance inchangés ; l'employé refusé à la
+création sans suivi, sans rien écrire, accepté suivi ; le patron accepté
+et le geste au journal ; l'import pareil ; base neuve et base existante ;
+le détecteur), et `serveur/tests/routes.rs` par le vrai binaire.

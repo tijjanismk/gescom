@@ -604,6 +604,11 @@ pub fn lire_articles_complets_sur_base(base: &mut Base) -> Result<Vec<serde_json
     Ok(articles)
 }
 
+/// D57 : `suivre` faux cree l'article hors des ecrans de stock (D36),
+/// ce qui demande `suivi_stock::DROIT` — `peut_regler_suivi` dit si
+/// l'appelant l'a. Jugé avant toute ecriture ; l'article, son unite, sa
+/// ligne de stock et la trace du suivi s'ecrivent ensemble.
+#[allow(clippy::too_many_arguments)]
 pub fn creer_article_complet_sur_base(
     base: &mut Base,
     nom: String,
@@ -611,7 +616,18 @@ pub fn creer_article_complet_sur_base(
     unite_base: String,
     prix_reference: i64,
     seuil_alerte: Option<f64>,
+    suivre: bool,
+    peut_regler_suivi: bool,
 ) -> Result<String, String> {
+    if !suivre && !peut_regler_suivi {
+        return Err(format!(
+            "Créer un article qui ne suit pas son stock demande le droit « Modifier les paramètres » ({}). \
+             Rien n'a été créé : laissez « Suivre le stock » coché, ou demandez au patron.",
+            crate::suivi_stock::DROIT
+        ));
+    }
+    // Un article non suivi n'a pas de seuil d'alerte (D36, D45).
+    let seuil_alerte = if suivre { seuil_alerte } else { None };
     // D45 : le seuil se juge avant tout (vide : celui du dossier).
     if let Some(s) = seuil_alerte {
         crate::coeur::stock::verifier_seuil(s)?;
@@ -634,10 +650,32 @@ pub fn creer_article_complet_sur_base(
         "INSERT INTO article
          (id, nom, categorie_id, unite_base, gere_en_stock, attributs,
           actif, cree_le, modifie_le, cree_par, modifie_par, origine, taux_tva_defaut, seuil_alerte)
-         VALUES (?1,?2,CAST(?3 AS TEXT),?4,1,'{}',1,?5,?5,?6,?6,'app',?7,CAST(?8 AS DOUBLE PRECISION))",
-        &parametres![art_id.clone(), nom, categorie_id, unite_base.clone(), now.clone(), auteur.clone(), tva, seuil_alerte],
+         VALUES (?1,?2,CAST(?3 AS TEXT),?4,?9,'{}',1,?5,?5,?6,?6,'app',?7,CAST(?8 AS DOUBLE PRECISION))",
+        &parametres![
+            art_id.clone(), nom.clone(), categorie_id, unite_base.clone(), now.clone(), auteur.clone(), tva, seuil_alerte,
+            if suivre { 1i64 } else { 0i64 }
+        ],
     )
     .map_err(|e| e.0)?;
+    // Comme l'import : l'Historique dit qui a cree l'article hors du stock.
+    if !suivre {
+        tx.executer(
+            "INSERT INTO journal
+               (id, type_evenement, entite_type, entite_id, auteur_id,
+                ancien_valeur, nouveau_valeur, origine, date_evenement, dossier_id)
+             VALUES (?1,'suivi_stock_change','article',?2,?3,?4,?5,'app',?6,?7)",
+            &parametres![
+                uuid::Uuid::new_v4().to_string(),
+                art_id.clone(),
+                auteur.clone(),
+                serde_json::json!({ "nom": nom }).to_string(),
+                serde_json::json!({ "suivi": false, "a_la_creation": true }).to_string(),
+                now.clone(),
+                dossier.clone()
+            ],
+        )
+        .map_err(|e| e.0)?;
+    }
 
     tx.executer(
         "INSERT INTO unite_vente

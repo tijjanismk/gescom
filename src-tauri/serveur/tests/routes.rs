@@ -533,6 +533,72 @@ fn le_caissier_recoit_prix_achat_null_et_pas_le_tableau_de_bord() {
     assert_eq!(code, 403, "{v}");
 }
 
+/// D57, par le vrai binaire : la porte de chaque geste. Le caissier
+/// passe celle de la promotion (le noyau juge ensuite la fiche), pas
+/// celle du rattachement ; l'employé crée un article dans Paramètres,
+/// mais pas hors du stock ; le patron, si. Ce que font les gestes, les
+/// scénarios `droits_d57_base` le prouvent.
+#[test]
+fn le_caissier_promeut_un_passant_et_l_employe_ne_cree_pas_hors_du_stock() {
+    let srv = lancer();
+    let port = srv.port;
+    let (admin, _) = connexion(port);
+    let entrer = |nom: &str, role: &str, empreinte: &str| -> String {
+        let (code, v) = rpc(port, &admin, "creer_utilisateur", json!({
+            "nom": nom, "pseudo": nom, "email": null, "motDePasse": format!("{nom}-secret"), "roleNom": role
+        }));
+        assert_eq!(code, 200, "{v}");
+        let (code, v) = requete(
+            port, "POST", "/connexion",
+            Some(&json!({ "identifiant": nom, "mot_de_passe": format!("{nom}-secret"), "poste_nom": nom, "poste_empreinte": empreinte, "version_protocole": 1 })),
+            None,
+        ).unwrap();
+        assert_eq!(code, 200, "{v}");
+        v["jeton"].as_str().unwrap().to_string()
+    };
+    let caissier = entrer("fanta", "caissier", "routes-d57-c");
+    let employe = entrer("modibo", "employe", "routes-d57-e");
+
+    // La promotion : la porte s'ouvre au caissier, c'est le noyau qui
+    // refuse une fiche qui n'est pas un passage.
+    let (code, v) = rpc(port, &caissier, "promouvoir_passage", json!({ "clientId": "pas-une-fiche", "nom": "Awa" }));
+    assert_ne!(code, 403, "le caissier passe la porte de la promotion : {v}");
+    assert!(v.to_string().contains("Seule une fiche de client de passage"), "{v}");
+    // Rattacher et modifier une fiche restent fermés au caissier.
+    let (code, v) = rpc(port, &caissier, "rattacher_passage", json!({ "passageId": "x", "clientId": "y" }));
+    assert_eq!(code, 403, "{v}");
+    assert!(v.to_string().contains("clients:modifier"), "{v}");
+
+    let creer = |jeton: &str, nom: &str, suivre: bool| {
+        rpc(port, jeton, "creer_article_complet", json!({
+            "nom": nom, "categorieId": null, "uniteBase": "sachet", "prixReference": 25,
+            "seuilAlerte": null, "suivreStock": suivre
+        }))
+    };
+    let suivi_de = |nom: &str| -> Option<Value> {
+        let (_, v) = rpc(port, &admin, "lire_articles_complets", json!({}));
+        v["donnee"].as_array().unwrap().iter().find(|a| a["nom"] == nom).map(|a| a["gere_en_stock"].clone())
+    };
+    // L'employé : hors du stock, refusé et rien de créé ; suivi, créé.
+    let (code, v) = creer(&employe, "Sachets d'eau", false);
+    assert_ne!(code, 200, "{v}");
+    assert!(v.to_string().contains("parametres:modifier"), "le refus nomme le droit : {v}");
+    assert_eq!(suivi_de("Sachets d'eau"), None, "rien n'a été créé");
+    let (code, v) = creer(&employe, "Sachets d'eau", true);
+    assert_eq!(code, 200, "l'employé crée un article suivi dans Paramètres : {v}");
+    assert_eq!(suivi_de("Sachets d'eau"), Some(json!(true)));
+    // Sans la case (un écran plus ancien) : suivi, comme avant.
+    let (code, v) = rpc(port, &employe, "creer_article_complet", json!({
+        "nom": "Bidon", "categorieId": null, "uniteBase": "pièce", "prixReference": 500
+    }));
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(suivi_de("Bidon"), Some(json!(true)));
+    // Le patron : hors du stock, d'une seule écriture.
+    let (code, v) = creer(&admin, "Crédit Orange", false);
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(suivi_de("Crédit Orange"), Some(json!(false)));
+}
+
 #[test]
 fn le_plafond_du_caissier_se_juge_sur_l_argument_de_la_vente() {
     let srv = lancer();
@@ -1000,10 +1066,20 @@ fn un_serveur_rallume_chaque_matin_est_sauvegarde_sans_attendre_un_jour() {
     let mut srv = Serveur { enfant: demarrer(), port, base: base.clone() };
     attendre_sante();
     let debut = Instant::now();
-    // Une copie EN COURS a son `-journal` a cote : attendre qu'elle soit
-    // finie. Compter a la premiere apparition voyait parfois les deux.
-    while copies().is_empty() || copies().iter().any(|n| n.ends_with("-journal")) {
-        assert!(debut.elapsed() < Duration::from_secs(30), "aucune copie automatique après le démarrage");
+    // Une copie EN COURS a son `-journal` a cote, et le fichier peut
+    // paraitre avant lui : la liste seule ne dit pas qu'elle est finie
+    // (vu le 31/10). `/sante` ne donne la date qu'apres `VACUUM INTO` ET
+    // la relecture de la copie : l'attendre, puis lire le dossier une
+    // fois le `-journal` parti.
+    loop {
+        let finie = requete(port, "GET", "/sante", None, None)
+            .ok()
+            .is_some_and(|(code, v)| code == 200 && v["derniere_sauvegarde"].as_str().is_some());
+        let liste = copies();
+        if finie && !liste.is_empty() && !liste.iter().any(|n| n.ends_with("-journal")) {
+            break;
+        }
+        assert!(debut.elapsed() < Duration::from_secs(30), "aucune copie automatique finie après le démarrage : {liste:?}");
         std::thread::sleep(Duration::from_millis(300));
     }
     let premiere = copies();
