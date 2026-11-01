@@ -3125,3 +3125,55 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   affiché, puis le bon mot de passe ferme la boîte et la session ne
   demande plus rien. Gescom et Équipe partagent la boîte : les deux sont
   corrigés. tsc, node 14/14.
+
+## 01/11/2026 — D54 : l'installation ne perd rien, et reprend la base d'un poste seul
+
+Session lancée par la session mère, sur les défauts d'installation
+relevés le 28/10 (ALERTES). Deux décisions du propriétaire au départ
+(la case de désinstallation : la retirer ; le poste seul qui installe
+le serveur : l'installeur reprend sa base) ; les choix de détail écrits
+dans DECISIONS § D54, quatre questions posées, les quatre réponses
+recommandées acceptées (le texte de la question, la boîte quand les
+deux bases ont des ventes, le garde-fou de la marque, le refus de
+`--restaurer` sans `--base`).
+
+- **La case de désinstallation** : lu le modèle NSIS de Tauri 2.11.4
+  dans le CLI (`un.ConfirmShow` crée la case, `un.ConfirmLeave` lit son
+  état, la section Uninstall fait `RmDir /r` en fin si 1 ; les crochets
+  sont inclus juste après `${StrLoc}`, avant tout ça). D'où deux verrous
+  dans `src-tauri/nsis/donnees_gardees.nsh` : le style de la case
+  redéfini sans `WS_VISIBLE`, l'état remis à 0 en tête de section.
+  Prouvé dans le `installer.nsi` rendu du dernier build, recompilé dans
+  `%TEMP%` avec un exe factice : `makensis -V4` montre la case créée en
+  `0x40000000|0x04000000|…` (sans 0x10000000) et `StrCpy
+  $DeleteAppDataCheckboxState "0"` première instruction de la section ;
+  `-WX` passe. Équipe reçoit le même crochet (`hooks-equipe.nsh`).
+- **La reprise** : `noyau/src/reprise.rs` (examen, copie par `VACUUM
+  INTO` d'une connexion en lecture seule, vérification intégrité + lignes
+  par table, base neuve mise de côté, images recopiées et chemins
+  corrigés dans la copie, marque `reprise.json`, `laisser`) ;
+  `gescom-serveur --reprendre <base> [--base] [--examiner|--laisser]
+  [--installeur]` ; le garde-fou dans `main.rs` (la marque fait
+  s'effacer le serveur lancé sans `--base`). Le script NSIS : Gescom
+  fermé exigé, `taskkill gescom-serveur.exe` (celui de la fenêtre
+  survivait et tenait 40000), l'examen, la boîte, la copie, puis le
+  service. Les textes accentués restent dans le script : `nsExec`
+  décode la sortie en ANSI (sa doc) — la commande ne rend que des
+  nombres en ASCII, sans retour à la ligne (`print!` + `flush`).
+- **`--restaurer` sans `--base`** : refus qui nomme les deux bases quand
+  `serveur.json` existe.
+- **Les messages** : `netsh` à la place de `outils\parefeu.ps1`
+  (serveur, console, caisse), `--compte-limite` → la clé `base` de
+  `serveur.json`, `GESCOM_PG_SAUVEGARDE` → variable système et
+  redémarrage (lu par `std::env::var` dans le service : vérifié dans le
+  code, le comportement de Windows pas essayé ici).
+- **Trouvé en route** : `installeur_serveur.nsi` était lu en ACP (« »
+  faux à l'écran) — BOM ajouté, makensis dit maintenant « (UTF8) » ;
+  `serveur.json` se lit par tous les comptes (`icacls C:\ProgramData`),
+  la promesse « administrateurs seulement » retirée, le protéger reste
+  au propriétaire (ALERTES).
+- **Pas fait / pas vu** : aucune installation ni désinstallation sur ce
+  poste (interdit) ; les boîtes de l'installeur et la page sans case ne
+  sont vues que dans le script compilé — TESTS-MANUELS § L sur une
+  machine de test. L'installeur n'est pas construit (la session mère
+  le fera). Le PDF du guide n'est pas regénéré.

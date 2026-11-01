@@ -525,12 +525,14 @@ function afficherReseau(c) {
   if (c.avertissement_dhcp) avertir(c.avertissement_dhcp);
   if (c.parefeu.tcp === false) {
     avertir("Le pare-feu de Windows n'a pas de règle « Gescom serveur » pour le port " + c.port +
-      " : les caisses recevront « Serveur injoignable ». Réinstaller Gescom Serveur, ou, en administrateur : " +
-      "outils\\parefeu.ps1 -Ouvrir.");
+      " : les caisses recevront « Serveur injoignable ». Réinstaller Gescom Serveur : il ouvre le pare-feu. " +
+      "Ou, dans PowerShell en administrateur : " +
+      'netsh advfirewall firewall add rule name="Gescom serveur" dir=in action=allow protocol=TCP localport=' +
+      c.plage[0] + "-" + c.plage[1] + " profile=domain,private");
   }
   if (c.parefeu.udp === false) {
     avertir("La recherche automatique (UDP " + c.decouverte.port + ") est fermée par le pare-feu : " +
-      "« Rechercher le serveur » ne trouvera pas ce poste depuis les caisses.");
+      "« Rechercher le serveur » ne trouvera pas ce poste depuis les caisses. Réinstaller Gescom Serveur l'ouvre.");
   }
 
   const z = $("reseau-a-saisir");

@@ -41,6 +41,41 @@ pub fn chemin() -> Option<PathBuf> {
     }
 }
 
+/// La base que sert le service de ce poste : la cle `base` de
+/// `serveur.json`, sinon `gescom.db` a cote de ce fichier (dans
+/// `C:\ProgramData\Gescom` sur un poste livre). `None` hors de Windows, et
+/// en debogage sans `GESCOM_SERVEUR_JSON` : un essai ne doit jamais viser
+/// la vraie base du service (D54, `--reprendre`).
+pub fn base_du_service() -> Option<String> {
+    if cfg!(debug_assertions) && remplacement().is_none() {
+        return None;
+    }
+    let fichier = chemin()?;
+    let ecrite = std::fs::read_to_string(&fichier).ok().and_then(|t| {
+        let v: serde_json::Value = serde_json::from_str(t.trim_start_matches('\u{feff}')).ok()?;
+        v.get("base").and_then(|b| b.as_str()).map(str::trim).filter(|b| !b.is_empty()).map(str::to_string)
+    });
+    ecrite.or_else(|| Some(fichier.parent()?.join("gescom.db").to_string_lossy().to_string()))
+}
+
+/// `--restaurer` sans `--base` sur un ordinateur qui a Gescom Serveur
+/// (D54) : deux bases possibles, celle du service et celle du compte qui
+/// tape la commande. On ne choisit pas a sa place — restaurer sur la
+/// mauvaise remplacerait une base qu'on ne visait pas.
+pub fn refus_restaurer_sans_base(fichier: &str, configuration: &Path, base_service: Option<&str>, base_poste: &str) -> String {
+    let service = base_service.map(str::to_string).unwrap_or_else(|| "<la clé base de serveur.json>".to_string());
+    format!(
+        "Gescom Serveur est installé sur cet ordinateur ({}) : dire avec --base quelle base restaurer.\n\
+         \n\
+         La base du service (l'arrêter d'abord : sc stop GescomServeur, puis sc start GescomServeur après) :\n\
+         \x20 gescom-serveur --restaurer \"{fichier}\" --base \"{service}\"\n\
+         \n\
+         La base de ce compte Windows (le poste qui travaille seul) :\n\
+         \x20 gescom-serveur --restaurer \"{fichier}\" --base \"{base_poste}\"",
+        configuration.display()
+    )
+}
+
 /// Peut-on ECRIRE ce fichier depuis ce binaire ? Livre : oui. Debogage :
 /// seulement quand le chemin est remplace (voir l'en-tete).
 pub fn ecriture_permise() -> Result<PathBuf, String> {
@@ -110,5 +145,20 @@ mod tests {
         let restes: Vec<_> = std::fs::read_dir(&dossier).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(restes.len(), 1, "{restes:?}");
         let _ = std::fs::remove_dir_all(&dossier);
+    }
+
+    #[test]
+    fn restaurer_sans_base_nomme_les_deux_bases() {
+        let t = refus_restaurer_sans_base(
+            r"D:\copie.db",
+            Path::new(r"C:\ProgramData\Gescom\serveur.json"),
+            Some(r"C:\ProgramData\Gescom\gescom.db"),
+            r"C:\Users\Awa\AppData\Roaming\ml.gescom.app\gescom.db",
+        );
+        assert!(t.contains(r#"--restaurer "D:\copie.db" --base "C:\ProgramData\Gescom\gescom.db""#), "{t}");
+        assert!(t.contains(r#"--base "C:\Users\Awa\AppData\Roaming\ml.gescom.app\gescom.db""#), "{t}");
+        assert!(t.contains("sc stop GescomServeur"), "{t}");
+        let sans = refus_restaurer_sans_base("x", Path::new("serveur.json"), None, "p");
+        assert!(sans.contains("clé base de serveur.json"), "{sans}");
     }
 }

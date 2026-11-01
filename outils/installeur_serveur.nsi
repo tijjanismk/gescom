@@ -1,7 +1,9 @@
-; Installeur de Gescom Serveur — a part de la fenetre, avec les droits
+﻿; Installeur de Gescom Serveur — a part de la fenetre, avec les droits
 ; administrateur que celle-ci n'a pas (installMode currentUser).
 ;
 ; Ce qu'il fait, dans l'ordre :
+;   0. exige que Gescom (la caisse) soit ferme sur ce poste, et arrete tout
+;      gescom-serveur.exe encore lance (D54) ;
 ;   1. copie gescom-serveur.exe et la fenetre gescom-serveur-fenetre.exe
 ;      (« Gescom Serveur », D25) dans Program Files ;
 ;   2. enregistre le certificat auto-signe comme editeur de confiance
@@ -12,6 +14,8 @@
 ;   4. ouvre le pare-feu (profils Domaine et Prive, comme
 ;      outils\parefeu.ps1) : TCP sur la plage du serveur, et UDP 40000
 ;      pour que les caisses le trouvent (« Rechercher le serveur ») ;
+;   4b. un poste qui travaillait seul : propose de copier sa base dans
+;      celle du service, si celle-ci est neuve (D54) ;
 ;   5. installe et demarre le service Windows « GescomServeur » ;
 ;   6. pose au menu Demarrer « Gescom Serveur » (la fenetre), a cote de
 ;      la console dans le navigateur, du journal et de la configuration.
@@ -26,6 +30,7 @@ Unicode True
 !include "MUI2.nsh"
 !include "nsDialogs.nsh"
 !include "LogicLib.nsh"
+!include "WordFunc.nsh"
 
 !ifndef VERSION
   !define VERSION "0.0.0"
@@ -58,6 +63,9 @@ Var PortTexte
 Var ChampBase
 Var ChampPort
 Var DossierConfig
+; D54 : la base d'un poste qui travaillait seul, et ce qu'elle contient.
+Var BasePoste
+Var Resume
 
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME
@@ -101,7 +109,11 @@ Function PageConfiguration
   Pop $0
   ${NSD_CreateNumber} 0 64u 60u 12u "$PortTexte"
   Pop $ChampPort
-  ${NSD_CreateLabel} 0 86u 100% 36u "Le mot de passe PostgreSQL restera dans $DossierConfig\serveur.json, lisible par les administrateurs de cette machine seulement. Il n'est envoye nulle part."
+  ; Les droits par defaut de ProgramData laissent lire ce fichier a tous
+  ; les comptes de la machine (BUILTIN\Utilisateurs : lecture, verifie le
+  ; 01/11/2026) : le dire, plutot que promettre « administrateurs
+  ; seulement ».
+  ${NSD_CreateLabel} 0 86u 100% 36u "Le mot de passe PostgreSQL restera dans $DossierConfig\serveur.json, sur cette machine ; il n'est envoyé nulle part. Ce fichier se lit par tous les comptes de cette machine."
   Pop $0
   nsDialogs::Show
 FunctionEnd
@@ -134,6 +146,11 @@ Section "Serveur" SEC_SERVEUR
   SectionIn RO
   SetOutPath "$INSTDIR"
 
+  ; 0. Gescom (la caisse) ferme : ouverte, elle relancerait son serveur a
+  ;    cote d'elle des qu'on l'arrete, sur la base du poste et le port
+  ;    40000 — que le service doit prendre. Rien n'est encore change ici.
+  Call ExigerGescomFerme
+
   ; Mise a jour : l'ancien service tient l'executable ; on le retire
   ; d'abord, sinon la copie echoue. Sans service en place, ces deux
   ; commandes echouent sans consequence.
@@ -148,6 +165,13 @@ Section "Serveur" SEC_SERVEUR
   ${If} ${FileExists} "$INSTDIR\gescom-serveur-fenetre.exe"
     nsExec::ExecToLog 'taskkill.exe /IM gescom-serveur-fenetre.exe /F'
   ${EndIf}
+  ; Le serveur que la caisse lance a cote d'elle (poste seul, raccourci de
+  ; demarrage) survit a sa fermeture : il tient la base du poste et le
+  ; port 40000. Laisse en marche, le service ne pouvait pas ecouter, et la
+  ; copie de la base du poste (4b) aurait manque ses dernieres ventes. Le
+  ; service, lui, est deja arrete (mise a jour) ou pas encore installe.
+  nsExec::ExecToLog 'taskkill.exe /IM gescom-serveur.exe /F'
+  Sleep 1000
 
   File "${SOURCE}\gescom-serveur.exe"
   ; La fenetre du serveur (D25) : une coque qui affiche sa console.
@@ -183,6 +207,10 @@ Section "Serveur" SEC_SERVEUR
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${REGLE_RECHERCHE}"'
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${REGLE_RECHERCHE}" dir=in action=allow protocol=UDP localport=40000 profile=domain,private'
 
+  ; 4b. Un poste qui travaillait seul (D54) : sa base, si celle du service
+  ;     est neuve. Avant le service : il n'a pas encore ouvert sa base.
+  Call ReprendreBasePoste
+
   ; 5. Le service.
   nsExec::ExecToLog '"$INSTDIR\gescom-serveur.exe" --installer-service'
   Pop $0
@@ -211,6 +239,122 @@ Section "Serveur" SEC_SERVEUR
   ; console, c'est la fenetre « Gescom Serveur » qui suit, pas ce lien.
   CreateShortcut "$SMPROGRAMS\Gescom\Console du serveur.lnk" "http://localhost:$PortTexte"
 SectionEnd
+
+; ---------------------------------------------------------------------
+;  D54 : Gescom ferme, et la base d'un poste qui travaillait seul
+; ---------------------------------------------------------------------
+
+; La caisse s'appelle gescom.exe (le nom du programme Rust, comme le
+; modele de Tauri). tasklist voit les processus de toutes les sessions.
+Function ExigerGescomFerme
+  encore:
+    nsExec::ExecToStack '"$SYSDIR\cmd.exe" /c tasklist /FI "IMAGENAME eq gescom.exe" /NH | "$SYSDIR\find.exe" /I "gescom.exe"'
+    Pop $0
+    Pop $1
+    ${If} $0 == 0
+      MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Gescom est ouvert sur ce poste. Le fermer (finir d'abord la vente en cours), puis cliquer Réessayer.$\r$\n$\r$\nAnnuler arrête l'installation : rien n'aura été changé." /SD IDCANCEL IDRETRY encore
+      Quit
+    ${EndIf}
+FunctionEnd
+
+; La ligne que rend `gescom-serveur --reprendre … --installeur` (dans $1) :
+; « 1 234 ventes|210 articles|56 clients|31/10/2026 », en ASCII. Les
+; textes, eux, sont ici : la sortie que nsExec capture ne garantit pas les
+; accents. Rend le resume dans $Resume.
+Function LireResume
+  Push $2
+  Push $3
+  Push $4
+  Push $5
+  ${WordFind} "$1" "|" "+1" $2
+  ${WordFind} "$1" "|" "+2" $3
+  ${WordFind} "$1" "|" "+3" $4
+  ${WordFind} "$1" "|" "+4" $5
+  StrCpy $Resume "$2, $3, $4"
+  ${If} $5 != "-"
+  ${AndIf} $5 != ""
+    StrCpy $Resume "$Resume ;$\r$\n   dernière vente le $5"
+  ${EndIf}
+  Pop $5
+  Pop $4
+  Pop $3
+  Pop $2
+FunctionEnd
+
+; Le code de sortie d'une reprise refusee (dans $0) → la raison (dans $2).
+; Les codes : noyau::reprise::codes.
+Function RaisonDuRefus
+  ${If} $0 == 11
+    StrCpy $2 "la base de Gescom Serveur n'est plus neuve"
+  ${ElseIf} $0 == 13
+    StrCpy $2 "elle ne se lit pas (abîmée, ou pas une base Gescom)"
+  ${ElseIf} $0 == 20
+    StrCpy $2 "la copie ne correspondait pas à l'originale (Gescom était-il encore ouvert ?)"
+  ${ElseIf} $0 == 21
+    StrCpy $2 "la base de Gescom Serveur est ouverte par un autre programme"
+  ${ElseIf} $0 == 22
+    StrCpy $2 "l'écriture dans $DossierConfig a échoué (disque plein ?)"
+  ${Else}
+    StrCpy $2 "erreur inattendue (code $0)"
+  ${EndIf}
+FunctionEnd
+
+; Un poste qui travaillait seul garde sa base dans le dossier de son
+; utilisateur. L'installeur tourne en administrateur, sous le MEME compte
+; quand c'est lui qui a lance l'installeur (le cas d'une boutique) : $APPDATA
+; est alors le sien. Sous un autre compte (un technicien qui tape son mot
+; de passe d'administrateur), $APPDATA est celui du technicien, rien n'est
+; trouve : le guide (chapitre 9) donne la commande a la main.
+;
+; La commande fait le travail et le verifie (noyau/src/reprise.rs) ;
+; l'installeur demande et affiche. Codes : noyau::reprise::codes.
+Function ReprendreBasePoste
+  StrCpy $BasePoste "$APPDATA\ml.gescom.app\gescom.db"
+  ${IfNot} ${FileExists} "$BasePoste"
+    Return
+  ${EndIf}
+  DetailPrint "Base de ce poste : $BasePoste"
+  nsExec::ExecToStack '"$INSTDIR\gescom-serveur.exe" --reprendre "$BasePoste" --examiner --installeur'
+  Pop $0
+  Pop $1
+  ${If} $0 == 0
+    ; Base neuve, ou deja reprise (la marque reprise.json) : rien a dire.
+    Return
+  ${ElseIf} $0 == 10
+    Call LireResume
+    MessageBox MB_YESNO|MB_ICONQUESTION "Ce poste travaillait seul : il a déjà une base Gescom.$\r$\n   $BasePoste$\r$\n   $Resume.$\r$\n$\r$\nLa base de Gescom Serveur est neuve : elle ne contient rien.$\r$\n$\r$\nCopier la base de ce poste dans Gescom Serveur ?$\r$\n$\r$\nOui : la copie est vérifiée, puis le service démarre dessus.$\r$\nLa base du poste reste à sa place, sans changement.$\r$\n$\r$\nNon : Gescom Serveur démarre sur une base vide, et la caisse de ce poste s'y branchera. La base du poste reste à sa place ; pour la reprendre plus tard, relancer cet installeur." /SD IDYES IDYES copier
+    DetailPrint "Base du poste : non copiée (refusé)."
+    MessageBox MB_OK|MB_ICONINFORMATION "La base du poste n'est pas copiée : Gescom Serveur démarre sur une base vide.$\r$\n$\r$\nLa base du poste reste à sa place :$\r$\n   $BasePoste$\r$\nPour la reprendre plus tard, relancer cet installeur, tant que la base de Gescom Serveur n'a rien enregistré." /SD IDOK
+    Return
+    copier:
+    DetailPrint "Copie de la base du poste dans Gescom Serveur…"
+    nsExec::ExecToStack '"$INSTDIR\gescom-serveur.exe" --reprendre "$BasePoste" --installeur'
+    Pop $0
+    Pop $1
+    ${If} $0 == 0
+      Call LireResume
+      DetailPrint "Base du poste copiée et vérifiée."
+      MessageBox MB_OK|MB_ICONINFORMATION "La base du poste est copiée dans Gescom Serveur et vérifiée :$\r$\n   $Resume.$\r$\n$\r$\nLa base du poste reste à sa place ; Gescom ne s'en sert plus." /SD IDOK
+    ${Else}
+      Call RaisonDuRefus
+      DetailPrint "Base du poste non copiée (code $0) : $2."
+      MessageBox MB_OK|MB_ICONEXCLAMATION "La base du poste n'a pas été copiée : $2.$\r$\n$\r$\nRien n'est perdu : la base du poste est intacte. Gescom Serveur démarre sur sa base neuve. Pour reprendre la copie : guide d'installation, chapitre 9.$\r$\n$\r$\nLe détail : $DossierConfig\serveur.log" /SD IDOK
+    ${EndIf}
+  ${ElseIf} $0 == 11
+    Call LireResume
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Ce poste a déjà une base Gescom avec des ventes :$\r$\n   $BasePoste$\r$\n   $Resume.$\r$\n$\r$\nLa base de Gescom Serveur a aussi des ventes. L'installeur ne choisit pas entre les deux : aucune n'est touchée, et Gescom Serveur garde la sienne.$\r$\n$\r$\nPour trancher, avec un technicien : guide d'installation, chapitre 9." /SD IDOK
+  ${ElseIf} $0 == 12
+    Call LireResume
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Ce poste a déjà une base Gescom avec des ventes :$\r$\n   $BasePoste$\r$\n   $Resume.$\r$\n$\r$\nGescom Serveur est réglé sur PostgreSQL : l'installeur ne sait pas y copier une base de poste. Rien n'est copié, la base du poste reste à sa place. Guide d'installation, chapitres 6 et 9." /SD IDOK
+  ${ElseIf} $0 == 13
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Ce poste a un fichier de base Gescom qui ne se lit pas (abîmé, ou pas une base Gescom) :$\r$\n   $BasePoste$\r$\nIl n'est pas copié, et il reste à sa place. Gescom Serveur démarre sur sa base. Guide d'installation, chapitre 9." /SD IDOK
+  ${Else}
+    ; 14 (la base du serveur ne se lit pas), ou la commande n'a pas pu
+    ; etre lancee : on ne touche a rien, on le note.
+    DetailPrint "Base du poste : examen impossible (code $0), rien n'est copié."
+    MessageBox MB_OK|MB_ICONEXCLAMATION "La base de ce poste n'a pas pu être comparée à celle de Gescom Serveur (code $0) : rien n'est copié, aucune base n'est touchée. Guide d'installation, chapitre 9." /SD IDOK
+  ${EndIf}
+FunctionEnd
 
 ; Un antislash dans une chaine JSON doit etre double.
 Function EchapperJson

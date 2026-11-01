@@ -1829,3 +1829,103 @@ message, un bouton WhatsApp pour un employé hors bulletin.
 préfixe « 223 » à tout numéro qui ne commence pas par 223 — un
 « 00223 76… » y devient « 22300223 76… ». Elle pourra lire le numéro
 par `whatsapp.ts` après fusion.
+
+## D54 — L'installation ne perd rien, et reprend la base d'un poste seul (01/11/2026)
+
+**Le besoin** (ALERTES, « Trouvé le 28/10/2026 en écrivant le guide
+d'installation ») : la désinstallation de la caisse pouvait effacer la
+base d'un poste seul ; installer Gescom Serveur sur un poste qui
+travaillait seul le faisait démarrer sur une base neuve et vide, et la
+caisse de ce poste paraissait vide. Le propriétaire, le 01/11/2026 :
+« La case de désinstallation de la caisse qui efface base, sauvegardes et
+poste.json : LA RETIRER — la désinstallation ne touche jamais aux
+données ; pour repartir de zéro, on efface le dossier à la main et le
+guide dit où. » Et : « Un poste qui travaillait seul installe Gescom
+Serveur : L'INSTALLEUR REPREND SA BASE — s'il trouve la base du poste et
+que celle du serveur est neuve, il propose de la copier dans le serveur
+(l'originale est gardée). Rien n'est perdu. »
+
+**Retenu** (choix de détail, avec leur pourquoi) :
+
+1. **La case disparaît, par le crochet NSIS, sans modèle à nous.** Le
+   modèle de Tauri (tauri-cli 2.11.4) crée la case dans
+   `un.ConfirmShow` avec le style `__NSD_CheckBox_STYLE` de nsDialogs,
+   lit son état en quittant la page, et ne fait `RmDir /r
+   $APPDATA\ml.gescom.app` qu'en fin de section si l'état vaut 1. Le
+   fichier de crochets est inclus AVANT ces lignes : il redéfinit ce
+   style sans `WS_VISIBLE` (la case est créée invisible — c'est le seul
+   endroit du modèle qui crée une case nsDialogs), et
+   `NSIS_HOOK_PREUNINSTALL`, première ligne de la section, remet l'état
+   à 0. Deux verrous : si une version de Tauri change la case, le
+   second tient encore, ou la compilation échoue sur une variable
+   inconnue — jamais un effacement en silence. Pourquoi pas un modèle
+   NSIS à nous (`bundle.windows.nsis.template`) : 900 lignes de Tauri à
+   recopier à chaque mise à jour de tauri-cli (`^2` flottant).
+   La page de confirmation dit où restent les données. Même crochet
+   pour Gescom Équipe (sa case effaçait l'identité du poste, que le
+   serveur reconnaît). Gescom Serveur n'avait pas de case et garde déjà
+   `C:\ProgramData\Gescom` (vérifié dans `installeur_serveur.nsi`).
+2. **La reprise est une commande du serveur, l'installeur ne fait que
+   demander.** `gescom-serveur --reprendre <base du poste>`, logique dans
+   `noyau/src/reprise.rs`, testée sur des dossiers jetables :
+   - **« Neuve »** = aucune vente, aucune pièce, aucun article (un
+     dossier créé par l'assistant sans rien d'autre compte comme neuf :
+     ce n'est pas une boutique qui a travaillé). Absente = neuve.
+   - **La copie** passe par `VACUUM INTO` (cohérente, journal WAL
+     compris — une copie du fichier seul perdrait les dernières ventes),
+     dans un fichier à côté de la cible ; puis **vérifiée** : intégrité,
+     et le même nombre de lignes dans chaque table que l'originale.
+     Alors seulement la base neuve du serveur est mise de côté
+     (`gescom.db.avant-reprise-<date>`, rien n'est effacé) et la copie
+     prend sa place par un renommage. L'originale n'est jamais ouverte
+     en écriture.
+   - **Les images** (logo, en-tête, pied) sont des fichiers à côté de
+     la base dont la base garde le chemin : elles sont copiées dans
+     `C:\ProgramData\Gescom` et leurs chemins corrigés **dans la copie**.
+   - **Une marque** `reprise.json` est posée à côté de la base du
+     poste : le serveur lancé sans `--base` (raccourci de démarrage,
+     fenêtre) refuse ensuite de servir cette ancienne base et le dit au
+     journal. Sans elle, si le service tombait ou changeait de port, le
+     raccourci servirait l'ancienne base sur 40000 et la caisse du poste
+     vendrait dedans pendant que les autres vendent dans la vraie.
+   - **Refuser plutôt que faire semblant** : base du serveur sur
+     PostgreSQL, base du poste abîmée, base du serveur ouverte par le
+     service, copie différente de l'originale → rien n'est remplacé,
+     un code de sortie et une phrase le disent.
+3. **L'installeur du serveur**, dans l'ordre : Gescom (la caisse) doit
+   être fermé (Réessayer / Annuler, comme l'installeur de Tauri) ; tout
+   `gescom-serveur.exe` encore lancé est arrêté (celui de la fenêtre
+   survit à sa fermeture et tenait 40000 : le service ne pouvait pas
+   écouter) ; `--reprendre … --examiner` dit s'il y a quelque chose à
+   proposer ; sur Oui, la copie ; puis le service démarre. Les textes
+   affichés vivent dans le script NSIS (les nombres viennent de la
+   commande en ASCII : la sortie capturée par `nsExec` ne garantit pas
+   les accents). Installation silencieuse : Oui par défaut — personne
+   à qui demander, et l'originale est gardée.
+   **Les deux bases ont des ventes** (sans reprise faite avant) : rien
+   n'est touché, une boîte le dit, et revient à chaque installation
+   tant que ce n'est pas tranché. Trancher pour la base du serveur :
+   `gescom-serveur --reprendre <base du poste> --laisser` pose la marque
+   sans rien copier (le garde-fou s'applique, la boîte ne revient plus).
+4. **`--restaurer` sans `--base`** sur un ordinateur qui a Gescom
+   Serveur (`serveur.json` présent) : **refus** qui affiche les deux
+   commandes possibles — la base du service (après `sc stop`) et celle
+   du compte Windows qui tape. Sur un poste seul, rien ne change (la
+   base de l'utilisateur est la seule).
+
+**Le propriétaire a accepté le 01/11/2026** le texte proposé à
+l'installation (ci-dessous, chapitre 9 du guide), la boîte quand les
+deux bases ont des ventes, le garde-fou de la marque et le refus de
+`--restaurer` sans `--base`.
+5. **Les messages.** `outils\parefeu.ps1` n'est dans aucun installeur :
+   les messages disent « installer (ou réinstaller) Gescom Serveur, il
+   ouvre le pare-feu » et, pour un technicien, la ligne `netsh` exacte.
+   `--compte-limite` dit « la clé base de serveur.json ».
+   `GESCOM_PG_SAUVEGARDE` : le service la lit dans SON environnement
+   (`std::env::var`), que Windows lui donne au démarrage de la machine
+   — une variable système (`setx /M`), puis redémarrer l'ordinateur ;
+   une variable de l'utilisateur ne lui parvient jamais. Le message et
+   le guide le disent.
+
+**Pas pris** : copier vers PostgreSQL (un outil à part, à faire avec un
+technicien) ; fusionner deux bases qui ont chacune des ventes.
