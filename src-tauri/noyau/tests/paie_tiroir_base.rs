@@ -177,7 +177,7 @@ fn une_avance_etalee_se_retient_par_mensualites() {
     let f = paie::lire_sur(&mut base, &sept).unwrap();
     let avance: Vec<&Value> = f["lignes"].as_array().unwrap().iter().filter(|l| l["genre"] == "avance").collect();
     assert_eq!(avance[0]["montant"], -10_000);
-    assert_eq!(avance[0]["libelle"], "Avance du 20/08/2026 (30 000 F ; 10 000 F par paie ; 20 000 F reportés)");
+    assert_eq!(avance[0]["libelle"], "Avance du 20/08/2026 (30 000 F ; 10 000 F par mois ; 20 000 F reportés)");
     assert_eq!(f["net"], 50_000);
     assert_eq!(avances::en_cours_sur(&mut base, &awa).unwrap(), 20_000);
 

@@ -334,8 +334,16 @@ fn ecriture_fiche(
     let cot: i64 = lignes.iter().filter(|l| l.genre == p::COTISATION).map(|l| -l.montant).sum();
     let ret: i64 = lignes.iter().filter(|l| l.genre == p::RETENUE).map(|l| -l.montant).sum();
     let av: i64 = lignes.iter().filter(|l| l.genre == p::AVANCE).map(|l| -l.montant).sum();
+    // D56 : la commission reprise annule une charge deja passee, elle
+    // n'est pas un produit — au credit des salaires, en moins du du.
+    let rep: i64 = lignes.iter().filter(|l| l.genre == p::REPRISE).map(|l| -l.montant).sum();
     let dues = &a["paie:remunerations_dues"];
-    let mut l = vec![debit(&a["paie:salaires"], brut), credit(dues, brut - cot - ret), credit(&a["paie:retenues"], ret)];
+    let mut l = vec![
+        debit(&a["paie:salaires"], brut),
+        credit(dues, brut - cot - ret - rep),
+        credit(&a["paie:retenues"], ret),
+        credit(&a["paie:salaires"], rep),
+    ];
     for x in lignes.iter().filter(|l| l.genre == p::COTISATION) {
         l.push(credit(&organisme(x), -x.montant));
     }

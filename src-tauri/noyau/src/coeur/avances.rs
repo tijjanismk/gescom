@@ -54,7 +54,7 @@ pub fn verifier(montant: i64, en_cours: i64, plafond: Option<i64>, nom: &str, vo
 pub fn verifier_mensualite(mensualite: Option<i64>, montant: i64) -> Result<Option<i64>, String> {
     match mensualite {
         None => Ok(None),
-        Some(m) if m <= 0 => Err("La retenue par paie doit être plus grande que zéro — ou vide pour tout retenir.".to_string()),
+        Some(m) if m <= 0 => Err("La retenue par mois doit être plus grande que zéro — ou vide pour tout retenir.".to_string()),
         Some(m) if m >= montant => Ok(None),
         Some(m) => Ok(Some(m)),
     }

@@ -10,7 +10,8 @@
 //!
 //! D42 : quand l'argent est **pris dans le tiroir**, la sortie de caisse
 //! s'ecrit avec l'avance (caisse ouverte exigee) ; l'avance peut etre
-//! datee d'un jour passe et s'etaler (« X F par paie »).
+//! datee d'un jour passe et s'etaler (« X F par mois », une fois par mois
+//! civil — D56).
 
 use crate::base::Base;
 use crate::coeur::avances as regles;
@@ -108,7 +109,7 @@ pub struct Saisie {
     pub motif: Option<String>,
     /// Le jour ou l'avance a ete donnee (`AAAA-MM-JJ`) ; vide : aujourd'hui.
     pub date: Option<String>,
-    /// Ce qu'une paie en retient au plus ; vide : tout.
+    /// Ce qu'un mois civil en retient au plus (D56) ; vide : tout.
     pub mensualite: Option<i64>,
     /// L'argent sort du tiroir : la sortie de caisse s'ecrit avec elle.
     pub du_tiroir: bool,

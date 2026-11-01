@@ -443,6 +443,15 @@ fn numero_id(base: &mut Base, numero: &str) -> String {
         .unwrap()
 }
 
+/// Le premier et le dernier jour du mois en cours.
+fn mois_en_cours() -> (String, String) {
+    use chrono::{Datelike, Duration, Local, NaiveDate};
+    let j = Local::now().date_naive();
+    let debut = NaiveDate::from_ymd_opt(j.year(), j.month(), 1).unwrap();
+    let suivant = if j.month() == 12 { NaiveDate::from_ymd_opt(j.year() + 1, 1, 1) } else { NaiveDate::from_ymd_opt(j.year(), j.month() + 1, 1) }.unwrap();
+    (debut.to_string(), (suivant - Duration::days(1)).to_string())
+}
+
 // =====================================================================
 //  Point 6 — le trop-verse devient une avance retenue ensuite
 // =====================================================================
@@ -467,8 +476,11 @@ fn point_6_le_trop_verse_est_repris_sur_la_fiche_suivante() {
     assert_eq!((a["moyen"].as_str(), a["trop_verse_numero"].as_str()), (Some("trop_verse"), r["numero"].as_str()));
     assert_eq!(compter_journal(&mut base, "avance_trop_verse"), 1);
 
-    // Octobre la retient (avant : octobre ignorait les 8 000 F).
-    let o = preparer(&mut base, &binta, OCT, false);
+    // La fiche suivante la retient (avant : elle ignorait les 8 000 F).
+    // L'avance est datee du jour de la rectificative : la fiche du mois en
+    // cours, pas octobre en dur — le test ne depend plus du jour ou il tourne.
+    let (du, au) = mois_en_cours();
+    let o = preparer(&mut base, &binta, (&du, &au), false);
     assert_eq!((lignes(&o, "avance")[0]["montant"].as_i64(), o["net"].as_i64()), (Some(-8_000), Some(52_000)));
     paie::valider_sur(&mut base, id(&o)).unwrap();
     assert_eq!(avances::en_cours_sur(&mut base, &binta).unwrap(), 0);

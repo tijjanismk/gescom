@@ -476,6 +476,7 @@ menant à l'écran, selon ses droits.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D56 | **l'avance étalée par mois civil** (comme le prêt : ce que la première quinzaine a retenu se déduit de la seconde) ; **la commission d'une vente annulée se reprend** sur la fiche dont la période contient l'annulation ou la suit, ligne `reprise_commission` qui nomme la vente, 661 au crédit, bornée au net (le reste se reporte) ; rien n'est réécrit sur la fiche validée |
 | D47 | **le prêt au personnel** : une avance de nature `pret` (même table) ; `paie:valider` ; échéance fixe par mois civil, reculable de 3 mois, une échéance manquée allonge le prêt ; avances d'abord ; un seul prêt en cours ; soldé calculé ; au départ, tout le reste sur la dernière fiche, puis remboursement ou remise (658) |
 | D42 | **le tiroir, l'avance, la commission** (les questions de D41) : case « pris dans le tiroir » qui écrit la sortie de caisse, sinon hors caisse ; l'avance s'étale à la saisie (tout, ou X F par mois) et se date dans le passé (31 jours au plus) ; la commission sur l'**encaissé**, moins l'argent rendu ; l'ITS saisi à la main, pas de barème — codé le 28/10 |
 | D41 | **la paie suit l'emploi et fige ses conditions** : seulement les jours d'emploi de la période ; prorata en entiers sur les jours du mois, un jour non marqué compte présent ; salaire au mois sur un mois civil ; la rectificative reprend les conditions figées de la fiche ; jours figés après validation ; trop-versé → avance ; commission nette des retours ; montants masqués partout sans droit de paie ; « 15.000 » = 15 000 F |
@@ -1829,3 +1830,102 @@ message, un bouton WhatsApp pour un employé hors bulletin.
 préfixe « 223 » à tout numéro qui ne commence pas par 223 — un
 « 00223 76… » y devient « 22300223 76… ». Elle pourra lire le numéro
 par `whatsapp.ts` après fusion.
+
+## D56 — L'avance étalée par mois ; la commission d'une vente annulée se reprend (01/11/2026)
+
+**Le besoin** (`ALERTES.md`, ce qui restait de D42) : un journalier payé
+à la quinzaine remboursait deux fois par mois une avance « X F par
+paie » ; une vente annulée après qu'une fiche validée avait payé sa
+commission ne se reprenait pas.
+
+**Décisions du propriétaire** (01/11/2026) : (1) « Une avance étalée se
+retient une fois par mois, comme le prêt (D47) : la mensualité est par
+mois civil, ce que la première fiche du mois a retenu se déduit de la
+seconde ; " par paie " devient " par mois " à l'écran. » (2) « Une vente
+annulée après qu'une commission sur cette vente a déjà été versée : la
+commission versée en trop devient une retenue sur la fiche suivante de
+la personne, dite avec la vente annulée ; rien n'est réécrit sur la
+fiche déjà validée. »
+
+**Choix de détail** (écrits avant le code) :
+
+1. **Le mois d'une fiche est celui de son début** (`SUBSTR(du, 1, 7)`,
+   comme le prêt). L'avance retient au plus `mensualité − ce que les
+   AUTRES fiches validées du même mois en ont déjà retenu`. Une
+   rectificative ne compte pas la fiche qu'elle remplace (elle rend ce
+   que celle-ci avait retenu, puis retient de nouveau) : même requête
+   que `prets_a_retenir`. Le libellé dit ce qui a déjà été retenu ce
+   mois-ci. *Pourquoi* : la règle du prêt, déjà éprouvée ; un seul
+   modèle pour les deux.
+2. **Une avance « tout sur la prochaine paie »** (sans mensualité) et un
+   **trop-versé** ne changent pas : tout, sur la première fiche qui a du
+   net. La règle ne touche que l'accord « X F par mois ».
+3. **Une avance déjà retenue deux fois ce mois-ci au moment de la mise à
+   jour** : rien n'est réécrit. Les fiches validées gardent leurs lignes ;
+   le mois suivant retient la mensualité normale (pas de rattrapage,
+   pas de « crédit » de la retenue en trop, qui a simplement soldé
+   l'avance plus vite). Seule une rectificative de la seconde quinzaine,
+   si on l'ouvre, recalcule avec la règle du mois et rend l'excédent
+   dans son net (c'est ce qu'elle doit faire).
+4. **La date de l'annulation** est celle de la pièce d'avoir
+   d'annulation (`piece_commerciale`, `avoir_client`, origine
+   `annulation`, `piece_origine_id` = la facture de la vente), à défaut
+   `vente.modifie_le`. *Pourquoi* : la pièce ne bouge plus ;
+   `modifie_le` peut être réécrit par un autre geste.
+5. **Une vente annulée compte comme un retour, à sa date** (la règle de
+   D42 : « à la date du retour »). Chaque fiche fige dans ses conditions
+   le jour jusqu'auquel elle voit les annulations
+   (`Conditions.annulations_vues_au`) : la fin de sa période, ou le jour
+   du calcul s'il vient avant (valider avant la fin du mois est permis,
+   D41 point 5). Une vente annulée **après** ce jour y compte encore —
+   même si la fiche est préparée après l'annulation ; une vente annulée
+   avant, non. Une rectificative garde le jour de la fiche qu'elle
+   remplace. Une fiche d'avant D56 n'a pas ce jour : elle a vu les
+   annulations jusqu'au jour de sa validation. *Pourquoi* : une
+   rectificative de septembre ne réécrit pas septembre (la décision 2),
+   et ce qui a été payé se reprend une fois, ni zéro ni deux. Sur le
+   vendu (fiches d'avant D42), même règle.
+6. **Ce qui se reprend** : pour chaque fiche **validée** (pas
+   remplacée) de la personne qui a vu les annulations jusqu'à un jour
+   d'avant celle-ci, la commission de cette vente seule, au taux figé de cette fiche
+   (`arrondi(assiette × taux)`, l'assiette de la vente sur la fenêtre de
+   la fiche, calculée comme la commission de la fiche) — jamais plus
+   que la ligne de commission de cette fiche. « Versée » veut dire
+   **portée sur une fiche validée** : la fiche validée est ce qu'on doit
+   à la personne, qu'elle ait été payée ou non. Une fiche encore en
+   brouillon ne se reprend pas : elle n'a rien versé, elle sera validée
+   avec la vente comptée, et la reprise suivra.
+7. **Où** : sur toute fiche de la personne (brouillon) dont la période
+   finit le jour de l'annulation ou après — « la fiche suivante ». Ce
+   qui a déjà été repris (lignes de reprise sur d'autres fiches
+   validées, la fiche remplacée mise à part) se déduit : une seconde
+   fiche ne la reprend pas, une rectificative la refait à l'identique.
+   La fiche n'a pas besoin d'une commission ce mois-là : la reprise suit
+   la personne.
+8. **La ligne** : un genre nouveau, `reprise_commission`, calculé (pas
+   saisi), négatif, `source` = la vente. Libellé : « Commission reprise :
+   vente FAC-… du 12/09/2026 annulée le 03/10/2026 (3 % de 50 000 F) ».
+   *Pourquoi un genre à lui* : une retenue saisie (`retenue`) se retire
+   à la main et va au compte 758 ; la reprise n'est pas un produit, elle
+   corrige une charge.
+9. **Le journal PA** : la reprise **crédite le compte des salaires**
+   (`paie:salaires`, 661) et diminue d'autant la rémunération due (422).
+   *Pourquoi* : la commission avait été passée en charge 661 sur la
+   fiche validée ; la reprise annule cette charge, elle ne crée pas un
+   produit. L'écriture reste équilibrée.
+10. **Une reprise plus grande que le net** : retenue dans la limite du
+    net (après les cotisations et les retenues saisies), le reste
+    **reporté** sur la fiche suivante, comme une avance (D32) ; le
+    libellé dit ce qui est reporté. Jamais de net négatif.
+11. **L'ordre sur une fiche maigre** : la reprise d'abord (elle corrige
+    un gain), puis les avances, puis les prêts (D47).
+12. Les cotisations ne se recalculent pas sur la reprise : elles ont été
+    calculées et déclarées sur le brut de la fiche validée (rien n'y est
+    réécrit). Le comptable corrige à la main s'il le faut.
+
+**Les risques nommés** : une personne partie n'a plus de fiche suivante
+— une vente annulée après sa dernière fiche ne se reprend pas (comme un
+règlement arrivé après le départ ne rapporte rien, D42). Deux fiches
+validées au même instant pourraient prendre chacune la même reprise ou
+la même mensualité (la validation recalcule avant de figer : la fenêtre
+est étroite, pas nulle — le même risque que D47).

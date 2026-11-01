@@ -20,7 +20,7 @@ fenêtre qui ne parle qu'au serveur ; modules en version `Base` seule
 | Prêts (base) | [prets.rs](../../src-tauri/noyau/src/prets.rs) | `preter_sur(base, employe, montant, Saisie { moyen, motif, date, mensualite, premier_mois, du_tiroir })` (une ligne `avance` de nature `pret` ; tiroir comme l'avance, D42), `rembourser_sur`, `remettre_sur` (`pret_reglement`, `avance.retenu` monte), `annuler_sur` (rien retenu ni remboursé), `en_cours_sur`, `lister_sur(employe, en_cours_seulement)` (`reste`, `etat`, `fin_prevue`, `retenu_paie`, `rembourse`, `remis`, `partie`), `lire_sur` (+ `mouvements` : retenues des fiches validées, remboursements, remise) ; journal `pret_accorde`, `pret_rembourse`, `pret_remis`, `pret_annule` (entité `pret`, montants masqués comme la paie) ; la retenue entre dans `paie::calculer` (`prets_a_retenir`) |
 | Écran prêts | [src/equipe/Prets.tsx](../../src/equipe/Prets.tsx) | onglet « Prêts » de Paie (avec `paie:preparer` ou `paie:valider`) : prêter (montant, retenue par mois, première retenue, échéancier annoncé), en cours / tous, déplier : retenues et remboursements, « Remboursement à part », « Remettre le reste », annuler |
 | Écran paie | [src/equipe/Paie.tsx](../../src/equipe/Paie.tsx) | onglets Avances / Fiches du mois / Cotisations / Prêts (D47) / État du mois (D48 ; ces deux derniers avec `paie:preparer` ou `paie:valider`) ; donner (`MoneyInput`), en cours par personne, annuler ; une avance de trop-versé se dit « versé en trop sur PAIE-…, repris en avance » |
-| Paie (pur) | [coeur/paie.rs](../../src-tauri/noyau/src/coeur/paie.rs) | **tout en entiers** (28/10) : `arrondi(num, den)` (au franc, la moitié s'éloignant de zéro), `millioniemes(pct)` ; `bornes_d_emploi`, `hors_emploi`, `nombre_de_jours`, `jours_du_mois_de`, `verifier_mois_entier` (au mois : un mois civil entier), `verifier_un_seul_mois`, `debut_du_compte` (un compte repris ne commissionne pas deux fois) ; `gains_calcules` (au mois : salaire × jours d'emploi / jours du mois, **toujours** ; au prorata, moins les absences et ½ par demi-journée — un jour non marqué compte comme présent ; jours × tarif en demi-journées ; % des ventes signées **moins les retours de la période**, jamais négatif), `ligne_saisie` (bornée), `retenir_avances`, `calculer` / `totaux` / `validable` (sommes vérifiées, `Result`), `Conditions` (ce qui a servi au calcul), `conditions_depuis_lignes` (une fiche d'avant le 28/10), `reste_a_verser`, `trop_verse_a_reprendre`, `MOYEN_TROP_VERSE` |
+| Paie (pur) | [coeur/paie.rs](../../src-tauri/noyau/src/coeur/paie.rs) | **tout en entiers** (28/10) : `arrondi(num, den)` (au franc, la moitié s'éloignant de zéro), `millioniemes(pct)` ; `bornes_d_emploi`, `hors_emploi`, `nombre_de_jours`, `jours_du_mois_de`, `verifier_mois_entier` (au mois : un mois civil entier), `verifier_un_seul_mois`, `debut_du_compte` (un compte repris ne commissionne pas deux fois) ; `gains_calcules` (au mois : salaire × jours d'emploi / jours du mois, **toujours** ; au prorata, moins les absences et ½ par demi-journée — un jour non marqué compte comme présent ; jours × tarif en demi-journées ; % des ventes signées **moins les retours de la période**, jamais négatif), `ligne_saisie` (bornée), `retenir_avances` (D56 : la mensualité par **mois civil**, moins `AvanceARetenir.deja_ce_mois`), `commission_de(pct, assiette)`, `reprise_due` / `retenir_reprises` (D56 : `RepriseARetenir`, la commission d'une vente annulée, bornée au net, le reste reporté), `calculer(r, p, prorata, saisies, reprises, avances, cotisations)` (reprises avant les avances) / `totaux` / `validable` (sommes vérifiées, `Result`), `Conditions` (ce qui a servi au calcul ; `annulations_vues_au`, D56), `annulations_vues_au(au, aujourd_hui)`, `seuil_des_annulations(c, valide_le)`, `conditions_depuis_lignes` (une fiche d'avant le 28/10), `reste_a_verser`, `trop_verse_a_reprendre`, `MOYEN_TROP_VERSE` |
 | Paie (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `preparer_sur` (refuse une période hors de l'emploi, et pour qui est payé au mois une période qui n'est pas un mois civil entier), `recalculer_sur`, `ajouter_ligne_sur`, `retirer_ligne_sur`, `supprimer_sur` (brouillon, vérifié au moment d'écrire), `valider_sur` (refuse ce qui n'est plus à jour ; n'écrit que si la fiche est encore un brouillon ; numéro `PAIE-AAAA-NNNNN`, avances retenues, conditions figées ; une rectificative crée l'avance du trop-versé), `rectifier_sur` (conditions figées de l'ancienne, ou relues sur ses lignes), `lire_sur`, `lister_sur(du, au)` (fiches + personnes employées au moins un jour de la période), `fiche_validee_du_jour_sur`, `fiches_validees_apres_sur`, `jour_paye_sur` |
 | Payer (base) | [paie.rs](../../src-tauri/noyau/src/paie.rs) | `verser_avec_sur(base, fiche, montant, moyen, du_tiroir)` (D42 : pris dans le tiroir → sortie de caisse `salaire`, espèces, caisse ouverte exigée) ; `verser_sur` (= hors caisse ; pas plus que le reste), `salaires_par_mois_sur` (Rapports → CA mensuel : brut + charges des fiches validées, au mois de fin de période ; masqué sans la paie), `donnees_bulletin_sur` ; la fiche lue porte `verse`, `trop_verse` (repris en avance), `reste` (= net − versé + repris ; négatif : un trop-versé non repris), `versements` |
 | Bulletin | [lib/genererBulletin.ts](../../src/lib/genererBulletin.ts), [ApercuBulletin.tsx](../../src/equipe/ApercuBulletin.tsx) | genre de document `bulletin` (Paramètres → Documents), aperçu = impression ; dit le trop-versé repris en avance |
@@ -62,7 +62,8 @@ fiches de paie en ont déjà pris), moyen, motif, statut `ouverte` /
 `annulee`, `annule_le`. **Hors caisse** (D31/D32 révisées le 24/09) :
 `mouvement_caisse_id` reste vide — sauf **pris dans le tiroir** (D42) :
 il désigne la sortie de caisse écrite avec elle. `mensualite` (D42) : ce
-qu'une paie en retient au plus, vide = tout ; `date_avance` peut être un
+qu'un **mois civil** en retient au plus (D56, comme le prêt : ce que les
+autres fiches validées du mois en ont retenu se déduit), vide = tout ; `date_avance` peut être un
 jour passé (`AAAA-MM-JJ`), `cree_le` garde l'instant de la saisie.
 Droits : `personnel:avancer` pour donner et annuler ; lecture par qui
 avance ou paie. `trop_verse_fiche_id` (28/10) : l'avance née d'un
@@ -91,8 +92,8 @@ se stocke (D31) ; `nom`, `fonction` figés à la paie ; statut
 `brouillon` → `validee` → `remplacee` (par une rectificative, qui porte
 `rectifie_id`) ; `brut`, `retenues` (en positif, avances comprises),
 `net`, `reporte`. Une ligne : `genre` (base, jours, commission, tache,
-prime, retenue, avance), `montant` signé, `saisie`, `source` (l'avance
-retenue). Une fiche vivante par personne et par période (pas de
+prime, retenue, avance, `reprise_commission` — D56), `montant` signé,
+`saisie`, `source` (l'avance retenue ; la vente annulée d'une reprise). Une fiche vivante par personne et par période (pas de
 chevauchement). À la validation, `avance.retenu` monte (sans jamais
 dépasser le montant) ; la rectificative rend d'abord ce que l'ancienne
 avait retenu. Préparer / corriger : `paie:preparer` ; valider,
@@ -108,7 +109,14 @@ pendant l'emploi, moins l'argent ou l'avoir rendu (retours non-échange
 moins la dette éteinte, mode `retour`) ; absent = sur le vendu. Les
 ventes d'avant la fin de la dernière fiche « sur le vendu »
 (`vendu_jusqu_au`) ne comptent plus à leur règlement ; leurs retours se
-déduisent pour leur valeur entière.
+déduisent pour leur valeur entière. `annulations_vues_au` (D56, dans
+`conditions`) : le jour jusqu'auquel la fiche voit les ventes annulées
+(la fin de la période, ou le jour du calcul s'il vient avant ; la
+rectificative garde celui de l'ancienne ; absent = le jour de la
+validation). Une vente annulée après ce jour y compte encore ; sa
+commission se reprend (`reprises_a_retenir`) sur une fiche de la
+personne dont la période finit le jour de l'annulation ou après —
+ligne `reprise_commission`, PA au crédit de `paie:salaires` (661).
 
 **Table** `versement_paie` (cloisonnée, RLS) : fiche, montant, moyen,
 date (hors caisse : `mouvement_caisse_id` vide ; pris dans le tiroir,
@@ -118,7 +126,7 @@ rectificative validée reprend les versements de l'ancienne.
 Preuves : `personnel_base.rs` (6), `presences_base.rs` (5), `absences_base.rs` (5, D52), `avances_base.rs` (5),
 `paie_base.rs` (11), `paie_corrections_base.rs` (17 : la revue du 28/10,
 un scénario par exemple), `paie_tiroir_base.rs` (8, D42 : tiroir, date,
-étalement), `commission_encaisse_base.rs` (5, D42), `prets_base.rs` (7, D47 : six fiches, fiche maigre,
+étalement), `commission_encaisse_base.rs` (5, D42), `paie_mois_reprise_base.rs` (4, D56 : quinzaine, reprise, report, détecteur), `prets_base.rs` (7, D47 : six fiches, fiche maigre,
 quinzaine, rectificative, départ, refus, détecteur), trois moteurs ; route
 `un_gestionnaire_sans_la_paie_n_efface_pas_le_salaire_et_un_montant_enorme_ne_tue_pas_la_base` ;
 `src/lib/montant.test.ts` (`node --test`) ; bancs `f1-fenetre-equipe.mjs`,
