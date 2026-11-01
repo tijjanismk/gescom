@@ -447,9 +447,10 @@ pub fn lire_donnees_recu(
          String, String, Option<String>, Option<String>, bool) =
         conn.query_row(
             // D35, lot D.10 : le nom et le code ecrits sur la facture, s'ils
-            // ont ete figes (renommage, promotion, rattachement).
+            // ont ete figes (renommage, promotion, rattachement) ; sans
+            // facture, ceux figes sur la vente.
             "SELECT p.montant, p.mode, p.date_paiement, u.nom,
-                    v.id, pc.numero, COALESCE(pc.tiers_nom, c.nom), COALESCE(pc.tiers_code, c.code),
+                    v.id, pc.numero, COALESCE(pc.tiers_nom, v.client_nom, c.nom), COALESCE(pc.tiers_code, v.client_code, c.code),
                     c.telephone, c.adresse,
                     p.annule_paiement_id IS NOT NULL
              FROM paiement p
@@ -1616,9 +1617,10 @@ pub fn lire_donnees_recu_sur_base(base: &mut Base, paiement_id: String, cote: St
     let (montant, mode, date_p, auteur, vente_id, numero, c_nom, c_code, c_tel, c_adr, est_annulation): (i64, String, String, Option<String>, String, Option<String>, String, String, Option<String>, Option<String>, bool) = base
         .lire_une(
             // D35, lot D.10 : le nom et le code ecrits sur la facture, s'ils
-            // ont ete figes (renommage, promotion, rattachement).
+            // ont ete figes (renommage, promotion, rattachement) ; sans
+            // facture, ceux figes sur la vente.
             "SELECT p.montant, p.mode, p.date_paiement, u.nom,
-                    v.id, pc.numero, COALESCE(pc.tiers_nom, c.nom), COALESCE(pc.tiers_code, c.code),
+                    v.id, pc.numero, COALESCE(pc.tiers_nom, v.client_nom, c.nom), COALESCE(pc.tiers_code, v.client_code, c.code),
                     c.telephone, c.adresse,
                     p.annule_paiement_id IS NOT NULL
              FROM paiement p

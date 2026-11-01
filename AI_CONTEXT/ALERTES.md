@@ -114,16 +114,24 @@ la plage 40000–40100).
   « Payé » compte encore la dette éteinte par un retour. Dans l'onglet
   Règlements de la fiche client, une ligne `retour` garde « Reçu » et
   « Annuler ».
-- **Une facture réglée en partie par avoir** imprime cette part comme
-  due : `lire_donnees_piece` exclut les paiements `mode = 'avoir'` de
-  `total_paye` (défaut antérieur, vu au lot B).
-- `lire_etat_dette_fournisseur` compte une facture fournisseur encore en
-  **brouillon** comme une dette.
-- **Import CSV** : un en-tête présent mais incomplet retombe sur les
-  positions v1.3 (`Nom;Categorie;Unite;Prix;Stock` lit le stock comme
-  prix d'achat).
-- Le reçu d'une vente **sans** pièce lit la fiche cliente d'aujourd'hui
-  (pas de nom figé).
+- ~~**Une facture réglée en partie par avoir** imprime cette part comme
+  due~~ **Corrigé le 01/11** : `total_paye` compte l'avoir, le papier a
+  sa ligne « Réglé par avoir » (`totaux.regle_par_avoir`).
+- ~~`lire_etat_dette_fournisseur` compte une facture fournisseur encore en
+  **brouillon** comme une dette~~ **Corrigé le 01/11**, et partout où la
+  dette fournisseur se lit ou se répartit : un règlement global
+  s'imputait aussi au brouillon et le passait en « emis » sans
+  validation. **Reste** : une FAF brouillon passée ainsi en « emis » ou
+  « paye » avant ce jour le reste, sans que son stock soit entré (rien
+  ne la repère).
+- ~~**Import CSV** : un en-tête présent mais incomplet retombe sur les
+  positions v1.3~~ **Corrigé le 01/11** (articles et fournisseurs) : un
+  en-tête se lit par ses noms ; colonne inconnue, en double ou exigée
+  manquante → fichier refusé, rien d'écrit.
+- ~~Le reçu d'une vente **sans** pièce lit la fiche cliente
+  d'aujourd'hui~~ **Corrigé le 01/11** : `vente.client_nom` /
+  `client_code`, figés au renommage, à la promotion et au rattachement
+  (comme les pièces, D35).
 - ~~**Paie, questions de D41**~~ **tranchées et codées le 28/10 (D42)** :
   case « pris dans le tiroir », l'avance étalée et datée, la commission
   sur l'encaissé, l'ITS à la main. **Restent** : ~~l'étalement compte par

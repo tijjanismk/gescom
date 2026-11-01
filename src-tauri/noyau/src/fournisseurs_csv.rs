@@ -15,7 +15,7 @@
 //! jamais : un doublon se complete (ses champs vides) ou s'ignore.
 
 use crate::base::{Acces, Base};
-use crate::catalogue_csv::{champ, decouper, echapper, normaliser_entete};
+use crate::catalogue_csv::{champ, decouper, echapper, lire_entete};
 use crate::coeur::doublons::{normaliser_nif, normaliser_nom, ressemblance_fournisseur, Ressemblance};
 use crate::parametres;
 use crate::utils::maintenant_iso;
@@ -181,12 +181,11 @@ pub fn importer_fournisseurs_csv_sur_base(
     let contenu = contenu.trim_start_matches('\u{FEFF}');
     let mut lignes = contenu.lines();
     let premiere = lignes.next().unwrap_or("");
-    let a_entete = premiere.to_lowercase().starts_with("nom");
-    let cols: std::collections::HashMap<String, usize> = if a_entete {
-        decouper(premiere).iter().enumerate().map(|(i, c)| (normaliser_entete(c), i)).collect()
-    } else {
-        std::collections::HashMap::new()
-    };
+    // Un en-tete se lit par ses noms, sans repli sur les positions : sans
+    // cela, `Nom;NIF` lisait le NIF comme telephone (`lire_entete`).
+    let entete = lire_entete(premiere, ENTETE, &[], &["Nom"])?;
+    let a_entete = entete.is_some();
+    let cols: std::collections::HashMap<String, usize> = entete.unwrap_or_default();
     let mut a_traiter: Vec<&str> = Vec::new();
     if !a_entete {
         a_traiter.push(premiere);

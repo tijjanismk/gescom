@@ -3171,3 +3171,60 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   14/14. **Pas vu** : l'écran d'Équipe dans la vraie fenêtre (seul le
   texte « par mois » a changé ; la ligne de reprise s'affiche comme toute
   retenue).
+
+## 01/11/2026 — quatre papiers qui disaient faux (ALERTES du 27/10)
+
+Session ouverte par la session mère des corrections d'ALERTES ; les
+retours (relevé client, CA, TVA) sont à une autre session.
+
+- **Une facture réglée en partie par avoir** imprimait cette part comme
+  due : `lire_donnees_piece` sommait les paiements sauf `mode = 'avoir'`.
+  Le payé compte désormais tous les modes ; `totaux.regle_par_avoir`
+  donne la part de l'avoir, `totaux.encaisse` passe par
+  `coeur::calcul::acompte_verse` (ni retour, ni avoir) ; le papier (A4,
+  A5, ticket) a sa ligne « Réglé par avoir ». Les deux versions.
+- **Une facture fournisseur en brouillon comptait comme une dette** — et
+  pas seulement dans `lire_etat_dette_fournisseur` : l'état global, la
+  fiche, les deux listes, `chantiers::lire_dettes_fournisseurs`. Pire,
+  la répartition d'un règlement global (`regler_dette_fournisseur_datee`,
+  `imputer_paiements_fournisseur`, `reallouer_globaux`) l'imputait et la
+  passait en « emis » ou « paye » **sans validation** : son stock
+  n'entrait jamais, et la validation la refusait ensuite (« déjà »).
+  Partout `statut NOT IN ('annule', 'brouillon')`, deux versions (16
+  requêtes). Une FAF déjà passée ainsi avant ce jour reste comme elle est
+  (noté dans ALERTES).
+- **Import CSV** : un en-tête incomplet retombait sur les positions
+  v1.3. `catalogue_csv::lire_entete` (partagé avec les fournisseurs) :
+  un en-tête se reconnaît à sa colonne « Nom », où qu'elle soit, et se
+  lit par ses noms seulement (`champ` ne prend plus la position quand il
+  y a un en-tête) ; une colonne inconnue, en double, ou exigée qui manque
+  (`Nom`, `Prix` ; `Nom` pour les fournisseurs) refuse tout le fichier
+  avant d'écrire, le message dit les colonnes reconnues. Le minimum de
+  4 colonnes par ligne ne vaut plus que sans en-tête ; la version
+  fenêtre numérote les lignes comme la version serveur. Choix fait sans
+  demander : refuser une colonne inconnue plutôt que l'ignorer (« se dit
+  plutôt que se devine », la consigne) ; un fichier Excel avec une
+  colonne en plus doit la retirer.
+- **Le reçu d'une vente sans pièce** lisait la fiche d'aujourd'hui.
+  Colonnes `vente.client_nom`, `vente.client_code` (`schema.sql`,
+  `amorcage.rs`, `persistance/v2.rs`), figées comme les pièces de D35 :
+  `passage::figer_noms[_sur]` (renommage, promotion) écrit le nom en
+  cours dans les ventes qui n'en ont pas ; `rattacher_sur` y écrit nom
+  et code du passant. Le reçu lit `COALESCE(pc.tiers_nom, v.client_nom,
+  c.nom)` (et le code de même) : un passant rattaché garde son `PAS-…`
+  sans les coordonnées du client.
+- **Preuves** : `noyau/tests/pieces_dettes_base.rs` (6 scénarios `Base`
+  dont le détecteur, 4 sur la version fenêtre) ; `coeur` +1. SQLite :
+  noyau + serveur 965 verts sur 969 ; les 3 de `serveur/tests/routes.rs`
+  (`/sante` muet, « Session expirée ») tenaient à la veille du poste
+  pendant une série de ~10 h — `routes` rejoué seul, 20/20.
+  **`paie_corrections_base::point_6` échoue**, hors de ce lot :
+  l'avance « trop-versé » est datée d'aujourd'hui (novembre) et la fiche
+  d'octobre, écrite en dur, ne la retient plus depuis le 01/11 (note
+  laissée à la session mère). PostgreSQL, sur une base jetable à part
+  (`gescom_test_pieces`, effacée après) : `pieces_dettes_base`,
+  `schema_commun`, `achats_base`, `fournisseurs_base`, `passage_base`,
+  `donnees_base`, `listes_base`, `doublons_base`, `gestion_base`,
+  `argent_base`, `pieces_base` verts ; `pieces_dettes_base` aussi sous
+  le compte limité. `tsc` propre, node 14/14. **Pas vu à l'écran** : la
+  ligne « Réglé par avoir », le message d'un en-tête refusé.

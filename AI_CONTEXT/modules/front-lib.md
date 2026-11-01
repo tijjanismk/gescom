@@ -38,7 +38,9 @@ actuel.
   versé, calculé par le serveur dans `lire_donnees_piece[_sur_base]` —
   et une ligne « Éteint par retour » quand `totaux.eteint_par_retour > 0`
   (lot B.3, 27/10). `total_paye` et le RESTE DÛ ne changent pas ; sans
-  `encaisse` (serveur ancien), retombe sur `total_paye`.
+  `encaisse` (serveur ancien), retombe sur `total_paye`. Une ligne
+  « Réglé par avoir » quand `totaux.regle_par_avoir > 0` (01/11/2026) :
+  cette part était comptée due.
 
 ## genererReleve.ts
 

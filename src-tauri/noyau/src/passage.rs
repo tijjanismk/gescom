@@ -134,6 +134,10 @@ pub fn creer_fiche_sur(acces: &mut impl Acces, maintenant: &str, auteur: &str) -
 /// renommage revient a figer a l'emission, puisque jusque-la les deux
 /// noms sont les memes. Les brouillons suivent la fiche (ils ne sont
 /// pas emis).
+///
+/// Ses ventes aussi (`vente.client_nom`) : le recu d'une vente sans
+/// piece n'a pas d'autre nom a lire que celui de la fiche, et imprimait
+/// celui d'aujourd'hui.
 pub fn figer_noms_sur(acces: &mut impl Acces, client_id: &str) -> Result<(), String> {
     let dossier = acces.dossier().to_string();
     acces
@@ -142,6 +146,14 @@ pub fn figer_noms_sur(acces: &mut impl Acces, client_id: &str) -> Result<(), Str
              SET tiers_nom = (SELECT c.nom FROM client c WHERE c.id = ?1 AND c.dossier_id = ?2)
              WHERE tiers_type = 'client' AND tiers_id = ?1 AND dossier_id = ?2
                AND tiers_nom IS NULL AND statut <> 'brouillon'",
+            &parametres![client_id.to_string(), dossier.clone()],
+        )
+        .map_err(|e| e.0)?;
+    acces
+        .executer(
+            "UPDATE vente
+             SET client_nom = (SELECT c.nom FROM client c WHERE c.id = ?1 AND c.dossier_id = ?2)
+             WHERE client_id = ?1 AND dossier_id = ?2 AND client_nom IS NULL",
             &parametres![client_id.to_string(), dossier],
         )
         .map(|_| ())
@@ -356,6 +368,15 @@ pub fn rattacher_sur(base: &mut Base, passage_id: String, client_id: String) -> 
         &parametres![nom_passage.clone(), code_passage.clone(), passage_id.clone(), dossier.clone()],
     )
     .map_err(|e| e.0)?;
+    // Ses ventes de meme : le recu d'une vente sans piece reste au nom
+    // et au code du passant, sans les coordonnees du client.
+    tx.executer(
+        "UPDATE vente
+         SET client_nom = COALESCE(client_nom, ?1), client_code = COALESCE(client_code, ?2)
+         WHERE client_id = ?3 AND dossier_id = ?4",
+        &parametres![nom_passage.clone(), code_passage.clone(), passage_id.clone(), dossier.clone()],
+    )
+    .map_err(|e| e.0)?;
 
     // Toutes les tables qui pointent un client (schema.sql) : `vente`,
     // `piece_commerciale` (tiers), `avoir`, `echange`, `rappel`. Les
@@ -451,6 +472,13 @@ pub fn figer_noms(conn: &rusqlite::Connection, client_id: &str) -> Result<(), St
          SET tiers_nom = (SELECT c.nom FROM client c WHERE c.id = ?1)
          WHERE tiers_type = 'client' AND tiers_id = ?1
            AND tiers_nom IS NULL AND statut <> 'brouillon'",
+        rusqlite::params![client_id],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE vente
+         SET client_nom = (SELECT c.nom FROM client c WHERE c.id = ?1)
+         WHERE client_id = ?1 AND client_nom IS NULL",
         rusqlite::params![client_id],
     )
     .map(|_| ())

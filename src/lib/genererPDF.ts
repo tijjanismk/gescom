@@ -80,7 +80,8 @@ function fmt(n: number, devise = "FCFA"): string {
 /**
  * L'acompte imprimé : l'argent réellement versé (`totaux.encaisse`,
  * calculé par le serveur). `total_paye` compte aussi la dette éteinte
- * par un retour — il fait le reste dû, pas l'acompte. Un serveur plus
+ * par un retour et la part réglée par avoir (`regle_par_avoir`) — il
+ * fait le reste dû, pas l'acompte. Un serveur plus
  * ancien sans `encaisse` retombe sur `total_paye`, comme avant.
  */
 function acompteRecu(totaux: any): number {
@@ -233,6 +234,14 @@ function pieceEnPage(
           <td style="padding:3px 8px;color:#555">Éteint par retour</td>
           <td style="padding:3px 8px;text-align:right">
             −${fmt(totaux.eteint_par_retour, devise)}
+          </td>
+        </tr>`);
+      }
+      if ((totaux.regle_par_avoir ?? 0) > 0) {
+        rows.push(`<tr>
+          <td style="padding:3px 8px;color:#555">Réglé par avoir</td>
+          <td style="padding:3px 8px;text-align:right">
+            −${fmt(totaux.regle_par_avoir, devise)}
           </td>
         </tr>`);
       }
@@ -522,6 +531,10 @@ export function genererTicketThermique(
     ${(totaux.eteint_par_retour ?? 0) > 0 ? `
       <div style="display:flex;justify-content:space-between">
         <span>Éteint par retour</span><span>−${fmt(totaux.eteint_par_retour, devise)}</span>
+      </div>` : ""}
+    ${(totaux.regle_par_avoir ?? 0) > 0 ? `
+      <div style="display:flex;justify-content:space-between">
+        <span>Réglé par avoir</span><span>−${fmt(totaux.regle_par_avoir, devise)}</span>
       </div>` : ""}
     <div style="border-top:1px solid #000;margin:3px 0"></div>
     <div style="display:flex;justify-content:space-between;font-weight:bold">

@@ -53,7 +53,7 @@ pub fn lire_fournisseurs_avec_dettes(
                    WHERE pc.tiers_type = 'fournisseur'
                      AND pc.tiers_id = f.id
                      AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
-                     AND pc.statut <> 'annule')
+                     AND pc.statut NOT IN ('annule', 'brouillon'))
                 , 0) AS INTEGER) as total_achats,
                 CAST(COALESCE(
                   (SELECT SUM(pf.montant) FROM paiement_fournisseur pf
@@ -182,6 +182,10 @@ pub fn figer_noms(conn: &rusqlite::Connection, fournisseur_id: &str) -> Result<(
 /// lit dans `paiement_fournisseur`, jamais dans le statut de la piece.
 /// Un statut 'paye' pose sans ecriture de paiement laisserait le releve
 /// annoncer une dette soldee qui ne l'est pas.
+///
+/// Une facture encore en brouillon n'a produit ni dette ni stock
+/// (`achats::valider_facture_fournisseur`) : elle ne figure nulle part
+/// ou la dette se lit ou se repartit.
 pub fn lire_etat_dette_fournisseur(
     conn: &rusqlite::Connection,
     fournisseur_id: String,
@@ -212,7 +216,7 @@ pub fn lire_etat_dette_fournisseur(
          WHERE pc.tiers_type = 'fournisseur'
            AND pc.tiers_id = ?1
            AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
-           AND pc.statut <> 'annule'
+           AND pc.statut NOT IN ('annule', 'brouillon')
          GROUP BY pc.id
          ORDER BY pc.date_piece"
     ).map_err(|e| e.to_string())?;
@@ -283,7 +287,7 @@ pub fn lire_etat_dettes_global(
          JOIN ligne_piece lp ON lp.piece_id = pc.id
          WHERE pc.tiers_type = 'fournisseur'
            AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
-           AND pc.statut <> 'annule'
+           AND pc.statut NOT IN ('annule', 'brouillon')
          GROUP BY pc.id
          ORDER BY f.nom, pc.date_piece"
     ).map_err(|e| e.to_string())?;
@@ -668,7 +672,7 @@ pub fn lire_fiche_fournisseur(
          WHERE pc.tiers_type = 'fournisseur'
            AND pc.tiers_id = ?1
            AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
-           AND pc.statut <> 'annule'",
+           AND pc.statut NOT IN ('annule', 'brouillon')",
         rusqlite::params![fournisseur_id], |r| r.get(0),
     ).unwrap_or(0);
 
@@ -946,7 +950,7 @@ const DETTE_PIECES: &str = "
        WHERE pc.tiers_type = 'fournisseur'
          AND pc.tiers_id = f.id
          AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
-         AND pc.statut <> 'annule'), 0) AS BIGINT)";
+         AND pc.statut NOT IN ('annule', 'brouillon')), 0) AS BIGINT)";
 
 pub fn lire_fournisseurs_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {
     let dossier = base.dossier().to_string();
@@ -1139,7 +1143,7 @@ pub fn lire_etat_dette_fournisseur_sur_base(base: &mut Base, fournisseur_id: Str
              JOIN ligne_piece lp ON lp.piece_id = pc.id
              WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
                AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
-               AND pc.statut <> 'annule'
+               AND pc.statut NOT IN ('annule', 'brouillon')
                AND pc.dossier_id = ?2
              GROUP BY pc.id, pc.date_piece, pc.numero, pc.type_piece, pc.statut
              ORDER BY pc.date_piece",
@@ -1189,7 +1193,7 @@ pub fn lire_etat_dettes_global_sur_base(base: &mut Base) -> Result<serde_json::V
              JOIN ligne_piece lp ON lp.piece_id = pc.id
              WHERE pc.tiers_type = 'fournisseur'
                AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
-               AND pc.statut <> 'annule'
+               AND pc.statut NOT IN ('annule', 'brouillon')
                AND pc.dossier_id = ?1
              GROUP BY pc.id, f.id, f.nom, f.telephone, pc.type_piece, pc.statut, pc.date_piece
              ORDER BY f.nom, pc.date_piece",

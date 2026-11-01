@@ -185,6 +185,17 @@ pub fn encaisse(total_paye: i64, eteint_par_retour: i64) -> i64 {
     total_paye - eteint_par_retour
 }
 
+/// L'acompte d'une facture imprimee : tout ce qui est paye, moins ce qui
+/// n'est pas de l'argent verse — la dette eteinte par un retour et la
+/// part reglee par un avoir (paiement `mode = 'avoir'`).
+///
+/// Les deux restent dans `total_paye`, qui fait le reste du : sans la
+/// part de l'avoir, la facture imprimait comme due une somme que le
+/// client ne doit plus. Chacune a sa ligne sur le papier.
+pub fn acompte_verse(total_paye: i64, eteint_par_retour: i64, regle_par_avoir: i64) -> i64 {
+    encaisse(total_paye, eteint_par_retour) - regle_par_avoir
+}
+
 /// Le mode de resolution d'un retour qui ne se deduit PAS du chiffre
 /// d'affaires : l'echange.
 ///
@@ -228,6 +239,15 @@ mod tests_ca_net {
         // Acompte de 1 000, puis un retour qui eteint 500.
         assert_eq!(encaisse(1_500, 500), 1_000);
         assert_eq!(encaisse(1_000, 0), 1_000);
+    }
+
+    #[test]
+    fn l_acompte_imprime_ne_compte_ni_le_retour_ni_l_avoir() {
+        // Facture de 10 000 : 3 000 d'avoir, 2 000 en especes.
+        assert_eq!(acompte_verse(5_000, 0, 3_000), 2_000);
+        // Tout par avoir : rien de verse.
+        assert_eq!(acompte_verse(10_000, 0, 10_000), 0);
+        assert_eq!(acompte_verse(4_000, 1_000, 1_000), 2_000);
     }
 }
 

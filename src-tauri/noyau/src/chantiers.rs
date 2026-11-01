@@ -104,7 +104,7 @@ pub fn lire_dettes_fournisseurs(
                    WHERE pc.tiers_type = 'fournisseur'
                      AND pc.tiers_id = f.id
                      AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
-                     AND pc.statut <> 'annule'), 0
+                     AND pc.statut NOT IN ('annule', 'brouillon')), 0
                 ) AS INTEGER) as total_achats,
                 CAST(COALESCE(
                   (SELECT SUM(pf.montant)
@@ -583,7 +583,7 @@ pub fn lire_dettes_fournisseurs_sur_base(base: &mut Base) -> Result<Vec<serde_js
                    WHERE pc.tiers_type = 'fournisseur'
                      AND pc.tiers_id = f.id
                      AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
-                     AND pc.statut <> 'annule'), 0
+                     AND pc.statut NOT IN ('annule', 'brouillon')), 0
                 ) AS BIGINT),
                 CAST(COALESCE(
                   (SELECT SUM(pf.montant) FROM paiement_fournisseur pf

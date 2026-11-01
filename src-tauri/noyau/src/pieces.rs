@@ -1227,12 +1227,15 @@ pub fn lire_donnees_piece(
     // Cote FOURNISSEUR, le paiement est imputé directement sur la pièce
     // via paiement_fournisseur.piece_id (enregistrer_achat, D36/D38) —
     // jamais via `vente`, qui n'existe pas pour un achat.
+    //
+    // Tous les modes, avoir compris : la part reglee par un avoir ne se
+    // doit plus. L'exclure imprimait cette part comme due.
     let total_paye: i64 = if tiers_type == "client" {
         conn.query_row(
             "SELECT CAST(COALESCE(SUM(p.montant), 0) AS INTEGER)
              FROM paiement p
              JOIN vente v ON v.id = p.vente_id
-             WHERE v.piece_id = ?1 AND p.mode <> 'avoir'",
+             WHERE v.piece_id = ?1",
             rusqlite::params![piece_id], |r| r.get(0),
         ).unwrap_or(0)
     } else {
@@ -1252,6 +1255,18 @@ pub fn lire_donnees_piece(
              FROM paiement p
              JOIN vente v ON v.id = p.vente_id
              WHERE v.piece_id = ?1 AND p.mode = 'retour'",
+            rusqlite::params![piece_id], |r| r.get(0),
+        ).unwrap_or(0)
+    } else {
+        0
+    };
+    // La part reglee par un avoir : payee, mais pas un acompte verse.
+    let regle_par_avoir: i64 = if tiers_type == "client" {
+        conn.query_row(
+            "SELECT CAST(COALESCE(SUM(p.montant), 0) AS INTEGER)
+             FROM paiement p
+             JOIN vente v ON v.id = p.vente_id
+             WHERE v.piece_id = ?1 AND p.mode = 'avoir'",
             rusqlite::params![piece_id], |r| r.get(0),
         ).unwrap_or(0)
     } else {
@@ -1289,9 +1304,10 @@ pub fn lire_donnees_piece(
             "total_ttc":      total_ttc,
             "total_paye":     total_paye,
             // « Acompte recu » = l'argent verse ; la dette eteinte par un
-            // retour a sa ligne. Le reste du ne change pas.
-            "encaisse":       crate::coeur::calcul::encaisse(total_paye, eteint_par_retour),
+            // retour et la part reglee par avoir ont chacune leur ligne.
+            "encaisse":       crate::coeur::calcul::acompte_verse(total_paye, eteint_par_retour, regle_par_avoir),
             "eteint_par_retour": eteint_par_retour,
+            "regle_par_avoir": regle_par_avoir,
             "reste_du":       reste_du,
         }
     }))
@@ -3626,13 +3642,14 @@ pub fn lire_donnees_piece_sur_base(
     let total_ttc = somme_ttc as i64;
 
     // Cote client, le paye passe par la vente ; cote fournisseur, par
-    // `paiement_fournisseur.piece_id` (D36/D38).
+    // `paiement_fournisseur.piece_id` (D36/D38). Tous les modes, avoir
+    // compris — voir la version fenetre.
     let total_paye: i64 = if tiers_type == "client" {
         base.lire_une(
             "SELECT CAST(COALESCE(SUM(p.montant), 0) AS BIGINT)
              FROM paiement p
              JOIN vente v ON v.id = p.vente_id
-             WHERE v.piece_id = ?1 AND p.mode <> 'avoir' AND v.dossier_id = ?2",
+             WHERE v.piece_id = ?1 AND v.dossier_id = ?2",
             &parametres![piece_id.clone(), dossier.clone()],
             |r| r.get::<i64>(0),
         )
@@ -3654,6 +3671,20 @@ pub fn lire_donnees_piece_sur_base(
              FROM paiement p
              JOIN vente v ON v.id = p.vente_id
              WHERE v.piece_id = ?1 AND p.mode = 'retour' AND v.dossier_id = ?2",
+            &parametres![piece_id.clone(), dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0)
+    } else {
+        0
+    };
+    let regle_par_avoir: i64 = if tiers_type == "client" {
+        base.lire_une(
+            "SELECT CAST(COALESCE(SUM(p.montant), 0) AS BIGINT)
+             FROM paiement p
+             JOIN vente v ON v.id = p.vente_id
+             WHERE v.piece_id = ?1 AND p.mode = 'avoir' AND v.dossier_id = ?2",
             &parametres![piece_id.clone(), dossier.clone()],
             |r| r.get::<i64>(0),
         )
@@ -3702,8 +3733,9 @@ pub fn lire_donnees_piece_sur_base(
             "total_net":      total_net,
             "total_ttc":      total_ttc,
             "total_paye":     total_paye,
-            "encaisse":       crate::coeur::calcul::encaisse(total_paye, eteint_par_retour),
+            "encaisse":       crate::coeur::calcul::acompte_verse(total_paye, eteint_par_retour, regle_par_avoir),
             "eteint_par_retour": eteint_par_retour,
+            "regle_par_avoir": regle_par_avoir,
             "reste_du":       reste_du,
         }
     }))

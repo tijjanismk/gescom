@@ -61,6 +61,10 @@ Une règle qui n'est pas ici est une règle qu'aucun test ne protège.
   (paiement `mode = 'retour'`). `total_paye` garde cette part (il fait
   le reste dû) ; tout « payé », « acompte reçu », « encaissé » affiché
   passe par ici.
+- `acompte_verse(total_payé, éteint_par_retour, réglé_par_avoir) -> i64`
+  (01/11/2026) — l'acompte d'une facture imprimée : `encaisse` moins la
+  part réglée par un avoir (paiement `mode = 'avoir'`), qui reste dans
+  `total_paye`. Appelée par les deux versions de `lire_donnees_piece`.
 - `ca_net(brut, retours) -> i64` et `RETOUR_HORS_CA = "echange"` (lot
   B.2) — le chiffre d'affaires d'une période = ventes de la période −
   retours **datés** dans la période (usage d'un avoir : un mois clos ne
@@ -100,7 +104,8 @@ toujours la sortie. Ne pas les remplacer par des codes.
   `None` (l'import décide), `oui/o/1/vrai` et `non/n/0/faux` sans casse
   (VRAI/FAUX : ce qu'Excel français écrit pour une case), toute autre
   valeur refusée avec un message — jamais devinée. Appelée par les deux
-  versions de `catalogue_csv::importer_articles_csv`.
+  versions de `catalogue_csv::importer_articles_csv`. L'en-tête du
+  fichier, lui, se juge dans `catalogue_csv::lire_entete` (01/11/2026).
 
 ### tiers.rs
 - `code_client_suivant`, `FOURNISSEUR_DIVERS`,
