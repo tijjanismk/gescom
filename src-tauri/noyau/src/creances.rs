@@ -12,6 +12,20 @@ use crate::utils::maintenant_iso;
 /// `reste_exigible`, sinon un reliquat d'un franc apparait sur le
 /// document remis au client — le genre de detail qui fait perdre une
 /// heure au comptoir.
+/// Une facture du releve client : « paye » est l'argent recu, la dette
+/// eteinte par un retour va dans « rendu » (D53) ; le reste du se juge
+/// sur les deux (`reste_exigible`). Total − rendu − paye = reste.
+fn ligne_de_releve(date: String, numero: String, total: i64, tout_paye: i64, eteint: i64) -> serde_json::Value {
+    serde_json::json!({
+        "date":   date,
+        "numero": numero,
+        "total":  total,
+        "rendu":  eteint,
+        "paye":   crate::coeur::calcul::encaisse(tout_paye, eteint),
+        "reste":  crate::coeur::calcul::reste_exigible(total, tout_paye),
+    })
+}
+
 pub fn lire_etat_creances_client(
     conn: &rusqlite::Connection,
     client_id: String,
@@ -33,6 +47,9 @@ pub fn lire_etat_creances_client(
                 CAST(COALESCE(SUM(lv.prix_pratique * lv.quantite), 0) AS INTEGER),
                 CAST(COALESCE(
                   (SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0
+                ) AS INTEGER),
+                CAST(COALESCE(
+                  (SELECT SUM(montant) FROM paiement WHERE vente_id = v.id AND mode = ?2), 0
                 ) AS INTEGER)
          FROM vente v
          LEFT JOIN ligne_vente lv ON lv.vente_id = v.id
@@ -44,16 +61,8 @@ pub fn lire_etat_creances_client(
     ).map_err(|e| e.to_string())?;
 
     let lignes: Vec<serde_json::Value> = st.query_map(
-        rusqlite::params![client_id], |r| {
-            let total: i64 = r.get(2)?;
-            let paye: i64 = r.get(3)?;
-            Ok(serde_json::json!({
-                "date":   r.get::<_, String>(0)?,
-                "numero": r.get::<_, String>(1)?,
-                "total":  total,
-                "paye":   paye,
-                "reste":  crate::coeur::calcul::reste_exigible(total, paye),
-            }))
+        rusqlite::params![client_id, crate::coeur::calcul::MODE_ETEINT_PAR_RETOUR], |r| {
+            Ok(ligne_de_releve(r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
         }
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok())
     // Une vente soldee au franc pres (D41) n'a plus rien a reclamer :
@@ -252,6 +261,8 @@ pub fn annuler_reglement(
         return Err("Cette ligne est déjà une annulation — on n'annule \
                     pas une annulation.".to_string());
     }
+    // D53 : la dette eteinte par un retour n'est pas un reglement.
+    crate::coeur::calcul::refuser_si_eteint_par_retour(&mode, "elle ne s'annule pas")?;
 
     let deja: i64 = conn.query_row(
         "SELECT COUNT(*) FROM paiement WHERE annule_paiement_id = ?1",
@@ -463,6 +474,8 @@ pub fn lire_donnees_recu(
                     r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
                     r.get::<_, i64>(10)? != 0)),
         ).map_err(|_| "Règlement introuvable".to_string())?;
+    // D53 : pas de recu pour la dette eteinte par un retour.
+    crate::coeur::calcul::refuser_si_eteint_par_retour(&mode, "elle n'a pas de reçu de règlement")?;
 
     // Reste du sur la vente, tous paiements confondus — donc APRES
     // celui-ci, et net de toute annulation (D36).
@@ -1279,25 +1292,17 @@ pub fn lire_etat_creances_client_sur_base(base: &mut Base, client_id: String) ->
             "SELECT v.date_vente, COALESCE(p.numero, ''),
                     CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
                                    FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS BIGINT),
-                    CAST(COALESCE((SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0) AS BIGINT)
+                    CAST(COALESCE((SELECT SUM(montant) FROM paiement WHERE vente_id = v.id), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(montant) FROM paiement
+                                   WHERE vente_id = v.id AND mode = ?3), 0) AS BIGINT)
              FROM vente v
              LEFT JOIN piece_commerciale p ON p.id = v.piece_id
              WHERE v.client_id = ?1
                AND v.statut IN ('creance_ouverte','partiellement_payee')
                AND v.dossier_id = ?2
              ORDER BY v.date_vente",
-            &parametres![client_id.clone(), dossier.clone()],
-            |r| {
-                let total: i64 = r.get::<i64>(2)?;
-                let paye: i64 = r.get::<i64>(3)?;
-                Ok(serde_json::json!({
-                    "date":   r.get::<String>(0)?,
-                    "numero": r.get::<String>(1)?,
-                    "total":  total,
-                    "paye":   paye,
-                    "reste":  crate::coeur::calcul::reste_exigible(total, paye),
-                }))
-            },
+            &parametres![client_id.clone(), dossier.clone(), crate::coeur::calcul::MODE_ETEINT_PAR_RETOUR],
+            |r| Ok(ligne_de_releve(r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<i64>(3)?, r.get::<i64>(4)?)),
         )
         .map_err(|e| e.0)?
         .into_iter()
@@ -1458,6 +1463,8 @@ pub fn annuler_reglement_sur_base(
                     pas une annulation."
             .to_string());
     }
+    // D53 : la dette eteinte par un retour n'est pas un reglement.
+    crate::coeur::calcul::refuser_si_eteint_par_retour(&mode, "elle ne s'annule pas")?;
     let deja: i64 = base
         .lire_une(
             "SELECT COUNT(*) FROM paiement WHERE annule_paiement_id = ?1 AND dossier_id = ?2",
@@ -1632,6 +1639,8 @@ pub fn lire_donnees_recu_sur_base(base: &mut Base, paiement_id: String, cote: St
         )
         .map_err(|e| e.0)?
         .ok_or_else(|| "Règlement introuvable".to_string())?;
+    // D53 : pas de recu pour la dette eteinte par un retour.
+    crate::coeur::calcul::refuser_si_eteint_par_retour(&mode, "elle n'a pas de reçu de règlement")?;
 
     let (total, paye) = total_et_paye(base, &vente_id)?.unwrap_or((0, 0));
     // D35 : ni « Client de passage » sur le papier, mais le code ; ni ses

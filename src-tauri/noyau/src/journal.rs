@@ -102,6 +102,39 @@ fn ligne_anomalie(date: String, entite_type: String, entite_id: String, detail: 
 }
 
 /// Date au format AAAA-MM-JJ. `None` = aujourd'hui.
+/// Les retours dates du jour ?1 (montant rendu, TTC), sur les ventes du
+/// magasin ?2 (NULL : tous), l'echange ?3 mis a part (D53).
+const SQL_RETOURS_DU_JOUR: &str =
+    "SELECT CAST(COALESCE(SUM(rt.montant_credit), 0) AS BIGINT)
+     FROM retour rt
+     JOIN vente v ON v.id = rt.vente_id
+     WHERE SUBSTR(rt.date_retour, 1, 10) = ?1
+       AND v.statut != 'annulee'
+       AND rt.mode_resolution <> ?3
+       AND (CAST(?2 AS TEXT) IS NULL OR v.depot_id = ?2)";
+
+/// Le chiffre du jour, TTC et HT, net des retours du jour (D53) : un
+/// retour rend son montant TTC, et sa part HT est ce montant moins la
+/// TVA qu'il rend (`coeur::tva`).
+fn ca_du_jour(ventes: i64, ventes_ht: i64, retours: i64, tva_rendue: i64) -> (i64, i64) {
+    use crate::coeur::calcul::ca_net;
+    (ca_net(ventes, retours), ca_net(ventes_ht, retours - tva_rendue))
+}
+
+/// Une vente impayee du cahier : « paye » est l'argent recu, la dette
+/// eteinte par un retour va dans « rendu » (D53) ; le reste les compte
+/// tous les deux.
+fn ligne_impayee(client: String, date_vente: String, total: i64, tout_paye: i64, eteint: i64) -> serde_json::Value {
+    serde_json::json!({
+        "client":     client,
+        "date_vente": date_vente,
+        "total":      total,
+        "rendu":      eteint,
+        "paye":       crate::coeur::calcul::encaisse(tout_paye, eteint),
+        "reste":      total - tout_paye,
+    })
+}
+
 pub fn jour(date: &Option<String>) -> String {
     match date {
         Some(d) if !d.is_empty() => d.clone(),
@@ -160,14 +193,26 @@ pub fn lire_journal_du_jour(
         }
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
-    let ca_jour: i64 = ventes.iter()
+    let ventes_jour: i64 = ventes.iter()
         .filter_map(|v| v["montant_ttc"].as_i64()).sum();
-    let ca_jour_ht: i64 = ventes.iter()
+    let ventes_jour_ht: i64 = ventes.iter()
         .filter_map(|v| v["montant_ht"].as_i64()).sum();
+
+    // D53 : le chiffre du jour est net des retours dates du jour (hors
+    // echange), comme le tableau de bord ; sa part HT deduit la TVA rendue.
+    let retours_jour: i64 = conn.query_row(
+        SQL_RETOURS_DU_JOUR,
+        rusqlite::params![j, dep, crate::coeur::calcul::RETOUR_HORS_CA],
+        |r| r.get(0),
+    ).map_err(|e| e.to_string())?;
+    let tva_rendue: i64 = crate::rapports::tva_des_retours_conn(conn, &j, dep.clone(), |d| d.starts_with(j.as_str()))?
+        .iter().map(|t| t.tva).sum();
+    let (ca_jour, ca_jour_ht) = ca_du_jour(ventes_jour, ventes_jour_ht, retours_jour, tva_rendue);
 
     // -----------------------------------------------------------------
     //  2. Hors du jour — encaissements sur ventes antérieures
     // -----------------------------------------------------------------
+    // D53 : la dette eteinte par un retour n'est pas un encaissement.
     let mut st = conn.prepare(
         "SELECT c.nom, p.montant, p.mode, p.date_paiement, v.date_vente,
                 CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
@@ -180,11 +225,12 @@ pub fn lire_journal_du_jour(
          WHERE DATE(p.date_paiement) = ?1
            AND DATE(v.date_vente) <> ?1
            AND (?2 IS NULL OR v.depot_id = ?2)
+           AND p.mode <> ?3
          ORDER BY p.date_paiement"
     ).map_err(|e| e.to_string())?;
 
     let hors_jour: Vec<serde_json::Value> = st.query_map(
-        rusqlite::params![j, dep], |r| {
+        rusqlite::params![j, dep, crate::coeur::calcul::MODE_ETEINT_PAR_RETOUR], |r| {
             let total: i64 = r.get(5)?;
             let paye: i64 = r.get(6)?;
             Ok(serde_json::json!({
@@ -211,7 +257,9 @@ pub fn lire_journal_du_jour(
                 CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
                    FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS INTEGER),
                 CAST(COALESCE((SELECT SUM(p.montant)
-                   FROM paiement p WHERE p.vente_id = v.id), 0) AS INTEGER)
+                   FROM paiement p WHERE p.vente_id = v.id), 0) AS INTEGER),
+                CAST(COALESCE((SELECT SUM(p.montant)
+                   FROM paiement p WHERE p.vente_id = v.id AND p.mode = ?2), 0) AS INTEGER)
          FROM vente v
          JOIN client c ON c.id = v.client_id
          WHERE v.statut IN ('creance_ouverte','partiellement_payee')
@@ -221,16 +269,8 @@ pub fn lire_journal_du_jour(
     ).map_err(|e| e.to_string())?;
 
     let impayes: Vec<serde_json::Value> = st.query_map(
-        rusqlite::params![dep], |r| {
-        let total: i64 = r.get(2)?;
-        let paye: i64 = r.get(3)?;
-        Ok(serde_json::json!({
-            "client":     r.get::<_, String>(0)?,
-            "date_vente": r.get::<_, String>(1)?,
-            "total":      total,
-            "paye":       paye,
-            "reste":      total - paye,
-        }))
+        rusqlite::params![dep, crate::coeur::calcul::MODE_ETEINT_PAR_RETOUR], |r| {
+        Ok(ligne_impayee(r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
     let total_impayes: i64 = impayes.iter()
@@ -459,11 +499,12 @@ pub fn lire_journal_du_jour(
         }
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
-    // Encaissements du jour, toutes ventes confondues.
+    // Encaissements du jour, toutes ventes confondues : ni l'avoir ni la
+    // dette eteinte par un retour (D53) ne sont de l'argent recu.
     let encaisse_jour: i64 = conn.query_row(
         "SELECT CAST(COALESCE(SUM(montant), 0) AS INTEGER)
-         FROM paiement WHERE DATE(date_paiement) = ?1 AND mode <> 'avoir'",
-        rusqlite::params![j], |r| r.get(0),
+         FROM paiement WHERE DATE(date_paiement) = ?1 AND mode <> 'avoir' AND mode <> ?2",
+        rusqlite::params![j, crate::coeur::calcul::MODE_ETEINT_PAR_RETOUR], |r| r.get(0),
     ).unwrap_or(0);
 
     // Les anomalies du jour : ce que le noyau n'a pas su faire
@@ -495,9 +536,14 @@ pub fn lire_journal_du_jour(
         "depenses_par_categorie": depenses_par_categorie,
         "caisse_par_moyen": caisse_par_moyen,
         "totaux": {
-            // CA du jour = ventes emises aujourd'hui, payees ou non.
+            // CA du jour = ventes emises aujourd'hui, payees ou non,
+            // moins les retours du jour (D53). `ventes_jour` est le total
+            // du detail des ventes.
             "ca_jour":        ca_jour,
             "ca_jour_ht":     ca_jour_ht,
+            "ventes_jour":    ventes_jour,
+            "ventes_jour_ht": ventes_jour_ht,
+            "retours_jour":   retours_jour,
             // Encaisse du jour = argent reellement recu aujourd'hui,
             // y compris sur des ventes anterieures. Les deux ne se
             // confondent pas et ne s'additionnent pas.
@@ -571,10 +617,26 @@ pub fn lire_journal_du_jour_sur_base(
             },
         )
         .map_err(|e| e.0)?;
-    let ca_jour: i64 = ventes.iter().filter_map(|v| v["montant_ttc"].as_i64()).sum();
-    let ca_jour_ht: i64 = ventes.iter().filter_map(|v| v["montant_ht"].as_i64()).sum();
+    let ventes_jour: i64 = ventes.iter().filter_map(|v| v["montant_ttc"].as_i64()).sum();
+    let ventes_jour_ht: i64 = ventes.iter().filter_map(|v| v["montant_ht"].as_i64()).sum();
 
-    // ---- 2. Hors du jour : encaissements sur ventes anterieures
+    // D53 : net des retours dates du jour, comme le tableau de bord.
+    let retours_jour: i64 = base
+        .lire_une(
+            &format!("{} AND rt.dossier_id = ?4", SQL_RETOURS_DU_JOUR),
+            &parametres![j.clone(), dep.clone(), crate::coeur::calcul::RETOUR_HORS_CA, dossier.clone()],
+            |r| r.get::<i64>(0),
+        )
+        .map_err(|e| e.0)?
+        .unwrap_or(0);
+    let tva_rendue: i64 = crate::rapports::tva_des_retours_sur(base, &j, dep.clone(), |d| d.starts_with(j.as_str()))?
+        .iter()
+        .map(|t| t.tva)
+        .sum();
+    let (ca_jour, ca_jour_ht) = ca_du_jour(ventes_jour, ventes_jour_ht, retours_jour, tva_rendue);
+
+    // ---- 2. Hors du jour : encaissements sur ventes anterieures (D53 :
+    // la dette eteinte par un retour n'en est pas un).
     let hors_jour: Vec<serde_json::Value> = base
         .lire_plusieurs(
             "SELECT c.nom, p.montant, p.mode, p.date_paiement, v.date_vente,
@@ -589,8 +651,9 @@ pub fn lire_journal_du_jour_sur_base(
                AND SUBSTR(v.date_vente, 1, 10) <> ?1
                AND (CAST(?2 AS TEXT) IS NULL OR v.depot_id = ?2)
                AND p.dossier_id = ?3
+               AND p.mode <> ?4
              ORDER BY p.date_paiement",
-            &parametres![j.clone(), dep.clone(), dossier.clone()],
+            &parametres![j.clone(), dep.clone(), dossier.clone(), crate::coeur::calcul::MODE_ETEINT_PAR_RETOUR],
             |r| {
                 let total: i64 = r.get::<i64>(5)?;
                 let paye: i64 = r.get::<i64>(6)?;
@@ -614,7 +677,9 @@ pub fn lire_journal_du_jour_sur_base(
                     CAST(COALESCE((SELECT SUM(lv.prix_pratique * lv.quantite)
                        FROM ligne_vente lv WHERE lv.vente_id = v.id), 0) AS BIGINT),
                     CAST(COALESCE((SELECT SUM(p.montant)
-                       FROM paiement p WHERE p.vente_id = v.id), 0) AS BIGINT)
+                       FROM paiement p WHERE p.vente_id = v.id), 0) AS BIGINT),
+                    CAST(COALESCE((SELECT SUM(p.montant)
+                       FROM paiement p WHERE p.vente_id = v.id AND p.mode = ?3), 0) AS BIGINT)
              FROM vente v
              JOIN client c ON c.id = v.client_id
              WHERE v.statut IN ('creance_ouverte','partiellement_payee')
@@ -622,17 +687,15 @@ pub fn lire_journal_du_jour_sur_base(
                AND (CAST(?1 AS TEXT) IS NULL OR v.depot_id = ?1)
                AND v.dossier_id = ?2
              ORDER BY v.date_vente",
-            &parametres![dep.clone(), dossier.clone()],
+            &parametres![dep.clone(), dossier.clone(), crate::coeur::calcul::MODE_ETEINT_PAR_RETOUR],
             |r| {
-                let total: i64 = r.get::<i64>(2)?;
-                let paye: i64 = r.get::<i64>(3)?;
-                Ok(serde_json::json!({
-                    "client":     r.get::<String>(0)?,
-                    "date_vente": r.get::<String>(1)?,
-                    "total":      total,
-                    "paye":       paye,
-                    "reste":      total - paye,
-                }))
+                Ok(ligne_impayee(
+                    r.get::<String>(0)?,
+                    r.get::<String>(1)?,
+                    r.get::<i64>(2)?,
+                    r.get::<i64>(3)?,
+                    r.get::<i64>(4)?,
+                ))
             },
         )
         .map_err(|e| e.0)?;
@@ -837,8 +900,8 @@ pub fn lire_journal_du_jour_sur_base(
         .lire_une(
             "SELECT CAST(COALESCE(SUM(montant), 0) AS BIGINT)
              FROM paiement WHERE SUBSTR(date_paiement, 1, 10) = ?1 AND mode <> 'avoir'
-               AND dossier_id = ?2",
-            &parametres![j.clone(), dossier.clone()],
+               AND mode <> ?3 AND dossier_id = ?2",
+            &parametres![j.clone(), dossier.clone(), crate::coeur::calcul::MODE_ETEINT_PAR_RETOUR],
             |r| r.get::<i64>(0),
         )
         .map_err(|e| e.0)?
@@ -873,6 +936,9 @@ pub fn lire_journal_du_jour_sur_base(
         "totaux": {
             "ca_jour":        ca_jour,
             "ca_jour_ht":     ca_jour_ht,
+            "ventes_jour":    ventes_jour,
+            "ventes_jour_ht": ventes_jour_ht,
+            "retours_jour":   retours_jour,
             "encaisse_jour":  encaisse_jour,
             "hors_jour":      total_hors_jour,
             "impayes":        total_impayes,

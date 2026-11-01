@@ -48,7 +48,8 @@ pub fn lire_resume_tva(
         "SELECT lv.taux_tva,
                 CAST(SUM(lv.montant_tva) AS INTEGER) as total_tva,
                 CAST(SUM(lv.prix_pratique * lv.quantite)
-                     - SUM(lv.montant_tva) AS INTEGER) as total_ht
+                     - SUM(lv.montant_tva) AS INTEGER) as total_ht,
+                COUNT(DISTINCT v.id)
          FROM ligne_vente lv
          JOIN vente v ON v.id = lv.vente_id
          WHERE v.date_vente BETWEEN ?1 AND ?2
@@ -58,25 +59,18 @@ pub fn lire_resume_tva(
          ORDER BY lv.taux_tva"
     ).map_err(|e| e.to_string())?;
 
-    let par_taux: Vec<serde_json::Value> = stmt.query_map(
+    let ventes: Vec<(f64, i64, i64, i64)> = stmt.query_map(
         rusqlite::params![date_debut, date_fin],
-        |row| Ok(serde_json::json!({
-            "taux":      row.get::<_,f64>(0)?,
-            "total_tva": row.get::<_,i64>(1)?,
-            "total_ht":  row.get::<_,i64>(2)?,
-        }))
+        |row| Ok((row.get::<_,f64>(0)?, row.get::<_,i64>(1)?, row.get::<_,i64>(2)?, row.get::<_,i64>(3)?))
     ).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
-    let total_tva: i64 = par_taux.iter()
-        .filter_map(|v| v["total_tva"].as_i64())
-        .sum();
-
-    Ok(serde_json::json!({
-        "par_taux":   par_taux,
-        "total_tva":  total_tva,
-        "date_debut": date_debut,
-        "date_fin":   date_fin,
-    }))
+    // D53 : nette des retours dates dans la periode, comme le rapport TVA.
+    let retours = crate::rapports::tva_des_retours_conn(conn, &date_fin, None,
+        |d| crate::rapports::entre(d, &date_debut, &date_fin))?;
+    let mut resume = crate::rapports::rapport_tva(&ventes, &retours);
+    resume["date_debut"] = serde_json::json!(date_debut);
+    resume["date_fin"] = serde_json::json!(date_fin);
+    Ok(resume)
 }
 
 // =====================================================================
@@ -534,11 +528,12 @@ pub fn sauvegarder_tva_article_sur_base(base: &mut Base, article_id: String, tau
 
 pub fn lire_resume_tva_sur_base(base: &mut Base, date_debut: String, date_fin: String) -> Result<serde_json::Value, String> {
     let dossier = base.dossier().to_string();
-    let par_taux: Vec<serde_json::Value> = base
+    let ventes: Vec<(f64, i64, i64, i64)> = base
         .lire_plusieurs(
             "SELECT lv.taux_tva,
                     CAST(SUM(lv.montant_tva) AS BIGINT),
-                    CAST(SUM(lv.prix_pratique * lv.quantite) - SUM(lv.montant_tva) AS BIGINT)
+                    CAST(SUM(lv.prix_pratique * lv.quantite) - SUM(lv.montant_tva) AS BIGINT),
+                    COUNT(DISTINCT v.id)
              FROM ligne_vente lv
              JOIN vente v ON v.id = lv.vente_id
              WHERE v.date_vente BETWEEN ?1 AND ?2
@@ -548,22 +543,15 @@ pub fn lire_resume_tva_sur_base(base: &mut Base, date_debut: String, date_fin: S
              GROUP BY lv.taux_tva
              ORDER BY lv.taux_tva",
             &parametres![date_debut.clone(), date_fin.clone(), dossier],
-            |r| {
-                Ok(serde_json::json!({
-                    "taux":      r.get::<f64>(0)?,
-                    "total_tva": r.get::<i64>(1)?,
-                    "total_ht":  r.get::<i64>(2)?,
-                }))
-            },
+            |r| Ok((r.get::<f64>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?, r.get::<i64>(3)?)),
         )
         .map_err(|e| e.0)?;
-    let total_tva: i64 = par_taux.iter().filter_map(|v| v["total_tva"].as_i64()).sum();
-    Ok(serde_json::json!({
-        "par_taux":   par_taux,
-        "total_tva":  total_tva,
-        "date_debut": date_debut,
-        "date_fin":   date_fin,
-    }))
+    // D53 : nette des retours dates dans la periode, comme le rapport TVA.
+    let retours = crate::rapports::tva_des_retours_sur(base, &date_fin, None, |d| crate::rapports::entre(d, &date_debut, &date_fin))?;
+    let mut resume = crate::rapports::rapport_tva(&ventes, &retours);
+    resume["date_debut"] = serde_json::json!(date_debut);
+    resume["date_fin"] = serde_json::json!(date_fin);
+    Ok(resume)
 }
 
 pub fn lire_dettes_fournisseurs_sur_base(base: &mut Base) -> Result<Vec<serde_json::Value>, String> {

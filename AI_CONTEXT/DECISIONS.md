@@ -1829,3 +1829,71 @@ message, un bouton WhatsApp pour un employé hors bulletin.
 préfixe « 223 » à tout numéro qui ne commence pas par 223 — un
 « 00223 76… » y devient « 22300223 76… ». Elle pourra lire le numéro
 par `whatsapp.ts` après fusion.
+
+## D53 — Un article rendu sort de la TVA et du chiffre d'affaires, à la date du retour (01/11/2026)
+
+**Tranché par le propriétaire le 01/11/2026** : « Un article rendu sort
+de la TVA et du chiffre d'affaires À LA DATE DU RETOUR, au prorata de
+la quantité rendue ; une déclaration déjà faite n'est pas réécrite
+(règle d'un avoir). »
+
+**Relevé avant d'agir** : le lot B (D39, 27/10) avait déjà rendu nets
+des retours le tableau de bord, la courbe, le rapport mensuel, les tops,
+la fiche client, et sorti la dette éteinte par un retour de Relances, de
+la liste des créances et de l'« Acompte reçu » imprimé. Restaient : la
+TVA (rapport TVA, résumé de l'onglet Chantiers), le cahier du jour, le
+CA par magasin, le relevé client imprimé et l'onglet Règlements de la
+fiche client. Trouvé en lisant : le cahier comptait la dette éteinte
+dans « Encaissé aujourd'hui » et « Hors du jour », et `annuler_reglement`
+acceptait la ligne `retour` — avec « remboursé », il sortait du tiroir
+de l'argent qu'aucun client n'avait versé.
+
+**Choix de détail** (proposés ; les points 4, 6 et 8, qui changent
+l'écran et le papier, acceptés par le propriétaire le 01/11/2026) :
+
+1. **TVA rendue = la TVA de la ligne vendue, au prorata de la quantité
+   rendue**, cumulée ligne par ligne : après chaque retour, la TVA
+   rendue depuis le début vaut `arrondi(montant_tva × qté rendue
+   cumulée / qté vendue)`, et ce retour rend la différence. Trois
+   retours d'un tiers rendent exactement la TVA de la ligne (100 F, pas
+   3 × 33). Règle pure : `coeur::tva::tva_rendue_par_retour`.
+2. **Calculée à la lecture, rien de stocké** : pas de colonne nouvelle,
+   les retours d'avant comptent aussi. Un retour d'avant v1.3 (sans
+   ligne) se rattache à la première ligne du même article dans sa vente.
+3. **À la date du retour, au taux de la ligne d'origine** : la période
+   de la vente ne bouge pas ; une période qui n'a que des retours à un
+   taux a une TVA négative à ce taux (c'est ce qu'on déclare en moins).
+4. **La base HT suit** : HT rendu = montant rendu − TVA rendue ; base
+   HT et TVA collectée sont nettes. Le rapport TVA garde ses lignes par
+   taux et y ajoute `tva_retours`, `ht_retours`, `nb_retours` ; l'écran
+   et le papier ont une colonne « TVA des retours », seulement quand la
+   période a des retours. **Règle du propriétaire** : sans TVA, on ne
+   parle jamais de montant HT, surtout sur le papier — la colonne dit la
+   TVA rendue, pas un HT rendu, et aucun HT n'apparaît hors d'un taux.
+   **Précision du propriétaire** (01/11) : « la plupart de mes futurs
+   clients ne travaillent pas avec la TVA, mais je veux être prêt au cas
+   où ». Chez une boutique sans TVA (taux 0, D43), rien de plus à
+   l'écran ni sur le papier — ni ligne « TVA 0 F », ni colonne : seul le
+   CA net des retours se voit. Les lectures TVA ne prennent que les
+   lignes à taux > 0, et la colonne ne s'affiche qu'avec un retour taxé.
+5. **L'échange ne sort pas de la TVA** (comme du CA, `RETOUR_HORS_CA`) :
+   la marchandise de remplacement part sans ligne de vente, la TVA de la
+   vente d'origine la couvre. Il compte pourtant dans le cumul de la
+   ligne (sa quantité est revenue). Une vente annulée ne compte pas.
+6. **Le cahier du jour** : le détail des ventes et son « Total ventes »
+   restent la somme des lignes vendues ; le récapitulatif « Chiffre
+   d'affaires du jour » devient net (`ca_jour`, `ca_jour_ht`), avec la
+   ligne « dont retours du jour ». « Encaissé aujourd'hui » et « Hors du
+   jour » ne comptent plus la dette éteinte par un retour ; la colonne
+   « Payé » des impayés non plus.
+7. **Le CA par magasin** : ventes du magasin moins les retours datés
+   dans la période sur les ventes de ce magasin (le magasin de la vente,
+   comme le tableau de bord) ; l'encaissé sans la dette éteinte ;
+   l'impayé reste ce qui est vraiment dû.
+8. **Le relevé client imprimé** : « Réglé » = l'argent reçu ; la dette
+   éteinte par un retour a sa colonne « Rendu », qui n'apparaît que si
+   une facture du relevé en a. Total − Rendu − Réglé = Reste dû.
+9. **Onglet Règlements** : une ligne `retour` n'a ni « Reçu » ni
+   « Annuler », mais la mention « Retour ». Le serveur refuse
+   `annuler_reglement` et `lire_donnees_recu` sur elle (`coeur::calcul::
+   refuser_si_eteint_par_retour`) : l'écran ne protège rien (D27).

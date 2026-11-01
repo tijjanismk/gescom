@@ -38,7 +38,8 @@ interface DepotDetail {
 }
 interface ResumeDepot {
   depot_id: string; nom: string;
-  ca: number; nb_ventes: number; encaisse: number; impaye: number;
+  /** Net des retours de la période (D53) ; `retours` dit ce qui en est déduit. */
+  ca: number; retours: number; nb_ventes: number; encaisse: number; impaye: number;
 }
 
 function fmt(n: number): string {
@@ -375,6 +376,11 @@ export function OngletDepots() {
                     </td>
                     <td className="py-2 text-right font-semibold">
                       {fmt(r.ca)}
+                      {r.retours > 0 && (
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          retours −{fmt(r.retours)}
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 text-right text-green-700">
                       {fmt(r.encaisse)}

@@ -3125,3 +3125,50 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   affiché, puis le bon mot de passe ferme la boîte et la session ne
   demande plus rien. Gescom et Équipe partagent la boîte : les deux sont
   corrigés. tsc, node 14/14.
+
+## 01/11/2026 — D53 : un article rendu sort de la TVA et du chiffre, à la date du retour
+
+Le propriétaire a tranché : « Un article rendu sort de la TVA et du
+chiffre d'affaires À LA DATE DU RETOUR, au prorata de la quantité
+rendue ; une déclaration déjà faite n'est pas réécrite. » Puis : « la
+plupart de mes futurs clients ne travaillent pas avec la TVA, mais je
+veux être prêt au cas où ». Neuf choix écrits avant le code (D53) ; les
+trois qui changent l'écran ou le papier acceptés (colonne « TVA des
+retours », colonne « Rendu » du relevé, récapitulatif net du cahier),
+avec sa règle : sans TVA, jamais de montant HT.
+
+- **Relu avant d'agir** : le lot B du 27/10 avait déjà rendu nets le
+  tableau de bord, les rapports de CA, la fiche client, Relances et
+  l'« Acompte reçu » — la ligne « Reste » d'ETAPES était périmée.
+- **La TVA** : `coeur/tva.rs` (pur, 5 unitaires) — la TVA rendue est
+  celle de la ligne vendue au prorata de la quantité, **cumulée par
+  ligne** (sur une TVA de 100 F, trois retours d'un tiers rendent
+  33 + 34 + 33, pas 3 × 33) ; calculée à la lecture, rien de stocké. Rapport TVA et résumé de
+  Chantiers (deux versions chacun) nets ; un mois qui n'a que des retours
+  porte une TVA négative à son taux ; l'échange n'en sort pas. Une
+  boutique sans TVA ne voit rien de plus : les lectures TVA ne prennent
+  que les lignes à taux > 0.
+- **Le cahier du jour** : « Total ventes » garde la somme des lignes ;
+  le récapitulatif dit le CA net et « dont retours du jour ». Trouvé en
+  route : « Encaissé aujourd'hui » et « Hors du jour » comptaient la
+  dette éteinte par un retour comme de l'argent reçu — plus maintenant ;
+  les impayés ont leur colonne « Rendu ».
+- **Le CA par magasin** : net des retours de la période, encaissé sans
+  la dette éteinte.
+- **Le relevé client** : « Réglé » = l'argent reçu, « Rendu » à part
+  (seulement s'il y en a). **Onglet Règlements** : la ligne `retour` n'a
+  plus ni reçu ni annulation. Trouvé en route : `annuler_reglement`
+  l'acceptait, et « avec remboursement » sortait du tiroir de l'argent
+  qu'aucun client n'avait versé — le serveur refuse maintenant
+  (`coeur::calcul::refuser_si_eteint_par_retour`), le reçu aussi.
+
+**Preuves** : `retours_tva_base` 6/6 (boutique à 18 % et boutique sans
+TVA ; stock, caisse, créance, CA, TVA après chaque geste ; détecteur) ;
+noyau + serveur SQLite **893 verts, 1 rouge hors D53** :
+`paie_corrections_base::point_6…` prépare octobre 2026 en dur avec une
+avance datée d'aujourd'hui — depuis le 01/11, elle tombe après la
+période (date piégée du test, signalée, pas corrigée ici) ;
+  PostgreSQL (`gescom_test_eq1`) et compte limité : les onze fichiers
+  touchés, 75/75 chacun (`retours_tva_base`, `retours_chiffres_base`,
+  `retours_base`, `journal_rapports_base`, `journaux_comptables_base`…) ;
+`tsc` propre, `node --test` 14/14. **Pas vu à l'écran.**

@@ -20,6 +20,11 @@ export interface LigneReleve {
   /** Fournisseur seulement : « Facture » ou « Avoir ». */
   type?: string;
   total: number;
+  /**
+   * Client seulement : la dette éteinte par un retour (D53). « paye » est
+   * alors l'argent reçu, et total − rendu − payé = reste.
+   */
+  rendu?: number;
   paye: number;
   reste: number;
 }
@@ -436,6 +441,10 @@ export function genererReleveHTML(
   const m = MOTS[cote];
   const maintenant = new Date();
   const avecType = cote === "fournisseur";
+  // La colonne « Rendu » n'apparaît que si une facture du relevé a une
+  // dette éteinte par un retour (D53).
+  const avecRendu = d.lignes.some(l => (l.rendu ?? 0) > 0);
+  const colonnesAvantReste = 4 + (avecType ? 1 : 0) + (avecRendu ? 1 : 0);
 
   const lignes = d.lignes.map(l => `
     <tr>
@@ -443,6 +452,7 @@ export function genererReleveHTML(
       <td class="mono">${esc(l.numero || "—")}</td>
       ${avecType ? `<td>${esc(l.type ?? "")}</td>` : ""}
       <td class="d">${fmt(l.total)}</td>
+      ${avecRendu ? `<td class="d">${(l.rendu ?? 0) > 0 ? fmt(l.rendu ?? 0) : "—"}</td>` : ""}
       <td class="d">${fmt(l.paye)}</td>
       <td class="d fort">${fmt(l.reste)}</td>
     </tr>`).join("");
@@ -508,18 +518,18 @@ ${d.lignes.length === 0 ? `
     <tr>
       <th>Date</th><th>Pièce</th>
       ${avecType ? "<th>Nature</th>" : ""}
-      <th class="d">Total</th><th class="d">Réglé</th><th class="d">Reste dû</th>
+      <th class="d">Total</th>${avecRendu ? `<th class="d">Rendu</th>` : ""}<th class="d">Réglé</th><th class="d">Reste dû</th>
     </tr>
   </thead>
   <tbody>${lignes}</tbody>
   <tfoot>
     ${d.avoirs > 0 ? `
     <tr class="avoir">
-      <td colspan="${avecType ? 5 : 4}">Avoirs disponibles à déduire</td>
+      <td colspan="${colonnesAvantReste}">Avoirs disponibles à déduire</td>
       <td class="d">− ${fmt(d.avoirs)}</td>
     </tr>` : ""}
     <tr class="total">
-      <td colspan="${avecType ? 5 : 4}">${m.total}</td>
+      <td colspan="${colonnesAvantReste}">${m.total}</td>
       <td class="d">${fmt(d.net_du)}</td>
     </tr>
   </tfoot>

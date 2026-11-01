@@ -104,16 +104,20 @@ la plage 40000–40100).
 
 ## Trouvé le 27/10/2026 pendant les lots, pas encore fait
 
-- **Rapport TVA** : la TVA des marchandises rendues reste collectée
-  (`ligne_vente.montant_tva` des ventes de la période ;
-  `chantiers::lire_resume_tva` pareil). Proposé : la déduire au prorata
-  de `retour.quantite`, à la date du retour. Le cahier du jour
-  (`journal.rs`) et le CA par magasin (`depots.rs`) ne sont pas nets des
-  retours non plus.
-- **Relevé client imprimé** (`lire_etat_creances_client`) : sa colonne
-  « Payé » compte encore la dette éteinte par un retour. Dans l'onglet
-  Règlements de la fiche client, une ligne `retour` garde « Reçu » et
-  « Annuler ».
+- ~~**Rapport TVA** : la TVA des marchandises rendues reste collectée~~
+  **Fait le 01/11 (D53)** : rapport TVA et résumé de Chantiers nets de
+  la TVA rendue, au prorata de `retour.quantite`, à la date du retour
+  (`coeur::tva`, cumul par ligne) ; ~~cahier du jour et CA par magasin~~
+  nets des retours, leur encaissé sans la dette éteinte.
+  **Limite** : les journaux comptables (E-3) ne passent toujours pas
+  d'écriture de retour (701/4431 contre 411) — leur VT ne colle plus au
+  CA net du cahier un jour de retour.
+- ~~**Relevé client imprimé** : « Payé » compte la dette éteinte par un
+  retour ; une ligne `retour` garde « Reçu » et « Annuler »~~ **Fait le
+  01/11 (D53)** : colonne « Rendu » sur le relevé (et les impayés du
+  cahier) ; la ligne `retour` n'a ni reçu ni annulation, et le serveur
+  refuse les deux (avant, « annuler avec remboursement » sortait du
+  tiroir de l'argent jamais versé).
 - **Une facture réglée en partie par avoir** imprime cette part comme
   due : `lire_donnees_piece` exclut les paiements `mode = 'avoir'` de
   `total_paye` (défaut antérieur, vu au lot B).

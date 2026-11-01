@@ -291,6 +291,31 @@ pub fn lire_stock_depot(
     Ok(x)
 }
 
+/// Une ligne du comparatif entre magasins (D53) : le chiffre est net des
+/// retours dates dans la periode sur les ventes du magasin (l'echange
+/// mis a part) ; l'encaisse ne compte pas la dette eteinte par un retour ;
+/// l'impaye reste ce que les ventes de la periode doivent encore.
+fn resume_d_un_depot(
+    id: String,
+    nom: String,
+    ventes: i64,
+    nb_ventes: i64,
+    tout_paye: i64,
+    eteint: i64,
+    retours: i64,
+) -> serde_json::Value {
+    use crate::coeur::calcul::{ca_net, encaisse};
+    serde_json::json!({
+        "depot_id":  id,
+        "nom":       nom,
+        "ca":        ca_net(ventes, retours),
+        "retours":   retours,
+        "nb_ventes": nb_ventes,
+        "encaisse":  encaisse(tout_paye, eteint),
+        "impaye":    (ventes - tout_paye).max(0),
+    })
+}
+
 /// Comparatif entre magasins — la vue que le cahier Excel appelait
 /// « créance magasin » et « acompte magasin », mais fondée sur les
 /// ventes réelles plutôt que sur des transferts facturés.
@@ -312,7 +337,15 @@ pub fn lire_resume_par_depot(
                 COUNT(DISTINCT v.id),
                 CAST(COALESCE(SUM(
                   (SELECT COALESCE(SUM(p.montant), 0)
-                   FROM paiement p WHERE p.vente_id = v.id)), 0) AS INTEGER)
+                   FROM paiement p WHERE p.vente_id = v.id)), 0) AS INTEGER),
+                CAST(COALESCE(SUM(
+                  (SELECT COALESCE(SUM(p.montant), 0)
+                   FROM paiement p WHERE p.vente_id = v.id AND p.mode = ?4)), 0) AS INTEGER),
+                CAST(COALESCE((SELECT SUM(rt.montant_credit)
+                   FROM retour rt JOIN vente vr ON vr.id = rt.vente_id
+                   WHERE vr.depot_id = d.id AND vr.statut <> 'annulee'
+                     AND rt.mode_resolution <> ?3
+                     AND SUBSTR(rt.date_retour, 1, 10) BETWEEN ?1 AND ?2), 0) AS INTEGER)
          FROM depot d
          LEFT JOIN vente v ON v.depot_id = d.id
               AND DATE(v.date_vente) BETWEEN ?1 AND ?2
@@ -322,17 +355,9 @@ pub fn lire_resume_par_depot(
          ORDER BY d.est_defaut DESC, d.nom"
     ).map_err(|e| e.to_string())?;
 
-    let x = st.query_map(rusqlite::params![d1, d2], |r| {
-        let ca: i64 = r.get(2)?;
-        let paye: i64 = r.get(4)?;
-        Ok(serde_json::json!({
-            "depot_id":  r.get::<_, String>(0)?,
-            "nom":       r.get::<_, String>(1)?,
-            "ca":        ca,
-            "nb_ventes": r.get::<_, i64>(3)?,
-            "encaisse":  paye,
-            "impaye":    (ca - paye).max(0),
-        }))
+    let x = st.query_map(rusqlite::params![d1, d2, crate::coeur::calcul::RETOUR_HORS_CA,
+                                           crate::coeur::calcul::MODE_ETEINT_PAR_RETOUR], |r| {
+        Ok(resume_d_un_depot(r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
     }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
 
     Ok(x)
@@ -753,7 +778,16 @@ pub fn lire_resume_par_depot_sur_base(
                 COUNT(DISTINCT v.id),
                 CAST(COALESCE(SUM(
                   (SELECT COALESCE(SUM(p.montant), 0)
-                   FROM paiement p WHERE p.vente_id = v.id)), 0) AS BIGINT)
+                   FROM paiement p WHERE p.vente_id = v.id)), 0) AS BIGINT),
+                CAST(COALESCE(SUM(
+                  (SELECT COALESCE(SUM(p.montant), 0)
+                   FROM paiement p WHERE p.vente_id = v.id AND p.mode = ?5)), 0) AS BIGINT),
+                CAST(COALESCE((SELECT SUM(rt.montant_credit)
+                   FROM retour rt JOIN vente vr ON vr.id = rt.vente_id
+                   WHERE vr.depot_id = d.id AND vr.statut <> 'annulee'
+                     AND rt.mode_resolution <> ?4
+                     AND SUBSTR(rt.date_retour, 1, 10) BETWEEN ?1 AND ?2
+                     AND rt.dossier_id = ?3), 0) AS BIGINT)
          FROM depot d
          LEFT JOIN vente v ON v.depot_id = d.id
               AND SUBSTR(v.date_vente, 1, 10) BETWEEN ?1 AND ?2
@@ -761,18 +795,23 @@ pub fn lire_resume_par_depot_sur_base(
          WHERE d.actif = 1 AND d.dossier_id = ?3
          GROUP BY d.id, d.nom, d.est_defaut
          ORDER BY d.est_defaut DESC, d.nom",
-        &parametres![d1, d2, dossier],
+        &parametres![
+            d1,
+            d2,
+            dossier,
+            crate::coeur::calcul::RETOUR_HORS_CA,
+            crate::coeur::calcul::MODE_ETEINT_PAR_RETOUR
+        ],
         |r| {
-            let ca: i64 = r.get::<i64>(2)?;
-            let paye: i64 = r.get::<i64>(4)?;
-            Ok(serde_json::json!({
-                "depot_id":  r.get::<String>(0)?,
-                "nom":       r.get::<String>(1)?,
-                "ca":        ca,
-                "nb_ventes": r.get::<i64>(3)?,
-                "encaisse":  paye,
-                "impaye":    (ca - paye).max(0),
-            }))
+            Ok(resume_d_un_depot(
+                r.get::<String>(0)?,
+                r.get::<String>(1)?,
+                r.get::<i64>(2)?,
+                r.get::<i64>(3)?,
+                r.get::<i64>(4)?,
+                r.get::<i64>(5)?,
+                r.get::<i64>(6)?,
+            ))
         },
     )
     .map_err(|e| e.0)

@@ -32,9 +32,11 @@ interface HorsJour {
   client: string; montant: number; mode: string;
   date: string; date_vente: string; type: "solde" | "acompte";
 }
+// « paye » est l'argent reçu ; la dette éteinte par un retour est dans
+// « rendu » (D53). Total − rendu − payé = reste.
 interface Impaye {
   client: string; date_vente: string;
-  total: number; paye: number; reste: number;
+  total: number; rendu: number; paye: number; reste: number;
 }
 interface Achat {
   fournisseur: string; description: string;
@@ -78,7 +80,10 @@ interface Journal {
   depenses_par_categorie: { categorie: string; montant: number }[];
   caisse_par_moyen: { moyen: string; entrees: number; sorties: number }[];
   totaux: {
+    // ca_jour : net des retours du jour (D53) ; ventes_jour : le total
+    // du détail des ventes ; retours_jour : ce qui en est déduit.
     ca_jour: number; ca_jour_ht: number; encaisse_jour: number;
+    ventes_jour: number; retours_jour: number;
     hors_jour: number; impayes: number; achats: number;
     depenses: number; reglement_fournisseur: number; nb_ventes: number;
   };
@@ -201,6 +206,8 @@ export function Journal() {
   }
 
   const t = data?.totaux;
+  // La colonne « Rendu » des impayés, seulement si un retour a éteint une dette.
+  const avecRendu = (data?.impayes ?? []).some(im => im.rendu > 0);
 
   return (
     <div className="flex-1 overflow-auto p-6 print:p-0">
@@ -317,7 +324,7 @@ export function Journal() {
             <tr>
               <td className={`${TD} font-bold`} colSpan={5}>TOTAL VENTES</td>
               <td className={`${TD} text-right font-bold`}>
-                {fmt(t?.ca_jour ?? 0)}
+                {fmt(t?.ventes_jour ?? 0)}
               </td>
               <td />
             </tr>
@@ -566,6 +573,7 @@ export function Journal() {
               <th className={TH}>Client</th>
               <th className={TH}>Vente du</th>
               <th className={`${TH} text-right`}>Total</th>
+              {avecRendu && <th className={`${TH} text-right`}>Rendu</th>}
               <th className={`${TH} text-right`}>Payé</th>
               <th className={`${TH} text-right`}>Reste dû</th>
             </tr>
@@ -578,6 +586,11 @@ export function Journal() {
                   {fmtDateCourt(im.date_vente)}
                 </td>
                 <td className={`${TD} text-right`}>{fmt(im.total)}</td>
+                {avecRendu && (
+                  <td className={`${TD} text-right`}>
+                    {im.rendu > 0 ? fmt(im.rendu) : "—"}
+                  </td>
+                )}
                 <td className={`${TD} text-right text-green-700`}>
                   {fmt(im.paye)}
                 </td>
@@ -589,7 +602,7 @@ export function Journal() {
           </tbody>
           <tfoot className="border-t-2 border-foreground bg-muted/40">
             <tr>
-              <td className={`${TD} font-bold`} colSpan={4}>TOTAL IMPAYÉS</td>
+              <td className={`${TD} font-bold`} colSpan={avecRendu ? 5 : 4}>TOTAL IMPAYÉS</td>
               <td className={`${TD} text-right font-bold text-red-600`}>
                 {fmt(t?.impayes ?? 0)}
               </td>
@@ -613,7 +626,7 @@ export function Journal() {
                 <td className={`${TD} font-medium`}>
                   Chiffre d'affaires du jour
                   <span className="block text-xs text-muted-foreground font-normal">
-                    Ventes émises aujourd'hui, payées ou non
+                    Ventes émises aujourd'hui, payées ou non, moins les retours du jour
                     · {t?.nb_ventes ?? 0} ligne(s)
                   </span>
                 </td>
@@ -621,6 +634,17 @@ export function Journal() {
                   {fmt(t?.ca_jour ?? 0)}
                 </td>
               </tr>
+              {(t?.retours_jour ?? 0) > 0 && (
+                <tr>
+                  <td className={TD}>
+                    Dont retours du jour
+                    <span className="block text-xs text-muted-foreground">
+                      Marchandise rendue aujourd'hui, échanges à part
+                    </span>
+                  </td>
+                  <td className={`${TD} text-right`}>− {fmt(t?.retours_jour ?? 0)}</td>
+                </tr>
+              )}
               <tr className="bg-blue-50/50">
                 <td className={`${TD} font-medium`}>
                   Encaissé aujourd'hui
@@ -729,6 +753,7 @@ function genererJournalHTML(d: Journal): string {
       day: "2-digit", month: "2-digit",
     });
   const t = d.totaux;
+  const avecRendu = (d.impayes ?? []).some(im => im.rendu > 0);
 
   const section = (titre: string, entetes: string[], lignes: string[]) =>
     lignes.length === 0 ? "" : `
@@ -816,10 +841,11 @@ function genererJournalHTML(d: Journal): string {
       <td class="d">${f(x.montant)}</td></tr>`))}
 
   ${section("Situation non payée",
-    ["Client", "Vente du", "Total", "Payé", "Reste dû"],
+    ["Client", "Vente du", "Total", ...(avecRendu ? ["Rendu"] : []), "Payé", "Reste dû"],
     (d.impayes ?? []).map(im => `<tr>
       <td>${im.client}</td><td>${dc(im.date_vente)}</td>
       <td class="d">${f(im.total)}</td>
+      ${avecRendu ? `<td class="d">${im.rendu > 0 ? f(im.rendu) : "—"}</td>` : ""}
       <td class="d">${f(im.paye)}</td>
       <td class="d">${f(im.reste)}</td></tr>`))}
 
@@ -827,6 +853,8 @@ function genererJournalHTML(d: Journal): string {
   <table class="recap">
     <tr><td class="cle">Chiffre d'affaires du jour</td>
         <td class="val">${f(t?.ca_jour ?? 0)}</td></tr>
+    ${(t?.retours_jour ?? 0) > 0 ? `<tr><td class="cle">Dont retours du jour</td>
+        <td class="val">− ${f(t?.retours_jour ?? 0)}</td></tr>` : ""}
     <tr><td class="cle">Encaissé du jour</td>
         <td class="val">${f(t?.encaisse_jour ?? 0)}</td></tr>
     <tr><td class="cle">Dont hors du jour</td>

@@ -135,6 +135,10 @@ export function OngletTVA() {
                   <span className="text-muted-foreground">
                     TVA {(t.taux * 100).toFixed(0)}%
                     <span className="ml-2 text-xs">(base {fmt(t.total_ht)})</span>
+                    {/* D53 : la TVA des articles rendus est déjà déduite. */}
+                    {t.tva_retours !== 0 && (
+                      <span className="ml-2 text-xs">· retours −{fmt(t.tva_retours)}</span>
+                    )}
                   </span>
                   <span className="font-medium">{fmt(t.total_tva)}</span>
                 </div>
