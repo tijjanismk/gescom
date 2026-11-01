@@ -35,7 +35,7 @@ caisses le même jour (chapitre 10).
 | Deux caisses ou plus | Gescom Serveur sur l'ordinateur principal, la caisse sur chaque poste | 4 |
 | Deux caisses, sans installer le serveur | la caisse partout ; un poste garde la base pour les autres — **déconseillé** | 5 |
 | Base sur PostgreSQL (gros volume, technicien) | Gescom Serveur réglé sur PostgreSQL | 6 |
-| La paie et le suivi des clients | Gescom Équipe, après la caisse du même poste | 7 |
+| La paie et le suivi des clients | Gescom Équipe, avec ou sans caisse sur le poste | 7 |
 | Une caisse de plus, un poste renommé | rien à réinstaller ailleurs | 8 |
 | On avait un seul ordinateur, on passe à plusieurs caisses | une opération à faire avec soin | 9 |
 
@@ -112,7 +112,8 @@ d'ouverture.
 
 > Une adresse **fixe** pour cet ordinateur vaut mieux (réglage de la
 > box). Sinon, un jour, la box en donne une autre ; les caisses le
-> retrouvent par « Rechercher le serveur », mais il faut le faire.
+> retrouvent depuis leur écran de connexion (**Réglage du serveur** →
+> **Rechercher le serveur**), mais il faut le faire.
 
 **Si un fichier `C:\ProgramData\Gescom\serveur.json` existe déjà**, la
 page de configuration est sautée : l'ancienne configuration est gardée.
@@ -195,23 +196,32 @@ est bien lue par le service.
 
 # 7. Gescom Équipe
 
-Gescom Équipe n'a **ni base ni réglage à elle** : elle parle au même
-serveur que la caisse **du même poste**, avec les mêmes comptes et les
-mêmes droits.
+Gescom Équipe n'a **pas de base à elle** : elle parle au serveur de la
+boutique, avec les mêmes comptes et les mêmes droits. Son seul réglage
+est l'adresse de ce serveur.
 
-1. **D'abord la caisse**, installée et branchée sur ce poste (chapitre 3
-   ou 4).
-2. Lancer `Gescom Equipe_0.1.0_x64-setup.exe`.
-3. Ouvrir **Gescom Équipe**, se connecter avec son compte habituel,
-   choisir le dossier s'il y en a plusieurs.
+1. Lancer `Gescom Equipe_0.1.0_x64-setup.exe`.
+2. Ouvrir **Gescom Équipe**.
+   - Sur un poste qui a **déjà la caisse**, branchée : rien à régler,
+     Équipe prend l'adresse de la caisse.
+   - Sur un poste **sans caisse** (le bureau du patron, par exemple),
+     ou si l'écran dit **« Le serveur ne répond pas »** : cliquer
+     **Réglage du serveur**, sous « Se connecter ». Puis **Rechercher le
+     serveur** (ou taper son adresse), **Essayer**, **Enregistrer**.
+3. Se connecter avec son compte habituel, choisir le dossier s'il y en
+   a plusieurs.
 
 | Poste | Équipe fonctionne ? |
 |---|---|
-| Un seul ordinateur (« Ce poste garde la base ») | oui |
-| Une caisse branchée sur un serveur | oui |
-| L'ordinateur du serveur, avec sa caisse | oui |
-| L'ordinateur du serveur, **sans** caisse | oui si le serveur écoute sur 40000 |
-| Un poste **sans caisse**, serveur ailleurs | **non** : rien ne permet de lui donner l'adresse. Installer aussi la caisse et la brancher (chapitre 4.2) |
+| Un seul ordinateur (« Ce poste garde la base ») | oui, sans réglage |
+| Une caisse branchée sur un serveur | oui, sans réglage |
+| L'ordinateur du serveur, avec sa caisse | oui, sans réglage |
+| L'ordinateur du serveur, **sans** caisse | oui si le serveur écoute sur 40000 ; sinon Réglage du serveur |
+| Un poste **sans caisse**, serveur ailleurs | oui : **Réglage du serveur**, une fois |
+
+> L'adresse réglée dans Équipe **passe devant** celle de la caisse du
+> même poste. Pour revenir à celle de la caisse : Réglage du serveur →
+> **Reprendre celle de la caisse**.
 
 Ce que chacun voit dépend de ses droits (Paramètres → Utilisateurs →
 Permissions, dans la caisse). Le détail : le manuel de Gescom Équipe.
@@ -229,9 +239,12 @@ Permissions, dans la caisse). Le détail : le manuel de Gescom Équipe.
   - « Ce poste garde la base » : une confirmation prévient que les ventes
     du poste principal n'y sont pas.
 
-> Paramètres → Réseau demande d'être **connecté**. Si une caisse ne
-> trouve plus du tout son serveur, l'écran de connexion n'offre pas de
-> lien pour en changer : voir le chapitre 14.
+> Paramètres → Réseau demande d'être **connecté**. Une caisse qui ne
+> trouve plus son serveur passe par son **écran de connexion** :
+> **Réglage du serveur** → Rechercher le serveur (ou taper l'adresse) →
+> Essayer → Enregistrer. Ce lien n'existe que sur une caisse d'un autre
+> poste et dans Équipe : sur l'ordinateur qui garde la base, le serveur
+> est sur place.
 
 ---
 
@@ -296,10 +309,11 @@ serveur**.
   modifier les paramètres. Impossible sur un poste unique : « le port est
   géré par Gescom ».
 - L'écran dit avant combien de caisses sont connectées : **elles perdent
-  le serveur** et doivent le retrouver (Rechercher le serveur).
+  le serveur** et doivent le retrouver : sur chaque caisse et chaque
+  Gescom Équipe, écran de connexion → **Réglage du serveur** →
+  **Rechercher le serveur** → Essayer → Enregistrer.
 
-> À éviter sans nécessité : une caisse déconnectée ne peut pas ouvrir
-> Paramètres → Réseau avant de se reconnecter (chapitre 14).
+> À éviter sans nécessité : il faut passer sur chaque poste.
 
 ---
 
@@ -344,9 +358,9 @@ commande, avec `--restaurer <copie>` **et `--base <la base à remplacer>`**
 | « éditeur inconnu » / SmartScreen | la caisse n'est pas signée, le serveur l'est par Gescom | « Informations complémentaires » → « Exécuter quand même » |
 | « Ce fichier Gescom.exe a été déplacé hors de son dossier d'installation » | le programme a été copié | lancer Gescom depuis le menu Démarrer, ou réinstaller |
 | « Le serveur de ce poste ne répond pas » (un seul ordinateur) | le serveur intégré n'a pas démarré ; la raison est écrite | Réessayer ; si « introuvable » : réinstaller Gescom ; si « aucun port libre » : fermer le programme qui occupe 40000 |
-| « Serveur injoignable (…) » sur une caisse | serveur arrêté, ordinateur principal éteint, réseau, ou adresse changée | ouvrir **Gescom Serveur** sur le principal : « Le serveur ne tourne pas » → **Démarrer le service** ; vérifier le réseau Privé |
+| « Le serveur ne répond pas à … » sur l'écran de connexion, ou « Serveur injoignable (…) » | serveur arrêté, ordinateur principal éteint, réseau, ou adresse changée | ouvrir **Gescom Serveur** sur le principal : « Le serveur ne tourne pas » → **Démarrer le service** ; vérifier le réseau Privé ; si l'adresse ou le port a changé : **Réglage du serveur** sur l'écran de connexion |
 | « Aucun serveur Gescom n'a répondu sur ce réseau » | pare-feu (UDP 40000), autre réseau Wi-Fi, serveur arrêté | taper l'adresse à la main ; vérifier le pare-feu |
-| Une caisse ne trouve plus le serveur et on ne peut pas se connecter pour changer l'adresse | l'écran de connexion n'a pas de lien vers le réglage du réseau | remettre le serveur à son ancienne adresse ou son ancien port, se connecter, puis Paramètres → Réseau ; à défaut, un technicien corrige `poste.json` |
+| L'adresse tapée dans Réglage du serveur est refusée | elle ne répond pas, ce n'est pas un serveur Gescom, ou son port est hors de 40000-40100 : l'écran le dit | lire l'adresse dans **Gescom Serveur** (« Sur les caisses, taper ») ; l'ancienne adresse reste tant qu'une nouvelle n'a pas répondu |
 | « HORLOGE_RECULE — L'horloge de l'ordinateur qui garde la base recule… » | l'heure de l'ordinateur a été reculée | remettre l'heure juste ; si elle était en avance, le patron confirme dans Paramètres → Horloge |
 | « Le … est hors des dates de travail » | l'exercice est fini | le patron le prolonge ou en ouvre un nouveau (manuel d'utilisation) |
 | La caisse paraît vide après l'installation du serveur | c'est la base neuve du service | chapitre 9 |

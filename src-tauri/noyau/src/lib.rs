@@ -23,6 +23,9 @@ pub mod protocole;
 // La decouverte du serveur en UDP (format pur, partage) et le journal
 // d'un changement de port du serveur (27/10/2026).
 pub mod decouverte;
+// La recherche et l'essai du serveur cote poste, partages par la caisse
+// et Gescom Equipe, et l'adresse d'Equipe (D55, 01/11/2026).
+pub mod recherche_serveur;
 pub mod reseau_serveur;
 pub mod postes;
 pub mod codebarre;

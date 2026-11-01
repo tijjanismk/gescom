@@ -448,8 +448,11 @@ function App() {
   const brancher = () => { setBrancherAilleurs(false); setRevisionReseau((n) => n + 1); };
   // Premier demarrage : le role se demande, il ne se devine pas.
   if (brancherAilleurs || modeReseau === "a_choisir") {
+    // Une caisse venue de l'écran de connexion (D55) y revient si elle
+    // ne change rien ; ailleurs, l'écran a déjà son retour.
     return brancherAilleurs
-      ? <PageServeur onConfigure={brancher} onGarderBase={garderBase} />
+      ? <PageServeur onConfigure={brancher} onGarderBase={garderBase}
+                     onAnnuler={modeReseau === "poste" ? () => setBrancherAilleurs(false) : undefined} />
       : <PageRolePoste onGarderBase={garderBase} onCaisse={() => setBrancherAilleurs(true)} />;
   }
   // Ce poste garde la base : son serveur est ici, on le joint ou on le
@@ -463,7 +466,11 @@ function App() {
   }
 
   if (!utilisateur) {
-    return <PageLogin onConnecte={handleConnecte} />;
+    // D55 : une caisse qui ne trouve plus son serveur le règle d'ici. Pas
+    // le poste qui garde la base : son serveur est sur la machine, et
+    // changer de rôle se fait connecté (Paramètres → Réseau).
+    return <PageLogin onConnecte={handleConnecte}
+                      onReglageServeur={modeReseau === "poste" ? () => setBrancherAilleurs(true) : undefined} />;
   }
 
   if (assistant === "inconnu") {

@@ -39,11 +39,11 @@ fn chaque_fenetre_joint_toute_la_plage_et_rien_d_autre() {
     }
 }
 
-/// Gescom Equipe et Gescom Serveur (la fenetre) ne dependent pas du
-/// noyau : elles recopient la plage. La copie doit suivre.
+/// Gescom Serveur (la fenetre) ne depend pas du noyau : elle recopie la
+/// plage. La copie doit suivre. Gescom Equipe lit `protocole` depuis D55.
 #[test]
-fn equipe_recopie_la_meme_plage() {
-    for chemin in ["../equipe/src/main.rs", "../serveur-fenetre/src/main.rs"] {
+fn la_fenetre_du_serveur_recopie_la_meme_plage() {
+    for chemin in ["../serveur-fenetre/src/main.rs"] {
         let texte = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(chemin))
             .unwrap_or_else(|e| panic!("{chemin} : {e}"));
         assert!(texte.contains(&format!("const PORT_DEFAUT: u16 = {PORT_DEFAUT};")), "PORT_DEFAUT de {chemin}");

@@ -48,7 +48,7 @@ lisait `UTILISATEUR_ACTIF` encore `null` au premier rendu.
 | [Transferts.tsx](../../src/pages/Transferts.tsx) | 452 | bons BTR |
 | [Retours.tsx](../../src/pages/Retours.tsx) | 360 | retours et avoirs ouverts ; ventes par pages de 50 (`lire_ventes_recentes_paginee`, recherche serveur client/code/n° de facture, `Pagination`) depuis le lot D.12 — Pièces retrouve la vente d'une facture par la même lecture |
 | [Cheques.tsx](../../src/pages/Cheques.tsx) | 248 | suivi des chèques reçus |
-| [PageLogin.tsx](../../src/pages/PageLogin.tsx) | 128 | connexion ; exporte aussi `UtilisateurConnecte` |
+| [PageLogin.tsx](../../src/pages/PageLogin.tsx) | 290 | connexion ; exporte aussi `UtilisateurConnecte` ; D55 : `onReglageServeur` (lien « Réglage du serveur », caisse d'un autre poste et Équipe) et « Le serveur ne répond pas à … » (`sante()` au montage, Réessayer) |
 
 ## Entrant
 

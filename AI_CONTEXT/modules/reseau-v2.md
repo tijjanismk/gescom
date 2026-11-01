@@ -91,6 +91,21 @@ l'exécutable, une demande à la fois, vingt secondes au plus ; l'écran
 dossier de données des deux côtés (banc d'écran, essai à la main : deux
 dossiers marqués, [environnement-windows.md](environnement-windows.md) § 7).
 
+## Trouver le serveur avant connexion (01/11/2026, D55)
+
+La recherche et l'essai côté poste vivent dans
+[noyau/src/recherche_serveur.rs](../../src-tauri/noyau/src/recherche_serveur.rs)
+(`rechercher`, `tester_serveur` — qui refuse une adresse hors de
+40000-40100 avant d'essayer —, `premiere_adresse`), appelés par la caisse
+(`reseau.rs`) et par Gescom Équipe : une seule recherche. L'écran de
+connexion d'une caisse d'un autre poste (`mode == "poste"`) et d'Équipe
+porte « Réglage du serveur » → `PageServeur` (`onAnnuler` pour revenir,
+`equipe` pour Équipe) ; pas sur le poste qui garde la base. Équipe garde
+son adresse dans `equipe.json` (clé `serveur`, à côté de `empreinte`,
+écriture qui garde l'autre clé), qui passe devant `poste.json` de la
+caisse (`adresse_equipe`). Tests :
+[tests/recherche_serveur.rs](../../src-tauri/noyau/tests/recherche_serveur.rs).
+
 ## Tests et essais
 
 - [tests/reseau.rs](../../src-tauri/noyau/tests/reseau.rs) — sessions, postes, révocations, sur base en mémoire ; [registre_base.rs](../../src-tauri/noyau/tests/registre_base.rs) — le double enregistrement.

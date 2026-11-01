@@ -9,14 +9,22 @@
 // L'adresse se tape, ou se trouve : « Rechercher le serveur » (27/10/2026)
 // interroge le réseau local et un clic la remplit.
 //
+// D55 (01/11/2026) : le même écran s'ouvre aussi depuis l'écran de
+// connexion, par « Réglage du serveur » — sur une caisse d'un autre poste
+// et dans Gescom Équipe —, quand le serveur a changé de port ou d'IP.
+// Il ne touche qu'à l'adresse : rien des données, le serveur exige
+// toujours la connexion pour le reste. Dans Équipe (`equipe`), l'adresse
+// va dans son `equipe.json` et passe devant celle de la caisse du poste ;
+// « Reprendre celle de la caisse » l'efface.
+//
 // On ne se contente pas d'enregistrer l'adresse : on l'ESSAIE d'abord.
 // Une adresse acceptée sans essai donne une application qui paraît
 // installée et qui échoue au premier geste, dans la boutique, devant un
 // client. Mieux vaut refuser tout de suite et dire quoi vérifier.
 
 import { useEffect, useState } from "react";
-import { appeler as invoke, definirServeur, etatReseau } from "@/lib/pont";
-import { Loader2, Network, CheckCircle2, AlertTriangle } from "lucide-react";
+import { appeler as invoke, definirServeur, estDansTauri, etatReseau, sante } from "@/lib/pont";
+import { Loader2, Network, CheckCircle2, AlertTriangle, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,9 +42,21 @@ interface Props {
   onConfigure: () => void;
   /** Finalement, ce poste garde la base (D24 : un geste volontaire). */
   onGarderBase?: () => Promise<void>;
+  /** Ouvert depuis l'écran de connexion (D55) : y revenir sans rien changer. */
+  onAnnuler?: () => void;
+  /** Gescom Équipe (D55) : son adresse à elle, pas de nom de poste à régler. */
+  equipe?: boolean;
 }
 
-export function PageServeur({ onConfigure, onGarderBase }: Props) {
+/** D'où vient l'adresse d'Équipe (`lire_config_reseau`, D55). */
+const SOURCES: Record<string, string> = {
+  equipe: "réglée dans Gescom Équipe",
+  caisse: "celle de la caisse de ce poste",
+  defaut: "ce poste, faute d'autre réglage",
+};
+
+export function PageServeur({ onConfigure, onGarderBase, onAnnuler, equipe }: Props) {
+  const actuel = etatReseau();
   const [serveur, setServeur] = useState("");
   const [posteNom, setPosteNom] = useState("");
   const [test, setTest] = useState<Sante | null>(null);
@@ -58,7 +78,13 @@ export function PageServeur({ onConfigure, onGarderBase }: Props) {
     setTest(null);
     setErreur("");
     try {
-      const s = await invoke<Sante>("tester_serveur", { adresse: adresse.trim() });
+      // Dans un navigateur (mise au point, pas l'application installée),
+      // pas de commande Rust : on lit `/sante` directement.
+      const s = estDansTauri()
+        ? await invoke<Sante>("tester_serveur", { adresse: adresse.trim() })
+        : await sante(adresse.trim()).catch(() => {
+            throw `Serveur injoignable sur ${adresse.trim()}.`;
+          }) as Sante;
       setTest(s);
       if (!s.base_saine) {
         setErreur(
@@ -77,11 +103,15 @@ export function PageServeur({ onConfigure, onGarderBase }: Props) {
     setEnCours(true);
     setErreur("");
     try {
-      await invoke("definir_config_reseau", {
-        mode: "poste",
-        serveur: serveur.trim(),
-        posteNom: posteNom.trim() || null,
-      });
+      // Dans un navigateur, l'adresse n'est retenue que par lui (le
+      // miroir de `pont.ts`) : il n'a pas de fichier de réglage.
+      if (estDansTauri()) {
+        await invoke("definir_config_reseau", {
+          mode: "poste",
+          serveur: serveur.trim(),
+          posteNom: equipe ? null : posteNom.trim() || null,
+        });
+      }
       // Le navigateur n'est qu'un miroir de `poste.json` : on l'aligne
       // tout de suite, sinon le prochain appel partirait encore à
       // l'ancienne adresse.
@@ -93,25 +123,57 @@ export function PageServeur({ onConfigure, onGarderBase }: Props) {
     }
   }
 
+  // Équipe : effacer son adresse, pour reprendre celle de la caisse.
+  async function reprendreCaisse() {
+    setEnCours(true);
+    setErreur("");
+    try {
+      await invoke("definir_config_reseau", { mode: "poste", serveur: null });
+      onConfigure();
+    } catch (e) {
+      setErreur(String(e));
+      setEnCours(false);
+    }
+  }
+
   const adresseOk = serveur.trim().length > 0;
+  const titre = onAnnuler ? "Réglage du serveur" : "Brancher ce poste";
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-muted/30">
       <div className="w-full max-w-md space-y-5">
         <div className="text-center space-y-1">
           <Network className="h-9 w-9 mx-auto text-primary" />
-          <h1 className="text-xl font-semibold">Brancher ce poste</h1>
+          <h1 className="text-xl font-semibold">{titre}</h1>
           <p className="text-sm text-muted-foreground">
-            Gescom travaille sur le serveur de la boutique. Saisir
-            l'adresse affichée par&nbsp;<b>Gescom Serveur</b> sur le poste
-            principal.
+            {equipe ? "Gescom Équipe" : "Gescom"} travaille sur le serveur de la boutique.
+            Le rechercher, ou saisir l'adresse affichée par&nbsp;<b>Gescom Serveur</b> sur
+            le poste principal.
           </p>
         </div>
 
+        {onAnnuler && actuel.serveur && (
+          <div className="rounded-md border border-border bg-background px-3 py-2 text-sm" data-testid="adresse-actuelle">
+            <p>
+              Adresse actuelle : <span className="font-mono">{actuel.serveur}</span>
+            </p>
+            {equipe && actuel.source && SOURCES[actuel.source] && (
+              <p className="text-xs text-muted-foreground">{SOURCES[actuel.source]}</p>
+            )}
+            {equipe && actuel.source === "equipe" && actuel.serveurCaisse && (
+              <button type="button" disabled={enCours} onClick={reprendreCaisse}
+                className="mt-1 text-xs underline text-muted-foreground hover:text-foreground">
+                Reprendre celle de la caisse ({actuel.serveurCaisse})
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="bg-background border border-border rounded-lg p-5 space-y-4">
           <div>
-            <Label>Adresse du serveur</Label>
+            <Label htmlFor="adresse-serveur">Adresse du serveur</Label>
             <Input
+              id="adresse-serveur"
               className="mt-1 font-mono"
               placeholder="192.168.1.10"
               value={serveur}
@@ -129,7 +191,7 @@ export function PageServeur({ onConfigure, onGarderBase }: Props) {
             onChoisir={(a) => { setServeur(a); essayer(a); }}
           />
 
-          <div>
+          {!equipe && <div>
             <Label>Nom de ce poste</Label>
             <Input
               className="mt-1"
@@ -140,7 +202,7 @@ export function PageServeur({ onConfigure, onGarderBase }: Props) {
             <p className="text-[11px] text-muted-foreground mt-1">
               C'est ce nom que le patron verra dans la console du serveur.
             </p>
-          </div>
+          </div>}
 
           {test && (
             <div className="flex items-start gap-2 text-sm rounded-md
@@ -159,7 +221,7 @@ export function PageServeur({ onConfigure, onGarderBase }: Props) {
 
           {erreur && (
             <div className="flex items-start gap-2 text-sm rounded-md
-                            bg-red-500/10 text-red-600 p-3">
+                            bg-red-500/10 text-red-600 p-3" role="alert">
               <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
               <p>{erreur}</p>
             </div>
@@ -188,6 +250,15 @@ export function PageServeur({ onConfigure, onGarderBase }: Props) {
           poste principal (fenêtre Gescom Serveur), que les deux machines
           sont sur le même réseau, et que le pare-feu laisse passer le port.
         </p>
+
+        {onAnnuler && (
+          <p className="text-xs text-center">
+            <button type="button" className="inline-flex items-center gap-1 underline text-muted-foreground hover:text-foreground"
+              disabled={enCours} onClick={onAnnuler}>
+              <ArrowLeft className="h-3.5 w-3.5" /> Retour à la connexion, sans rien changer
+            </button>
+          </p>
+        )}
 
         {onGarderBase && (
           <p className="text-xs text-center">

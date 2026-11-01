@@ -476,6 +476,7 @@ menant à l'écran, selon ses droits.
 | D10 | le mot de passe de la base reste hors du dépôt |
 | D11 | le serveur tient une `Base` ; sur PostgreSQL, une commande non portée **refuse** au lieu de retomber sur SQLite — **186/187 portées le 12/09/2026** ; **dépassée par D22 le 23/09/2026 (v3 D-2)** : le chemin `Connection` du serveur est parti |
 | D12 | le serveur est un **service Windows** (`GescomServeur`), installé à part, en administrateur ; il démarre avec la machine et se relance seul |
+| D55 | **trouver le serveur depuis l'écran de connexion** : lien « Réglage du serveur » sur une caisse d'un autre poste et dans Équipe (rechercher comme D40, ou taper ; essayée avant d'être enregistrée) ; Équipe garde son adresse dans `equipe.json`, qui passe devant la caisse ; la connexion dit « le serveur ne répond pas » ; l'écran mort d'Équipe part |
 | D47 | **le prêt au personnel** : une avance de nature `pret` (même table) ; `paie:valider` ; échéance fixe par mois civil, reculable de 3 mois, une échéance manquée allonge le prêt ; avances d'abord ; un seul prêt en cours ; soldé calculé ; au départ, tout le reste sur la dernière fiche, puis remboursement ou remise (658) |
 | D42 | **le tiroir, l'avance, la commission** (les questions de D41) : case « pris dans le tiroir » qui écrit la sortie de caisse, sinon hors caisse ; l'avance s'étale à la saisie (tout, ou X F par mois) et se date dans le passé (31 jours au plus) ; la commission sur l'**encaissé**, moins l'argent rendu ; l'ITS saisi à la main, pas de barème — codé le 28/10 |
 | D41 | **la paie suit l'emploi et fige ses conditions** : seulement les jours d'emploi de la période ; prorata en entiers sur les jours du mois, un jour non marqué compte présent ; salaire au mois sur un mois civil ; la rectificative reprend les conditions figées de la fiche ; jours figés après validation ; trop-versé → avance ; commission nette des retours ; montants masqués partout sans droit de paie ; « 15.000 » = 15 000 F |
@@ -1829,3 +1830,82 @@ message, un bouton WhatsApp pour un employé hors bulletin.
 préfixe « 223 » à tout numéro qui ne commence pas par 223 — un
 « 00223 76… » y devient « 22300223 76… ». Elle pourra lire le numéro
 par `whatsapp.ts` après fusion.
+
+## D55 — Trouver le serveur depuis l'écran de connexion (01/11/2026)
+
+**Le besoin** (ALERTES, 28/10) : l'écran de connexion n'avait aucun lien
+vers le réglage du réseau, et Paramètres → Réseau demande d'être
+connecté. Une caisse dont le serveur a changé de port ou d'IP restait
+coincée sans technicien. Gescom Équipe, sur un poste sans caisse, ne
+pouvait recevoir aucune adresse : elle lisait le `poste.json` de la
+caisse, sinon `127.0.0.1:40000`. Son écran « Gescom Équipe a besoin du
+serveur Gescom » ne s'affichait jamais, et son texte était périmé.
+
+**Décision du propriétaire** (01/11/2026) : « Un lien " Réglage du
+serveur " sur l'écran de connexion (caisse et Équipe) : chercher le
+serveur sur le réseau, comme la caisse depuis D40, ou taper son
+adresse ; gardé pour la suite. »
+
+**Choix tranchés par le propriétaire le 01/11** (les quatre
+recommandations) :
+
+1. **Équipe a son adresse à elle**, clé `serveur` de son `equipe.json`
+   (le fichier qui garde déjà son empreinte). **Elle l'emporte** sur la
+   caisse du poste dès qu'on l'a réglée depuis Équipe. Avant, Équipe
+   suit la caisse du poste ; sans caisse, `127.0.0.1:40000`. L'écran de
+   réglage dit d'où vient l'adresse et propose « Reprendre celle de la
+   caisse », qui efface l'adresse d'Équipe. Pourquoi : l'adresse
+   d'Équipe vient d'un geste fait dans Équipe, et un lien qui
+   n'aurait aucun effet sur un poste qui a une caisse serait un
+   mensonge. Équipe n'écrit jamais dans le `poste.json` de la caisse,
+   qui porte aussi son rôle.
+2. **L'écran « Gescom Équipe a besoin du serveur Gescom » est retiré.**
+   C'est l'écran de connexion, partagé par la caisse et Équipe, qui le
+   dit : « Le serveur ne répond pas à <adresse> », avec « Réessayer » et
+   le lien. Un seul endroit pour les deux programmes.
+3. **Le lien n'apparaît que sur une caisse d'un autre poste, et
+   toujours dans Équipe.** Sur le poste qui garde la base, il n'y a
+   rien à régler : son serveur est sur la machine et se lance tout
+   seul. Changer de rôle reste un geste fait après connexion, avec
+   confirmation (D22/D24 révisés, point 7).
+4. **Une adresse qui ne répond pas est refusée**, comme au branchement :
+   « Enregistrer » ne s'active qu'après un essai réussi, et le message
+   dit la raison (injoignable, pas un serveur Gescom, hors de la plage).
+   L'ancienne adresse reste. La recherche montre la liste de D40, sans
+   changement : nom du poste serveur, adresse conseillée avec son port,
+   IP, version.
+
+**Choix de détail** (l'assistant, sans effet sur ce qu'on voit) :
+
+5. **Une seule recherche.** La partie cliente de D40 (`rechercher`,
+   `tester_serveur`) quitte `src-tauri/src/reseau.rs` pour le noyau
+   (`noyau/src/recherche_serveur.rs`, sans Tauri ni base). La caisse et
+   Équipe l'appellent toutes les deux. Pourquoi : Équipe ne peut pas
+   emprunter la recherche à la caisse, et une copie ferait le second
+   mécanisme que D40 évite.
+6. **Équipe dépend donc du noyau**, pour ce module et `protocole`. Elle
+   n'ouvre toujours aucune base (D28). La copie de la plage dans
+   `equipe/src/main.rs` disparaît. Le coût est une compilation de plus
+   longue, mais le noyau est déjà compilé pour la caisse dans le même
+   espace de travail.
+7. **La règle d'adresse d'Équipe est pure, dans le noyau**
+   (`recherche_serveur::adresse_equipe`) et testée : priorité, refus hors
+   de la plage, fichier illisible. Une adresse d'Équipe hors de la plage
+   (fichier retouché à la main) est ignorée, et on retombe sur la
+   caisse. Écrire une adresse hors de la plage est refusé.
+8. **Garde-fou : avant connexion, on ne peut toucher qu'à l'adresse.**
+   On peut la lire, l'essayer (`/sante`), chercher et l'enregistrer. Pour
+   tout le reste, le serveur exige toujours une session. La CSP ne change
+   pas : on n'enregistre qu'une adresse de 40000 à 40100.
+
+**Le risque nommé** : n'importe qui au comptoir peut désormais, sans
+mot de passe, brancher une caisse sur une autre machine. Les mots de
+passe tapés ensuite partiraient chez elle. Ce risque existait déjà au
+premier démarrage (écran « Brancher ce poste »). L'écran de connexion
+garde l'adresse utilisée bien en vue. Pas d'autre parade pour l'instant :
+exiger un mot de passe pour régler l'adresse, ce serait le demander au
+serveur qu'on ne trouve plus.
+
+**Pas pris** : un écran de démarrage propre à Équipe ; le lien sur le
+poste qui garde la base ; enregistrer une adresse muette « pour plus
+tard ».

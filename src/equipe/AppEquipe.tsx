@@ -5,15 +5,20 @@
 // dossier à la connexion — l'écran de connexion est celui de Gescom.
 // Sa session est à elle (clé `gescom_equipe_session`) : se déconnecter
 // d'Équipe ne ferme pas la caisse du même poste, et inversement.
+//
+// D55 : son adresse se règle depuis l'écran de connexion (« Réglage du
+// serveur ») — sur un poste sans caisse, c'est le seul moyen de la lui
+// donner. Un serveur qui ne répond pas, l'écran de connexion le dit.
 
 import { useState, useEffect } from "react";
-import { Loader2, LogOut, ServerOff } from "lucide-react";
+import { Loader2, LogOut } from "lucide-react";
 import {
   synchroniserConfig, enReseau, sessionUtilisable, surSessionPerdue, deconnecterServeur,
   dossierCourant, etatReseau,
 } from "@/lib/pont";
 import { poserDroits, peutUne, relireDroits } from "@/lib/droits";
 import { PageLogin, type UtilisateurConnecte } from "@/pages/PageLogin";
+import { PageServeur } from "@/pages/PageServeur";
 import { Button } from "@/components/ui/button";
 import { ModalChangerMdp } from "@/components/ModalChangerMdp";
 import { MODULES } from "./modules";
@@ -51,6 +56,8 @@ export function AppEquipe() {
   const [page, setPage] = useState("accueil");
   // D49 : l'onglet ou mène une tuile de l'accueil ; le menu n'en donne pas.
   const [vue, setVue] = useState<string | undefined>(undefined);
+  // D55 : l'écran « Réglage du serveur », ouvert depuis la connexion.
+  const [reglage, setReglage] = useState(false);
 
   useEffect(() => {
     synchroniserConfig().finally(() => setPontPret(true));
@@ -95,25 +102,13 @@ export function AppEquipe() {
     );
   }
 
-  // D28 : pas de base locale. Un poste réglé en monoposte n'a pas de
-  // serveur à qui parler — le dire, avec quoi faire.
-  if (!enReseau()) {
+  if (reglage) {
     return (
-      <div className="h-screen flex items-center justify-center p-8" data-testid="sans-serveur">
-        <div className="max-w-md space-y-3 text-sm">
-          <ServerOff className="h-8 w-8 text-muted-foreground" />
-          <h1 className="text-xl font-semibold">Gescom Équipe a besoin du serveur Gescom</h1>
-          <p className="text-muted-foreground">
-            Ce poste est réglé en « une seule caisse », sans serveur. Équipe n'a pas de base à elle :
-            elle lit et écrit par le serveur, pour que les droits, les dossiers et l'historique
-            restent les mêmes que dans Gescom.
-          </p>
-          <p className="text-muted-foreground">
-            Lancer le serveur Gescom (sur cette machine, il travaille sur la même base), puis régler
-            ce poste sur « plusieurs caisses » dans Gescom → Paramètres → Réseau.
-          </p>
-        </div>
-      </div>
+      <PageServeur
+        equipe
+        onConfigure={() => { synchroniserConfig().finally(() => setReglage(false)); }}
+        onAnnuler={() => setReglage(false)}
+      />
     );
   }
 
@@ -122,6 +117,7 @@ export function AppEquipe() {
       <PageLogin
         titre="Gescom Équipe"
         sousTitre="Personnel, paie, suivi des clients"
+        onReglageServeur={() => setReglage(true)}
         onConnecte={u => {
           ecrireSession(u);
           poserDroits(u);

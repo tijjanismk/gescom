@@ -3125,3 +3125,50 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   affiché, puis le bon mot de passe ferme la boîte et la session ne
   demande plus rien. Gescom et Équipe partagent la boîte : les deux sont
   corrigés. tsc, node 14/14.
+
+## 01/11/2026 — trouver le serveur depuis l'écran de connexion (D55)
+
+- **Le défaut** (ALERTES, 28/10) : une caisse dont le serveur avait
+  changé de port ou d'IP restait coincée. L'écran de connexion n'avait
+  aucun lien, et Paramètres → Réseau demande d'être connecté. Gescom
+  Équipe, sur un poste sans caisse, ne pouvait recevoir aucune adresse,
+  et son écran « a besoin du serveur Gescom » ne s'affichait jamais.
+- **Tranché par le propriétaire** (les quatre recommandations) :
+  l'adresse réglée dans Équipe passe devant la caisse du poste ; l'écran
+  mort part, et c'est la connexion qui dit « Le serveur ne répond pas
+  à … » ; le lien n'apparaît que sur une caisse d'un autre poste et dans
+  Équipe ; une adresse muette est refusée.
+- **Fait** : la recherche et l'essai de D40 passent dans le noyau
+  (`recherche_serveur.rs`), appelés par la caisse et par Équipe, qui
+  dépend désormais du noyau sans ouvrir de base. L'essai refuse une
+  adresse hors de 40000-40100 avant de se connecter. Équipe garde
+  `serveur` dans `equipe.json`, à côté de son empreinte : écrire l'une
+  ne perd pas l'autre, et l'écriture passe par un fichier temporaire.
+  `PageServeur` sert aussi de « Réglage du serveur », avec un retour à la
+  connexion ; dans Équipe, il n'a pas de nom de poste et propose
+  « Reprendre celle de la caisse ». Dans un navigateur de mise au point,
+  l'essai lit `/sante` directement et l'adresse est retenue par le
+  navigateur. La console du serveur renvoie au lien. Le guide
+  d'installation (chapitres 4, 7, 8, 11 et 14) et les deux manuels sont
+  à jour.
+- **Vu dans le navigateur intégré** (Vite :1463, serveur d'essai
+  :40093 sur une base jetable) : lien visible avant connexion, « Le
+  serveur ne répond pas à 127.0.0.1:40097 », l'essai de cette adresse
+  dit « Serveur injoignable » et laisse « Enregistrer » grisé. Puis
+  127.0.0.1:40093 essayée, enregistrée, et toujours là après
+  rechargement. Dans Équipe : le lien, l'écran sans nom de poste, le
+  retour à la connexion.
+- **Tests** : `noyau/tests/recherche_serveur.rs` 12/12 (priorité,
+  écriture qui garde l'empreinte, refus hors de la plage sans toucher au
+  fichier, BOM, essai d'un faux serveur, d'un port muet, d'un port qui
+  n'est pas Gescom) ; noyau + serveur SQLite 969/970. Le seul échec est
+  `paie_corrections_base::point_6`, qui dépend de la date du jour depuis
+  le 01/11 (connu, session paie). La coque Équipe compile, et la caisse
+  passe `cargo check`. `tsc` propre, `node --test` 14/14.
+- **Pas vu** : la vraie fenêtre Tauri (caisse et Équipe), donc ni
+  `equipe.json` écrit par la coque, ni « Reprendre celle de la caisse »,
+  ni la recherche UDP. Celle-ci n'a pas changé de code, seulement de
+  crate. Les PDF de `docs/manuels/` ne sont pas refaits : pandoc est
+  absent de ce poste (`outils\manuels_pdf.ps1`).
+- **Remarque, pas corrigée** : dans Équipe, le bandeau de connexion dit
+  « Poste caisse — connexion au serveur ».

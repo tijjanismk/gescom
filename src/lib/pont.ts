@@ -93,6 +93,14 @@ export interface EtatReseau {
   posteId: string | null;
   utilisateurId: string | null;
   caisseParUtilisateur: boolean;
+  /**
+   * Gescom Équipe seulement (D55) : d'où vient l'adresse — « equipe »
+   * (réglée dans Équipe), « caisse » (celle de la caisse de ce poste) ou
+   * « defaut » (cette machine) —, et l'adresse de la caisse du poste,
+   * que l'écran de réglage propose de reprendre.
+   */
+  source?: string;
+  serveurCaisse?: string | null;
 }
 
 const DEFAUT: EtatReseau = {
@@ -173,6 +181,8 @@ export async function synchroniserConfig(): Promise<EtatReseau> {
       serveur: string;
       poste_nom: string;
       poste_empreinte: string;
+      source?: string;
+      serveur_caisse?: string | null;
     }>("lire_config_reseau");
 
     const mode: ModeReseau =
@@ -192,6 +202,8 @@ export async function synchroniserConfig(): Promise<EtatReseau> {
       serveur,
       posteNom: c.poste_nom,
       posteEmpreinte: c.poste_empreinte,
+      source: c.source,
+      serveurCaisse: c.serveur_caisse ?? null,
       ...(change ? { jeton: null, posteId: null, utilisateurId: null } : {}),
     };
     enregistrer();

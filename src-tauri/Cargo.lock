@@ -1424,6 +1424,7 @@ dependencies = [
 name = "gescom-equipe"
 version = "0.2.0"
 dependencies = [
+ "gescom-noyau",
  "serde",
  "serde_json",
  "tauri",
