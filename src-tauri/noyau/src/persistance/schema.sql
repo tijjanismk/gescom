@@ -320,7 +320,10 @@ CREATE TABLE IF NOT EXISTS piece_commerciale (
     -- Lot D.10 : le code du client tel qu'il etait ecrit a l'emission.
     -- Pose quand une fiche de passage est rattachee a un client
     -- (passage::rattacher_sur) : sa facture garde son PAS-…
-    tiers_code       TEXT
+    tiers_code       TEXT,
+    -- D58 : les colonnes choisies a la saisie (JSON) ; NULL : celles du
+    -- reglage de son genre (Parametres -> Documents).
+    colonnes         TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ligne_piece (

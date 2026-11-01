@@ -21,7 +21,7 @@ fn sans_reglage_chaque_genre_a_ses_defauts_d_usine() {
     let f = &v["genres"]["facture"];
     assert_eq!(f["format"], "a4");
     assert_eq!(f["montant_lettres"], true);
-    assert_eq!(f["colonne_remise"], "auto");
+    assert_eq!(f["colonnes"], json!(["designation", "quantite", "prix_unitaire", "total"]), "D58 : ni TVA ni remise");
     assert_eq!(f["signatures"][0]["libelle"], "Pour acquit");
     assert_eq!(f["signatures"][0]["image"], serde_json::Value::Null);
     assert_eq!(v["genres"]["ticket"]["format"], "thermique_80");
@@ -58,7 +58,7 @@ fn un_reglage_enregistre_se_relit_et_les_autres_genres_ne_bougent_pas() {
     )
     .unwrap();
     assert_eq!(r["format"], "a5");
-    assert_eq!(r["reference_article"], true);
+    assert_eq!(r["colonnes"], json!(["reference", "designation", "quantite", "prix_unitaire", "tva", "total"]), "D58 : l'ancienne forme migre");
     assert_eq!(r["mention"], "Marchandise vérifiée");
     assert_eq!(r["signatures"].as_array().unwrap().len(), 3);
 

@@ -3275,3 +3275,53 @@ période (date piégée du test, signalée, pas corrigée ici) ;
   touchés, 75/75 chacun (`retours_tva_base`, `retours_chiffres_base`,
   `retours_base`, `journal_rapports_base`, `journaux_comptables_base`…) ;
 `tsc` propre, `node --test` 14/14. **Pas vu à l'écran.**
+
+## 01/11/2026 — D58 : les colonnes des pièces se cochent, sans « auto »
+
+- **Le besoin** : « la plupart de mes futurs clients ne travaillent pas
+  avec la TVA, mais je veux être prêt au cas où » ; « ça affiche la TVA
+  par défaut, je ne veux pas de comportement automatique ». La saisie
+  montrait toujours « TVA % » et « Remise % », le papier choisissait par
+  `auto`/`oui`/`non`.
+- **Décidé avant le code** (DECISIONS D58, quatre questions posées) :
+  Référence, Remise et TVA % se cochent, le reste toujours là ; d'office
+  ni TVA ni remise ; le menu « Colonnes » de la saisie vaut pour la
+  pièce (gardé avec elle) et « Garder pour les prochaines » demande
+  `parametres:modifier` ; garde-fou = bandeau à la saisie + « Remise x %
+  » sous la désignation sur le papier. Sur les anciens `auto`, le
+  propriétaire a répondu par la loi : « sans TVA il est hors de question
+  que hors taxe soit sur des documents » — d'où `auto` → décoché, et une
+  pièce sans TVA n'imprime jamais HT, TVA ni TTC, même cochés.
+- **Fait** : `coeur/documents.rs` (catalogue, `valider_colonnes`,
+  `colonnes_gardees`, `migrer` ; 7 tests), `documents.rs`,
+  `piece_commerciale.colonnes` (schéma, amorçage, v2), variantes
+  `creer_piece_colonnes_sur_base` / `creer_piece_fournisseur_colonnes_sur_base`
+  (les anciennes délèguent, aucun appelant touché), `lire_donnees_piece`
+  (deux versions), `reference` dans `lire_articles_avec_unites` (deux
+  versions). Écran : `lib/colonnes.ts` (règle pure), Paramètres →
+  Documents (cases par genre à lignes), `ModalNouvellePiece` (menu,
+  colonnes, bandeau, totaux HT/TVA/TTC — avant, « Net » sans la TVA),
+  `genererPDF`.
+- **Prouvé** : `noyau/tests/colonnes_base.rs` (9 scénarios : d'office,
+  migration, refus d'une fixe retirée, mêmes totaux et même créance
+  colonnes cachées ou non, totaux au franc avec la saisie, pièce
+  fournisseur, détecteur) ; `src/lib/colonnes.test.ts` (9).
+- **Vérifié** : `--package gescom-noyau --package gescom-serveur`
+  vert, sauf `paie_corrections_base::point_6_le_trop_verse_est_repris_sur_la_fiche_suivante`,
+  qui échoue aussi seul : l'avance née du trop-versé est datée
+  d'aujourd'hui (01/11), la fiche d'octobre ne la retient plus — un test
+  qui dépendait de la date, rien de D58 (noté pour la paie). tsc, node
+  23/23. **Dans le navigateur intégré** (serveur d'essai :40061, base
+  jetable, démo) : saisie sans TVA ni remise d'office ; menu « Colonnes »
+  coche Réf. et TVA ; TVA 18 % puis colonne cachée → bandeau « 1 ligne
+  porte une TVA… », totaux HT 800 / TVA 144 / TTC 944 ; le devis créé
+  s'imprime avec la colonne Réf. (choisie pour lui), sans colonne TVA,
+  avec Total HT, TVA, TOTAL TTC ; Paramètres → Documents montre les
+  quatre cases décochées. **Pas rejoué** : PostgreSQL et le compte
+  limité ; « Garder pour les prochaines » n'a pas été cliqué à l'écran
+  (la commande est celle de Paramètres, déjà testée).
+- **Pas fait, à savoir** : la « Nouvelle pièce » de la fiche client
+  (sa propre fenêtre, sans TVA) et la modification d'une pièce n'ont pas
+  le menu ; dupliquer ou convertir une pièce ne copie pas ses colonnes
+  (la nouvelle suit son genre) ; le banc `a2-rendu.mjs` envoie encore
+  l'ancienne forme (le serveur la convertit), pas rejoué.

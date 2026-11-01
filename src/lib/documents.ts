@@ -5,12 +5,11 @@
 // ici on ne fait que nommer et charger.
 
 import { appeler as invoke } from "@/lib/pont";
+import type { Colonne } from "@/lib/colonnes";
 
 export type Genre =
   | "facture" | "devis" | "bon_commande" | "bon_livraison"
   | "recu" | "releve" | "ticket" | "bulletin";
-
-export type Choix = "auto" | "oui" | "non";
 
 export type FormatDocument = "a4" | "a5" | "thermique_80" | "thermique_58";
 
@@ -22,11 +21,11 @@ export interface SignatureDoc {
 
 export interface ReglageGenre {
   format: FormatDocument;
-  colonne_remise: Choix;
-  colonne_tva: Choix;
-  recap_tva: Choix;
+  /** Les colonnes affichées, à la saisie et sur le papier (D58). */
+  colonnes: Colonne[];
+  /** Le récapitulatif HT / TVA par taux (D58 : une case). */
+  recap_tva: boolean;
   montant_lettres: boolean;
-  reference_article: boolean;
   /** null : le « pied de facture » de la société. */
   mention: string | null;
   signatures: SignatureDoc[];

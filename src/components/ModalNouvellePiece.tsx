@@ -4,7 +4,7 @@
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { avecHomonymeConfirme } from "@/lib/homonyme";
-import { Loader2, X, UserPlus, Package, Search } from "lucide-react";
+import { Loader2, X, UserPlus, Package, Search, Columns3, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +20,13 @@ import { UTILISATEUR_ACTIF, DEPOT_ACTIF } from "@/App";
 import { peut } from "@/lib/droits";
 import { cn } from "@/lib/utils";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
+import {
+  type ReglagesDocuments, LIBELLES_GENRE, genreDePiece, lireReglagesDocuments,
+} from "@/lib/documents";
+import {
+  type Colonne, COLONNES_REGLABLES, LIBELLES_COLONNE,
+  alertesSaisie, basculer, normaliserColonnes, totauxSaisie,
+} from "@/lib/colonnes";
 
 // =====================================================================
 //  Types
@@ -28,6 +35,8 @@ import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 interface Article {
   id: string; nom: string; unite_base: string; stock: number;
   taux_tva_defaut?: number;
+  /** D58 : le code de l'article, pour la colonne Référence. */
+  reference?: string | null;
   unites: { id: string; libelle: string; facteur: number; prix_reference: number }[];
   /** D36 : `false` = stock non suivi (C.8) — s'achète et se vend, sans
    *  compter son stock. */
@@ -37,6 +46,7 @@ interface Tiers { id: string; nom: string; code?: string; telephone?: string; }
 interface Ligne {
   article_id: string; unite_vente_id: string;
   article_nom: string; unite_libelle: string;
+  reference?: string | null;
   /** D36 (C.8) : l'article ne suit pas son stock — dit sur la ligne. */
   non_suivi?: boolean;
   // Unites disponibles pour cet article — permet de changer de
@@ -128,6 +138,28 @@ export function ModalNouvellePiece({
   const [articlesFiltres, setArticlesFiltres] = useState<Article[]>([]);
   const [chargement, setChargement] = useState(false);
 
+  // D58 : les colonnes de CETTE pièce, parties du réglage de son genre.
+  // Gardées avec la pièce ; « Garder pour les prochaines » change le
+  // réglage du genre (droit du patron, comme Paramètres → Documents).
+  const [reglagesDocs, setReglagesDocs] = useState<ReglagesDocuments | null>(null);
+  const [colonnes, setColonnes] = useState<Colonne[]>(normaliserColonnes(null));
+  const [colonnesTouchees, setColonnesTouchees] = useState(false);
+  const [garderColonnes, setGarderColonnes] = useState(false);
+  const [menuColonnes, setMenuColonnes] = useState(false);
+  const peutRegler = peut("parametres:modifier");
+  const genre = genreDePiece(typePiece);
+  const voir = (c: Colonne) => colonnes.includes(c);
+
+  useEffect(() => {
+    if (colonnesTouchees) return;
+    setColonnes(normaliserColonnes(reglagesDocs?.genres[genre]?.colonnes));
+  }, [genre, reglagesDocs, colonnesTouchees]);
+
+  function montrerColonne(c: Colonne, montrer: boolean) {
+    setColonnes(prev => basculer(prev, c, montrer));
+    setColonnesTouchees(true);
+  }
+
   // Création rapide tiers
   const [creerTiersEnCours, setCreerTiersEnCours] = useState(false);
   const [nomNouveauTiers, setNomNouveauTiers] = useState("");
@@ -145,6 +177,9 @@ export function ModalNouvellePiece({
     setDateEcheance(""); setDatePiece(""); setNote("");
     setRechercheArticle(""); setArticlesFiltres([]);
     if (!tiersIdInitial) { setTiersId(""); setTiersNom(""); }
+    setColonnesTouchees(false); setGarderColonnes(false); setMenuColonnes(false);
+    // Sans réglage lisible : les colonnes fixes, comme une base neuve.
+    lireReglagesDocuments().then(setReglagesDocs).catch(() => setReglagesDocs(null));
 
     const role = UTILISATEUR_ACTIF?.role ?? "employe";
     const promiseTiers = cote === "client"
@@ -263,6 +298,7 @@ export function ModalNouvellePiece({
         return [...prev, {
           article_id: article.id, unite_vente_id: unite.id,
           article_nom: article.nom, unite_libelle: unite.libelle,
+          reference: article.reference ?? null,
           non_suivi: article.gere_en_stock === false,
           unites: article.unites,
           quantite: 1, prix_unitaire: unite.prix_reference,
@@ -280,12 +316,13 @@ export function ModalNouvellePiece({
     setLignes(prev => prev.map((l, idx) => idx === i ? { ...l, [champ]: val } : l));
   }
 
-  const totalHT = lignes.reduce((s, l) => {
-    const brut = Math.round(l.prix_unitaire * l.quantite);
-    return s + brut - Math.round(brut * l.remise_pct / 100);
-  }, 0);
-  const remiseMt = Math.round(totalHT * (parseFloat(remiseGlobale) || 0) / 100);
-  const totalNet = totalHT - remiseMt;
+  // Les totaux du serveur, TVA comprise même quand sa colonne est
+  // cachée (D58) : cacher une colonne ne change aucun montant.
+  const totaux = totauxSaisie(lignes, parseFloat(remiseGlobale) || 0);
+  const totalHT = totaux.totalHt;
+  const remiseMt = totaux.remiseMontant;
+  const totalNet = totaux.totalNet;
+  const alertes = alertesSaisie(colonnes, lignes);
 
   async function handleCreer() {
     if (!tiersId) return;
@@ -316,6 +353,8 @@ export function ModalNouvellePiece({
       await invoke(commande, {
         ...(cote === "client" ? { clientId: tiersId } : { fournisseurId: tiersId }),
         typePiece,
+        // D58 : gardées avec la pièce, elle se réimprime pareil.
+        colonnes,
         lignes: lignes.map(l => ({
           article_id: l.article_id,
           unite_vente_id: l.unite_vente_id,
@@ -334,6 +373,20 @@ export function ModalNouvellePiece({
         // Sans lui, la marchandise sortait du depot par defaut.
         ...(cote === "client" ? { depotId: DEPOT_ACTIF } : {}),
       });
+      // La pièce est créée ; le réglage du genre est un second geste. Un
+      // refus ici ne défait pas la pièce, il se dit.
+      const reglage = reglagesDocs?.genres[genre];
+      if (garderColonnes && peutRegler && reglage) {
+        try {
+          await invoke("enregistrer_reglage_document", {
+            genre,
+            reglage: { ...reglage, colonnes, signatures: reglage.signatures.map(s => ({ libelle: s.libelle })) },
+          });
+        } catch (e) {
+          await message(`La pièce est créée, mais les colonnes ne sont pas gardées pour les prochaines : ${e}`,
+            { title: "Colonnes", kind: "warning" });
+        }
+      }
       handleFermer();
       onCree();
     } catch (e) {
@@ -603,6 +656,50 @@ export function ModalNouvellePiece({
             )}
           </div>
 
+          {/* D58 : le menu « Colonnes » de cette pièce */}
+          {!avoirSansLignes && (
+            <div className="flex justify-end">
+              <div className="relative">
+                <Button type="button" variant="outline" size="sm"
+                  aria-expanded={menuColonnes} aria-controls="menu-colonnes"
+                  onClick={() => setMenuColonnes(o => !o)}>
+                  <Columns3 className="h-4 w-4 mr-1.5" /> Colonnes
+                </Button>
+                {menuColonnes && (
+                  <div id="menu-colonnes" role="group" aria-label="Colonnes de cette pièce"
+                    className="absolute right-0 z-20 mt-1 w-80 rounded-md border border-border
+                               bg-card p-3 shadow-lg space-y-1">
+                    <p className="text-xs text-muted-foreground mb-1">
+                      Pour cette pièce, gardé avec elle. Toujours là : désignation, quantité,
+                      prix, total. Cacher une colonne ne change aucun montant.
+                    </p>
+                    {COLONNES_REGLABLES.map(c => (
+                      <label key={c} className="flex items-center gap-2 py-0.5 text-sm cursor-pointer">
+                        <input type="checkbox" className="h-4 w-4 accent-primary"
+                          checked={voir(c)} onChange={e => montrerColonne(c, e.target.checked)} />
+                        {LIBELLES_COLONNE[c]}
+                      </label>
+                    ))}
+                    <label className={cn("flex items-start gap-2 pt-2 mt-1 border-t border-border text-sm",
+                      peutRegler ? "cursor-pointer" : "opacity-70")}>
+                      <input type="checkbox" className="h-4 w-4 mt-0.5 accent-primary"
+                        disabled={!peutRegler || !reglagesDocs}
+                        checked={garderColonnes} onChange={e => setGarderColonnes(e.target.checked)} />
+                      <span>
+                        Garder pour les prochaines ({LIBELLES_GENRE[genre].toLowerCase()})
+                        <span className="block text-xs text-muted-foreground">
+                          {peutRegler
+                            ? "Change le réglage de Paramètres → Documents, à l'enregistrement."
+                            : "Réservé à qui peut modifier les Paramètres."}
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Tableau lignes */}
           {lignes.length === 0 ? (
             <div className="border-2 border-dashed border-border rounded-lg py-12
@@ -614,12 +711,13 @@ export function ModalNouvellePiece({
               <table className="w-full text-sm">
                 <thead className="bg-muted/80 text-xs">
                   <tr>
+                    {voir("reference") && <th className="text-left px-2 py-2.5 w-[10%]">Réf.</th>}
                     <th className="text-left px-4 py-2.5 w-[30%]">Article</th>
                     <th className="text-center px-2 py-2.5 w-[10%]">Unité</th>
                     <th className="text-right px-2 py-2.5 w-[10%]">Qté</th>
                     <th className="text-right px-2 py-2.5 w-[16%]">Prix (F)</th>
-                    <th className="text-right px-2 py-2.5 w-[8%]">Remise %</th>
-                    <th className="text-right px-2 py-2.5 w-[8%]">TVA %</th>
+                    {voir("remise") && <th className="text-right px-2 py-2.5 w-[8%]">Remise %</th>}
+                    {voir("tva") && <th className="text-right px-2 py-2.5 w-[8%]">TVA %</th>}
                     <th className="text-right px-2 py-2.5 w-[16%]">Montant (F)</th>
                     <th className="px-2 py-2.5 w-[6%]"></th>
                   </tr>
@@ -631,6 +729,11 @@ export function ModalNouvellePiece({
                     const montant = brut - remise;
                     return (
                       <tr key={i} className="border-t border-border hover:bg-muted/20">
+                        {voir("reference") && (
+                          <td className="px-2 py-2 font-mono text-xs text-muted-foreground">
+                            {l.reference || "—"}
+                          </td>
+                        )}
                         <td className="px-4 py-2 font-medium">
                           {l.article_nom}
                           {l.non_suivi && (
@@ -683,6 +786,7 @@ export function ModalNouvellePiece({
                                        rounded px-2 bg-background focus:outline-none
                                        focus:ring-1 focus:ring-primary" />
                         </td>
+                        {voir("remise") && (
                         <td className="px-2 py-2 text-right">
                           <div className="relative inline-block">
                             <input type="number" min="0" max="100" value={l.remise_pct}
@@ -693,6 +797,8 @@ export function ModalNouvellePiece({
                             <span className="absolute right-1.5 top-2 text-xs text-muted-foreground">%</span>
                           </div>
                         </td>
+                        )}
+                        {voir("tva") && (
                         <td className="px-2 py-2 text-right">
                           <div className="relative inline-block">
                             <input type="number" min="0" max="100" step="1"
@@ -704,6 +810,7 @@ export function ModalNouvellePiece({
                             <span className="absolute right-1 top-2 text-xs text-muted-foreground">%</span>
                           </div>
                         </td>
+                        )}
                         <td className="px-2 py-2 text-right">
                           <p className="font-semibold">{fmt(montant)}</p>
                           {remise > 0 && (
@@ -727,6 +834,39 @@ export function ModalNouvellePiece({
             </div>
           )}
 
+          {/* D58 : ce que les colonnes cachées portent, dit avant d'enregistrer */}
+          {(alertes.tvaCachee > 0 || alertes.remiseCachee > 0) && (
+            <div role="status"
+              className="flex items-start gap-3 rounded-md border border-border border-l-4
+                         border-l-orange-600 bg-card px-4 py-3 text-sm">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-orange-700" />
+              <div className="flex-1 space-y-1">
+                {alertes.tvaCachee > 0 && (
+                  <p>
+                    {alertes.tvaCachee === 1 ? "1 ligne porte" : `${alertes.tvaCachee} lignes portent`} une
+                    TVA que la colonne cachée ne montre pas ; le total en tient compte.
+                  </p>
+                )}
+                {alertes.remiseCachee > 0 && (
+                  <p>
+                    {alertes.remiseCachee === 1 ? "1 ligne porte" : `${alertes.remiseCachee} lignes portent`} une
+                    remise que la colonne cachée ne montre pas ; le papier la dit sous la désignation.
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-col gap-1.5 shrink-0">
+                {alertes.tvaCachee > 0 && (
+                  <Button type="button" size="sm" variant="outline"
+                    onClick={() => montrerColonne("tva", true)}>Montrer la TVA</Button>
+                )}
+                {alertes.remiseCachee > 0 && (
+                  <Button type="button" size="sm" variant="outline"
+                    onClick={() => montrerColonne("remise", true)}>Montrer la remise</Button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Remise globale + totaux */}
           {lignes.length > 0 && (
             <div className="flex items-center justify-between pt-2">
@@ -747,7 +887,15 @@ export function ModalNouvellePiece({
                     <p className="text-sm text-orange-800">Remise : −{fmt(remiseMt)}</p>
                   </>
                 )}
-                <p className="text-xl font-bold">Net : {fmt(totalNet)}</p>
+                {totaux.totalTva > 0 ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">Total HT : {fmt(totalNet)}</p>
+                    <p className="text-sm text-muted-foreground">TVA : {fmt(totaux.totalTva)}</p>
+                    <p className="text-xl font-bold">Total TTC : {fmt(totaux.totalTtc)}</p>
+                  </>
+                ) : (
+                  <p className="text-xl font-bold">Net : {fmt(totalNet)}</p>
+                )}
               </div>
             </div>
           )}

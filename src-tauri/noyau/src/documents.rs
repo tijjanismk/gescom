@@ -205,7 +205,8 @@ pub fn enregistrer_reglage_sur(
     genre: &str,
     reglage: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let r: ReglageGenre = serde_json::from_value(reglage)
+    // Une caisse pas encore mise a jour envoie l'ancienne forme (D58).
+    let r: ReglageGenre = serde_json::from_value(regles::migrer(&reglage))
         .map_err(|e| format!("Réglage illisible : {e}"))?;
     regles::valider(genre, &r)?;
     let r = regles::normaliser(r);
@@ -218,6 +219,40 @@ pub fn enregistrer_reglage_sur(
         effacer_cle(acces, &cle_image(genre, rang))?;
     }
     lire_reglage_sur(acces, genre)
+}
+
+// ---------------------------------------------------------------------
+//  Les colonnes d'une piece (D58)
+// ---------------------------------------------------------------------
+
+/// Les colonnes gardees avec une piece, ou `null` : elle suit le reglage
+/// de son genre (toutes les pieces d'avant D58, le comptoir, les
+/// conversions).
+pub fn colonnes_de_piece_sur(acces: &mut impl Acces, piece_id: &str) -> Result<serde_json::Value, String> {
+    let dossier = acces.dossier().to_string();
+    let texte = acces
+        .lire_une(
+            "SELECT colonnes FROM piece_commerciale WHERE id = ?1 AND dossier_id = ?2",
+            &parametres![piece_id, dossier],
+            |r| r.get::<Option<String>>(0),
+        )
+        .map_err(|e| e.0)?
+        .flatten();
+    Ok(serde_json::json!(regles::colonnes_gardees(texte.as_deref())))
+}
+
+/// Garde avec la piece les colonnes choisies a la saisie. Appelee dans la
+/// transaction qui cree la piece ; la liste est deja validee.
+pub fn poser_colonnes_piece_sur(acces: &mut impl Acces, piece_id: &str, colonnes: &[String]) -> Result<(), String> {
+    let dossier = acces.dossier().to_string();
+    let texte = serde_json::to_string(colonnes).map_err(|e| e.to_string())?;
+    acces
+        .executer(
+            "UPDATE piece_commerciale SET colonnes = ?1 WHERE id = ?2 AND dossier_id = ?3",
+            &parametres![texte, piece_id, dossier],
+        )
+        .map(|_| ())
+        .map_err(|e| e.0)
 }
 
 /// Remet un genre aux reglages d'usine, images comprises.
