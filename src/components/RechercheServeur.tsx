@@ -81,9 +81,8 @@ export function RechercheServeur({ onChoisir, desactive }: Props) {
           <p className="text-muted-foreground">Causes probables :</p>
           <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
             <li>
-              le pare-feu du poste principal bloque la recherche (UDP 40000) : réinstaller
-              Gescom Serveur, ou lancer <span className="font-mono">outils\parefeu.ps1 -Ouvrir</span> en
-              administrateur ;
+              le pare-feu du poste principal bloque la recherche (UDP 40000) : installer ou
+              réinstaller Gescom Serveur sur le poste principal, il ouvre le pare-feu ;
             </li>
             <li>ce poste n'est pas sur le même réseau (autre box, Wi-Fi invité, câble débranché) ;</li>
             <li>Gescom Serveur est arrêté sur le poste principal.</li>

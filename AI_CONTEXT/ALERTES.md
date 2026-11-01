@@ -166,17 +166,21 @@ la plage 40000–40100).
 Relevé dans le code (non essayé en vrai) ; le guide et les manuels le
 disent aux utilisateurs en attendant.
 
-- **Désinstaller la caisse peut effacer la base d'un poste unique** : la
-  case standard de Tauri « supprimer les données de l'application » fait
-  `RmDir /r $APPDATA\ml.gescom.app` (base, sauvegardes, `poste.json`).
-  Le libellé français affiché n'est pas vérifié. À retirer ou à garder.
-- **Installer Gescom Serveur sur un poste unique qui a des données** :
-  la fenêtre reprend le service sur 40000 (`reseau.rs`), donc la base
-  neuve et vide de `ProgramData`. Aucun passage monoposte → service
-  prévu ; le guide (chapitre 9) donne un `--restaurer … --base`, non essayé.
-- **`--restaurer` sans `--base`** écrit dans la base de l'utilisateur qui
-  tape la commande, pas dans celle du service (`main.rs:146`) — le
-  manuel le disait ainsi, corrigé.
+- ~~**Désinstaller la caisse peut effacer la base d'un poste unique**~~
+  **fait le 01/11 (D54)** : la case du modèle de Tauri est créée
+  invisible et son état remis à 0 par `NSIS_HOOK_PREUNINSTALL`
+  (`src-tauri/nsis/donnees_gardees.nsh`, prouvé dans le modèle rendu par
+  makensis) ; même chose pour Gescom Équipe (son empreinte de poste).
+  Gescom Serveur n'effaçait déjà rien. **Pas vu** sur une vraie
+  désinstallation (TESTS-MANUELS L13-L15).
+- ~~**Installer Gescom Serveur sur un poste unique qui a des données**~~
+  **fait le 01/11 (D54)** : l'installeur propose de copier la base du
+  poste (`gescom-serveur --reprendre`, `noyau/src/reprise.rs`, copie
+  vérifiée, l'originale gardée, marque `reprise.json` et garde-fou).
+  Tests `reprise_base` 8 et `serveur/tests/reprise.rs` ; **boîtes de
+  l'installeur pas vues** (TESTS-MANUELS L1-L12).
+- ~~**`--restaurer` sans `--base`**~~ **fait le 01/11 (D54)** : sur un
+  ordinateur qui a `serveur.json`, refus qui nomme les deux bases.
 - **L'écran de connexion n'a pas de lien vers le réglage du réseau**, et
   Paramètres → Réseau demande d'être connecté : une caisse qui ne trouve
   plus son serveur (port changé, IP changée) est coincée sans technicien.
@@ -187,10 +191,19 @@ disent aux utilisateurs en attendant.
   L'écran « Gescom Équipe a besoin du serveur Gescom » (`AppEquipe.tsx`)
   ne s'affiche jamais (le mode vaut toujours « poste ») et son texte est
   périmé.
-- `outils\parefeu.ps1` n'est pas livré, alors que des messages y renvoient ;
-  le message de `--compte-limite` dit « dans poste.json » (c'est la clé
-  `base` de `serveur.json`) ; `GESCOM_PG_SAUVEGARDE` lu par le service
-  LocalSystem : non vérifié.
+- ~~`outils\parefeu.ps1` n'est pas livré, alors que des messages y renvoient ;
+  le message de `--compte-limite` dit « dans poste.json » ;
+  `GESCOM_PG_SAUVEGARDE` lu par le service LocalSystem : non vérifié.~~
+  **Fait le 01/11 (D54)** : les messages (serveur, console, caisse)
+  disent « (ré)installer Gescom Serveur » et la ligne `netsh` exacte
+  (testée contre l'installeur) ; `--compte-limite` nomme la clé `base`
+  de `serveur.json`. `GESCOM_PG_SAUVEGARDE` : **vérifié dans le code**
+  (`std::env::var` dans le processus du service) — le service ne voit
+  que les variables **système** connues au démarrage de Windows : `setx
+  /M` puis redémarrer l'ordinateur, dit par le message et le guide
+  (comportement de Windows documenté, **pas essayé** ici). Une variable
+  `Environment` posée sur le service serait effacée à chaque mise à
+  jour (l'installeur supprime et recrée le service).
 - ~~`ListePassages.tsx:242` dit encore que les factures gardent « Client de
   passage »~~ **corrigé le 01/11** : elles gardent le code.
 - ~~Droits : « passer en client ordinaire » demande `clients:modifier`~~
@@ -203,6 +216,31 @@ disent aux utilisateurs en attendant.
   pas (unités, seuil, catégories demandent `parametres:modifier`) ;
   `outils/generer_socle.py` ne reconnaît plus `r.sur_base` — le bloc
   « généré » du socle s'entretient à la main.
+
+### Trouvé le 01/11/2026 en faisant D54, pas fait
+
+- **`serveur.json` se lit par tous les comptes** de la machine : les
+  droits par défaut de `C:\ProgramData` donnent la lecture à
+  `BUILTIN\Utilisateurs` (vérifié par `icacls`). L'installeur promettait
+  « lisible par les administrateurs seulement » : texte corrigé (page de
+  configuration, guide). Le protéger (`icacls`) casserait la fenêtre
+  Gescom Serveur et la caisse du poste, qui lisent le port dans ce
+  fichier sous le compte de l'utilisateur : **choix au propriétaire**.
+  Même remarque pour la variable système `GESCOM_PG_SAUVEGARDE`.
+- **L'installeur d'Équipe est en anglais** : `equipe/tauri.conf.json`
+  n'a pas `"languages": ["French"]`.
+- **Le poste qui a refusé la reprise (ou n'avait rien)** garde son
+  raccourci de démarrage : si le service quitte 40000 (port changé dans
+  la console), ce serveur-là prend 40000 sur la base du poste, et la
+  caisse du poste, qui retient 40000, s'y branche. Pas de marque dans ce
+  cas (rien n'a été repris) ; à régler avec D24/D39.
+- **La reprise ne voit que le compte qui installe** : un technicien qui
+  donne son propre mot de passe administrateur ne trouve pas la base du
+  commerçant (`$APPDATA` est le sien). Dit dans le guide, commande à la
+  main.
+- Corrigé en passant : `installeur_serveur.nsi` était lu par makensis en
+  **ACP** (pas de BOM) — ses « » et accents sortaient faux ; il a
+  maintenant un BOM UTF-8 (« Processing script file … (UTF8) »).
 
 ## Ce que la revue du 23/09/2026 a corrigé (branche `correctif/revue-v2`)
 

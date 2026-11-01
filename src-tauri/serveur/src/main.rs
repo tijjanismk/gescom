@@ -140,10 +140,37 @@ fn main() {
         }
     }
 
+    // D54 : la base d'un poste seul, reprise par le serveur — HORS LIGNE,
+    // comme la restauration. L'installeur l'appelle avant de demarrer le
+    // service ; un technicien peut la taper.
+    if let Some(source) = options.reprendre.clone() {
+        let code = commande_reprise(&source, &options);
+        // `exit` ne vide pas stdout : la ligne de l'installeur, sans retour
+        // a la ligne, y dormirait encore.
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        std::process::exit(code);
+    }
+
     // D4 : restaurer une sauvegarde — HORS LIGNE, avant d'ouvrir quoi
     // que ce soit. Il faut etre devant la machine, serveur arrete.
     if let Some(fichier) = options.restaurer.as_deref() {
-        let cible = options.base.clone().unwrap_or_else(chemin_base_par_defaut);
+        // Sans `--base` sur un ordinateur qui a Gescom Serveur : deux bases
+        // possibles, on ne choisit pas (D54). La base par defaut serait
+        // celle du compte qui tape la commande, pas celle du service.
+        let cible = match options.base.clone() {
+            Some(b) => b,
+            None => {
+                if let Some(conf) = configuration::chemin().filter(|c| c.exists()) {
+                    let service = configuration::base_du_service().map(|b| sans_mot_de_passe(&b));
+                    eprintln!(
+                        "{}",
+                        configuration::refus_restaurer_sans_base(fichier, &conf, service.as_deref(), &chemin_base_par_defaut())
+                    );
+                    std::process::exit(1);
+                }
+                chemin_base_par_defaut()
+            }
+        };
         match gescom_noyau::sauvegarde::restaurer(&cible, std::path::Path::new(fichier), None) {
             Ok(r) => {
                 println!("Sauvegarde restaurée ({}) sur {}", r.moteur, sans_mot_de_passe(&cible));
@@ -164,8 +191,14 @@ fn main() {
     // `--base` — sur la caisse d'un AUTRE poste, le serveur s'efface :
     // la base de la boutique est la-bas. Les gestes ponctuels
     // (`--promouvoir`, `--compte-limite`) ne sont pas concernes.
+    // D54 : apres la reprise, l'ancienne base du poste porte une marque ;
+    // le serveur lance sans `--base` ne la sert plus. Sinon, le service
+    // arrete ou sur un autre port, le raccourci la servirait sur 40000 et
+    // la caisse du poste vendrait dedans pendant que les autres vendent
+    // dans la vraie.
     if options.base.is_none() && options.promouvoir.is_none() && options.compte_limite.is_none() {
-        if let Some(raison) = role_poste::verifier() {
+        let reprise = gescom_noyau::reprise::marque(&role_poste::dossier_donnees()).map(|m| m.raison());
+        if let Some(raison) = reprise.or_else(role_poste::verifier) {
             // Le journal qu'il aurait tenu (a cote de la base par defaut),
             // et la console : c'est la qu'on cherchera pourquoi.
             journal_technique::ouvrir(Some(role_poste::dossier_donnees().join("gescom.log")), true);
@@ -186,6 +219,108 @@ fn main() {
 
     if let Fin::Redemarrage = tourner(options, Arc::new(AtomicBool::new(false))) {
         relancer();
+    }
+}
+
+/// `--reprendre <base du poste>` (D54) : la logique est dans
+/// `noyau::reprise` ; ici, la cible, le journal et ce qu'on affiche. Rend
+/// le code de sortie (`reprise::codes`), que l'installeur lit.
+///
+/// La cible : `--base`, sinon la base du service (`serveur.json`). Avec
+/// `--installeur`, la sortie est une seule ligne ASCII (les nombres) : les
+/// textes sont dans le script NSIS, la sortie capturee par `nsExec` ne
+/// garantit pas les accents.
+fn commande_reprise(source: &str, options: &Options) -> i32 {
+    use gescom_noyau::reprise;
+    let source = std::path::Path::new(source);
+    let base_donnee = options.base.is_some();
+    let Some(cible) = options.base.clone().or_else(configuration::base_du_service) else {
+        eprintln!(
+            "Dire la base du serveur avec --base : pas de Gescom Serveur sur ce système \
+             (ou build de débogage sans GESCOM_SERVEUR_JSON)."
+        );
+        return 2;
+    };
+    let lisible = sans_mot_de_passe(&cible);
+
+    if options.examiner {
+        let examen = reprise::examiner(source, &cible);
+        // Sans retour a la ligne : le script NSIS decoupe la sortie telle
+        // quelle, le dernier champ (la date) ne doit pas porter de « \r\n ».
+        if options.installeur {
+            if let Some(c) = examen.contenu_du_poste() {
+                print!("{}", c.pour_installeur());
+            }
+        } else {
+            println!("{}", examen.en_clair(source, &lisible));
+        }
+        return examen.code();
+    }
+
+    // Le journal du service : la trace de ce qui a ete fait a sa base.
+    let est_postgres = cible.starts_with("postgres://") || cible.starts_with("postgresql://");
+    let journal = chemin_journal_par_defaut(&cible, est_postgres, !base_donnee && !cfg!(debug_assertions));
+    journal_technique::ouvrir(Some(journal), false);
+
+    if options.laisser {
+        return match reprise::laisser(source, &lisible) {
+            Ok(()) => {
+                journal_technique::info(format!(
+                    "Base du poste laissée de côté ({}) : Gescom Serveur garde la sienne ({lisible}).",
+                    source.display()
+                ));
+                if !options.installeur {
+                    println!("La base du poste ({}) est laissée de côté : Gescom Serveur garde la sienne.", source.display());
+                    println!("  L'installeur ne proposera plus de la reprendre, et aucun serveur ne la servira.");
+                }
+                0
+            }
+            Err(r) => {
+                if !options.installeur {
+                    eprintln!("{}", r.message);
+                }
+                r.code
+            }
+        };
+    }
+
+    match reprise::reprendre(source, std::path::Path::new(&cible)) {
+        Ok(fait) => {
+            journal_technique::info(format!(
+                "Base du poste reprise : {} → {lisible} ({}){}{}",
+                source.display(),
+                fait.contenu.en_clair(),
+                fait.neuve_mise_de_cote
+                    .as_ref()
+                    .map(|c| format!(" ; la base neuve du serveur est gardée : {}", c.display()))
+                    .unwrap_or_default(),
+                if fait.images.is_empty() { String::new() } else { format!(" ; {} image(s) copiée(s)", fait.images.len()) },
+            ));
+            if let Some(m) = &fait.marque_manquante {
+                journal_technique::avertissement(format!("Reprise faite, mais la marque n'est pas posée : {m}"));
+            }
+            if options.installeur {
+                print!("{}", fait.contenu.pour_installeur());
+            } else {
+                println!("Base du poste copiée dans {lisible} et vérifiée : {}.", fait.contenu.en_clair());
+                println!("  La base du poste reste à sa place : {}", source.display());
+                if let Some(c) = &fait.neuve_mise_de_cote {
+                    println!("  La base neuve du serveur est gardée : {}", c.display());
+                }
+                if let Some(m) = &fait.marque_manquante {
+                    eprintln!("  ATTENTION : {m}");
+                }
+                println!("  Démarrer le service : sc start GescomServeur");
+            }
+            0
+        }
+        Err(r) => {
+            journal_technique::refus(format!("Reprise de la base du poste refusée ({}) : {}", source.display(), r.message));
+            if !options.installeur {
+                eprintln!("Reprise impossible : {}", r.message);
+            }
+            r.code
+        }
     }
 }
 
@@ -409,10 +544,23 @@ fn preparer(options: Options) -> (Arc<Serveur>, TcpListener) {
                     println!("Mot de passe : celui de GESCOM_MDP_COMPTE_LIMITE.");
                     println!("Adresse du serveur : postgresql://{nom}:<mot de passe>@{hote}");
                 } else {
-                    println!("Adresse du serveur (à mettre dans poste.json, nulle part ailleurs) :");
+                    println!(
+                        "Adresse du serveur (à mettre dans la clé « base » de {}, nulle part ailleurs) :",
+                        configuration::chemin()
+                            .map(|c| c.display().to_string())
+                            .unwrap_or_else(|| "serveur.json".to_string())
+                    );
                     println!("  postgresql://{nom}:{mot_de_passe}@{hote}");
                 }
-                println!("Sauvegardes : GESCOM_PG_SAUVEGARDE = l'adresse du propriétaire, dans l'environnement du serveur.");
+                // Le service lit son environnement a lui (std::env::var) :
+                // Windows le compose au demarrage de la machine avec les
+                // variables SYSTEME. Une variable de l'utilisateur, ou posee
+                // apres le demarrage, ne lui parvient pas.
+                println!(
+                    "Sauvegardes : l'adresse du propriétaire dans la variable SYSTÈME GESCOM_PG_SAUVEGARDE \
+                     (PowerShell en administrateur : setx /M GESCOM_PG_SAUVEGARDE \"<adresse>\"), puis \
+                     redémarrer l'ordinateur : le service ne la voit qu'après."
+                );
                 std::process::exit(0);
             }
             Err(e) => {
@@ -635,6 +783,14 @@ struct Options {
     compte_limite: Option<String>,
     /// Restaure ce fichier de sauvegarde sur la base, puis s'arrete.
     restaurer: Option<String>,
+    /// D54 : reprend cette base de poste seul dans la base du serveur.
+    reprendre: Option<String>,
+    /// Avec `--reprendre` : dire seulement ce qui se ferait (code de sortie).
+    examiner: bool,
+    /// Avec `--reprendre` : garder la base du serveur, poser la marque.
+    laisser: bool,
+    /// Avec `--reprendre` : sortie pour l'installeur (une ligne ASCII).
+    installeur: bool,
     /// Lance par le gestionnaire de services Windows (service.rs).
     service: bool,
     installer_service: bool,
@@ -712,6 +868,10 @@ impl Options {
             promouvoir: None,
             compte_limite: None,
             restaurer: None,
+            reprendre: None,
+            examiner: false,
+            laisser: false,
+            installeur: false,
             service: false,
             installer_service: false,
             desinstaller_service: false,
@@ -772,11 +932,28 @@ impl Options {
                     o.compte_limite = args.get(i + 1).cloned();
                     i += 2;
                 }
+                "--reprendre" => {
+                    o.reprendre = args.get(i + 1).cloned();
+                    i += 2;
+                }
+                "--examiner" => {
+                    o.examiner = true;
+                    i += 1;
+                }
+                "--laisser" => {
+                    o.laisser = true;
+                    i += 1;
+                }
+                "--installeur" => {
+                    o.installeur = true;
+                    i += 1;
+                }
                 "--aide" | "-h" | "--help" => {
                     println!(
                         "gescom-serveur [--hote 0.0.0.0] [--port {PORT_DEFAUT}] \
                          [--base CHEMIN] [--sauvegardes DOSSIER] [--journal FICHIER] [--promouvoir IDENTIFIANT]\n\
                          gescom-serveur --restaurer FICHIER [--base CHEMIN]   (serveur arrêté)\n\
+                         gescom-serveur --reprendre <base du poste> [--base CHEMIN] [--examiner | --laisser]   (service arrêté)\n\
                          gescom-serveur --base <URL PostgreSQL du propriétaire> --compte-limite NOM\n\
                          gescom-serveur --installer-service | --desinstaller-service  (Windows, administrateur)"
                     );

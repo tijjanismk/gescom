@@ -234,6 +234,26 @@ pub fn regle_recherche_presente(port_udp: u16) -> Option<bool> {
     regle_presente(REGLE_UDP, port_udp)
 }
 
+/// La règle TCP que pose l'installeur du serveur, à taper à la main
+/// (PowerShell en administrateur) : toute la plage (D39), Domaine et Privé.
+pub fn commande_parefeu_tcp() -> String {
+    format!(
+        "netsh advfirewall firewall add rule name=\"{REGLE_TCP}\" dir=in action=allow protocol=TCP \
+         localport={}-{} profile=domain,private",
+        gescom_noyau::protocole::PORT_DEFAUT,
+        gescom_noyau::protocole::PORT_MAX
+    )
+}
+
+/// La règle UDP de la recherche du serveur, même chose.
+pub fn commande_parefeu_udp() -> String {
+    format!(
+        "netsh advfirewall firewall add rule name=\"{REGLE_UDP}\" dir=in action=allow protocol=UDP \
+         localport={} profile=domain,private",
+        gescom_noyau::decouverte::PORT
+    )
+}
+
 /// Ce qu'on affiche au démarrage, sous l'adresse d'écoute.
 pub fn conseils(port: u16) -> Vec<String> {
     let mut lignes = Vec::new();
@@ -261,18 +281,22 @@ pub fn conseils(port: u16) -> Vec<String> {
         ));
         lignes.push("    sans autre explication.".to_string());
         lignes.push(String::new());
+        // `outils\parefeu.ps1` n'est dans aucun installeur (D54) : on
+        // donne ce que le poste a sous la main.
         lignes.push(
-            "    Ouvrir PowerShell EN ADMINISTRATEUR sur ce poste, puis :"
+            "    Installer (ou réinstaller) Gescom Serveur sur ce poste : il ouvre le pare-feu."
                 .to_string(),
         );
-        lignes.push("      .\\outils\\parefeu.ps1 -Ouvrir".to_string());
+        lignes.push("    Ou, dans PowerShell EN ADMINISTRATEUR :".to_string());
+        lignes.push(format!("      {}", commande_parefeu_tcp()));
     } else if regle_recherche_presente(gescom_noyau::decouverte::PORT) == Some(false) {
         // La regle TCP est la : les caisses joignent le serveur, mais
         // « Rechercher le serveur » ne le trouvera pas.
         lignes.push(format!(
             "  pare-feu : la recherche automatique (UDP {}) est fermée — les caisses devront \
-             saisir l'adresse ; .\\outils\\parefeu.ps1 -Ouvrir l'ouvre.",
-            gescom_noyau::decouverte::PORT
+             saisir l'adresse. Réinstaller Gescom Serveur l'ouvre ; ou, en administrateur : {}",
+            gescom_noyau::decouverte::PORT,
+            commande_parefeu_udp()
         ));
     }
 
@@ -291,5 +315,18 @@ mod tests {
         assert!(!regle_couvre(fr, 40101) && !regle_couvre(fr, 7300));
         assert!(regle_couvre(en, 40000) && !regle_couvre(en, 40001));
         assert!(!regle_couvre("", 40000));
+    }
+
+    #[test]
+    fn les_commandes_du_pare_feu_sont_celles_de_l_installeur() {
+        // Les memes regles que outils/installeur_serveur.nsi (D54 : les
+        // messages ne renvoient plus a un script non livre).
+        let nsi = include_str!("../../../outils/installeur_serveur.nsi");
+        assert!(nsi.contains("!define REGLE_PAREFEU \"Gescom serveur\""));
+        assert!(nsi.contains("!define REGLE_RECHERCHE \"Gescom serveur (recherche)\""));
+        let tcp = commande_parefeu_tcp().replace(REGLE_TCP, "${REGLE_PAREFEU}");
+        let udp = commande_parefeu_udp().replace(REGLE_UDP, "${REGLE_RECHERCHE}");
+        assert!(nsi.contains(&tcp), "{tcp}");
+        assert!(nsi.contains(&udp), "{udp}");
     }
 }

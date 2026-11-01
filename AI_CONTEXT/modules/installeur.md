@@ -128,6 +128,37 @@ Pas testé en élevé depuis la session d'écriture (UAC bloqué) : c'est
 la section A de [TESTS-MANUELS.md](../../TESTS-MANUELS.md), et
 `scratchpad/test_service.ps1` le déroule sur une base jetable.
 
+## Ne rien perdre (01/11/2026, D54)
+
+- **La désinstallation ne touche jamais aux données.** La case
+  « Supprimer les données de l'application » du modèle NSIS de Tauri
+  (`RmDir /r $APPDATA\<identifiant>`) est retirée par les crochets, sans
+  recopier le modèle : [`src-tauri/nsis/donnees_gardees.nsh`](../../src-tauri/nsis/donnees_gardees.nsh)
+  redéfinit `__NSD_CheckBox_STYLE` sans `WS_VISIBLE` (la case est créée
+  invisible) et `NSIS_HOOK_PREUNINSTALL` remet
+  `$DeleteAppDataCheckboxState` à 0. Inclus par `hooks.nsh` (la caisse,
+  qui dit aussi où restent les données sur la page de confirmation) et
+  `hooks-equipe.nsh` (Équipe, `equipe/tauri.conf.json`). Un changement
+  de modèle chez Tauri fait échouer la compilation (`!undef`, variable
+  inconnue), jamais un effacement silencieux.
+- **L'installeur du serveur reprend la base d'un poste seul**
+  (`outils/installeur_serveur.nsi`, `ReprendreBasePoste`) : Gescom fermé
+  exigé (`ExigerGescomFerme`), tout `gescom-serveur.exe` arrêté, puis
+  `gescom-serveur --reprendre "$APPDATA\ml.gescom.app\gescom.db"
+  --examiner --installeur` → code de sortie (`noyau::reprise::codes`) et
+  une ligne ASCII (`2 ventes|210 articles|5 clients|31/10/2026`) ; les
+  textes accentués sont dans le script, pas dans la sortie capturée.
+  Sur Oui, la même commande sans `--examiner`. Le tout avant
+  `--installer-service`.
+- **Encodage** : `installeur_serveur.nsi` porte un BOM UTF-8 — sans lui,
+  makensis le lisait en ACP. `hooks*.nsh` sont lus en UTF-8 parce que
+  Tauri passe `-INPUTCHARSET UTF8`.
+- **Vérifier sans installer** : compiler dans `%TEMP%` avec des fichiers
+  factices et `makensis -V4` (le journal montre chaque instruction
+  développée) ; pour les crochets, le `installer.nsi` rendu par le
+  dernier `tauri build` (`target/release/nsis/x64/`) avec l'`!include`
+  ajouté après `${StrLoc}`, là où le modèle le met.
+
 ## Ce que l'installeur ne fait pas
 
 ### Le pare-feu
@@ -137,7 +168,10 @@ règle de pare-feu n'est posée. Elle échouerait en silence, et **laisser
 croire que le réseau est ouvert est pire que ne rien faire**.
 
 Le serveur affiche lui-même la commande à lancer, à chaque démarrage,
-tant que la règle manque (`reseau_local.rs`).
+tant que la règle manque (`reseau_local.rs`) : depuis D54, la ligne
+`netsh` exacte (`commande_parefeu_tcp/udp`, testée contre
+`installeur_serveur.nsi`), plus `outils\parefeu.ps1`, qui n'est livré
+nulle part.
 
 ### La signature
 

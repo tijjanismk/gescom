@@ -288,7 +288,7 @@ pub fn choisir_url_pg_dump(peut_migrer: bool, cible: &str, proprietaire: Option<
         return Ok(cible.to_string());
     }
     proprietaire.filter(|u| !u.trim().is_empty()).ok_or_else(|| {
-        "Le serveur tourne sous le compte PostgreSQL limité : il ne voit qu'un dossier à la fois, sa copie serait partielle. Donner l'adresse du compte propriétaire dans la variable d'environnement GESCOM_PG_SAUVEGARDE du serveur (jamais dans un fichier)."
+        "Le serveur tourne sous le compte PostgreSQL limité : il ne voit qu'un dossier à la fois, sa copie serait partielle. Donner l'adresse du compte propriétaire dans la variable SYSTÈME GESCOM_PG_SAUVEGARDE (en administrateur : setx /M), puis redémarrer l'ordinateur — le service ne voit ni une variable de l'utilisateur, ni une variable posée après le démarrage de Windows. Jamais dans un fichier."
             .to_string()
     })
 }

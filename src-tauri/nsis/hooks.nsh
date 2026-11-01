@@ -11,6 +11,16 @@
 ; pire que ne rien faire. Le serveur affiche lui-meme la commande a
 ; lancer au premier demarrage (reseau_local.rs).
 
+; La desinstallation garde les donnees (D54) : la case « Supprimer les
+; donnees de l'application » du modele de Tauri est retiree. Le detail
+; est dans donnees_gardees.nsh.
+!include "${__FILEDIR__}\donnees_gardees.nsh"
+
+; A la place de la case, la page de confirmation dit ou restent les
+; donnees, et que la desinstallation n'y touche pas. Pour repartir de
+; zero, on efface ce dossier a la main (guide d'installation, chapitre 12).
+!define MUI_UNCONFIRMPAGE_TEXT_TOP "Gescom va être retiré de cet ordinateur. Vos données n'y perdent rien : la base, les sauvegardes et le réglage du poste restent dans $APPDATA\ml.gescom.app."
+
 !macro NSIS_HOOK_POSTINSTALL
   ; Un raccourci dans le menu Demarrer, a cote de l'application.
   CreateShortcut "$SMPROGRAMS\Gescom Serveur.lnk" "$INSTDIR\gescom-serveur.exe"
@@ -31,6 +41,9 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  ; D54 : quoi qu'il arrive a la case, rien n'est efface.
+  !insertmacro GESCOM_GARDER_LES_DONNEES
+
   ; Le serveur tient le fichier de base ouvert : tant qu'il tourne, la
   ; desinstallation ne peut pas remplacer ni supprimer les fichiers, et
   ; echoue avec un message que personne ne comprend.

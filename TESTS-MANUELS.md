@@ -23,7 +23,7 @@ passe par les yeux et par le réseau.
 | # | Faire | Attendu | ☐ |
 |---|---|---|---|
 | A1 | Lancer `Gescom-Serveur_x.y.z_x64-setup.exe` en administrateur | Assistant en français ; page « Configuration du serveur » avec base et port préremplis | ☐ |
-| A2 | Garder les valeurs, terminer | Pas d'erreur ; page finale nomme le journal, la configuration et `sc stop/start` | ☐ |
+| A2 | Garder les valeurs, terminer | Pas d'erreur ; page finale nomme le journal, la configuration et `sc stop/start` ; les « » et les accents s'affichent juste (le script est en UTF-8 avec BOM depuis D54 : avant, makensis le lisait en ACP) | ☐ |
 | A3 | Ouvrir **Services** | *Gescom Serveur* : **En cours d'exécution**, démarrage **Automatique** | ☐ |
 | A4 | Menu Démarrer → Gescom → *Journal du serveur* | Le fichier s'ouvre ; dernière section « service démarré », puis une ligne `[INFO  ] Serveur démarré — … écoute http://0.0.0.0:40000, 210 commandes` ; adresse à saisir sur les caisses | ☐ |
 | A4b | Depuis une caisse : mauvais mot de passe, puis une vente caisse fermée | Deux lignes `[REFUS ]` dans le journal, avec l'heure, la route, la commande et le message ; **aucun mot de passe** dans le fichier | ☐ |
@@ -32,7 +32,7 @@ passe par les yeux et par le réseau.
 | A7 | `sc start GescomServeur` | Redémarre ; la console répond de nouveau | ☐ |
 | A8 | Gestionnaire des tâches → tuer `gescom-serveur.exe` | Il **revient tout seul** dans les 10 s (relance sur incident) | ☐ |
 | A9 | Redémarrer la machine **sans ouvrir de session** ; depuis une autre machine, `http://<ip>:40000/sante` | Répond : le service démarre avant toute session | ☐ |
-| A10 | Pare-feu : `outils\parefeu.ps1 -Etat` | Règle « Gescom serveur » PRÉSENTE, profils Domaine + Privé, ports 40000-40100 | ☐ |
+| A10 | Pare-feu : `netsh advfirewall firewall show rule name="Gescom serveur"` (et `"Gescom serveur (recherche)"`) | Règle PRÉSENTE, profils Domaine + Privé, ports TCP 40000-40100 (et UDP 40000) | ☐ |
 | A11 | Panneau de configuration → Certificats (certlm) → Autorités racines / Éditeurs approuvés | « Gescom (auto-signe) » présent | ☐ |
 | A12 | Relancer le **même** installeur (mise à jour) | Pas de page de configuration (elle existe) ; le service est arrêté, remplacé, relancé ; `serveur.json` intact | ☐ |
 | A13 | Éditer `serveur.json` (port 40001), `sc stop` + `sc start` | Écoute sur 40001 (journal) ; hors de 40000-40100, un avertissement au journal ; remettre 40000 ensuite | ☐ |
@@ -182,6 +182,34 @@ machine. Fiche : `AI_CONTEXT/modules/serveur-fenetre.md`.*
 | K9 | Fermer puis rouvrir la fenêtre Gescom Serveur | Elle s'ouvre directement sur 40007 (lu dans `serveur.json`) ; remettre 40000 ensuite (et retrouver la caisse) | ☐ |
 | K10 | Pare-feu : retirer la règle « Gescom serveur (recherche) », puis K6 | « Aucun serveur Gescom n'a répondu », avec les causes probables ; la saisie à la main marche | ☐ |
 | K11 | Poste monoposte (la fenêtre de caisse lance le serveur) : ouvrir la console → Réseau | État lisible, changement refusé : « le port est géré par Gescom sur ce poste » | ☐ |
+
+## L. L'installation ne perd rien (D54, 01/11/2026)
+
+*Sur une **machine de test** sans Gescom Serveur, jamais celle du
+magasin. Un poste qui travaille seul : Gescom installé, « Ce poste garde
+la base », l'assistant fait, quelques ventes (dont une à crédit), un logo.
+Noter avant : le nombre de ventes, le stock d'un article, la caisse du
+jour, la créance d'un client. Fiche : `AI_CONTEXT/DECISIONS.md` § D54.*
+
+| # | Faire | Attendu | ☐ |
+|---|---|---|---|
+| L1 | Gescom **ouvert**, lancer l'installeur de Gescom Serveur en administrateur, aller jusqu'à Installer | « Gescom est ouvert sur ce poste… Réessayer / Annuler » ; **Annuler** : l'installation s'arrête, rien n'est installé (pas de service, pas de `C:\ProgramData\Gescom`) | ☐ |
+| L2 | Relancer, Gescom ouvert, puis le fermer et **Réessayer** | L'installation continue | ☐ |
+| L3 | La question de la reprise | Le texte du guide, chapitre 9 : le chemin de la base, les nombres (ventes, articles, clients, dernière vente) justes, **accents corrects** | ☐ |
+| L4 | **Oui** | « La base du poste est copiée dans Gescom Serveur et vérifiée : … » ; le service démarre ; `C:\ProgramData\Gescom\gescom.db`, `logo.png` ; `reprise.json` à côté de la base du poste ; `serveur.log` : « Base du poste reprise : … » | ☐ |
+| L5 | Ouvrir Gescom sur ce poste | Connexion avec le compte d'avant ; les ventes, le stock, la caisse du jour, la créance notés avant ; le logo sur une facture imprimée | ☐ |
+| L6 | Le gestionnaire des tâches pendant L5 | Un seul `gescom-serveur.exe` (le service, compte Système) | ☐ |
+| L7 | `sc stop GescomServeur`, fermer la session Windows et la rouvrir, ouvrir Gescom | Gescom dit que le serveur de ce poste ne répond pas ; `ml.gescom.app\gescom.log` : « Serveur non démarré : la base de ce poste a été reprise par Gescom Serveur… » ; **aucune vente possible dans l'ancienne base** ; `sc start` → Gescom revient | ☐ |
+| L8 | Relancer le même installeur (mise à jour) | Pas de question de reprise (la marque) ; la base du serveur intacte | ☐ |
+| L9 | Autre machine de test : même départ, répondre **Non** | « La base du poste n'est pas copiée… » ; Gescom paraît vide ; relancer l'installeur sans avoir vendu → la question revient ; Oui → comme L4 | ☐ |
+| L10 | Après L9 refusé, vendre sur le serveur, relancer l'installeur | « La base de Gescom Serveur a aussi des ventes… aucune n'est touchée » ; puis `gescom-serveur.exe --reprendre "<base du poste>" --laisser` ; relancer → plus de boîte | ☐ |
+| L11 | `gescom-serveur.exe --reprendre "<base du poste>"` **service en marche** (base serveur neuve) | « Reprise impossible : … ouverte par un autre programme : arrêter le service » ; rien n'a bougé dans `C:\ProgramData\Gescom` | ☐ |
+| L12 | `gescom-serveur.exe --restaurer <une sauvegarde>` **sans `--base`** | Refus : « Gescom Serveur est installé… dire avec --base » et les deux commandes (service, compte Windows) ; aucune base remplacée | ☐ |
+| L13 | Désinstaller **Gescom** (Paramètres → Applications) | La page de confirmation n'a **pas de case** ; elle dit « Vos données n'y perdent rien… restent dans C:\Users\…\ml.gescom.app » ; après : le dossier est toujours là, entier | ☐ |
+| L14 | Désinstaller **Gescom Équipe** | Pas de case ; `ml.gescom.equipe` toujours là ; réinstallée, Équipe est reconnue comme le même poste (Paramètres → Postes) | ☐ |
+| L15 | Désinstaller **Gescom Serveur** | « La base, les sauvegardes et le journal sont conservés dans C:\ProgramData\Gescom » ; le dossier est entier | ☐ |
+| L16 | PostgreSQL sous le compte limité (section A15) : console → Sauvegarder maintenant | Refus qui nomme `GESCOM_PG_SAUVEGARDE`, variable système, redémarrer ; `setx /M GESCOM_PG_SAUVEGARDE "<adresse du propriétaire>"` **sans** redémarrer → toujours refusé ; après redémarrage de l'ordinateur → la copie se fait | ☐ |
+| L17 | Retirer la règle « Gescom serveur » du pare-feu, `sc stop` / `sc start` | Console, carte Réseau et `serveur.log` : la ligne `netsh … localport=40000-40100 …` à taper, plus aucun `outils\parefeu.ps1` ; la taper en administrateur → la règle revient | ☐ |
 
 ---
 
