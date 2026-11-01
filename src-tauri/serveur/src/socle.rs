@@ -572,7 +572,7 @@ pub fn registre() -> Registre {
     });
 
     // D36 : cesser ou reprendre le suivi du stock d'un article.
-    r.sur_base("changer_suivi_stock", Some("parametres:modifier"), true, |c, p| {
+    r.sur_base("changer_suivi_stock", Some(gescom_noyau::suivi_stock::DROIT), true, |c, p| {
         #[derive(serde::Deserialize)]
         struct Comptage { depot_id: String, quantite: f64 }
         let comptages: Option<Vec<Comptage>> = arg(&p, "comptages", "comptages")?;
@@ -619,12 +619,13 @@ pub fn registre() -> Registre {
     });
 
     // D35 : les fiches de passage (une par vente sans nom), et le geste
-    // qui fait du passant un client ordinaire.
+    // qui fait du passant un client ordinaire — D57 : avec le droit de
+    // creer un client, que le caissier a.
     r.sur_base("lire_passages", None, false, |c, p| {
         let v = gescom_noyau::passage::lire_passages_sur(c.base, option_texte(&p, "recherche"))?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
-    r.sur_base("promouvoir_passage", Some("clients:modifier"), true, |c, p| {
+    r.sur_base("promouvoir_passage", Some(gescom_noyau::passage::DROIT_PROMOUVOIR), true, |c, p| {
         gescom_noyau::passage::promouvoir_sur(
             c.base,
             arg(&p, "clientId", "client_id")?,
@@ -636,7 +637,8 @@ pub fn registre() -> Registre {
     //
     // Le passant revenu est un client connu : le patron choisit sa fiche,
     // toute l'histoire du passage y passe (une transaction, au journal).
-    // Meme porte que la promotion : la gestion des fiches clients.
+    // La gestion des fiches clients : rattacher touche un client connu
+    // (D57 : la promotion, elle, ne demande que de creer un client).
     r.sur_base("rattacher_passage", Some("clients:modifier"), true, |c, p| {
         gescom_noyau::passage::rattacher_sur(
             c.base,
@@ -1316,12 +1318,7 @@ pub fn registre() -> Registre {
         let mettre_a_jour: Option<bool> = arg(&p, "mettreAJour", "mettre_a_jour")?;
         // Lot D.11 (D36) : creer un article qui ne suit pas son stock
         // demande, comme changer la case, `parametres:modifier`.
-        let ctx = gescom_noyau::portes::ContexteUtilisateur {
-            id: c.appelant.utilisateur_id.clone(),
-            role: c.appelant.role.clone(),
-        };
-        let peut_ne_pas_suivre =
-            gescom_noyau::portes::verifier_permission_sur(c.base, &ctx, "parametres:modifier").is_ok();
+        let peut_ne_pas_suivre = peut_regler_suivi(c);
         // D44 : l'apercu joue l'import et le laisse retomber.
         let simuler: Option<bool> = arg(&p, "simuler", "simuler")?;
         let v = catalogue_csv::importer_articles_csv_sur_base(
@@ -1794,13 +1791,20 @@ pub fn registre() -> Registre {
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
-    r.sur_base("creer_article_complet", Some("parametres:modifier"), true, |c, p| {
+    // D57 : creer un article demande `articles:creer`, comme au comptoir,
+    // aux Achats et a l'import ; le creer hors du stock, le droit de
+    // regler le suivi (le noyau juge, avant d'ecrire).
+    r.sur_base("creer_article_complet", Some("articles:creer"), true, |c, p| {
         let nom: String = arg(&p, "nom", "nom")?;
         let categorie_id: Option<String> = arg(&p, "categorieId", "categorie_id")?;
         let unite_base: String = arg(&p, "uniteBase", "unite_base")?;
         let prix_reference: i64 = arg(&p, "prixReference", "prix_reference")?;
         let seuil_alerte: Option<f64> = arg(&p, "seuilAlerte", "seuil_alerte")?;
-        let v = parametres::creer_article_complet_sur_base(c.base, nom, categorie_id, unite_base, prix_reference, seuil_alerte)?;
+        let suivre: Option<bool> = arg(&p, "suivreStock", "suivre_stock")?;
+        let peut = peut_regler_suivi(c);
+        let v = parametres::creer_article_complet_sur_base(
+            c.base, nom, categorie_id, unite_base, prix_reference, seuil_alerte, suivre.unwrap_or(true), peut,
+        )?;
         serde_json::to_value(v).map_err(|e| e.to_string())
     });
 
@@ -2257,6 +2261,17 @@ fn option_texte(p: &Value, cle: &str) -> Option<String> {
 fn voit_la_paie(c: &mut gescom_noyau::registre::ContexteBase) -> bool {
     let perms = gescom_noyau::portes::permissions_de_sur(c.base, &c.appelant.utilisateur_id, &c.appelant.role);
     gescom_noyau::coeur::lecture::voit_la_paie(|p| perms.contains(p))
+}
+
+/// L'appelant peut-il regler le suivi du stock (`suivi_stock::DROIT`) ?
+/// Creer un article qui ne suit pas le demande, a la main comme a
+/// l'import (D36, D57) ; lu en base a chaque appel.
+fn peut_regler_suivi(c: &mut gescom_noyau::registre::ContexteBase) -> bool {
+    let ctx = gescom_noyau::portes::ContexteUtilisateur {
+        id: c.appelant.utilisateur_id.clone(),
+        role: c.appelant.role.clone(),
+    };
+    gescom_noyau::portes::verifier_permission_sur(c.base, &ctx, gescom_noyau::suivi_stock::DROIT).is_ok()
 }
 
 /// Lit un parametre, quel que soit son type.

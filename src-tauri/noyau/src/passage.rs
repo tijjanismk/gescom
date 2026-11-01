@@ -24,6 +24,10 @@ use crate::parametres;
 pub const STATUT: &str = "passage";
 /// Le nom d'une fiche de passage, jusqu'a sa promotion.
 pub const NOM: &str = "Client de passage";
+/// Le droit de « passer en client ordinaire » (D57) : nommer un passant,
+/// c'est creer un client — le caissier le peut. Rattacher un passage a
+/// un client connu touche ce client : `clients:modifier`.
+pub const DROIT_PROMOUVOIR: &str = "clients:creer";
 
 /// Ce que le papier dit du client : jamais « Client de passage » (le
 /// propriétaire : « presque une insulte »), mais le code, qui retrouve la

@@ -264,9 +264,10 @@ function racine(): string {
  *   (diffusion UDP sur le réseau local, 27/10/2026).
  *
  * Cette liste est **fermée**. Une commande absente part au serveur :
- * c'est le bon défaut, parce qu'une commande métier oubliée ici
- * écrirait dans la base locale de la caisse — vide — et le commerçant
- * verrait sa saisie disparaître sans message.
+ * c'est le bon défaut, parce que la fenêtre n'a pas de base à elle
+ * (lot E, 27/10/2026) — une commande métier ajoutée ici par erreur
+ * tomberait sur sa façade, qui refuse tout (`REFUS_SANS_BASE`), et le
+ * geste échouerait à chaque fois.
  */
 const LOCALES = new Set([
   "imprimer_piece",

@@ -16,7 +16,7 @@ use gescom_noyau::{assistant, catalogue_csv, comptoir, parametres, tableau_bord}
 
 /// Un article neuf, et `quantite` en stock dans le magasin par defaut.
 fn article_avec_stock(base: &mut Base, nom: &str, seuil: Option<f64>, quantite: f64) -> String {
-    let id = parametres::creer_article_complet_sur_base(base, nom.into(), None, "pièce".into(), 100, seuil).unwrap();
+    let id = parametres::creer_article_complet_sur_base(base, nom.into(), None, "pièce".into(), 100, seuil, true, false).unwrap();
     let depot = depot_defaut(base);
     let dossier = base.dossier().to_string();
     base.executer(
@@ -89,11 +89,11 @@ fn a_la_reception_le_seuil_se_donne_et_un_seuil_faux_n_ecrit_rien() {
     assert_eq!(seuil_de(&mut base, a["id"].as_str().unwrap()), Some(6.0));
     let avant = compter(&mut base, "SELECT COUNT(*) FROM article", &[]);
     assert!(comptoir::creer_article_rapide_sur(&mut base, "Vernis".into(), "pot".into(), 0, None, Some(-1.0)).is_err());
-    assert!(parametres::creer_article_complet_sur_base(&mut base, "Vernis".into(), None, "pot".into(), 10, Some(f64::INFINITY)).is_err());
+    assert!(parametres::creer_article_complet_sur_base(&mut base, "Vernis".into(), None, "pot".into(), 10, Some(f64::INFINITY), true, false).is_err());
     assert!(assistant::definir_reglages_dossier_sur(&mut base, 0, 0, Some(-3.0)).is_err());
     assert_eq!(compter(&mut base, "SELECT COUNT(*) FROM article", &[]), avant, "aucun refus n'a créé d'article");
     // Un article qui ne suit pas son stock n'a pas de seuil.
-    let sachet = parametres::creer_article_complet_sur_base(&mut base, "Sachets".into(), None, "paquet".into(), 25, None).unwrap();
+    let sachet = parametres::creer_article_complet_sur_base(&mut base, "Sachets".into(), None, "paquet".into(), 25, None, true, false).unwrap();
     base.executer("UPDATE article SET gere_en_stock = 0 WHERE id = ?1", &gescom_noyau::parametres![sachet.clone()]).unwrap();
     assert!(parametres::definir_seuil_article_sur(&mut base, sachet, Some(3.0)).unwrap_err().contains("ne suit pas"));
 }

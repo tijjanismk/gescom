@@ -65,7 +65,10 @@ export function ListePassages({ recherche }: { recherche: string }) {
   const [enCours, setEnCours] = useState(false);
   const [erreurPromotion, setErreurPromotion] = useState("");
   const [fait, setFait] = useState("");
-  const peutPromouvoir = peut("clients:modifier");
+  // D57 : nommer un passant, c'est créer un client (le caissier le peut) ;
+  // rattacher touche un client connu, c'est modifier une fiche.
+  const peutPromouvoir = peut("clients:creer");
+  const peutRattacher = peut("clients:modifier");
 
   // Lot D.10 : la fenêtre « Rattacher à un client ».
   const [aRattacher, setARattacher] = useState<Passage | null>(null);
@@ -215,15 +218,19 @@ export function ListePassages({ recherche }: { recherche: string }) {
                     {` · ${p.nb_ventes} vente${p.nb_ventes > 1 ? "s" : ""} · ${fmt(p.paye)}`}
                   </p>
                 </div>
-                {peutPromouvoir && (
+                {(peutPromouvoir || peutRattacher) && (
                   <div className="flex items-center gap-1.5">
-                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => ouvrir(p)}>
-                      <UserCheck className="h-3 w-3" /> Passer en client ordinaire
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                      onClick={() => ouvrirRattachement(p)}>
-                      <Link2 className="h-3 w-3" /> Rattacher à un client
-                    </Button>
+                    {peutPromouvoir && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => ouvrir(p)}>
+                        <UserCheck className="h-3 w-3" /> Passer en client ordinaire
+                      </Button>
+                    )}
+                    {peutRattacher && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+                        onClick={() => ouvrirRattachement(p)}>
+                        <Link2 className="h-3 w-3" /> Rattacher à un client
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
@@ -240,8 +247,8 @@ export function ListePassages({ recherche }: { recherche: string }) {
           <div className="space-y-3 pt-1">
             <p className="text-xs text-muted-foreground">
               Il garde son code et ses achats. Ses factures déjà émises
-              gardent « Client de passage ». Le crédit lui devient possible,
-              selon les droits.
+              gardent son code ({choisi?.code}), sans nom, à la réimpression.
+              Le crédit lui devient possible, selon les droits.
             </p>
             <div>
               <Label>Nom *</Label>

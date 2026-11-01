@@ -136,12 +136,15 @@ la plage 40000–40100).
   « Console du serveur » garde le port de l'installation (la fenêtre
   Gescom Serveur, elle, suit `serveur.json`) ; un `serveur.json` créé par
   un serveur lancé à la main fait sauter la page de configuration de
-  l'installeur. Le test `un_serveur_rallume_chaque_matin…` a vu une fois
-  un `…db-journal` pendant que `VACUUM INTO` écrivait (course du test,
-  pas du code) — à rendre le test patient.
-- `MANUEL.md` parle encore de 7300 ; `p6-role-caisse.mjs` lance un
-  serveur sur 7301 (hors de la plage D39) ; le commentaire de `LOCALES`
-  dans `pont.ts` parle encore d'une base locale.
+  l'installeur. ~~Le test `un_serveur_rallume_chaque_matin…` a vu une fois
+  un `…db-journal` pendant que `VACUUM INTO` écrivait~~ **rendu patient
+  le 01/11 (D57)** : il attend que `/sante` annonce la copie, posée
+  seulement après `VACUUM INTO` et sa relecture.
+- ~~`MANUEL.md` parle encore de 7300~~ (corrigé le 28/10 avec le guide
+  d'installation) ; ~~`p6-role-caisse.mjs` lance un serveur sur 7301~~
+  **40090 le 01/11** ; ~~le commentaire de `LOCALES` dans `pont.ts`
+  parle encore d'une base locale~~ **corrigé le 01/11**. Reste hors
+  plage : `outils/caisse_pg.py` vise `127.0.0.1:7301` par défaut.
 
 ## Trouvé le 28/10/2026 en écrivant le guide d'installation, pas encore fait
 
@@ -173,11 +176,18 @@ disent aux utilisateurs en attendant.
   le message de `--compte-limite` dit « dans poste.json » (c'est la clé
   `base` de `serveur.json`) ; `GESCOM_PG_SAUVEGARDE` lu par le service
   LocalSystem : non vérifié.
-- `ListePassages.tsx:242` dit encore que les factures gardent « Client de
-  passage » (le papier imprime le code depuis le 26/10).
-- Droits : « passer en client ordinaire » demande `clients:modifier`, que
-  l'employé a et le caissier non ; un employé peut décocher « Suivre le
-  stock » à la création mais pas le changer ensuite (`parametres:modifier`).
+- ~~`ListePassages.tsx:242` dit encore que les factures gardent « Client de
+  passage »~~ **corrigé le 01/11** : elles gardent le code.
+- ~~Droits : « passer en client ordinaire » demande `clients:modifier`~~
+  **D57, 01/11** : `clients:creer`, le caissier le peut ; rattacher reste
+  `clients:modifier`. ~~Un employé peut décocher « Suivre le stock » à la
+  création~~ (en fait, le serveur refusait toute création dans
+  Paramètres à l'employé) **D57** : il y crée avec `articles:creer`, la
+  case grisée sans `parametres:modifier`, que le serveur exige pour un
+  article créé non suivi. **Reste** : l'employé crée mais ne retouche
+  pas (unités, seuil, catégories demandent `parametres:modifier`) ;
+  `outils/generer_socle.py` ne reconnaît plus `r.sur_base` — le bloc
+  « généré » du socle s'entretient à la main.
 
 ## Ce que la revue du 23/09/2026 a corrigé (branche `correctif/revue-v2`)
 

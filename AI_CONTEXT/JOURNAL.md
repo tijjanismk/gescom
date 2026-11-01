@@ -3125,3 +3125,35 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   affiché, puis le bon mot de passe ferme la boîte et la session ne
   demande plus rien. Gescom et Équipe partagent la boîte : les deux sont
   corrigés. tsc, node 14/14.
+
+## 01/11/2026 — D57 : le caissier nomme un passant, le suivi du stock dès la création
+
+- **Le propriétaire a tranché** : « Passer en client ordinaire » ouvert au
+  caissier ; « Suivre le stock » décoché à la création demande
+  `parametres:modifier`, comme ensuite. Deux questions posées avant le
+  code, réponses : le droit « Créer un client » plutôt qu'une case
+  nouvelle ou tout `clients:modifier` ; l'employé crée dans Paramètres,
+  case grisée.
+- **Ce que le code disait vraiment** : `creer_article_complet` exigeait
+  déjà `parametres:modifier`, l'onglet s'affichant avec `articles:creer` —
+  l'employé remplissait le formulaire et toute création était refusée.
+  L'import refusait déjà la ligne « non » (lot D.11). L'écran créait puis
+  appelait `changer_suivi_stock` : deux écritures.
+- **Fait** : `passage::DROIT_PROMOUVOIR` (`clients:creer`) et
+  `suivi_stock::DROIT` (`parametres:modifier`), lus par les routes ;
+  `creer_article_complet_sur_base(…, suivre, peut_regler_suivi)` juge
+  avant d'écrire et trace `suivi_stock_change` dans la même transaction ;
+  écran : boutons des passages séparés, case grisée avec sa raison ;
+  `ListePassages` (le papier garde le code), `pont.ts` (`LOCALES`),
+  `p6-role-caisse.mjs` sur 40090, `MANUEL.md` (qui fait quoi). Le test D40
+  du matin attend que `/sante` annonce la copie (posée après `VACUUM INTO`
+  et sa relecture). `MANUEL.md` ne parlait déjà plus de 7300 (28/10).
+- **Vérifié** : `droits_d57_base` 5/5 sur SQLite et sur PostgreSQL
+  (`gescom_test_eq4`) — le premier passage a vu le détecteur refuser une
+  requête du test lui-même, sans `dossier_id` ; routes 21/21 ; noyau et
+  serveur 963 verts, un rouge connu hors du lot
+  (`paie_corrections_base::point_6…`, octobre en dur, note de D53) ; `tsc`,
+  node 14/14. **Pas vu dans la vraie fenêtre.**
+- **Reste** : l'employé crée mais ne retouche pas un article (unités,
+  seuil, catégories : `parametres:modifier`) ; `outils/generer_socle.py`
+  ne reconnaît plus `r.sur_base` ; `outils/caisse_pg.py` vise 7301.

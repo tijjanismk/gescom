@@ -706,6 +706,8 @@ function OngletArticles() {
   const [prixVente, setPrixVente] = useState("");
   // D36 : coché par défaut ; décoché, l'article ne suivra pas son stock.
   const [suivreStock, setSuivreStock] = useState(true);
+  // D57 : décocher demande le droit de régler le suivi, dès la création.
+  const peutReglerSuivi = peut("parametres:modifier");
   // D45 : vide = le seuil du dossier.
   const [seuil, setSeuil] = useState("");
   const [chargementCreer, setChargementCreer] = useState(false);
@@ -732,16 +734,16 @@ function OngletArticles() {
     if (!nom.trim() || !prixVente) return;
     setChargementCreer(true);
     try {
-      const id = await invoke<string>("creer_article_complet", {
+      await invoke<string>("creer_article_complet", {
         nom: nom.trim(),
         categorieId: categorieId || null,
         uniteBase,
         prixReference: parseMontant(prixVente),
         seuilAlerte: suivreStock ? lireSeuil(seuil) : null,
+        // D57 : le suivi part avec la création, une seule écriture ; non
+        // suivi, le serveur demande le droit de régler le suivi.
+        suivreStock,
       });
-      // Un article neuf n'a pas de stock : cesser de le suivre ne fait
-      // rien sortir, juste le geste trace (D36).
-      if (!suivreStock) await invoke("changer_suivi_stock", { articleId: id, suivre: false });
       setNom(""); setCategorieId(""); setUniteBase("pièce"); setPrixVente(""); setSuivreStock(true); setSeuil("");
       setModalArticle(false);
       await charger();
@@ -1022,11 +1024,17 @@ function OngletArticles() {
                   placeholder="0" className="mt-1" />
               </div>
             </div>
+            {/* D57 : décocher sort l'article des écrans de stock (D36) ;
+                comme changer la case ensuite, il y faut le droit de
+                régler le suivi. Le serveur le juge aussi. */}
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={suivreStock} onChange={e => setSuivreStock(e.target.checked)} />
+              <input type="checkbox" checked={suivreStock} disabled={!peutReglerSuivi}
+                onChange={e => setSuivreStock(e.target.checked)} />
               Suivre le stock
               <span className="text-xs text-muted-foreground">
-                (décocher pour un sachet, un service, du vrac qu'on ne compte pas)
+                {peutReglerSuivi
+                  ? "(décocher pour un sachet, un service, du vrac qu'on ne compte pas)"
+                  : "(décocher demande le droit « Modifier les paramètres » : demandez au patron)"}
               </span>
             </label>
             {suivreStock && (
