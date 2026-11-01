@@ -8,9 +8,10 @@
 
 import {
   type Habillage, type PageDoc, blocSociete, mention, documentHTML,
-  blocSignatures, blocMontantLettres, choisir, dateHeure, esc, pourGenre,
+  blocSignatures, blocMontantLettres, dateHeure, esc, pourGenre,
 } from "@/lib/impression";
 import type { ReglagesDocuments } from "@/lib/documents";
+import { choixImpression } from "@/lib/colonnes";
 
 /** Formats d'impression. Un seul generateur pour toutes les pieces. */
 // =====================================================================
@@ -142,23 +143,24 @@ function pieceEnPage(
   const r = h.reglage;
 
   const avecEntete = !!h.entete;
-  const hasTVA = lignes.some((l: any) => l.taux_tva && l.taux_tva > 0);
-  const aRemise = lignes.some((l: any) => l.remise_pct > 0);
-  // Ce que le réglage du genre décide, contre ce que le document contient.
-  const colRemise = choisir(r?.colonne_remise, aRemise);
-  const colTVA = choisir(r?.colonne_tva, hasTVA);
-  const recapTVA = choisir(r?.recap_tva, hasTVA);
-  const colRef = !!r?.reference_article && lignes.some((l: any) => l.article_reference);
-  // Sans réglage lisible, la remise se montre sous la désignation,
-  // comme le générateur historique ; « Jamais » la retire tout à fait.
-  const remiseEnLigne = !colRemise && r?.colonne_remise !== "non";
+  // D58 : les colonnes gardées avec la pièce, sinon celles du genre ;
+  // une colonne n'apparaît que cochée. Sans TVA, pas un mot de TVA.
+  const choix = choixImpression(piece.colonnes ?? r?.colonnes, !!r?.recap_tva, lignes);
+  const hasTVA = choix.documentATva;
+  const colRemise = choix.remise;
+  const colTVA = choix.tva;
+  const recapTVA = choix.recapTva;
+  const colRef = choix.reference;
+  // Colonne remise cachée : la remise se dit sous la désignation, sinon
+  // P.U. × Qté ne tombe pas sur le montant (garde-fou D58).
+  const remiseEnLigne = choix.remiseSousDesignation;
 
   function lignesTableau(): string {
     return lignes.map((l: any, i: number) => {
       const tva_pct = l.taux_tva ? (l.taux_tva * 100).toFixed(0) + "%" : "—";
       return `
         <tr style="background:${i % 2 === 0 ? "transparent" : "rgba(0,0,0,.025)"};border-bottom:1px solid #eee">
-          ${colRef ? `<td style="padding:5px 6px;font-family:monospace;font-size:10px;color:#555">${esc(l.article_reference ?? "")}</td>` : ""}
+          ${colRef ? `<td style="padding:5px 6px;font-family:monospace;font-size:10px;color:#555">${esc(l.article_reference ?? "—")}</td>` : ""}
           <td style="padding:5px 6px">${esc(l.article_nom)}
             ${remiseEnLigne && l.remise_pct > 0
               ? `<br><small style="color:#888">Remise ${l.remise_pct}%</small>`

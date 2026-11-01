@@ -1142,6 +1142,11 @@ pub fn lire_donnees_piece(
         "client_adresse": tiers_adresse,
         "client_nif":     tiers_nif,
         "auteur_nom":     auteur_nom,
+        // D58 : les colonnes gardees avec la piece, ou null (son genre).
+        "colonnes":       crate::coeur::documents::colonnes_gardees(
+            conn.query_row("SELECT colonnes FROM piece_commerciale WHERE id = ?1",
+                rusqlite::params![piece_id], |r| r.get::<_, Option<String>>(0))
+                .ok().flatten().as_deref()),
     });
 
     let mut stmt = conn.prepare(
@@ -2756,7 +2761,31 @@ pub fn creer_piece_sur_base(
     depot_id: Option<String>,
     date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    creer_piece_colonnes_sur_base(
+        base, None, client_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id, depot_id,
+        date_piece,
+    )
+}
+
+/// `creer_piece_sur_base`, avec les colonnes choisies a la saisie (D58),
+/// gardees avec la piece dans la meme transaction. `None` : la piece
+/// suit le reglage de son genre.
+#[allow(clippy::too_many_arguments)]
+pub fn creer_piece_colonnes_sur_base(
+    base: &mut Base,
+    colonnes: Option<Vec<String>>,
+    client_id: String,
+    type_piece: String,
+    lignes: Vec<LignePieceInput>,
+    remise_globale: Option<f64>,
+    date_echeance: Option<String>,
+    note: Option<String>,
+    piece_origine_id: Option<String>,
+    depot_id: Option<String>,
+    date_piece: Option<String>,
+) -> Result<serde_json::Value, String> {
     verifier_lignes_piece(&lignes)?;
+    let colonnes = colonnes.map(|c| crate::coeur::documents::valider_colonnes(&c)).transpose()?;
     let dossier = base.dossier().to_string();
     let auteur = id_utilisateur_courant_sur(base);
     let depot = depot_de_piece_sur(base, depot_id);
@@ -2796,6 +2825,9 @@ pub fn creer_piece_sur_base(
     .map_err(|e| e.0)?;
 
     inserer_lignes_sur(&mut tx, &piece_id, &lignes, &now)?;
+    if let Some(c) = &colonnes {
+        crate::documents::poser_colonnes_piece_sur(&mut tx, &piece_id, c)?;
+    }
 
     // Un AVC cree a la main est un GESTE COMMERCIAL (D47) : il cree
     // son credit, sinon le client repart avec un document et rien a
@@ -2846,7 +2878,28 @@ pub fn creer_piece_fournisseur_sur_base(
     piece_origine_id: Option<String>,
     date_piece: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    creer_piece_fournisseur_colonnes_sur_base(
+        base, None, fournisseur_id, type_piece, lignes, remise_globale, date_echeance, note, piece_origine_id,
+        date_piece,
+    )
+}
+
+/// `creer_piece_fournisseur_sur_base`, avec les colonnes (D58).
+#[allow(clippy::too_many_arguments)]
+pub fn creer_piece_fournisseur_colonnes_sur_base(
+    base: &mut Base,
+    colonnes: Option<Vec<String>>,
+    fournisseur_id: String,
+    type_piece: String,
+    lignes: Vec<LignePieceInput>,
+    remise_globale: Option<f64>,
+    date_echeance: Option<String>,
+    note: Option<String>,
+    piece_origine_id: Option<String>,
+    date_piece: Option<String>,
+) -> Result<serde_json::Value, String> {
     verifier_lignes_piece(&lignes)?;
+    let colonnes = colonnes.map(|c| crate::coeur::documents::valider_colonnes(&c)).transpose()?;
     // Le « Fournisseur divers » n'a que les FAF payees de ses achats :
     // une piece a la main (BCF, BRF, FAF a credit) rouvrirait la dette
     // envers personne.
@@ -2891,6 +2944,9 @@ pub fn creer_piece_fournisseur_sur_base(
     .map_err(|e| e.0)?;
 
     inserer_lignes_sur(&mut tx, &piece_id, &lignes, &now)?;
+    if let Some(c) = &colonnes {
+        crate::documents::poser_colonnes_piece_sur(&mut tx, &piece_id, c)?;
+    }
     tx.valider().map_err(|e| e.0)?;
 
     Ok(serde_json::json!({ "id": piece_id, "numero": numero, "statut": statut }))
@@ -3552,6 +3608,8 @@ pub fn lire_donnees_piece_sur_base(
         "client_adresse": tiers_adresse,
         "client_nif":     tiers_nif,
         "auteur_nom":     auteur_nom,
+        // D58 : les colonnes gardees avec la piece, ou null (son genre).
+        "colonnes":       crate::documents::colonnes_de_piece_sur(base, &piece_id)?,
     });
 
     let mut lignes: Vec<serde_json::Value> = base

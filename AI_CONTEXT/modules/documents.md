@@ -66,6 +66,34 @@ case cochée. Case décochée, l'impression se compte quand même.
 - Le ticket est un **format** de la pièce : il partage son original.
   Le bon de sortie n'est pas la facture : ne pas le noter.
 
+## Les colonnes d'une pièce (D58, 01/11/2026)
+
+Plus d'« auto » : une colonne n'apparaît que cochée. Le réglage du genre
+(`ReglageGenre.colonnes`) vaut à la saisie et sur le papier ; le menu
+« Colonnes » de `ModalNouvellePiece` le change **pour la pièce**, gardée
+dans `piece_commerciale.colonnes` (JSON ; NULL = suit le genre) et rendue
+par `lire_donnees_piece` en `piece.colonnes`. « Garder pour les
+prochaines » réécrit le réglage du genre (`parametres:modifier`).
+
+- Règle Rust : `coeur::documents::{COLONNES, COLONNES_FIXES,
+  GENRES_A_COLONNES, valider_colonnes, colonnes_gardees, migrer}` —
+  `migrer` lit un réglage d'avant (`colonne_remise`/`colonne_tva` en
+  auto/oui/non, `reference_article`, `recap_tva` en texte) : oui →
+  coché, auto et non → décoché.
+- Stockage : `documents::{colonnes_de_piece_sur, poser_colonnes_piece_sur}` ;
+  `pieces::creer_piece_colonnes_sur_base` et
+  `creer_piece_fournisseur_colonnes_sur_base` (paramètre `colonnes` des
+  routes `creer_piece`, `creer_piece_fournisseur`), écrites dans la
+  transaction de la pièce. `lire_articles_avec_unites` rend `reference`
+  (le `code_barre`) pour la colonne Réf. de la saisie.
+- Écran : [lib/colonnes.ts](../../src/lib/colonnes.ts) —
+  `choixImpression` (la loi : sans TVA sur aucune ligne, ni colonne TVA
+  ni récapitulatif ni « HT/TTC », même cochés ; remise cachée = « Remise
+  x % » sous la désignation), `alertesSaisie` (le bandeau),
+  `totauxSaisie` (la suite d'arrondis de `lire_donnees_piece`).
+- Pas de colonnes : ticket, reçu, relevé, bulletin ; ni la « Nouvelle
+  pièce » de la fiche client, ni la modification d'une pièce.
+
 ## Les genres et leur type de pièce
 
 `facture` (facture, acompte, avoirs, côté client et fournisseur),
@@ -77,10 +105,12 @@ d'échange prennent ses signatures), `recu`, `releve`, `ticket`, `bulletin` (le 
 ## Un réglage
 
 `format` (a4, a5, thermique_80, thermique_58 ; ticket : rouleau
-seulement), `colonne_remise` / `colonne_tva` / `recap_tva`
-(**auto** = selon le document, oui, non), `montant_lettres`,
-`reference_article` (le `code_barre` de l'article, rendu par
-`lire_donnees_piece` en `article_reference`), `mention` (vide = le
+seulement), `colonnes` (D58 : la liste affichée, à la saisie et sur le
+papier — `reference`, `remise`, `tva` se cochent ; `designation`,
+`quantite`, `prix_unitaire`, `total` toujours là ; d'office les quatre
+fixes ; seuls facture, devis, bon de commande et bon de livraison s'en
+servent), `recap_tva` (une case, décochée d'office), `montant_lettres`,
+`mention` (vide = le
 `pied_facture` de la société), `signatures` (0 à 3 libellés, ≤ 40
 caractères ; ticket : aucune). Les **coordonnées** sous le nom (quand
 l'en-tête n'est pas une image) se choisissent une fois pour tous les

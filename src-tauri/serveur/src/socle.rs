@@ -1942,8 +1942,9 @@ pub fn registre() -> Registre {
         let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
         exiger_antidatage_base(c.base, c.appelant, date_piece.as_deref())?;
         exiger_plafonds_piece(&gescom_noyau::plafonds::de_sur(c.base, &c.appelant.utilisateur_id), &p)?;
-        pieces::creer_piece_sur_base(
+        pieces::creer_piece_colonnes_sur_base(
             c.base,
+            arg(&p, "colonnes", "colonnes")?,
             arg(&p, "clientId", "client_id")?,
             arg(&p, "typePiece", "type_piece")?,
             arg(&p, "lignes", "lignes")?,
@@ -1997,8 +1998,9 @@ pub fn registre() -> Registre {
     r.sur_base("creer_piece_fournisseur", Some("pieces:creer"), true, |c, p| {
         let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
         exiger_antidatage_base(c.base, c.appelant, date_piece.as_deref())?;
-        pieces::creer_piece_fournisseur_sur_base(
+        pieces::creer_piece_fournisseur_colonnes_sur_base(
             c.base,
+            arg(&p, "colonnes", "colonnes")?,
             arg(&p, "fournisseurId", "fournisseur_id")?,
             arg(&p, "typePiece", "type_piece")?,
             arg(&p, "lignes", "lignes")?,

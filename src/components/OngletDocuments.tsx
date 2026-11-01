@@ -19,12 +19,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
-  type Genre, type ReglageGenre, type ReglagesDocuments, type Choix,
+  type Genre, type ReglageGenre, type ReglagesDocuments,
   type Coordonnee, type FormatDocument, type FiligraneDoc,
   LIBELLES_GENRE, PORTEE_GENRE, LIBELLES_FORMAT, LIBELLES_COORDONNEE, FILIGRANE_BORNES,
   SIGNATURES_MAX, GENRES_DUPLICATA, lireReglagesDocuments, choisirImage, contenuBase64,
 } from "@/lib/documents";
 import { documentExemple } from "@/lib/exemples-documents";
+import { GENRES_A_COLONNES, basculer, normaliserColonnes } from "@/lib/colonnes";
 import type { FormatImpression } from "@/lib/genererPDF";
 
 type Avis = { type: "ok" | "erreur"; texte: string } | null;
@@ -43,34 +44,6 @@ function AvisLigne({ avis }: { avis: Avis }) {
       {ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
       {avis.texte}
     </p>
-  );
-}
-
-/** Trois positions : laisser le document décider, forcer, retirer. */
-function ChoixTriple({
-  valeur, onChange, etiquette, aide,
-}: { valeur: Choix; onChange: (c: Choix) => void; etiquette: string; aide: string }) {
-  const options: { v: Choix; l: string }[] = [
-    { v: "auto", l: "Auto" }, { v: "oui", l: "Toujours" }, { v: "non", l: "Jamais" },
-  ];
-  return (
-    <div className="flex items-center justify-between gap-3 py-1.5">
-      <div>
-        <p className="text-sm">{etiquette}</p>
-        <p className="text-xs text-muted-foreground">{aide}</p>
-      </div>
-      <div role="radiogroup" aria-label={etiquette}
-        className="inline-flex rounded-md border border-border overflow-hidden shrink-0">
-        {options.map(o => (
-          <button key={o.v} type="button" role="radio" aria-checked={valeur === o.v}
-            onClick={() => onChange(o.v)}
-            className={cn("px-2.5 py-1 text-xs border-l border-border first:border-l-0",
-              valeur === o.v ? "bg-primary text-primary-foreground" : "hover:bg-muted")}>
-            {o.l}
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -430,6 +403,7 @@ export function OngletDocuments() {
   }
 
   const estTicket = genre === "ticket";
+  const colonnes = normaliserColonnes(brouillon?.colonnes);
   // Un bulletin de paie se remet sur une page, pas sur un rouleau.
   const formats: FormatDocument[] = estTicket
     ? ["thermique_80", "thermique_58"]
@@ -578,23 +552,31 @@ export function OngletDocuments() {
             </p>
           </div>
 
-          <div className="divide-y divide-border">
-            <ChoixTriple etiquette="Colonne remise" valeur={brouillon.colonne_remise}
-              aide="Auto : seulement si une ligne porte une remise."
-              onChange={c => changer("colonne_remise", c)} />
-            <ChoixTriple etiquette="Colonne TVA" valeur={brouillon.colonne_tva}
-              aide="Auto : seulement si une ligne porte de la TVA."
-              onChange={c => changer("colonne_tva", c)} />
-            <ChoixTriple etiquette="Récapitulatif TVA" valeur={brouillon.recap_tva}
-              aide="Le détail HT / TVA / TTC par taux, sous les totaux."
-              onChange={c => changer("recap_tva", c)} />
-          </div>
+          {GENRES_A_COLONNES.includes(genre) && (
+            <fieldset>
+              <legend className="text-sm font-medium mb-0.5">Colonnes</legend>
+              <p className="text-xs text-muted-foreground mb-1">
+                À la saisie et sur le papier. Toujours là : désignation, quantité, prix
+                unitaire, total. Cacher une colonne ne change aucun montant.
+              </p>
+              <Case coche={colonnes.includes("reference")} etiquette="Référence"
+                aide="Le code de l'article devant sa désignation."
+                onChange={b => changer("colonnes", basculer(colonnes, "reference", b))} />
+              <Case coche={colonnes.includes("remise")} etiquette="Remise %"
+                aide="Cachée, une remise se dit en petit sous la désignation."
+                onChange={b => changer("colonnes", basculer(colonnes, "remise", b))} />
+              <Case coche={colonnes.includes("tva")} etiquette="TVA %"
+                aide="Une pièce sans TVA n'imprime jamais « HT », « TVA » ni « TTC », même cochée."
+                onChange={b => changer("colonnes", basculer(colonnes, "tva", b))} />
+              <Case coche={brouillon.recap_tva} etiquette="Récapitulatif TVA par taux"
+                aide="Base HT et TVA par taux, sous les totaux — seulement si la pièce porte une TVA."
+                onChange={b => changer("recap_tva", b)} />
+            </fieldset>
+          )}
 
           <div>
             <Case coche={brouillon.montant_lettres} onChange={b => changer("montant_lettres", b)}
               etiquette="Montant en lettres" aide="« Arrêté la présente facture à la somme de… »" />
-            <Case coche={brouillon.reference_article} onChange={b => changer("reference_article", b)}
-              etiquette="Référence de l'article" aide="Le code de l'article devant sa désignation." />
             {!estTicket && (
               <Case coche={brouillon.filigrane !== false} onChange={b => changer("filigrane", b)}
                 etiquette="Filigrane"

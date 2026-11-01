@@ -144,7 +144,8 @@ pub fn lire_articles_avec_unites(
             "SELECT a.id, a.nom, a.unite_base, a.dernier_prix_achat,
                     u.id, u.libelle, u.facteur, u.prix_reference,
                     COALESCE(sd.quantite, 0) as stock,
-                    COALESCE(a.taux_tva_defaut, 0.0) as taux_tva_defaut
+                    COALESCE(a.taux_tva_defaut, 0.0) as taux_tva_defaut,
+                    a.code_barre
              FROM article a
              JOIN unite_vente u ON u.article_id = a.id AND u.actif = 1
              LEFT JOIN stock_depot sd ON sd.article_id = a.id AND sd.depot_id = ?1
@@ -168,12 +169,13 @@ pub fn lire_articles_avec_unites(
             row.get::<_, i64>(7)?,
             row.get::<_, f64>(8)?,
             row.get::<_, f64>(9)?,
+            row.get::<_, Option<String>>(10)?,
         ))
     })
     .map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
     .for_each(
-        |(art_id, art_nom, unite_base, prix_achat, u_id, u_libelle, facteur, prix_ref, stock, taux_tva)| {
+        |(art_id, art_nom, unite_base, prix_achat, u_id, u_libelle, facteur, prix_ref, stock, taux_tva, reference)| {
             let unite = json!({
                 "id": u_id, "libelle": u_libelle,
                 "facteur": facteur, "prix_reference": prix_ref,
@@ -185,6 +187,8 @@ pub fn lire_articles_avec_unites(
                     "unite_base": unite_base, "stock": stock,
                     // Source unique du taux : la fiche article (Parametres -> TVA).
                     "taux_tva_defaut": taux_tva,
+                    // D58 : la colonne Reference de la saisie.
+                    "reference": reference,
                     "unites": [unite],
                 });
                 // §7 — Prix d'achat protégé côté serveur.
@@ -359,7 +363,8 @@ pub fn lire_articles_avec_unites_sur(
             "SELECT a.id, a.nom, a.unite_base, a.dernier_prix_achat,
                     u.id, u.libelle, u.facteur, u.prix_reference,
                     COALESCE(sd.quantite, 0) as stock,
-                    COALESCE(a.taux_tva_defaut, 0.0) as taux_tva_defaut
+                    COALESCE(a.taux_tva_defaut, 0.0) as taux_tva_defaut,
+                    a.code_barre
              FROM article a
              JOIN unite_vente u ON u.article_id = a.id AND u.actif = 1
              LEFT JOIN stock_depot sd
@@ -379,6 +384,7 @@ pub fn lire_articles_avec_unites_sur(
                     r.get::<i64>(7)?,
                     r.get::<f64>(8)?,
                     r.get::<f64>(9)?,
+                    r.get::<Option<String>>(10)?,
                 ))
             },
         )
@@ -387,7 +393,7 @@ pub fn lire_articles_avec_unites_sur(
     let mut articles: Vec<Value> = Vec::new();
     let mut courant_id = String::new();
 
-    for (art_id, art_nom, unite_base, prix_achat, u_id, u_libelle, facteur, prix_ref, stock, taux_tva)
+    for (art_id, art_nom, unite_base, prix_achat, u_id, u_libelle, facteur, prix_ref, stock, taux_tva, reference)
         in lignes
     {
         let unite = json!({
@@ -400,6 +406,8 @@ pub fn lire_articles_avec_unites_sur(
                 "id": art_id, "nom": art_nom,
                 "unite_base": unite_base, "stock": stock,
                 "taux_tva_defaut": taux_tva,
+                // D58 : la colonne Reference de la saisie.
+                "reference": reference,
                 "unites": [unite],
             });
             // Le prix d'achat est filtre ICI et non dans l'ecran : un

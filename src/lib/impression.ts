@@ -77,12 +77,6 @@ export function esc(s: unknown): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Auto / toujours / jamais, contre ce que le document contient. */
-export function choisir(choix: string | undefined, siAuto: boolean): boolean {
-  if (choix === "oui") return true;
-  if (choix === "non") return false;
-  return siAuto;
-}
 
 // =====================================================================
 //  En-tête

@@ -62,15 +62,99 @@ pub fn genre_de_piece(type_piece: &str) -> &'static str {
     }
 }
 
-/// « auto » laisse le generateur decider d'apres le document (une
-/// colonne remise s'il y a une remise), « oui » et « non » forcent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum Choix {
-    #[default]
-    Auto,
-    Oui,
-    Non,
+// ---------------------------------------------------------------------
+//  Les colonnes d'une piece (D58)
+// ---------------------------------------------------------------------
+//
+// Une colonne n'apparait que cochee : plus d'« auto » qui decide d'apres
+// le document. Cacher une colonne ne change jamais un montant.
+
+/// Le catalogue, dans l'ordre du tableau.
+pub const COLONNES: [&str; 7] =
+    ["reference", "designation", "quantite", "prix_unitaire", "remise", "tva", "total"];
+
+/// Toujours la : sans elles une piece ne se verifie plus. L'unite suit
+/// la quantite (« 3 sacs »).
+pub const COLONNES_FIXES: [&str; 4] = ["designation", "quantite", "prix_unitaire", "total"];
+
+/// Les genres qui ont un tableau de lignes. Le recu, le releve, le
+/// ticket et le bulletin ont leur propre mise en page.
+pub const GENRES_A_COLONNES: [&str; 4] = ["facture", "devis", "bon_commande", "bon_livraison"];
+
+/// D'office : les colonnes fixes seulement.
+pub fn colonnes_defaut() -> Vec<String> {
+    COLONNES_FIXES.iter().map(|c| c.to_string()).collect()
+}
+
+/// Garde les colonnes connues, sans doublon, dans l'ordre du catalogue.
+/// Refuse une colonne inconnue et une colonne fixe retiree, et le dit.
+pub fn valider_colonnes(choix: &[String]) -> Result<Vec<String>, String> {
+    for c in choix {
+        if !COLONNES.contains(&c.as_str()) {
+            return Err(format!("Colonne inconnue : « {c} »."));
+        }
+    }
+    for f in COLONNES_FIXES {
+        if !choix.iter().any(|c| c == f) {
+            return Err(format!("La colonne « {} » reste toujours sur une pièce.", libelle_colonne(f)));
+        }
+    }
+    Ok(COLONNES.iter().filter(|c| choix.iter().any(|x| x == *c)).map(|c| c.to_string()).collect())
+}
+
+pub fn libelle_colonne(c: &str) -> &'static str {
+    match c {
+        "reference" => "Référence",
+        "designation" => "Désignation",
+        "quantite" => "Quantité",
+        "prix_unitaire" => "Prix unitaire",
+        "remise" => "Remise",
+        "tva" => "TVA %",
+        "total" => "Total",
+        _ => "?",
+    }
+}
+
+/// Les colonnes gardees avec une piece (`piece_commerciale.colonnes`,
+/// JSON). `None` : elle suit le reglage de son genre — aussi pour un
+/// texte abime : un reglage ne bloque jamais une impression.
+pub fn colonnes_gardees(texte: Option<&str>) -> Option<Vec<String>> {
+    texte
+        .and_then(|t| serde_json::from_str::<Vec<String>>(t).ok())
+        .and_then(|c| valider_colonnes(&c).ok())
+}
+
+/// Un reglage d'avant D58 (`colonne_remise`, `colonne_tva` en
+/// auto/oui/non, `reference_article`, `recap_tva` en texte) dans la
+/// forme d'aujourd'hui : « oui » devient coche, « auto » et « non »
+/// decoches, comme une base neuve. Un reglage qui a deja `colonnes`
+/// perd seulement les anciens champs.
+pub fn migrer(v: &serde_json::Value) -> serde_json::Value {
+    let mut v = v.clone();
+    let Some(o) = v.as_object_mut() else { return v };
+    let oui = |x: Option<&serde_json::Value>| x.and_then(|x| x.as_str()) == Some("oui");
+    if !o.contains_key("colonnes") {
+        let mut c = colonnes_defaut();
+        if o.get("reference_article").and_then(|x| x.as_bool()) == Some(true) {
+            c.push("reference".into());
+        }
+        if oui(o.get("colonne_remise")) {
+            c.push("remise".into());
+        }
+        if oui(o.get("colonne_tva")) {
+            c.push("tva".into());
+        }
+        // L'ordre du catalogue ; tout est connu, rien ne peut echouer.
+        let c: Vec<String> = COLONNES.iter().filter(|x| c.iter().any(|y| y == *x)).map(|x| x.to_string()).collect();
+        o.insert("colonnes".into(), serde_json::json!(c));
+    }
+    if let Some(r) = o.get("recap_tva").filter(|r| r.is_string()).cloned() {
+        o.insert("recap_tva".into(), serde_json::json!(r.as_str() == Some("oui")));
+    }
+    for ancien in ["colonne_remise", "colonne_tva", "reference_article"] {
+        o.remove(ancien);
+    }
+    v
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,16 +165,15 @@ pub struct Signature {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReglageGenre {
     pub format: String,
+    /// Les colonnes affichees, a la saisie et sur le papier (D58).
+    #[serde(default = "colonnes_defaut")]
+    pub colonnes: Vec<String>,
+    /// Le recapitulatif HT / TVA par taux, sous les totaux (D58 : une
+    /// case, plus d'« auto »).
     #[serde(default)]
-    pub colonne_remise: Choix,
-    #[serde(default)]
-    pub colonne_tva: Choix,
-    #[serde(default)]
-    pub recap_tva: Choix,
+    pub recap_tva: bool,
     #[serde(default)]
     pub montant_lettres: bool,
-    #[serde(default)]
-    pub reference_article: bool,
     /// `None` : le texte `pied_facture` de la societe.
     #[serde(default)]
     pub mention: Option<String>,
@@ -243,11 +326,9 @@ pub fn defaut(genre: &str, ancienne: &dyn Fn(&str) -> Option<String>) -> Reglage
     };
     let base = |format: &str| ReglageGenre {
         format: format.to_string(),
-        colonne_remise: Choix::Auto,
-        colonne_tva: Choix::Auto,
-        recap_tva: Choix::Auto,
+        colonnes: colonnes_defaut(),
+        recap_tva: false,
         montant_lettres: false,
-        reference_article: false,
         mention: None,
         signatures: vec![],
         filigrane: true,
@@ -315,6 +396,7 @@ pub fn valider(genre: &str, r: &ReglageGenre) -> Result<(), String> {
             return Err(format!("Libellé trop long : « {l} » ({LIBELLE_MAX} caractères au plus)."));
         }
     }
+    valider_colonnes(&r.colonnes)?;
     if let Some(m) = &r.mention {
         if m.chars().count() > MENTION_MAX {
             return Err(format!("Mention trop longue ({MENTION_MAX} caractères au plus)."));
@@ -329,6 +411,9 @@ pub fn normaliser(mut r: ReglageGenre) -> ReglageGenre {
     for s in &mut r.signatures {
         s.libelle = s.libelle.trim().to_string();
     }
+    if let Ok(c) = valider_colonnes(&r.colonnes) {
+        r.colonnes = c;
+    }
     r.mention = r.mention.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
     r
 }
@@ -342,7 +427,7 @@ pub fn fusionner(
     ancienne: &dyn Fn(&str) -> Option<String>,
 ) -> ReglageGenre {
     enregistre
-        .and_then(|v| serde_json::from_value::<ReglageGenre>(v.clone()).ok())
+        .and_then(|v| serde_json::from_value::<ReglageGenre>(migrer(v)).ok())
         .filter(|r| valider(genre, r).is_ok())
         .map(normaliser)
         .unwrap_or_else(|| defaut(genre, ancienne))
@@ -467,8 +552,7 @@ mod tests {
         });
         let r = fusionner("facture", Some(&v), &rien);
         assert_eq!(r.format, "a5");
-        assert_eq!(r.colonne_remise, Choix::Non);
-        assert_eq!(r.colonne_tva, Choix::Auto, "champ absent = auto");
+        assert_eq!(r.colonnes, colonnes_defaut(), "remise « non », TVA absente : décochées");
         assert_eq!(r.mention, None, "mention vide = celle de la société");
         assert_eq!(r.signatures, sig(&["Le caissier"]));
     }
@@ -511,5 +595,87 @@ mod tests {
         let lisible = serde_json::json!({ "texte": " PAYÉ ", "opacite": 12 });
         let f = fusionner_filigrane(Some(&lisible));
         assert_eq!((f.texte.as_deref(), f.opacite, f.flou, f.taille), (Some("PAYÉ"), 12, 1, 60));
+    }
+
+    // --- D58 : les colonnes -------------------------------------------
+
+    fn v(l: &[&str]) -> Vec<String> {
+        l.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn d_office_les_quatre_colonnes_fixes_sans_tva_ni_remise() {
+        for g in GENRES {
+            let r = defaut(g, &rien);
+            assert_eq!(r.colonnes, v(&["designation", "quantite", "prix_unitaire", "total"]), "{g}");
+            assert!(!r.recap_tva, "{g} : récapitulatif décoché");
+        }
+    }
+
+    #[test]
+    fn les_colonnes_se_rangent_et_l_inconnue_ou_la_fixe_retiree_est_refusee() {
+        let c = valider_colonnes(&v(&["tva", "total", "designation", "prix_unitaire", "quantite", "reference", "tva"])).unwrap();
+        assert_eq!(c, v(&["reference", "designation", "quantite", "prix_unitaire", "tva", "total"]));
+        assert!(valider_colonnes(&v(&["designation", "quantite", "prix_unitaire", "total", "marge"]))
+            .unwrap_err().contains("inconnue"));
+        let sans_prix = valider_colonnes(&v(&["designation", "quantite", "total"])).unwrap_err();
+        assert!(sans_prix.contains("Prix unitaire"), "{sans_prix}");
+        let mut r = defaut("facture", &rien);
+        r.colonnes = v(&["designation", "total"]);
+        assert!(valider("facture", &r).is_err(), "le serveur refuse, il ne complète pas");
+    }
+
+    #[test]
+    fn un_ancien_auto_devient_decoche_et_un_oui_coche() {
+        let auto = serde_json::json!({ "format": "a4", "colonne_remise": "auto", "colonne_tva": "auto", "recap_tva": "auto" });
+        let r = fusionner("facture", Some(&auto), &rien);
+        assert_eq!(r.colonnes, colonnes_defaut(), "auto = décoché, comme une base neuve");
+        assert!(!r.recap_tva);
+
+        let oui = serde_json::json!({
+            "format": "a4", "colonne_remise": "oui", "colonne_tva": "oui",
+            "recap_tva": "oui", "reference_article": true
+        });
+        let r = fusionner("devis", Some(&oui), &rien);
+        assert_eq!(r.colonnes, v(&["reference", "designation", "quantite", "prix_unitaire", "remise", "tva", "total"]));
+        assert!(r.recap_tva);
+
+        let non = serde_json::json!({ "format": "a4", "colonne_remise": "non", "colonne_tva": "non", "recap_tva": "non" });
+        assert_eq!(fusionner("facture", Some(&non), &rien).colonnes, colonnes_defaut());
+    }
+
+    #[test]
+    fn la_migration_ne_touche_pas_un_reglage_deja_en_colonnes() {
+        let neuf = serde_json::json!({ "format": "a4", "colonnes": ["designation", "quantite", "prix_unitaire", "tva", "total"],
+                                       "recap_tva": true, "colonne_tva": "non" });
+        let m = migrer(&neuf);
+        assert_eq!(m["colonnes"], neuf["colonnes"], "le choix d'aujourd'hui l'emporte sur un ancien champ");
+        assert!(m.get("colonne_tva").is_none());
+        assert_eq!(m["recap_tva"], true);
+        let r = fusionner("facture", Some(&neuf), &rien);
+        assert!(r.colonnes.contains(&"tva".to_string()) && r.recap_tva);
+    }
+
+    #[test]
+    fn une_liste_gardee_abimee_suit_le_genre() {
+        assert_eq!(colonnes_gardees(None), None);
+        assert_eq!(colonnes_gardees(Some("pas du json")), None);
+        assert_eq!(colonnes_gardees(Some(r#"["designation","total"]"#)), None, "fixe manquante");
+        assert_eq!(
+            colonnes_gardees(Some(r#"["tva","designation","quantite","prix_unitaire","total"]"#)),
+            Some(v(&["designation", "quantite", "prix_unitaire", "tva", "total"]))
+        );
+    }
+
+    #[test]
+    fn seuls_les_genres_a_lignes_ont_des_colonnes() {
+        for g in GENRES_A_COLONNES {
+            assert!(GENRES.contains(&g));
+        }
+        for t in ["facture", "avoir_client", "devis", "proforma", "commande_client", "bon_livraison",
+                  "bon_reception", "bon_commande_fournisseur", "facture_fournisseur"] {
+            assert!(GENRES_A_COLONNES.contains(&genre_de_piece(t)), "{t}");
+        }
+        assert!(!GENRES_A_COLONNES.contains(&"ticket"));
     }
 }

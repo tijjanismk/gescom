@@ -1829,3 +1829,86 @@ message, un bouton WhatsApp pour un employé hors bulletin.
 préfixe « 223 » à tout numéro qui ne commence pas par 223 — un
 « 00223 76… » y devient « 22300223 76… ». Elle pourra lire le numéro
 par `whatsapp.ts` après fusion.
+
+## D58 — Les colonnes des pièces commerciales se cochent, sans « auto » (01/11/2026)
+
+**Le besoin** (le propriétaire) : « la plupart de mes futurs clients ne
+travaillent pas avec la TVA, mais je veux être prêt au cas où » ; « les
+colonnes de mes pièces commerciales doivent être modifiables, affichées
+ou pas ; ça affiche la TVA par défaut, je ne veux pas de comportement
+automatique ». Avant : l'écran de saisie montrait toujours « TVA % » et
+« Remise % » ; le papier choisissait Remise et TVA par `auto`/`oui`/`non`
+(défaut `auto`).
+
+**Retenu** (décidé le 01/11/2026 ; points 1, 4, 5 et 7 choisis par le
+propriétaire, les autres proposés et écrits ici) :
+
+1. **Trois colonnes se cochent : Référence, Remise, TVA %.** Toujours
+   là : Désignation, Quantité (avec son unité, « 3 sacs »), Prix
+   unitaire, Total — sans elles une pièce ne se vérifie plus, et l'unité
+   fait le prix (sac contre kg). D'office : les quatre fixes seulement.
+2. **Plus aucun `auto`.** Une colonne n'apparaît que cochée. Le
+   récapitulatif TVA par taux (un bloc, pas une colonne) devient une
+   case lui aussi, décochée d'office.
+3. **Le réglage vit par genre** dans `ReglageGenre.colonnes` (la liste
+   affichée, dans l'ordre du catalogue `coeur::documents::COLONNES`),
+   avec le reste des réglages Documents (`config_app`). Seuls les
+   genres à lignes en ont : facture, devis, bon de commande, bon de
+   livraison (`GENRES_A_COLONNES`). Le reçu, le relevé, le ticket et le
+   bulletin gardent leur mise en page. Il vaut **à la saisie et sur le
+   papier**. Le serveur refuse une colonne inconnue ou une colonne fixe
+   retirée (« refuser plutôt que faire semblant »).
+4. **Le menu « Colonnes » de l'écran de saisie** part du réglage du
+   genre et **vaut pour cette pièce** : la liste est gardée avec elle
+   (`piece_commerciale.colonnes`, JSON), elle se réimprime pareil même
+   si le réglage change ensuite. Une case « Garder pour les prochaines »
+   change le réglage du genre — **droit `parametres:modifier`**, comme
+   Paramètres → Documents ; sans ce droit la case est grisée et dit
+   pourquoi. Une pièce sans liste (toutes celles d'avant, le comptoir,
+   les conversions, les doublons) suit le réglage de son genre.
+5. **Les anciens réglages** : `oui` devient coché ; `auto` et `non`
+   deviennent décochés, comme une base neuve ; `reference_article` vrai
+   devient la colonne Référence. La conversion se fait à la lecture
+   (`coeur::documents::migrer`), un réglage d'avant envoyé par une
+   caisse pas encore mise à jour s'enregistre aussi.
+6. **La loi d'abord** (le propriétaire, 01/11 : « sans TVA il est hors
+   de question que hors taxe soit sur des documents ») : **une pièce
+   dont aucune ligne ne porte de TVA n'imprime jamais « HT », « TVA »
+   ni « TTC »** — ni la colonne TVA, ni le récapitulatif, même cochés ;
+   ses montants sont des prix tout compris, son total est « TOTAL ».
+   C'est le seul cas où le papier ne suit pas la case : une case ne
+   doit pas faire dire au document une taxe qui n'est pas facturée.
+7. **Le garde-fou : cacher une colonne ne change jamais un montant.**
+   Le serveur ne lit `colonnes` que pour l'afficher ; il ne remet
+   jamais une TVA ou une remise à zéro.
+   - **À la saisie** : si une ligne porte une TVA (ou une remise) et que
+     sa colonne est cachée, un bandeau le dit avant d'enregistrer
+     (« 2 lignes portent une TVA que la colonne cachée ne montre pas ;
+     le total en tient compte ») avec un bouton « Montrer la colonne ».
+     Les totaux de la saisie montrent la TVA et le total TTC dès qu'une
+     ligne en porte (avant : « Net » sans la TVA).
+   - **Sur le papier** : dès qu'une ligne porte une TVA, les totaux
+     disent Total HT, TVA, TOTAL TTC et la colonne des montants « Montant
+     HT », colonne TVA cochée ou non (la loi, pour qui facture la TVA).
+     Colonne Remise cachée : « Remise 10 % » en petit sous la
+     désignation de la ligne remisée, sinon P.U. × Qté ne tombe pas sur
+     le montant.
+8. **La règle d'impression est pure et testée** :
+   `src/lib/colonnes.ts` (`choixImpression`, `alertesSaisie`), miroir du
+   catalogue Rust, sans import d'alias (`node --test`).
+
+**Pas pris** : régler l'ordre des colonnes ; cacher le prix ou la
+quantité (le bon de sortie fait déjà la pièce sans montant) ; des
+colonnes sur le ticket de caisse (une ligne par article, pas de
+tableau) ; le menu dans l'écran « Nouvelle pièce » de la fiche client
+(`FicheClient.tsx`, sa propre fenêtre, sans TVA) et dans la
+modification d'une pièce (`Pieces.tsx`, quantités seulement).
+
+**Mise en œuvre.** `coeur/documents.rs` (`COLONNES`, `COLONNES_FIXES`,
+`GENRES_A_COLONNES`, `valider_colonnes`, `migrer`), `documents.rs`
+(`colonnes_de_piece_sur`, `poser_colonnes_piece_sur`) ;
+`piece_commerciale.colonnes` (schéma + amorçage) ; `creer_piece` et
+`creer_piece_fournisseur` (serveur, version `Base`) prennent
+`colonnes`, écrites dans leur transaction ; `lire_donnees_piece` la
+rend (deux versions). Écran : `ModalNouvellePiece.tsx` (menu,
+bandeau, totaux), `OngletDocuments.tsx` (cases), `genererPDF.ts`.
