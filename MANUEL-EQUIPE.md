@@ -168,7 +168,7 @@ Bloc **Donner une avance** :
    tiroir (espèces seulement). La sortie s'écrit alors **dans la caisse
    ouverte**, avec l'avance ; la date est forcément aujourd'hui.
 5. **Retenir par morceaux** — pour une grosse avance : « 10 000 F par
-   paie ». Sans cette case, toute l'avance se retient sur la prochaine
+   mois ». Sans cette case, toute l'avance se retient sur la prochaine
    paie.
 6. **Donner l'avance.**
 
@@ -186,7 +186,7 @@ qu'elle sera retenue sur la paie suivante.
 ## La liste
 
 Pour chaque personne, ce qui est **en cours**. Chaque avance dit sa
-date, son moyen, « pris dans le tiroir », « X F par paie », « X F déjà
+date, son moyen, « pris dans le tiroir », « X F par mois », « X F déjà
 retenus ». **Voir aussi les retenues et annulées** montre l'historique.
 Une avance née d'un trop-versé se dit « versé en trop sur PAIE-…,
 repris en avance ».
@@ -202,8 +202,10 @@ caisse** — elle doit être ouverte.
 - Le **plafond** d'une personne compte ce qu'elle doit déjà : au-delà,
   Gescom refuse.
 - Ce qui dépasse le net d'une paie **se reporte** sur la suivante.
-- La retenue par morceaux compte **à chaque paie** : un journalier payé à
-  la quinzaine rembourse donc deux fois par mois.
+- La retenue par morceaux compte **une fois par mois civil** (D56),
+  comme l'échéance d'un prêt : un journalier payé à la quinzaine la
+  rembourse une seule fois par mois — ce que la fiche du 1er au 15 a
+  retenu se déduit de celle du 16 au 30.
 
 ---
 
@@ -227,7 +229,8 @@ Ce que la fiche calcule toute seule :
 | Au prorata | on retire les absences, et une demi-journée par « ½ » ; un jour non marqué compte présent |
 | Jours | les jours marqués présents × le tarif |
 | Commission | le pourcentage de **l'argent reçu** dans le mois sur ses ventes, moins ce qui a été rendu (retours) ; jamais négative |
-| Avances | les avances en cours, les plus anciennes d'abord, chacune au plus de sa retenue par paie |
+| Commission reprise | une vente **annulée** après qu'une fiche validée a payé sa commission : cette commission se retient sur la fiche suivante, la ligne nomme la vente ; la fiche déjà validée ne change pas ; ce qui dépasse le net se reporte |
+| Avances | les avances en cours, les plus anciennes d'abord, chacune au plus de sa retenue par mois (moins ce qu'une autre fiche du mois en a déjà retenu) |
 | Cotisations | seulement pour une personne déclarée, et seulement celles réglées (chapitre 7) |
 
 > **La commission suit l'argent reçu.** Une vente à crédit compte le

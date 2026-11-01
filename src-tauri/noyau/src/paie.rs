@@ -29,7 +29,7 @@
 //! entier (point 8).
 
 use crate::base::{Acces, Base};
-use crate::coeur::paie::{self as regles, AvanceARetenir, Conditions, Ligne, Periode};
+use crate::coeur::paie::{self as regles, AvanceARetenir, Conditions, Ligne, Periode, RepriseARetenir};
 use crate::coeur::pret::{self, PretARetenir};
 use crate::coeur::personnel::Remuneration;
 pub use crate::coeur::paie::Cotisation;
@@ -156,16 +156,38 @@ fn lignes(base: &mut impl Acces, fiche_id: &str) -> Result<Vec<(String, Ligne)>,
     .map_err(|e| e.0)
 }
 
+/// D56 : le jour ou la vente `v` a ete annulee — celui de sa piece
+/// d'avoir d'annulation, qui ne bouge plus ; a defaut, sa derniere
+/// modification. Un fragment de requete, sans valeur.
+const ANNULEE_LE: &str = "COALESCE((SELECT MIN(SUBSTR(pc.date_piece, 1, 10)) FROM piece_commerciale pc
+       WHERE pc.dossier_id = v.dossier_id AND pc.piece_origine_id = v.piece_id
+         AND pc.type_piece = 'avoir_client' AND pc.origine = 'annulation'),
+     SUBSTR(v.modifie_le, 1, 10))";
+
+/// D56 : une vente annulee compte comme un retour, a sa date — une fiche
+/// qui a vu les annulations jusqu'a un jour d'avant l'annulation la
+/// compte encore (sa commission se reprendra sur une fiche suivante),
+/// les autres non. `?n` : ce jour (`Conditions::annulations_vues_au`) ;
+/// vide (fiche d'avant D56), toute vente annulee est sortie.
+fn vente_tient(n: u8) -> String {
+    format!("(v.statut <> 'annulee' OR {ANNULEE_LE} > CAST(?{n} AS TEXT))")
+}
+
 /// Les ventes signees par un compte entre deux jours (D26), TTC, hors
-/// ventes annulees — la mesure du journal des ventes (E-3).
-fn ventes_signees(base: &mut impl Acces, utilisateur_id: &str, du: &str, au: &str) -> Result<i64, String> {
+/// ventes annulees (D56 : annulees au plus tard le `vues_au`) — la
+/// mesure du journal des ventes (E-3). `seule` : une vente seule.
+fn ventes_signees(base: &mut impl Acces, utilisateur_id: &str, du: &str, au: &str, vues_au: Option<&str>, seule: Option<&str>) -> Result<i64, String> {
     let dossier = base.dossier().to_string();
     base.lire_une(
-        "SELECT CAST(COALESCE(SUM(CAST(lv.prix_pratique * lv.quantite AS BIGINT)), 0) AS BIGINT)
-         FROM vente v JOIN ligne_vente lv ON lv.vente_id = v.id AND lv.dossier_id = v.dossier_id
-         WHERE v.dossier_id = ?1 AND v.auteur_id = ?2 AND v.statut != 'annulee'
-           AND SUBSTR(v.date_vente, 1, 10) >= ?3 AND SUBSTR(v.date_vente, 1, 10) <= ?4",
-        &parametres![dossier, utilisateur_id, du, au],
+        &format!(
+            "SELECT CAST(COALESCE(SUM(CAST(lv.prix_pratique * lv.quantite AS BIGINT)), 0) AS BIGINT)
+             FROM vente v JOIN ligne_vente lv ON lv.vente_id = v.id AND lv.dossier_id = v.dossier_id
+             WHERE v.dossier_id = ?1 AND v.auteur_id = ?2 AND {}
+               AND SUBSTR(v.date_vente, 1, 10) >= ?3 AND SUBSTR(v.date_vente, 1, 10) <= ?4
+               AND (CAST(?6 AS TEXT) IS NULL OR v.id = ?6)",
+            vente_tient(5)
+        ),
+        &parametres![dossier, utilisateur_id, du, au, vues_au.map(str::to_string), seule.map(str::to_string)],
         |r| r.get::<i64>(0),
     )
     .map_err(|e| e.0)
@@ -176,7 +198,9 @@ fn ventes_signees(base: &mut impl Acces, utilisateur_id: &str, du: &str, au: &st
 /// pendant l'emploi de la personne (`vendu_du..vendu_au`, ouvertes si
 /// vides) — comme le chiffre d'affaires net du lot B : a la date du
 /// retour, l'echange mis a part (`coeur::calcul::RETOUR_HORS_CA`), une
-/// vente annulee deja sortie (revue du 28/10, point 7).
+/// vente annulee deja sortie (revue du 28/10, point 7 ; D56 : annulee
+/// au plus tard le `vues_au`). `seule` : une vente seule.
+#[allow(clippy::too_many_arguments)]
 fn retours_signes(
     base: &mut impl Acces,
     utilisateur_id: &str,
@@ -184,16 +208,22 @@ fn retours_signes(
     au: &str,
     vendu_du: Option<&str>,
     vendu_au: Option<&str>,
+    vues_au: Option<&str>,
+    seule: Option<&str>,
 ) -> Result<i64, String> {
     let dossier = base.dossier().to_string();
     base.lire_une(
-        "SELECT CAST(COALESCE(SUM(rt.montant_credit), 0) AS BIGINT)
-         FROM retour rt JOIN vente v ON v.id = rt.vente_id AND v.dossier_id = rt.dossier_id
-         WHERE rt.dossier_id = ?1 AND v.auteur_id = ?2 AND v.statut != 'annulee'
-           AND rt.mode_resolution <> ?5
-           AND SUBSTR(rt.date_retour, 1, 10) >= ?3 AND SUBSTR(rt.date_retour, 1, 10) <= ?4
-           AND (CAST(?6 AS TEXT) IS NULL OR SUBSTR(v.date_vente, 1, 10) >= ?6)
-           AND (CAST(?7 AS TEXT) IS NULL OR SUBSTR(v.date_vente, 1, 10) <= ?7)",
+        &format!(
+            "SELECT CAST(COALESCE(SUM(rt.montant_credit), 0) AS BIGINT)
+             FROM retour rt JOIN vente v ON v.id = rt.vente_id AND v.dossier_id = rt.dossier_id
+             WHERE rt.dossier_id = ?1 AND v.auteur_id = ?2 AND {}
+               AND rt.mode_resolution <> ?5
+               AND SUBSTR(rt.date_retour, 1, 10) >= ?3 AND SUBSTR(rt.date_retour, 1, 10) <= ?4
+               AND (CAST(?6 AS TEXT) IS NULL OR SUBSTR(v.date_vente, 1, 10) >= ?6)
+               AND (CAST(?7 AS TEXT) IS NULL OR SUBSTR(v.date_vente, 1, 10) <= ?7)
+               AND (CAST(?9 AS TEXT) IS NULL OR v.id = ?9)",
+            vente_tient(8)
+        ),
         &parametres![
             dossier,
             utilisateur_id,
@@ -201,7 +231,9 @@ fn retours_signes(
             au,
             crate::coeur::calcul::RETOUR_HORS_CA,
             vendu_du.map(str::to_string),
-            vendu_au.map(str::to_string)
+            vendu_au.map(str::to_string),
+            vues_au.map(str::to_string),
+            seule.map(str::to_string)
         ],
         |r| r.get::<i64>(0),
     )
@@ -236,20 +268,28 @@ fn marques(base: &mut impl Acces, employe_id: &str, du: &str, au: &str) -> Resul
 
 /// Les avances a retenir : ouvertes, donnees avant la fin de la
 /// periode. Pour une rectificative, ce que la fiche remplacee en avait
-/// retenu compte comme disponible (il sera rendu a la validation).
-fn avances_a_retenir(base: &mut impl Acces, employe_id: &str, au: &str, remplace: Option<&str>) -> Result<Vec<AvanceARetenir>, String> {
+/// retenu compte comme disponible (il sera rendu a la validation), et
+/// elle ne compte pas dans le mois. D56 : avec ce que les AUTRES fiches
+/// validees du meme mois en ont deja retenu — la mensualite est par mois
+/// civil, comme celle du pret.
+fn avances_a_retenir(base: &mut impl Acces, employe_id: &str, au: &str, mois: &str, remplace: Option<&str>) -> Result<Vec<AvanceARetenir>, String> {
     let dossier = base.dossier().to_string();
     base.lire_plusieurs(
         "SELECT a.id, a.date_avance,
                 CAST(a.montant - a.retenu + COALESCE((SELECT SUM(-lp.montant) FROM ligne_paie lp
                      WHERE lp.dossier_id = a.dossier_id AND lp.fiche_id = ?4
                        AND lp.genre = 'avance' AND lp.source = a.id), 0) AS BIGINT),
-                a.mensualite
+                a.mensualite,
+                CAST(COALESCE((SELECT SUM(-lp.montant) FROM ligne_paie lp
+                     JOIN fiche_paie f ON f.id = lp.fiche_id AND f.dossier_id = lp.dossier_id
+                     WHERE lp.dossier_id = a.dossier_id AND lp.genre = 'avance' AND lp.source = a.id
+                       AND f.statut = 'validee' AND SUBSTR(f.du, 1, 7) = ?5
+                       AND (CAST(?4 AS TEXT) IS NULL OR f.id <> ?4)), 0) AS BIGINT)
          FROM avance a
          WHERE a.dossier_id = ?1 AND a.employe_id = ?2 AND a.statut = 'ouverte' AND a.nature = 'avance'
            AND SUBSTR(a.date_avance, 1, 10) <= ?3",
-        &parametres![dossier, employe_id, au, remplace],
-        |r| Ok(AvanceARetenir { id: r.get(0)?, date: r.get(1)?, reste: r.get(2)?, mensualite: r.get(3)? }),
+        &parametres![dossier, employe_id, au, remplace, mois],
+        |r| Ok(AvanceARetenir { id: r.get(0)?, date: r.get(1)?, reste: r.get(2)?, mensualite: r.get(3)?, deja_ce_mois: r.get(4)? }),
     )
     .map_err(|e| e.0)
 }
@@ -301,6 +341,8 @@ fn conditions_actuelles(base: &mut impl Acces, p: &Personne) -> Result<Condition
         cotisations: if p.declare { cotisations_sur(base)? } else { Vec::new() },
         // D42 : une fiche nouvelle commissionne l'argent recu.
         commission_sur_encaisse: true,
+        // Pose par `conditions_de`, qui connait la periode.
+        annulations_vues_au: None,
     })
 }
 
@@ -320,15 +362,74 @@ fn conditions_figees(base: &mut impl Acces, fiche_id: &str, p: &Personne) -> Res
 }
 
 /// Les conditions qui calculent cette fiche : figees pour une
-/// rectificative, celles d'aujourd'hui pour un brouillon ordinaire.
+/// rectificative, celles d'aujourd'hui pour un brouillon ordinaire — qui
+/// voit les ventes annulees jusqu'a la fin de sa periode (D56).
 fn conditions_de(base: &mut impl Acces, e: &Entete, p: &Personne) -> Result<Conditions, String> {
     match (&e.rectifie_id, &e.conditions) {
         (Some(_), Some(c)) => Ok(c.clone()),
         // Une rectificative ouverte avant le 28/10 : celles de la fiche
         // qu'elle remplace.
         (Some(r), None) => Ok(conditions_figees(base, r, p)?.0),
-        (None, _) => conditions_actuelles(base, p),
+        (None, _) => {
+            let mut c = conditions_actuelles(base, p)?;
+            c.annulations_vues_au = Some(regles::annulations_vues_au(&e.au, &crate::utils::maintenant_iso()));
+            Ok(c)
+        }
     }
+}
+
+/// Ce qui fait la commission d'une fiche sur les jours d'emploi
+/// `debut..fin` : les ventes (ou l'encaisse, D42) et les retours.
+/// `None` : pas de commission ou pas de compte lie. `vues_au` : le jour
+/// jusqu'auquel la fiche voit les annulations (D56) ; `seule` : la part
+/// d'une vente seule (la reprise de D56).
+#[allow(clippy::too_many_arguments)]
+fn assiette(
+    base: &mut impl Acces,
+    employe_id: &str,
+    vues_au: Option<&str>,
+    p: &Personne,
+    c: &Conditions,
+    debut: &str,
+    fin: &str,
+    seule: Option<&str>,
+) -> Result<(Option<i64>, i64), String> {
+    Ok(match (&c.remuneration.commission_pct, &c.utilisateur_id) {
+        (Some(_), Some(u)) if c.commission_sur_encaisse => {
+            // D42 : l'argent recu dans la periode sur ses ventes, moins ce
+            // qui a ete rendu. Les ventes deja commissionnees sur le vendu
+            // (fiches d'avant D42) ne comptent pas a leur reglement ; leurs
+            // retours se deduisent comme avant, pour leur valeur entiere.
+            let autres = departs_des_autres(base, u, employe_id)?;
+            let debut_compte = regles::debut_du_compte(p.entree.as_deref(), p.depart.as_deref(), &autres);
+            let deja = vendu_jusqu_au(base, employe_id)?;
+            let nouvelles_du = match (&debut_compte, deja.as_deref().map(lendemain).transpose()?) {
+                (Some(a), Some(b)) => Some(if *a > b { a.clone() } else { b }),
+                (a, b) => a.clone().or(b),
+            };
+            let (recu, eteint) = encaisse(base, u, debut, fin, nouvelles_du.as_deref(), p.depart.as_deref(), vues_au, seule)?;
+            let rendus = retours_signes(base, u, debut, fin, nouvelles_du.as_deref(), p.depart.as_deref(), vues_au, seule)?;
+            let anciens = match &deja {
+                Some(d) => retours_signes(base, u, debut, fin, debut_compte.as_deref(), Some(d.as_str()), vues_au, seule)?,
+                None => 0,
+            };
+            (Some(recu), rendus.saturating_sub(eteint).max(0).saturating_add(anciens))
+        }
+        (Some(_), Some(u)) => {
+            // Le compte ne compte pour elle que depuis son entree, ou
+            // depuis le depart de qui l'avait avant elle (point 1).
+            let autres = departs_des_autres(base, u, employe_id)?;
+            let debut_compte = regles::debut_du_compte(p.entree.as_deref(), p.depart.as_deref(), &autres);
+            let depuis = match &debut_compte {
+                Some(d) if d.as_str() > debut => d.clone(),
+                _ => debut.to_string(),
+            };
+            let ventes = if depuis.as_str() <= fin { ventes_signees(base, u, &depuis, fin, vues_au, seule)? } else { 0 };
+            let retours = retours_signes(base, u, debut, fin, debut_compte.as_deref(), p.depart.as_deref(), vues_au, seule)?;
+            (Some(ventes), retours)
+        }
+        _ => (None, 0),
+    })
 }
 
 /// Ce que la base sait de la periode, borne aux jours d'emploi.
@@ -339,42 +440,7 @@ fn periode(base: &mut impl Acces, e: &Entete, p: &Personne, c: &Conditions) -> R
         regles::verifier_un_seul_mois(&e.du, &e.au)?;
     }
     let (presents, demis, absents) = marques(base, &e.employe_id, &debut, &fin)?;
-    let (ventes, retours) = match (&c.remuneration.commission_pct, &c.utilisateur_id) {
-        (Some(_), Some(u)) if c.commission_sur_encaisse => {
-            // D42 : l'argent recu dans la periode sur ses ventes, moins ce
-            // qui a ete rendu. Les ventes deja commissionnees sur le vendu
-            // (fiches d'avant D42) ne comptent pas a leur reglement ; leurs
-            // retours se deduisent comme avant, pour leur valeur entiere.
-            let autres = departs_des_autres(base, u, &e.employe_id)?;
-            let debut_compte = regles::debut_du_compte(p.entree.as_deref(), p.depart.as_deref(), &autres);
-            let deja = vendu_jusqu_au(base, &e.employe_id)?;
-            let nouvelles_du = match (&debut_compte, deja.as_deref().map(lendemain).transpose()?) {
-                (Some(a), Some(b)) => Some(if *a > b { a.clone() } else { b }),
-                (a, b) => a.clone().or(b),
-            };
-            let (recu, eteint) = encaisse(base, u, &debut, &fin, nouvelles_du.as_deref(), p.depart.as_deref())?;
-            let rendus = retours_signes(base, u, &debut, &fin, nouvelles_du.as_deref(), p.depart.as_deref())?;
-            let anciens = match &deja {
-                Some(d) => retours_signes(base, u, &debut, &fin, debut_compte.as_deref(), Some(d.as_str()))?,
-                None => 0,
-            };
-            (Some(recu), rendus.saturating_sub(eteint).max(0).saturating_add(anciens))
-        }
-        (Some(_), Some(u)) => {
-            // Le compte ne compte pour elle que depuis son entree, ou
-            // depuis le depart de qui l'avait avant elle (point 1).
-            let autres = departs_des_autres(base, u, &e.employe_id)?;
-            let debut_compte = regles::debut_du_compte(p.entree.as_deref(), p.depart.as_deref(), &autres);
-            let depuis = match &debut_compte {
-                Some(d) if d.as_str() > debut.as_str() => d.clone(),
-                _ => debut.clone(),
-            };
-            let ventes = if depuis <= fin { ventes_signees(base, u, &depuis, &fin)? } else { 0 };
-            let retours = retours_signes(base, u, &debut, &fin, debut_compte.as_deref(), p.depart.as_deref())?;
-            (Some(ventes), retours)
-        }
-        _ => (None, 0),
-    };
+    let (ventes, retours) = assiette(base, &e.employe_id, c.annulations_vues_au.as_deref(), p, c, &debut, &fin, None)?;
     Ok(Periode {
         jours_du_mois: regles::jours_du_mois_de(&e.du)?,
         jours_emploi: regles::nombre_de_jours(&debut, &fin)?,
@@ -423,6 +489,9 @@ fn vendu_jusqu_au(base: &mut impl Acces, employe_id: &str) -> Result<Option<Stri
 /// pendant l'emploi (`vendu_du..vendu_au`), et la dette eteinte par un
 /// retour (mode `retour` : rien n'a ete encaisse). Un cheque rejete ou un
 /// reglement annule s'ecrit en negatif : il se deduit de lui-meme.
+/// D56 : une vente annulee apres `vues_au` compte encore. `seule` : une
+/// vente seule.
+#[allow(clippy::too_many_arguments)]
 fn encaisse(
     base: &mut impl Acces,
     utilisateur_id: &str,
@@ -430,21 +499,112 @@ fn encaisse(
     au: &str,
     vendu_du: Option<&str>,
     vendu_au: Option<&str>,
+    vues_au: Option<&str>,
+    seule: Option<&str>,
 ) -> Result<(i64, i64), String> {
     let dossier = base.dossier().to_string();
     base.lire_une(
-        "SELECT CAST(COALESCE(SUM(CASE WHEN pa.mode <> 'retour' THEN pa.montant ELSE 0 END), 0) AS BIGINT),
-                CAST(COALESCE(SUM(CASE WHEN pa.mode = 'retour' THEN pa.montant ELSE 0 END), 0) AS BIGINT)
-         FROM paiement pa JOIN vente v ON v.id = pa.vente_id AND v.dossier_id = pa.dossier_id
-         WHERE pa.dossier_id = ?1 AND v.auteur_id = ?2 AND v.statut != 'annulee'
-           AND SUBSTR(pa.date_paiement, 1, 10) >= ?3 AND SUBSTR(pa.date_paiement, 1, 10) <= ?4
-           AND (CAST(?5 AS TEXT) IS NULL OR SUBSTR(v.date_vente, 1, 10) >= ?5)
-           AND (CAST(?6 AS TEXT) IS NULL OR SUBSTR(v.date_vente, 1, 10) <= ?6)",
-        &parametres![dossier, utilisateur_id, du, au, vendu_du.map(str::to_string), vendu_au.map(str::to_string)],
+        &format!(
+            "SELECT CAST(COALESCE(SUM(CASE WHEN pa.mode <> 'retour' THEN pa.montant ELSE 0 END), 0) AS BIGINT),
+                    CAST(COALESCE(SUM(CASE WHEN pa.mode = 'retour' THEN pa.montant ELSE 0 END), 0) AS BIGINT)
+             FROM paiement pa JOIN vente v ON v.id = pa.vente_id AND v.dossier_id = pa.dossier_id
+             WHERE pa.dossier_id = ?1 AND v.auteur_id = ?2 AND {}
+               AND SUBSTR(pa.date_paiement, 1, 10) >= ?3 AND SUBSTR(pa.date_paiement, 1, 10) <= ?4
+               AND (CAST(?5 AS TEXT) IS NULL OR SUBSTR(v.date_vente, 1, 10) >= ?5)
+               AND (CAST(?6 AS TEXT) IS NULL OR SUBSTR(v.date_vente, 1, 10) <= ?6)
+               AND (CAST(?8 AS TEXT) IS NULL OR v.id = ?8)",
+            vente_tient(7)
+        ),
+        &parametres![
+            dossier,
+            utilisateur_id,
+            du,
+            au,
+            vendu_du.map(str::to_string),
+            vendu_au.map(str::to_string),
+            vues_au.map(str::to_string),
+            seule.map(str::to_string)
+        ],
         |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?)),
     )
     .map_err(|e| e.0)
     .map(|v| v.unwrap_or((0, 0)))
+}
+
+/// D56 : les commissions a reprendre sur cette fiche — celles des ventes
+/// annulees au plus tard a la fin de sa periode, que des fiches VALIDEES
+/// de la personne avaient payees (annulees apres le jour jusqu'auquel
+/// ces fiches voyaient les annulations). Chaque fiche rend la commission
+/// de la vente seule, a son taux fige ; ce que d'autres fiches validees
+/// en ont deja repris se deduit (la fiche remplacee par une
+/// rectificative mise a part, comme pour le pret).
+fn reprises_a_retenir(base: &mut impl Acces, e: &Entete, p: &Personne) -> Result<Vec<RepriseARetenir>, String> {
+    let dossier = base.dossier().to_string();
+    let fiches = base
+        .lire_plusieurs(
+            "SELECT f.id, f.du, f.au, f.valide_le, CAST(SUM(lp.montant) AS BIGINT)
+             FROM fiche_paie f JOIN ligne_paie lp ON lp.fiche_id = f.id AND lp.dossier_id = f.dossier_id AND lp.genre = ?3
+             WHERE f.dossier_id = ?1 AND f.employe_id = ?2 AND f.statut = 'validee' AND f.id <> ?4
+               AND (CAST(?5 AS TEXT) IS NULL OR f.id <> ?5) AND SUBSTR(f.du, 1, 10) <= ?6
+             GROUP BY f.id, f.du, f.au, f.valide_le
+             HAVING SUM(lp.montant) > 0",
+            &parametres![dossier.clone(), e.employe_id.clone(), regles::COMMISSION, e.id.clone(), e.rectifie_id.clone(), e.au.clone()],
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?, r.get::<Option<String>>(3)?, r.get::<i64>(4)?)),
+        )
+        .map_err(|e| e.0)?;
+    let mut reprises: Vec<RepriseARetenir> = Vec::new();
+    for (fiche_id, du, au, valide_le, ligne) in fiches {
+        let (c, _) = conditions_figees(base, &fiche_id, p)?;
+        let (Some(pct), Some(u)) = (c.remuneration.commission_pct, c.utilisateur_id.clone()) else {
+            continue;
+        };
+        let Some(vues_au) = regles::seuil_des_annulations(&c, valide_le.as_deref()) else {
+            continue;
+        };
+        let Some((debut, fin)) = regles::bornes_d_emploi(&du, &au, p.entree.as_deref(), p.depart.as_deref()) else {
+            continue;
+        };
+        // Les ventes de son compte faites avant la fin de cette fiche,
+        // annulees apres ce qu'elle a vu, au plus tard a la fin de celle-ci.
+        let annulees = base
+            .lire_plusieurs(
+                &format!(
+                    "SELECT v.id, v.date_vente, {ANNULEE_LE},
+                            (SELECT pc.numero FROM piece_commerciale pc WHERE pc.id = v.piece_id AND pc.dossier_id = v.dossier_id)
+                     FROM vente v
+                     WHERE v.dossier_id = ?1 AND v.auteur_id = ?2 AND v.statut = 'annulee'
+                       AND SUBSTR(v.date_vente, 1, 10) <= ?3 AND {ANNULEE_LE} > ?4 AND {ANNULEE_LE} <= ?5"
+                ),
+                &parametres![dossier.clone(), u, au.clone(), vues_au.clone(), e.au.clone()],
+                |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?, r.get::<Option<String>>(3)?)),
+            )
+            .map_err(|e| e.0)?;
+        for (vente_id, date_vente, annulee_le, numero) in annulees {
+            let (v, retours) = assiette(base, &e.employe_id, Some(&vues_au), p, &c, &debut, &fin, Some(&vente_id))?;
+            let part = v.unwrap_or(0).saturating_sub(retours).max(0);
+            if part == 0 {
+                continue;
+            }
+            match reprises.iter_mut().find(|r| r.vente_id == vente_id) {
+                Some(r) => r.parts.push((pct, part, ligne)),
+                None => reprises.push(RepriseARetenir { vente_id, numero, date_vente, annulee_le, parts: vec![(pct, part, ligne)], deja: 0 }),
+            }
+        }
+    }
+    for r in &mut reprises {
+        r.deja = base
+            .lire_une(
+                "SELECT CAST(COALESCE(SUM(-lp.montant), 0) AS BIGINT)
+                 FROM ligne_paie lp JOIN fiche_paie f ON f.id = lp.fiche_id AND f.dossier_id = lp.dossier_id
+                 WHERE lp.dossier_id = ?1 AND lp.genre = ?2 AND lp.source = ?3 AND f.employe_id = ?4
+                   AND f.statut = 'validee' AND f.id <> ?5 AND (CAST(?6 AS TEXT) IS NULL OR f.id <> ?6)",
+                &parametres![dossier.clone(), regles::REPRISE, r.vente_id.clone(), e.employe_id.clone(), e.id.clone(), e.rectifie_id.clone()],
+                |x| x.get::<i64>(0),
+            )
+            .map_err(|e| e.0)?
+            .unwrap_or(0);
+    }
+    Ok(reprises)
 }
 
 /// Calcule une fiche depuis la base : ce que la personne gagne sur ses
@@ -453,12 +613,13 @@ fn encaisse(
 fn calculer(base: &mut impl Acces, e: &Entete, p: &Personne, saisies: &[Ligne]) -> Result<(Vec<Ligne>, i64, Conditions), String> {
     let c = conditions_de(base, e, p)?;
     let periode = periode(base, e, p, &c)?;
-    let avances = avances_a_retenir(base, &e.employe_id, &e.au, e.rectifie_id.as_deref())?;
+    let mois = pret::mois_de(&e.du)?;
+    let avances = avances_a_retenir(base, &e.employe_id, &e.au, &mois, e.rectifie_id.as_deref())?;
+    let reprises = reprises_a_retenir(base, e, p)?;
     let cotisations: &[Cotisation] = if c.declare { &c.cotisations } else { &[] };
-    let (mut lignes, mut reporte) = regles::calculer(&c.remuneration, &periode, e.prorata, saisies, &avances, cotisations)?;
+    let (mut lignes, mut reporte) = regles::calculer(&c.remuneration, &periode, e.prorata, saisies, &reprises, &avances, cotisations)?;
     // D47 : les prets, sur ce que laissent les avances ; leurs lignes
     // avant les charges patronales, qui ne sont pas dans le net.
-    let mois = pret::mois_de(&e.du)?;
     let prets = prets_a_retenir(base, &e.employe_id, &e.au, &mois, e.rectifie_id.as_deref())?;
     if !prets.is_empty() {
         let depart = p.depart.as_deref().map(|d| d.get(..10).unwrap_or(d)).is_some_and(|d| d >= e.du.as_str() && d <= e.au.as_str());

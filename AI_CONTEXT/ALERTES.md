@@ -126,10 +126,13 @@ la plage 40000–40100).
   (pas de nom figé).
 - ~~**Paie, questions de D41**~~ **tranchées et codées le 28/10 (D42)** :
   case « pris dans le tiroir », l'avance étalée et datée, la commission
-  sur l'encaissé, l'ITS à la main. **Restent** : l'étalement compte par
-  paie (un journalier à la quinzaine rembourse deux fois par mois) ; une
-  vente annulée après une commission déjà versée ne se reprend pas (comme
-  avant) ; les écrans d'Équipe jamais vus dans la vraie fenêtre. Le banc `f2-personnel` a changé
+  sur l'encaissé, l'ITS à la main. **Restent** : ~~l'étalement compte par
+  paie (un journalier à la quinzaine rembourse deux fois par mois)~~ ;
+  ~~une vente annulée après une commission déjà versée ne se reprend pas
+  (comme avant)~~ — **corrigés le 01/11 (D56)** : la mensualité par mois
+  civil, la commission reprise sur la fiche suivante ; reste nommé : une
+  vente annulée après la dernière fiche d'une personne partie ne se
+  reprend pas (plus de fiche suivante) ; les écrans d'Équipe jamais vus dans la vraie fenêtre. Le banc `f2-personnel` a changé
   (« Confirmer le retour ») ; les écrans d'Équipe n'ont pas été vus.
 - **D40, limites assumées** : un service relancé trop souvent dans la
   journée attend 30 puis 60 s (la règle de relance de D12) ; le raccourci

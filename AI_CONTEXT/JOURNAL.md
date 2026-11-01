@@ -3125,3 +3125,49 @@ Chaque choix proposé avant le code et accepté (DECISIONS D43, D44).
   affiché, puis le bon mot de passe ferme la boîte et la session ne
   demande plus rien. Gescom et Équipe partagent la boîte : les deux sont
   corrigés. tsc, node 14/14.
+
+## 01/11/2026 — D56 : l'avance étalée par mois, la commission d'une vente annulée reprise
+
+- **Le besoin** (`ALERTES.md`, ce qui restait de D42) : un journalier à
+  la quinzaine remboursait deux fois par mois une avance « X F par
+  paie » ; une vente annulée après une commission déjà versée ne se
+  reprenait pas. Deux décisions du propriétaire (01/11), douze choix de
+  détail écrits sous D56 avant le code.
+- **L'avance** : `AvanceARetenir.deja_ce_mois` (ce que les autres fiches
+  validées du même mois en ont retenu, la fiche remplacée mise à part —
+  la requête du prêt) ; `retenir_avances` retient au plus le reste de
+  la mensualité du mois. Sans mensualité, rien ne change. L'écran dit
+  « par mois » (Avances, avis, liste) ; le manuel aussi.
+- **La reprise** : une vente annulée compte comme un retour, à sa date.
+  Chaque fiche fige `Conditions.annulations_vues_au` (fin de période, ou
+  jour du calcul s'il vient avant ; absent sur une fiche d'avant = jour
+  de sa validation) ; `vente_tient` garde dans la commission une vente
+  annulée après ce jour. La date d'annulation vient de la pièce d'avoir
+  d'annulation (`ANNULEE_LE`), sinon de `vente.modifie_le`.
+  `reprises_a_retenir` parcourt les fiches validées qui ont payé une
+  commission, recalcule la part de chaque vente annulée depuis (même
+  `assiette` que la fiche, filtre `seule`), au taux figé, bornée à la
+  ligne de commission, moins ce qui a déjà été repris ;
+  `coeur::paie::retenir_reprises` la retient avant les avances, bornée
+  au net, le reste reporté. Ligne `reprise_commission` (source = la
+  vente) ; journal PA : crédit 661, moins de 422.
+- **Découvert en codant** : une fiche validée avant la fin du mois a payé
+  une vente annulée plus tard dans le même mois ; « la période finit
+  avant l'annulation » ne suffisait pas — d'où le jour figé dans les
+  conditions plutôt que la fin de période. Écrit sous D56 point 5.
+- **`point_6` de `paie_corrections_base`** échouait depuis le 01/11 sur
+  toutes les branches : l'avance du trop-versé est datée du jour de la
+  rectificative, et la fiche d'octobre écrite en dur ne la retenait plus
+  en novembre. Le test prépare la fiche du mois en cours : il prouve la
+  même chose, quel que soit le jour.
+- **Vérifié** : noyau + serveur SQLite 967/967 (`--no-fail-fast`) ;
+  `coeur` 363 dont 5 nouveaux ; `paie_mois_reprise_base` 4 (quinzaine,
+  reprise sur la fiche suivante avec fiche validée intacte et PA
+  équilibré, report au-delà du net, détecteur) ; PostgreSQL sur la base
+  jetable `gescom_test_eq3` : `paie_mois_reprise_base`, `paie_base`,
+  `paie_corrections_base`, `paie_tiroir_base`, `commission_encaisse_base`,
+  `prets_base`, `etat_paie_base` verts (59) ; compte limité :
+  `paie_mois_reprise_base` et `paie_corrections_base` (21) ; tsc, node
+  14/14. **Pas vu** : l'écran d'Équipe dans la vraie fenêtre (seul le
+  texte « par mois » a changé ; la ligne de reprise s'affiche comme toute
+  retenue).

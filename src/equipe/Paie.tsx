@@ -4,7 +4,8 @@
 // paie retiendra. Hors caisse (décision du 24/09) : le moyen dit d'où
 // vient l'argent — sauf « pris dans le tiroir » (D42), où la sortie de
 // caisse s'écrit avec elle. Elle peut être datée d'un jour passé et
-// s'étaler (« X F par paie »). Les fiches du mois (G-2) : FichesPaie.tsx.
+// s'étaler (« X F par mois », D56 : une fois par mois civil, même payé à
+// la quinzaine). Les fiches du mois (G-2) : FichesPaie.tsx.
 
 import { useState, useEffect, useCallback } from "react";
 import { Loader2, HandCoins, Undo2 } from "lucide-react";
@@ -128,7 +129,7 @@ function Avances() {
             </label>
             {etalee && (
               <label className="flex items-center gap-2 text-muted-foreground">
-                <MoneyInput value={mensualite} onChange={setMensualite} aria-label="Retenue par paie" className="h-8 w-28" /> par paie
+                <MoneyInput value={mensualite} onChange={setMensualite} aria-label="Retenue par mois" className="h-8 w-28" /> par mois
               </label>
             )}
             <Button size="sm" className="ml-auto" disabled={enCours || !qui || !montant.trim() || (etalee && !mensualite.trim())}
@@ -139,7 +140,7 @@ function Avances() {
                   mensualite: etalee ? parseMontant(mensualite) : null,
                 }),
                 (nom, m) => `Avance de ${f(m)} à ${nom} notée${duTiroir ? ", sortie de la caisse" : ""}. `
-                  + (etalee ? `Elle se retiendra par ${f(parseMontant(mensualite))} à chaque paie.` : "Elle se retiendra sur sa prochaine paie."),
+                  + (etalee ? `Elle se retiendra par ${f(parseMontant(mensualite))} chaque mois.` : "Elle se retiendra sur sa prochaine paie."),
               ).then(() => { setMontant(""); setMotif(""); setMensualite(""); setEtalee(false); setTiroir(false); setDate(ilYA(0)); })}>
               <HandCoins className="h-4 w-4 mr-1" /> Donner l'avance
             </Button>
@@ -178,7 +179,7 @@ function Avances() {
                 <div className="text-xs text-muted-foreground">
                   le {a.date_avance.slice(0, 10).split("-").reverse().join("/")} · {moyenDit(a)}
                   {a.du_tiroir ? " · pris dans le tiroir" : ""}
-                  {a.mensualite ? ` · ${f(a.mensualite)} par paie` : ""}
+                  {a.mensualite ? ` · ${f(a.mensualite)} par mois` : ""}
                   {a.motif ? ` · ${a.motif}` : ""}
                   {a.retenu > 0 ? ` · ${f(a.retenu)} déjà retenus` : ""}
                 </div>
