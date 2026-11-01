@@ -9,7 +9,9 @@
 //! accepte les colonnes dans le désordre (l'en-tête les indexe par
 //! nom), les espaces, les prix écrits « 12 500 » ou « 12500 » — mais
 //! refuse un article sans nom ou sans prix, et signale chaque ligne
-//! rejetée avec son numéro.
+//! rejetée avec son numéro. Un en-tête se lit par ses noms seulement :
+//! une colonne inconnue, en double ou exigée qui manque refuse le
+//! fichier (`lire_entete`), plutôt que de deviner par la position.
 //!
 //! Un article à plusieurs unités de vente sort sur PLUSIEURS lignes de
 //! même nom, une par unité, distinguées par la colonne `Facteur`. La
@@ -37,6 +39,11 @@ use crate::utils::maintenant_iso;
 // l'article prend (ou garde) le seuil du dossier.
 const ENTETE: &str =
     "Nom;Categorie;Unite;Facteur;Prix;Prix achat;TVA %;Code barre;Stock;Suivre le stock;Seuil";
+
+/// Les autres noms de « Suivre le stock » (`champ_suivi`), et les
+/// colonnes sans lesquelles un en-tete ne se lit pas (`lire_entete`).
+const SYNONYMES: &[&str] = &["suivrestock", "gereenstock"];
+const EXIGEES: &[&str] = &["Nom", "Prix"];
 
 /// Ce que la colonne « Seuil » ecrit : vide quand l'article suit le
 /// seuil du dossier, entier quand c'est un entier.
@@ -208,10 +215,70 @@ pub fn normaliser_entete(v: &str) -> String {
     v.trim().to_lowercase()
         .replace(['é', 'è', 'ê'], "e")
         .replace('à', "a")
-        .replace([' ', '_', '%'], "")
+        .replace([' ', '_', '%', '-'], "")
 }
 
-/// Valeur d'une colonne : par nom si l'entete existe, par position
+/// La premiere ligne d'un fichier, si c'est un en-tete : ses colonnes,
+/// indexees par nom. Un en-tete se reconnait a sa colonne « Nom », ou
+/// qu'elle soit ; sans elle, la ligne est une donnee et l'ordre
+/// historique s'applique (`champ`).
+///
+/// Un en-tete reconnu se lit par ses noms, et seulement par eux : une
+/// colonne inconnue ou en double, ou une colonne exigee qui manque,
+/// refuse le fichier entier avant toute ecriture, en le disant. Avant,
+/// une colonne absente retombait sur sa position v1.3 :
+/// `Nom;Categorie;Unite;Prix;Stock` lisait le stock comme prix d'achat.
+///
+/// `entete` : celui de l'export (les noms acceptes, et ce que le message
+/// propose) ; `synonymes` : d'autres noms acceptes, deja normalises ;
+/// `exigees` : les colonnes sans lesquelles rien ne se lit.
+pub(crate) fn lire_entete(
+    premiere: &str,
+    entete: &str,
+    synonymes: &[&str],
+    exigees: &[&str],
+) -> Result<Option<std::collections::HashMap<String, usize>>, String> {
+    let noms = decouper(premiere);
+    if !noms.iter().any(|c| normaliser_entete(c) == "nom") {
+        return Ok(None);
+    }
+    let connues: Vec<String> = entete
+        .split(';')
+        .map(normaliser_entete)
+        .chain(synonymes.iter().map(|s| s.to_string()))
+        .collect();
+    let mut cols = std::collections::HashMap::new();
+    let mut fautes: Vec<String> = Vec::new();
+    for (i, brut) in noms.iter().enumerate() {
+        let n = normaliser_entete(brut);
+        if n.is_empty() {
+            // Une colonne sans titre, souvent vide (point-virgule en fin
+            // de ligne laisse par Excel) : rien a lire, rien a deviner.
+            continue;
+        }
+        if !connues.contains(&n) {
+            fautes.push(format!("colonne « {} » inconnue", brut.trim()));
+        } else if cols.insert(n, i).is_some() {
+            fautes.push(format!("colonne « {} » en double", brut.trim()));
+        }
+    }
+    for e in exigees {
+        if !cols.contains_key(&normaliser_entete(e)) {
+            fautes.push(format!("colonne « {} » manquante", e));
+        }
+    }
+    if fautes.is_empty() {
+        return Ok(Some(cols));
+    }
+    Err(format!(
+        "En-tête du fichier : {}. Colonnes reconnues : {}. Rien n'a été importé.",
+        fautes.join(", "),
+        entete.replace(';', ", ")
+    ))
+}
+
+/// Valeur d'une colonne : par son nom quand le fichier a un en-tete
+/// (`lire_entete`) — absente, elle n'est pas lue —, par sa position
 /// sinon (ordre historique v1.3, sans `Facteur`).
 pub(crate) fn champ<'a>(
     ch: &'a [String],
@@ -219,9 +286,10 @@ pub(crate) fn champ<'a>(
     nom: &str,
     position_v13: Option<usize>,
 ) -> Option<&'a str> {
-    let i = match cols.get(nom) {
-        Some(i) => *i,
-        None => position_v13?,
+    let i = if cols.is_empty() {
+        position_v13?
+    } else {
+        *cols.get(nom)?
     };
     ch.get(i).map(|s| s.trim())
 }
@@ -262,17 +330,12 @@ pub fn importer_articles_csv(
     // pour INDEXER les colonnes par nom, et non par position — c'est ce
     // qui rend l'import tolerant au desordre (promesse du module) et
     // permet a `Facteur`, ajoutee en v1.4, d'etre absente d'un ancien
-    // fichier sans decaler tout le reste.
+    // fichier sans decaler tout le reste. Un en-tete incomplet ou fautif
+    // refuse le fichier (`lire_entete`) : rien ne se devine.
     let premiere = lignes.next().unwrap_or("");
-    let a_entete = premiere.to_lowercase().starts_with("nom");
-
-    let cols: std::collections::HashMap<String, usize> = if a_entete {
-        decouper(premiere).iter().enumerate()
-            .map(|(i, c)| (normaliser_entete(c), i))
-            .collect()
-    } else {
-        std::collections::HashMap::new()
-    };
+    let entete = lire_entete(premiere, ENTETE, SYNONYMES, EXIGEES)?;
+    let a_entete = entete.is_some();
+    let cols: std::collections::HashMap<String, usize> = entete.unwrap_or_default();
 
     let mut a_traiter: Vec<&str> = Vec::new();
     if !a_entete {
@@ -286,11 +349,13 @@ pub fn importer_articles_csv(
     let mut erreurs: Vec<String> = Vec::new();
 
     for (i, ligne) in a_traiter.iter().enumerate() {
-        let num = i + 2; // +1 pour l'entete, +1 pour partir de 1
+        let num = if a_entete { i + 2 } else { i + 1 };
         if ligne.trim().is_empty() { continue; }
 
         let ch = decouper(ligne);
-        if ch.len() < 4 {
+        // Le minimum de colonnes ne vaut que pour l'ordre v1.3 : avec un
+        // en-tete, une cellule absente se lit vide.
+        if !a_entete && ch.len() < 4 {
             erreurs.push(format!("Ligne {} : {} colonne(s), 4 minimum \
                 (Nom;Categorie;Unite;Prix). Colonne Facteur facultative.",
                 num, ch.len()));
@@ -747,12 +812,11 @@ pub fn importer_articles_csv_sur_base(
     let contenu = contenu.trim_start_matches('\u{FEFF}');
     let mut lignes = contenu.lines();
     let premiere = lignes.next().unwrap_or("");
-    let a_entete = premiere.to_lowercase().starts_with("nom");
-    let cols: HashMap<String, usize> = if a_entete {
-        decouper(premiere).iter().enumerate().map(|(i, c)| (normaliser_entete(c), i)).collect()
-    } else {
-        HashMap::new()
-    };
+    // Un en-tete se lit par ses noms, sans repli sur les positions v1.3
+    // (`lire_entete`) — voir la version fenetre.
+    let entete = lire_entete(premiere, ENTETE, SYNONYMES, EXIGEES)?;
+    let a_entete = entete.is_some();
+    let cols: HashMap<String, usize> = entete.unwrap_or_default();
     let mut a_traiter: Vec<&str> = Vec::new();
     if !a_entete {
         a_traiter.push(premiere);
@@ -777,7 +841,7 @@ pub fn importer_articles_csv_sur_base(
             continue;
         }
         let ch = decouper(ligne);
-        if ch.len() < 4 {
+        if !a_entete && ch.len() < 4 {
             erreurs.push(format!(
                 "Ligne {} : {} colonne(s), 4 minimum (Nom;Categorie;Unite;Prix). Colonne Facteur facultative.",
                 num, ch.len()

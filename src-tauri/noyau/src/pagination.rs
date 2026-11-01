@@ -493,7 +493,7 @@ pub fn lire_fournisseurs_pagines(
                    WHERE pc.tiers_type = 'fournisseur'
                      AND pc.tiers_id = f.id
                      AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
-                     AND pc.statut <> 'annule'), 0
+                     AND pc.statut NOT IN ('annule', 'brouillon')), 0
                 ) AS INTEGER) as total_achats,
                 CAST(COALESCE(
                   (SELECT SUM(pf.montant) FROM paiement_fournisseur pf
@@ -1021,7 +1021,7 @@ pub fn lire_fournisseurs_pagines_sur_base(
                            JOIN ligne_piece lp ON lp.piece_id = pc.id
                            WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = f.id
                              AND pc.type_piece IN ('facture_fournisseur','avoir_fournisseur')
-                             AND pc.statut <> 'annule'), 0) AS BIGINT),
+                             AND pc.statut NOT IN ('annule', 'brouillon')), 0) AS BIGINT),
                         CAST(COALESCE((SELECT SUM(pf.montant) FROM paiement_fournisseur pf
                                        WHERE pf.fournisseur_id = f.id), 0) AS BIGINT),
                         (SELECT COUNT(*) FROM mouvement_stock ms

@@ -1110,7 +1110,7 @@ pub fn regler_dette_fournisseur_datee(
                  FROM piece_commerciale pc
                  WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
                    AND pc.type_piece = 'facture_fournisseur'
-                   AND pc.statut <> 'annule'
+                   AND pc.statut NOT IN ('annule', 'brouillon')
                  ORDER BY pc.date_piece ASC"
             ).map_err(|e| e.to_string())?;
 
@@ -1203,7 +1203,7 @@ pub fn imputer_paiements_fournisseur(
          FROM piece_commerciale pc
          WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
            AND pc.type_piece = 'facture_fournisseur'
-           AND pc.statut <> 'annule'
+           AND pc.statut NOT IN ('annule', 'brouillon')
          ORDER BY pc.date_piece ASC"
     ).map_err(|e| e.to_string())?;
 
@@ -1270,7 +1270,7 @@ pub fn reallouer_globaux(
              FROM piece_commerciale pc
              WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
                AND pc.type_piece = 'facture_fournisseur'
-               AND pc.statut <> 'annule'
+               AND pc.statut NOT IN ('annule', 'brouillon')
              ORDER BY pc.date_piece ASC"
         ).map_err(|e| e.to_string())?;
         let ouvertes: Vec<(String, i64)> = st.query_map(
@@ -2520,7 +2520,7 @@ fn factures_ouvertes_sur(acces: &mut impl Acces, fournisseur_id: &str) -> Result
              FROM piece_commerciale pc
              WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
                AND pc.type_piece = 'facture_fournisseur'
-               AND pc.statut <> 'annule'
+               AND pc.statut NOT IN ('annule', 'brouillon')
                AND pc.dossier_id = ?2
              ORDER BY pc.date_piece ASC",
             &parametres![fournisseur_id, dossier],
@@ -2591,7 +2591,7 @@ pub fn imputer_paiements_fournisseur_sur(acces: &mut impl Acces, fournisseur_id:
              FROM piece_commerciale pc
              WHERE pc.tiers_type = 'fournisseur' AND pc.tiers_id = ?1
                AND pc.type_piece = 'facture_fournisseur'
-               AND pc.statut <> 'annule'
+               AND pc.statut NOT IN ('annule', 'brouillon')
                AND pc.dossier_id = ?2
              ORDER BY pc.date_piece ASC",
             &parametres![fournisseur_id, dossier.clone()],

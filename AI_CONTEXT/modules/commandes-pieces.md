@@ -109,6 +109,13 @@ vraiment entré. « Payé » à l'écran et son total le lisent ;
 de la fenêtre ne l'a pas (l'écran retombe sur `total_paye`).
 Scénario : `retours_base::la_liste_des_pieces_dit_ce_que_les_retours_ont_fait`.
 
+**`lire_donnees_piece[_sur_base]`, la part réglée par avoir** (01/11/2026) :
+`totaux.total_paye` compte tous les modes, avoir compris (il excluait
+`mode = 'avoir'` : une facture réglée en partie par avoir imprimait
+cette part comme due) ; `totaux.regle_par_avoir` la donne à part, et
+`totaux.encaisse` = `coeur::calcul::acompte_verse` (ni retour, ni
+avoir). Scénario `pieces_dettes_base::une_facture_reglee_en_partie_par_avoir…`.
+
 ## Le tiers écrit à l'émission (D35, lots D.9-D.10, 27/10/2026)
 
 `piece_commerciale.tiers_nom` (D35) et `tiers_code` (lot D.10, nouvelle

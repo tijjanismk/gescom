@@ -146,7 +146,9 @@ Sortant : `coeur::calcul` (montants, statuts, répartition, effet caisse),
   `est_le_comptant_sur`, `lire_passages_sur` (code ou numéro de facture),
   `promouvoir_sur` (`clients:modifier`, journal `passage_promu`),
   `figer_noms_sur` / `figer_noms` (appelés par la promotion et
-  `modifier_client`). `creer_facture_depuis_vente` prend le client de la
+  `modifier_client` ; figent aussi `vente.client_nom` depuis le
+  01/11/2026, que le reçu d'une vente sans pièce lit — le rattachement
+  y écrit nom et code du passant). `creer_facture_depuis_vente` prend le client de la
   **vente**, plus celui que l'écran passe. Commandes serveur
   `lire_passages`, `promouvoir_passage` (version `Base` seule).
 - [CONFIRMÉ] **Rattacher un passant à un client (lot D.10, 27/10/2026)** —

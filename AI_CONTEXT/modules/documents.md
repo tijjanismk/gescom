@@ -135,8 +135,10 @@ mention de pied, « Imprimé le », les styles propres et le contenu.
   n'imprime ni téléphone, ni adresse, ni NIF
   (`passage::coordonnee_a_imprimer`) — même si la fiche a été promue ou
   rattachée à un client qui en a. Deux versions de `lire_donnees_piece`
-  et de `lire_donnees_recu`. Limite : un reçu d'une vente **sans** pièce
-  lit encore la fiche d'aujourd'hui.
+  et de `lire_donnees_recu`. Un reçu d'une vente **sans** pièce lit
+  `vente.client_nom` / `client_code` (01/11/2026), figés par
+  `passage::figer_noms[_sur]` (renommage, promotion) et
+  `passage::rattacher_sur` ; NULL, la fiche n'a pas changé depuis.
 
 Commandes : `enregistrer_filigrane_documents { reglage }`,
 `poser_image_filigrane { image | null }` (`parametres:modifier`) ;

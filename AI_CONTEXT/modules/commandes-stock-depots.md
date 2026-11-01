@@ -26,7 +26,11 @@ et `lire_stock_article_depots` *(jamais appelées)*.
 `lire_transferts`, `lire_bon_transfert`.
 
 **catalogue.rs** — `exporter_articles_csv`, `importer_articles_csv`,
-`lire_etat_stock`.
+`lire_etat_stock`. Un en-tête CSV (reconnu à sa colonne « Nom », où
+qu'elle soit) se lit par ses noms seulement : colonne inconnue, en
+double, ou `Nom`/`Prix` manquante → tout le fichier refusé, rien
+d'écrit (`catalogue_csv::lire_entete`, 01/11/2026 ; même règle pour les
+fournisseurs, `Nom` exigé). Sans en-tête, l'ordre v1.3.
 
 **codebarre.rs** — `generer_code_barre`,
 `generer_codes_barres_manquants`, `definir_code_barre`,

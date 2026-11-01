@@ -226,7 +226,12 @@ CREATE TABLE IF NOT EXISTS vente (
     cree_par        TEXT NOT NULL DEFAULT 'system',
     modifie_par     TEXT NOT NULL DEFAULT 'system',
     origine         TEXT NOT NULL DEFAULT 'app'
-, piece_id TEXT);
+, piece_id TEXT,
+    -- Le nom et le code du client tels qu'au jour de la vente, figes au
+    -- renommage, a la promotion ou au rattachement (NULL : la fiche n'a
+    -- pas change depuis). Le recu d'une vente sans piece les lit.
+    client_nom      TEXT,
+    client_code     TEXT);
 
 -- prix_pratique = prix TTC réellement payé (D8).
 --    montant_tva = TVA contenue dedans, jamais ajoutée par-dessus.
