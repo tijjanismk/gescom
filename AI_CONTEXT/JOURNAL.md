@@ -3204,7 +3204,8 @@ retours (relevé client, CA, TVA) sont à une autre session.
   fenêtre numérote les lignes comme la version serveur. Choix fait sans
   demander : refuser une colonne inconnue plutôt que l'ignorer (« se dit
   plutôt que se devine », la consigne) ; un fichier Excel avec une
-  colonne en plus doit la retirer.
+  colonne en plus doit la retirer. **Confirmé par le propriétaire le
+  02/11** : « Refuser, comme fait ».
 - **Le reçu d'une vente sans pièce** lisait la fiche d'aujourd'hui.
   Colonnes `vente.client_nom`, `vente.client_code` (`schema.sql`,
   `amorcage.rs`, `persistance/v2.rs`), figées comme les pièces de D35 :
