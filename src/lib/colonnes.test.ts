@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  normaliserColonnes, basculer, choixImpression, alertesSaisie, totauxSaisie, COLONNES_FIXES,
+  normaliserColonnes, basculer, choixImpression, alertesSaisie, totauxSaisie, largeursSaisie, COLONNES_FIXES,
 } from "./colonnes.ts";
 
 const sansTva = [{ taux_tva: 0, remise_pct: 0 }, { taux_tva: 0, remise_pct: 0 }];
@@ -85,4 +85,15 @@ test("la saisie compte ce que les colonnes cachées portent", () => {
   assert.deepEqual(alertesSaisie([], lignes), { tvaCachee: 2, remiseCachee: 1 });
   assert.deepEqual(alertesSaisie(["tva", "remise"], lignes), { tvaCachee: 0, remiseCachee: 0 });
   assert.deepEqual(alertesSaisie([], sansTva), { tvaCachee: 0, remiseCachee: 0 });
+});
+
+test("les largeurs du tableau de saisie font 100 %, quelles que soient les colonnes", () => {
+  const somme = (l: { largeur: string }[]) => l.reduce((s, x) => s + parseFloat(x.largeur), 0);
+  for (const c of [[], ["tva"], ["remise", "tva"], ["reference", "remise", "tva"], ["reference"]]) {
+    const l = largeursSaisie(c);
+    assert.ok(Math.abs(somme(l) - 100) < 0.05, `${c.join("+") || "fixes"} : ${somme(l)} %`);
+    assert.equal(l.length, 6 + c.length, "une largeur par colonne visible, unité et bouton compris");
+  }
+  assert.deepEqual(largeursSaisie([]).map(x => x.cle),
+    ["designation", "unite", "quantite", "prix_unitaire", "total", "action"]);
 });

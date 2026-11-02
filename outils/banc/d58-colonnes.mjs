@@ -106,6 +106,8 @@ ok(await menuModif.getByRole("checkbox", { name: "TVA %" }).isChecked()
   && !(await menuModif.getByRole("checkbox", { name: "Remise %" }).isChecked()),
   "Modifier : le menu montre les colonnes de la pièce, pas celles du genre");
 await menuModif.getByRole("checkbox", { name: "Remise %" }).check();
+// Et pour les prochaines commandes (le patron du banc en a le droit).
+await menuModif.getByRole("checkbox", { name: /Garder pour les prochaines/ }).check();
 await capture(page, "d58-02-modifier-colonnes");
 // Ouvert, le menu couvre le bas de la petite fenêtre : Échap le ferme,
 // pas la fenêtre.
@@ -114,8 +116,29 @@ await page.waitForTimeout(300);
 ok(await menuModif.count() === 0 && await modif.count() === 1, "Échap ferme le menu, la fenêtre reste");
 await modif.getByRole("button", { name: "Sauvegarder" }).click();
 await page.waitForTimeout(2000);
-ok(JSON.stringify(await colonnes(cmd.id)) === JSON.stringify(["designation", "quantite", "prix_unitaire", "remise", "tva", "total"]),
-  "Modifier : Remise % cochée, gardée avec la pièce");
+const REMISE_TVA = ["designation", "quantite", "prix_unitaire", "remise", "tva", "total"];
+ok(JSON.stringify(await colonnes(cmd.id)) === JSON.stringify(REMISE_TVA), "Modifier : Remise % cochée, gardée avec la pièce");
+const reglageCommande = (await appel("lire_reglages_documents", {})).genres.bon_commande.colonnes;
+ok(JSON.stringify(reglageCommande) === JSON.stringify(REMISE_TVA),
+  "« Garder pour les prochaines » depuis Modifier : le réglage des bons de commande suit");
+// Le banc rejoue sur la même base : le genre revient à l'usine.
+await appel("retablir_reglage_document", { genre: "bon_commande" });
+
+// ---- Le papier d'une pièce convertie : commande -> bon de livraison.
+const bl = await appel("convertir_piece", { pieceId: cmd.id, nouveauType: "bon_livraison" });
+ok(JSON.stringify(await colonnes(bl.id)) === JSON.stringify(REMISE_TVA), `le bon de livraison ${bl.numero} garde les colonnes`);
+await page.reload();
+await page.waitForTimeout(2000);
+await page.getByText("Pièces", { exact: true }).first().click();
+await page.waitForTimeout(2500);
+await page.locator("tr", { hasText: bl.numero }).getByTitle("Aperçu").first().click();
+await page.waitForTimeout(2500);
+const papier = page.frameLocator('iframe[title="Aperçu de la pièce"]');
+const entetesPapier = (await papier.locator("table.doc-lignes thead").innerText()).replace(/\s+/g, " ");
+ok(entetesPapier.includes("Remise"), `le papier du bon montre la colonne Remise (${entetesPapier})`);
+ok(!/TVA|HT/.test(entetesPapier), "et ni TVA ni HT : aucune ligne n'en porte (la loi)");
+await capture(page, "d58-03-papier-bl-converti");
+await page.getByRole("button", { name: "Fermer" }).first().click();
 
 const restes = erreursUtiles(erreurs).filter(sansConsole403);
 ok(restes.length === 0, `aucune erreur d'écran${restes.length ? " : " + restes.join(" | ") : ""}`);

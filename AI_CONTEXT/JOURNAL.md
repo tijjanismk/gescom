@@ -3526,3 +3526,30 @@ deux bases ont des ventes, le garde-fou de la marque, le refus de
   est la même ligne qu'ailleurs) ; « Garder pour les prochaines » depuis
   « Modifier » n'a pas été cliqué ; le papier d'une pièce convertie n'a
   pas été regardé (il lit `piece.colonnes`, vérifié en base).
+
+## 02/11/2026 — D58, fin : le tableau droit, et ce qui restait « pas vu »
+
+- **Le décalage** (vu par le propriétaire sur la capture du banc) : les
+  en-têtes du tableau de saisie avaient des largeurs fixes écrites pour
+  le tableau complet (30 + 10 + 10 + 16 + 8 + 8 + 16 + 6 = 104 %). Une
+  colonne cachée, le navigateur répartissait le reste à sa façon : les
+  champs, de largeur fixe et collés à droite, ne tombaient plus sous
+  leur en-tête. Maintenant `colonnes::largeursSaisie` donne des largeurs
+  qui font 100 % pour les colonnes visibles, posées par un `<colgroup>`
+  en `table-fixed` ; testé (node), et vu sur la capture du banc.
+- **Ce qui restait « pas vu »** :
+  - l'avoir d'annulation : scénario `l_avoir_d_annulation_garde_les_colonnes_de_la_facture`
+    (colonnes de la facture, marchandise revenue une fois, caisse
+    intacte pour un avoir à crédit, facture « annule » et vente
+    « annulee ») ;
+  - « Garder pour les prochaines » depuis Modifier : le banc le coche,
+    le réglage des bons de commande suit (puis revient à l'usine) ;
+  - le papier d'une pièce convertie : le banc convertit la commande en
+    BL et lit l'aperçu — colonne Remise gardée, ni TVA ni HT puisque
+    aucune ligne n'en porte ;
+  - le comptoir et les retours : laissés à leur genre, raison écrite
+    sous D58 (pas de tableau sur un ticket ; l'avoir d'un retour naît
+    d'une vente sans colonnes, et naît émis).
+- **Vérifié** : `colonnes_base` 14/14 sur SQLite, PostgreSQL
+  (`gescom_test_eq6`) et compte limité ; suite noyau + serveur SQLite ;
+  tsc ; node 24/24 ; banc `d58-colonnes.mjs` 18/18.

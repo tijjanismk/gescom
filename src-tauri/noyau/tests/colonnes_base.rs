@@ -298,6 +298,48 @@ fn la_conversion_cote_connection_recopie_aussi() {
     assert_eq!(pieces::lire_donnees_piece(conn, fac).unwrap()["piece"]["colonnes"], json!(choix));
 }
 
+/// L'avoir qui annule une facture garde les colonnes de la facture : le
+/// client lit le même tableau, en négatif. La marchandise revient une
+/// fois, la créance s'éteint, la caisse ne bouge pas (avoir à crédit).
+#[test]
+fn l_avoir_d_annulation_garde_les_colonnes_de_la_facture() {
+    let mut base = base_avec_demo();
+    let client = client_reel(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let depot = depot_defaut(&mut base);
+    let choix = avec(&["remise", "tva"]);
+    let d = pieces::creer_piece_colonnes_sur_base(
+        &mut base, Some(choix.clone()), client.clone(), "devis".into(), vec![ligne_taxee(&sucre)],
+        None, None, None, None, None, None,
+    )
+    .unwrap();
+    let cmd = pieces::convertir_piece_sur_base(&mut base, id(&d), "commande_client".into()).unwrap();
+    let r = pieces::convertir_commande_en_livraison_et_facture_sur_base(&mut base, id(&cmd)).unwrap();
+    let fac = r["facture"]["id"].as_str().unwrap().to_string();
+    let apres_bl = stock(&mut base, &sucre.0, &depot);
+    let caisse = ouvrir_caisse(&mut base);
+    gescom_noyau::argent::valider_facture_sur_base(&mut base, fac.clone(), "credit".into(), None, None, None).unwrap();
+    let solde_caisse = |base: &mut gescom_noyau::base::Base| {
+        compter(base, "SELECT COUNT(*) FROM mouvement_caisse WHERE session_id = ?1", &parametres![caisse.clone()])
+    };
+    let mouvements_avant = solde_caisse(&mut base);
+
+    let a = pieces::annuler_facture_par_avoir_sur_base(&mut base, fac.clone(), Some("avoir".into()), None, Some("rendu".into()))
+        .expect("annuler par avoir");
+    let avoir = a["piece_id"].as_str().unwrap().to_string();
+    assert_eq!(colonnes_de(&mut base, &avoir), json!(choix), "l'avoir garde les colonnes de la facture");
+    assert_eq!(stock(&mut base, &sucre.0, &depot), apres_bl + 3.0, "la marchandise revient, une fois");
+    assert_eq!(solde_caisse(&mut base), mouvements_avant, "un avoir à crédit ne touche pas la caisse");
+    // La créance tombe avec la vente : facture « annule », vente « annulee ».
+    assert_eq!(statut_piece(&mut base, &fac), "annule");
+    let vente = pieces::lire_vente_de_piece_sur_base(&mut base, fac).unwrap().expect("vente liée");
+    let statut_vente: String = base
+        .lire_une("SELECT statut FROM vente WHERE id = ?1", &parametres![vente], |r| r.get::<String>(0))
+        .unwrap()
+        .unwrap();
+    assert_eq!(statut_vente, "annulee", "la créance de la facture est éteinte");
+}
+
 #[test]
 fn modifier_garde_les_colonnes_ou_pose_celles_du_menu() {
     let mut base = base_avec_demo();

@@ -60,6 +60,27 @@ export function basculer(colonnes: readonly Colonne[], c: Colonne, montrer: bool
   return normaliserColonnes(montrer ? [...reste, c] : reste);
 }
 
+/** Les colonnes du tableau de saisie, dans l'ordre, avec leur poids. */
+const POIDS_SAISIE: readonly [string, number][] = [
+  ["reference", 9], ["designation", 28], ["unite", 10], ["quantite", 9], ["prix_unitaire", 13],
+  ["remise", 8], ["tva", 8], ["total", 12], ["action", 4],
+];
+
+/**
+ * La largeur de chaque colonne VISIBLE du tableau de saisie, en %, qui
+ * font 100 ensemble. Des largeurs fixes écrites pour le tableau complet
+ * débordaient (104 %) et, une colonne cachée, le navigateur répartissait
+ * le reste à sa façon : en-têtes et champs ne tombaient plus en face.
+ * L'unité et la colonne du bouton « retirer » sont toujours là.
+ */
+export function largeursSaisie(colonnes: readonly string[]): { cle: string; largeur: string }[] {
+  const c = normaliserColonnes(colonnes);
+  const visibles = POIDS_SAISIE.filter(([cle]) =>
+    cle === "unite" || cle === "action" || c.includes(cle as Colonne));
+  const total = visibles.reduce((s, [, p]) => s + p, 0);
+  return visibles.map(([cle, p]) => ({ cle, largeur: `${(p * 100 / total).toFixed(2)}%` }));
+}
+
 export interface LigneMontant {
   taux_tva?: number | null;
   remise_pct?: number | null;

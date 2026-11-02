@@ -2108,7 +2108,18 @@ Ce qui change dans le point 4 et dans « Pas pris » ci-dessus :
   `documents::recopier_colonnes_piece_sur`), dans la transaction qui
   crée la pièce.
 - Restent sans menu : le comptoir (ticket), les pièces nées d'un retour
-  ou d'un achat au comptoir — elles suivent leur genre.
+  ou d'un achat au comptoir — elles suivent leur genre. **Pourquoi** :
+  un ticket n'a pas de tableau (point 3) ; l'avoir d'un retour naît
+  d'une vente, souvent un ticket sans pièce ni colonnes à recopier, porte
+  sa propre ligne (« Avoir sur retour ») et naît émis, donc figé — il suit
+  le réglage du genre facture, que le patron règle dans Paramètres →
+  Documents.
+- **Le tableau de saisie** prend des largeurs qui font 100 % pour ses
+  colonnes visibles (`colonnes::largeursSaisie`, `table-fixed`) : écrites
+  pour le tableau complet (104 %), elles laissaient le navigateur
+  répartir le reste à sa façon dès qu'une colonne était cachée, et
+  en-têtes et champs ne tombaient plus en face (vu par le propriétaire
+  sur la capture du banc, 02/11).
 
 ## D57 — Le caissier nomme un passant ; « ne pas suivre le stock » se décide dès la création (01/11/2026)
 

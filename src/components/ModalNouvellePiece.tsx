@@ -23,7 +23,7 @@ import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import {
   type ReglagesDocuments, genreDePiece, lireReglagesDocuments,
 } from "@/lib/documents";
-import { type Colonne, basculer, normaliserColonnes, totauxSaisie } from "@/lib/colonnes";
+import { type Colonne, basculer, largeursSaisie, normaliserColonnes, totauxSaisie } from "@/lib/colonnes";
 import { MenuColonnes, BandeauColonnes, garderPourLeGenre } from "@/components/MenuColonnes";
 
 // =====================================================================
@@ -655,18 +655,24 @@ export function ModalNouvellePiece({
             </div>
           ) : (
             <div className="border border-border rounded-md overflow-hidden">
-              <table className="w-full text-sm">
+              {/* D58 : des largeurs qui font 100 % pour les colonnes
+                  visibles — cachée une colonne, en-têtes et champs restent
+                  en face (table-fixed : le navigateur ne redistribue rien). */}
+              <table className="w-full text-sm table-fixed">
+                <colgroup>
+                  {largeursSaisie(colonnes).map(l => <col key={l.cle} style={{ width: l.largeur }} />)}
+                </colgroup>
                 <thead className="bg-muted/80 text-xs">
                   <tr>
-                    {voir("reference") && <th className="text-left px-2 py-2.5 w-[10%]">Réf.</th>}
-                    <th className="text-left px-4 py-2.5 w-[30%]">Article</th>
-                    <th className="text-center px-2 py-2.5 w-[10%]">Unité</th>
-                    <th className="text-right px-2 py-2.5 w-[10%]">Qté</th>
-                    <th className="text-right px-2 py-2.5 w-[16%]">Prix (F)</th>
-                    {voir("remise") && <th className="text-right px-2 py-2.5 w-[8%]">Remise %</th>}
-                    {voir("tva") && <th className="text-right px-2 py-2.5 w-[8%]">TVA %</th>}
-                    <th className="text-right px-2 py-2.5 w-[16%]">Montant (F)</th>
-                    <th className="px-2 py-2.5 w-[6%]"></th>
+                    {voir("reference") && <th className="text-left px-2 py-2.5">Réf.</th>}
+                    <th className="text-left px-4 py-2.5">Article</th>
+                    <th className="text-center px-2 py-2.5">Unité</th>
+                    <th className="text-right px-2 py-2.5">Qté</th>
+                    <th className="text-right px-2 py-2.5">Prix (F)</th>
+                    {voir("remise") && <th className="text-right px-2 py-2.5">Remise %</th>}
+                    {voir("tva") && <th className="text-right px-2 py-2.5">TVA %</th>}
+                    <th className="text-right px-2 py-2.5">Montant (F)</th>
+                    <th className="px-2 py-2.5"></th>
                   </tr>
                 </thead>
                 <tbody>
