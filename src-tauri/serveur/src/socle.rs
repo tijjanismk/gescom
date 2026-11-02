@@ -2019,8 +2019,9 @@ pub fn registre() -> Registre {
         let date_piece: Option<String> = arg(&p, "datePiece", "date_piece")?;
         exiger_antidatage_base(c.base, c.appelant, date_piece.as_deref())?;
         exiger_plafonds_piece(&gescom_noyau::plafonds::de_sur(c.base, &c.appelant.utilisateur_id), &p)?;
-        pieces::modifier_piece_sur_base(
+        pieces::modifier_piece_colonnes_sur_base(
             c.base,
+            arg(&p, "colonnes", "colonnes")?,
             arg(&p, "pieceId", "piece_id")?,
             arg(&p, "note", "note")?,
             arg(&p, "dateEcheance", "date_echeance")?,

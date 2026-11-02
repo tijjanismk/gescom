@@ -3484,3 +3484,45 @@ deux bases ont des ventes, le garde-fou de la marque, le refus de
   fusion : PostgreSQL (chaque branche l'a passé seule, sauf D58).
 - **Version 1.13.1** (Équipe 0.2.1, Serveur 0.3.1). **Pas vu** : les
   boîtes de l'installeur (reprise, désinstallation) — TESTS-MANUELS L1-L15.
+
+## 02/11/2026 — D58, suite : les colonnes suivent la pièce
+
+- **La demande** (le propriétaire, par la session principale) : le menu
+  « Colonnes » partout où une pièce se crée ou se modifie, et des
+  colonnes qui suivent la pièce quand on la duplique ou la convertit.
+  Ce n'est pas contraire à D58 : c'est ce que D58 avait laissé dans
+  « Pas pris ». Le complément est écrit sous D58 (DECISIONS).
+- **Fait** :
+  - la fiche client ouvre la fenêtre partagée `ModalNouvellePiece`, le
+    client déjà choisi ; sa fenêtre privée (sans TVA, TVA des lignes
+    forcée à 0, sans menu) est retirée — une pièce faite depuis la fiche
+    prend désormais la TVA de l'article, comme depuis Pièces ;
+  - le menu et le bandeau deviennent `components/MenuColonnes.tsx`,
+    utilisés par Nouvelle pièce et par « Modifier la pièce » ;
+  - « Modifier la pièce » : le menu part des colonnes de la pièce (lues
+    par `lire_donnees_piece`), de son genre si elle n'en garde pas ;
+    `colonnes: null` tant qu'il n'est pas touché. Serveur :
+    `modifier_piece_colonnes_sur_base` (l'ancienne fonction lui délègue) ;
+  - recopie des colonnes de la source dans `convertir_piece`,
+    `convertir_commande_en_livraison_et_facture`, `dupliquer_piece`,
+    `annuler_facture_par_avoir_sur`, versions `Connection` et `Base`, dans
+    la transaction qui crée la pièce. Recopie seulement : les quatre
+    genres à colonnes ont le même catalogue.
+- **Ce que le banc a trouvé** : dans la petite fenêtre « Modifier », le
+  menu ouvert couvrait « Sauvegarder » et coupait sa dernière case. Il
+  se ferme maintenant par un clic ailleurs ou Échap (Échap ne ferme pas
+  la fenêtre) et se trouve en haut de cette fenêtre.
+- **Vérifié** : `colonnes_base` 13/13 (dupliquer, convertir côté `Base`
+  et côté `Connection`, commande → BL + facture avec le stock sorti une
+  fois et la facture au montant du devis, modifier sans et avec le
+  menu, refus d'une colonne fixe retirée), sur SQLite, PostgreSQL
+  (`gescom_test_eq6`, créée pour l'occasion) et sous le compte limité ;
+  `pieces_base` 20/20 et `documents_base` 14/14 sur PostgreSQL ; suite
+  noyau + serveur SQLite verte (le test de paie daté d'hier passe depuis
+  la fusion de D56) ; tsc ; node 23/23 ; banc `d58-colonnes.mjs` 14/14
+  (Nouvelle pièce depuis la fiche client, menu, devis, conversion depuis
+  la fiche, Modifier avec le menu), serveur d'essai :40062.
+- **Pas vu** : l'avoir d'annulation n'a pas de scénario (la recopie y
+  est la même ligne qu'ailleurs) ; « Garder pour les prochaines » depuis
+  « Modifier » n'a pas été cliqué ; le papier d'une pièce convertie n'a
+  pas été regardé (il lit `piece.colonnes`, vérifié en base).

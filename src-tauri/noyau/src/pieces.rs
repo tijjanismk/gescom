@@ -730,6 +730,7 @@ pub fn convertir_piece(
     ).map_err(|e| e.to_string())?;
 
     inserer_lignes_raw(&conn, &nouvelle_id, &lignes, &now)?;
+    recopier_colonnes(&conn, &piece_id, &nouvelle_id)?;
 
     // Emettre un BL, c'est constater que la marchandise part : il nait
     // donc entierement livre. Sans cela, creer un bon de livraison par
@@ -874,6 +875,7 @@ pub fn convertir_commande_en_livraison_et_facture(
         ],
     ).map_err(|e| e.to_string())?;
     inserer_lignes_raw(&tx, &bl_id, &lignes, &now)?;
+    recopier_colonnes(&tx, &piece_id, &bl_id)?;
 
     // ---- 2. Facture, issue du BL ----
     // Brouillon : elle ne produit ses effets qu'à `valider_facture`, où
@@ -891,6 +893,7 @@ pub fn convertir_commande_en_livraison_et_facture(
         ],
     ).map_err(|e| e.to_string())?;
     inserer_lignes_raw(&tx, &fac_id, &lignes, &now)?;
+    recopier_colonnes(&tx, &piece_id, &fac_id)?;
 
     // ---- 3. Axe livraison ----
     // Emettre un BL, c'est declarer que la marchandise part. La facture
@@ -936,6 +939,21 @@ pub fn convertir_commande_en_livraison_et_facture(
 }
 
 // Helpers lignes raw pour la conversion
+
+/// D58 : une piece nee d'une autre (conversion, duplicata, avoir
+/// d'annulation) garde les colonnes de sa source — NULL reste NULL, elle
+/// suit alors son genre. Recopie seulement : tous les genres a lignes
+/// ont le meme catalogue.
+fn recopier_colonnes(conn: &rusqlite::Connection, source: &str, cible: &str) -> Result<(), String> {
+    conn.execute(
+        "UPDATE piece_commerciale
+         SET colonnes = (SELECT colonnes FROM piece_commerciale WHERE id = ?1)
+         WHERE id = ?2",
+        rusqlite::params![source, cible],
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
 
 pub fn inserer_lignes_raw(
     conn: &rusqlite::Connection,
@@ -1879,6 +1897,7 @@ pub fn dupliquer_piece(
     ).map_err(|e| e.to_string())?;
 
     inserer_lignes_raw(&conn, &nouvelle_id, &lignes, &now)?;
+    recopier_colonnes(&conn, &piece_id, &nouvelle_id)?;
 
     conn.execute(
         "INSERT INTO journal
@@ -2016,6 +2035,7 @@ pub fn annuler_facture_par_avoir_sur(
 
     let lignes = lire_lignes_raw(&tx, &piece_id)?;
     inserer_lignes_raw(&tx, &avoir_piece_id, &lignes, &now)?;
+    recopier_colonnes(&tx, &piece_id, &avoir_piece_id)?;
 
     // ---- 2. Defaire les effets de la vente ----
     if let Some((vente_id, depot_id)) = vente {
@@ -3058,6 +3078,7 @@ pub fn convertir_piece_sur_base(
     .map_err(|e| e.0)?;
 
     inserer_lignes_raw_sur(&mut tx, &nouvelle_id, &lignes, &now)?;
+    crate::documents::recopier_colonnes_piece_sur(&mut tx, &piece_id, &nouvelle_id)?;
 
     // Emettre un BL, c'est constater que la marchandise part : il nait
     // entierement livre, par le MEME chemin que la saisie ligne a ligne
@@ -3173,6 +3194,7 @@ pub fn convertir_commande_en_livraison_et_facture_sur_base(
     )
     .map_err(|e| e.0)?;
     inserer_lignes_raw_sur(&mut tx, &bl_id, &lignes, &now)?;
+    crate::documents::recopier_colonnes_piece_sur(&mut tx, &piece_id, &bl_id)?;
 
     // ---- 2. Facture, issue du BL, en brouillon : ses effets viennent
     // a `valider_facture`.
@@ -3200,6 +3222,7 @@ pub fn convertir_commande_en_livraison_et_facture_sur_base(
     )
     .map_err(|e| e.0)?;
     inserer_lignes_raw_sur(&mut tx, &fac_id, &lignes, &now)?;
+    crate::documents::recopier_colonnes_piece_sur(&mut tx, &piece_id, &fac_id)?;
 
     // ---- 3. Axe livraison : le BL sort la marchandise, la facture
     // herite de l'etat sans rien constater.
@@ -3273,7 +3296,25 @@ pub fn modifier_piece_sur_base(
     lignes: Option<Vec<LignePieceInput>>,
     date_piece: Option<String>,
 ) -> Result<(), String> {
+    modifier_piece_colonnes_sur_base(base, None, piece_id, note, date_echeance, remise_globale, lignes, date_piece)
+}
+
+/// `modifier_piece_sur_base`, avec les colonnes choisies dans la
+/// modification (D58). `None` : celles de la piece ne bougent pas — la
+/// modification ne reprend jamais celles du genre.
+#[allow(clippy::too_many_arguments)]
+pub fn modifier_piece_colonnes_sur_base(
+    base: &mut Base,
+    colonnes: Option<Vec<String>>,
+    piece_id: String,
+    note: Option<String>,
+    date_echeance: Option<String>,
+    remise_globale: Option<f64>,
+    lignes: Option<Vec<LignePieceInput>>,
+    date_piece: Option<String>,
+) -> Result<(), String> {
     if let Some(ls) = lignes.as_deref() { verifier_lignes_piece(ls)?; }
+    let colonnes = colonnes.map(|c| crate::coeur::documents::valider_colonnes(&c)).transpose()?;
     let dossier = base.dossier().to_string();
     let en_tete = lire_en_tete(base, &piece_id)?;
 
@@ -3309,6 +3350,9 @@ pub fn modifier_piece_sur_base(
         )
         .map_err(|e| e.0)?;
         inserer_lignes_sur(&mut tx, &piece_id, &nouvelles, &now)?;
+    }
+    if let Some(c) = &colonnes {
+        crate::documents::poser_colonnes_piece_sur(&mut tx, &piece_id, c)?;
     }
 
     tx.valider().map_err(|e| e.0)
@@ -3483,6 +3527,7 @@ pub fn dupliquer_piece_sur_base(
     .map_err(|e| e.0)?;
 
     inserer_lignes_raw_sur(&mut tx, &nouvelle_id, &lignes, &now)?;
+    crate::documents::recopier_colonnes_piece_sur(&mut tx, &piece_id, &nouvelle_id)?;
 
     journaliser(
         &mut tx,
@@ -4022,6 +4067,7 @@ pub fn annuler_facture_par_avoir_sur_base(
 
     let lignes = lire_lignes_raw_sur(&mut tx, &piece_id)?;
     inserer_lignes_raw_sur(&mut tx, &avoir_piece_id, &lignes, &now)?;
+    crate::documents::recopier_colonnes_piece_sur(&mut tx, &piece_id, &avoir_piece_id)?;
 
     // ---- 2. Defaire les effets de la vente.
     if let Some((vente_id, depot_id)) = vente {

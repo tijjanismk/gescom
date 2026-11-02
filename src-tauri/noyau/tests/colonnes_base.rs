@@ -13,10 +13,14 @@ use serde_json::json;
 
 const FIXES: [&str; 4] = ["designation", "quantite", "prix_unitaire", "total"];
 
+/// Les fixes et `extra`, dans l'ordre du catalogue — celui que le
+/// serveur rend.
 fn avec(extra: &[&str]) -> Vec<String> {
-    let mut c: Vec<String> = FIXES.iter().map(|s| s.to_string()).collect();
-    c.extend(extra.iter().map(|s| s.to_string()));
-    c
+    gescom_noyau::coeur::documents::COLONNES
+        .iter()
+        .filter(|c| FIXES.contains(c) || extra.contains(c))
+        .map(|c| c.to_string())
+        .collect()
 }
 
 /// Une ligne de sucre à 18 % de TVA et 10 % de remise.
@@ -167,7 +171,7 @@ fn une_colonne_inconnue_refuse_la_piece_entiere() {
     let sucre = article_unite(&mut base, "Sucre");
     let avant = compter(&mut base, "SELECT COUNT(*) FROM piece_commerciale", &[]);
     let refus = pieces::creer_piece_colonnes_sur_base(
-        &mut base, Some(avec(&["marge"])), client, "facture".into(), vec![ligne(&sucre, 1.0)],
+        &mut base, Some(FIXES.iter().chain(&["marge"]).map(|c| c.to_string()).collect()), client, "facture".into(), vec![ligne(&sucre, 1.0)],
         None, None, None, None, None, None,
     )
     .unwrap_err();
@@ -189,6 +193,145 @@ fn une_piece_fournisseur_garde_aussi_ses_colonnes() {
     assert_eq!(d["piece"]["colonnes"], json!(["designation", "quantite", "prix_unitaire", "tva", "total"]));
 }
 
+// --- Suite de D58 (02/11) : les colonnes suivent la pièce -------------
+
+fn id(v: &serde_json::Value) -> String {
+    v["id"].as_str().unwrap().to_string()
+}
+
+fn colonnes_de(base: &mut gescom_noyau::base::Base, piece_id: &str) -> serde_json::Value {
+    pieces::lire_donnees_piece_sur_base(base, piece_id.to_string()).unwrap()["piece"]["colonnes"].clone()
+}
+
+fn total_ttc(base: &mut gescom_noyau::base::Base, piece_id: &str) -> i64 {
+    pieces::lire_donnees_piece_sur_base(base, piece_id.to_string()).unwrap()["totaux"]["total_ttc"].as_i64().unwrap()
+}
+
+#[test]
+fn dupliquer_une_piece_recopie_ses_colonnes() {
+    let mut base = base_avec_demo();
+    let client = client_reel(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let choix = avec(&["reference", "tva"]);
+    let d = pieces::creer_piece_colonnes_sur_base(
+        &mut base, Some(choix.clone()), client.clone(), "devis".into(), vec![ligne_taxee(&sucre)],
+        None, None, None, None, None, None,
+    )
+    .unwrap();
+    let copie = pieces::dupliquer_piece_sur_base(&mut base, id(&d)).unwrap();
+    assert_eq!(colonnes_de(&mut base, &id(&copie)), json!(choix), "le double garde les colonnes");
+    assert_eq!(total_ttc(&mut base, &id(&copie)), total_ttc(&mut base, &id(&d)), "et les mêmes montants");
+
+    // Une pièce qui suit son genre donne un double qui le suit aussi.
+    let sans = pieces::creer_piece_sur_base(
+        &mut base, client, "devis".into(), vec![ligne(&sucre, 1.0)], None, None, None, None, None, None,
+    )
+    .unwrap();
+    let copie = pieces::dupliquer_piece_sur_base(&mut base, id(&sans)).unwrap();
+    assert_eq!(colonnes_de(&mut base, &id(&copie)), serde_json::Value::Null);
+
+    // La version `Connection` (le serveur sur fichier SQLite) fait pareil.
+    if let Some(conn) = base.sqlite() {
+        let c = pieces::dupliquer_piece(conn, id(&d)).unwrap();
+        let lu = pieces::lire_donnees_piece(conn, id(&c)).unwrap();
+        assert_eq!(lu["piece"]["colonnes"], json!(choix));
+    }
+}
+
+#[test]
+fn convertir_une_piece_garde_les_colonnes_de_sa_source() {
+    let mut base = base_avec_demo();
+    let client = client_reel(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let depot = depot_defaut(&mut base);
+    let stock_avant = stock(&mut base, &sucre.0, &depot);
+    let choix = avec(&["remise"]);
+    let devis = pieces::creer_piece_colonnes_sur_base(
+        &mut base, Some(choix.clone()), client.clone(), "devis".into(), vec![ligne_taxee(&sucre)],
+        None, None, None, None, None, None,
+    )
+    .unwrap();
+    let ttc = total_ttc(&mut base, &id(&devis));
+
+    // Devis -> commande -> bon de livraison + facture, d'un seul geste.
+    let cmd = pieces::convertir_piece_sur_base(&mut base, id(&devis), "commande_client".into()).unwrap();
+    assert_eq!(colonnes_de(&mut base, &id(&cmd)), json!(choix), "la commande");
+    let bl_fac = pieces::convertir_commande_en_livraison_et_facture_sur_base(&mut base, id(&cmd)).unwrap();
+    let (bl, fac) = (
+        bl_fac["bl_id"].as_str().or(bl_fac["bon_livraison"]["id"].as_str()).map(String::from),
+        bl_fac["facture_id"].as_str().or(bl_fac["facture"]["id"].as_str()).map(String::from),
+    );
+    let (bl, fac) = (bl.expect(&format!("bl dans {bl_fac}")), fac.expect(&format!("facture dans {bl_fac}")));
+    assert_eq!(colonnes_de(&mut base, &bl), json!(choix), "le bon de livraison");
+    assert_eq!(colonnes_de(&mut base, &fac), json!(choix), "la facture");
+    assert_eq!(total_ttc(&mut base, &fac), ttc, "la facture doit ce que disait le devis");
+    // Le BL issu d'une commande sort la marchandise ; la facture, rien de plus.
+    let sorti = stock_avant - stock(&mut base, &sucre.0, &depot);
+    assert_eq!(sorti, 3.0, "les trois kilos du bon, une seule fois");
+
+    // Une source qui suit son genre : la pièce convertie suit le sien.
+    let sans = pieces::creer_piece_sur_base(
+        &mut base, client, "devis".into(), vec![ligne(&sucre, 1.0)], None, None, None, None, None, None,
+    )
+    .unwrap();
+    let f = pieces::convertir_piece_sur_base(&mut base, id(&sans), "facture".into()).unwrap();
+    assert_eq!(colonnes_de(&mut base, &id(&f)), serde_json::Value::Null);
+}
+
+#[test]
+fn la_conversion_cote_connection_recopie_aussi() {
+    let mut base = base_avec_demo();
+    let client = client_reel(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let choix = avec(&["tva"]);
+    let devis = pieces::creer_piece_colonnes_sur_base(
+        &mut base, Some(choix.clone()), client, "devis".into(), vec![ligne_taxee(&sucre)],
+        None, None, None, None, None, None,
+    )
+    .unwrap();
+    let Some(conn) = base.sqlite_mut() else { return };
+    let cmd = pieces::convertir_piece(conn, id(&devis), "commande_client".into()).unwrap();
+    let cmd_id = cmd["id"].as_str().or(cmd["piece_id"].as_str()).unwrap().to_string();
+    assert_eq!(pieces::lire_donnees_piece(conn, cmd_id.clone()).unwrap()["piece"]["colonnes"], json!(choix));
+    let r = pieces::convertir_commande_en_livraison_et_facture(conn, cmd_id).unwrap();
+    let fac = r["facture_id"].as_str().or(r["facture"]["id"].as_str()).expect("facture").to_string();
+    assert_eq!(pieces::lire_donnees_piece(conn, fac).unwrap()["piece"]["colonnes"], json!(choix));
+}
+
+#[test]
+fn modifier_garde_les_colonnes_ou_pose_celles_du_menu() {
+    let mut base = base_avec_demo();
+    let client = client_reel(&mut base);
+    let sucre = article_unite(&mut base, "Sucre");
+    let choix = avec(&["tva"]);
+    let d = pieces::creer_piece_colonnes_sur_base(
+        &mut base, Some(choix.clone()), client.clone(), "devis".into(), vec![ligne_taxee(&sucre)],
+        None, None, None, None, None, None,
+    )
+    .unwrap();
+    // Le genre change entre-temps : la modification ne le reprend pas.
+    documents::enregistrer_reglage_sur(&mut base, "devis", json!({ "format": "a4", "colonnes": avec(&["reference"]) })).unwrap();
+    pieces::modifier_piece_sur_base(&mut base, id(&d), Some("Livrer lundi".into()), None, None, None, None).unwrap();
+    assert_eq!(colonnes_de(&mut base, &id(&d)), json!(choix), "sans menu touché, rien ne bouge");
+
+    pieces::modifier_piece_colonnes_sur_base(
+        &mut base, Some(avec(&["remise", "tva"])), id(&d), None, None, None, None, None,
+    )
+    .unwrap();
+    assert_eq!(colonnes_de(&mut base, &id(&d)), json!(["designation", "quantite", "prix_unitaire", "remise", "tva", "total"]));
+
+    let refus = pieces::modifier_piece_colonnes_sur_base(
+        &mut base, Some(v_sans_prix()), id(&d), None, None, None, None, None,
+    )
+    .unwrap_err();
+    assert!(refus.contains("Prix unitaire"), "{refus}");
+    assert_eq!(colonnes_de(&mut base, &id(&d)), json!(["designation", "quantite", "prix_unitaire", "remise", "tva", "total"]), "rien n'a changé");
+}
+
+fn v_sans_prix() -> Vec<String> {
+    vec!["designation".into(), "quantite".into(), "total".into()]
+}
+
 #[test]
 fn tout_ce_qui_est_touche_passe_le_detecteur() {
     let mut base = base_avec_demo();
@@ -197,9 +340,19 @@ fn tout_ce_qui_est_touche_passe_le_detecteur() {
     let sucre = article_unite(&mut base, "Sucre");
     documents::enregistrer_reglage_sur(&mut base, "facture", json!({ "format": "a4", "colonnes": avec(&["tva"]) })).unwrap();
     let p = pieces::creer_piece_colonnes_sur_base(
-        &mut base, Some(avec(&["remise"])), client, "facture".into(), vec![ligne_taxee(&sucre)],
+        &mut base, Some(avec(&["remise"])), client.clone(), "facture".into(), vec![ligne_taxee(&sucre)],
         None, None, None, None, None, None,
     )
     .unwrap();
     pieces::lire_donnees_piece_sur_base(&mut base, p["id"].as_str().unwrap().to_string()).unwrap();
+    // La suite : modifier, dupliquer, convertir.
+    let d = pieces::creer_piece_colonnes_sur_base(
+        &mut base, Some(avec(&["tva"])), client, "devis".into(), vec![ligne_taxee(&sucre)],
+        None, None, None, None, None, None,
+    )
+    .unwrap();
+    pieces::modifier_piece_colonnes_sur_base(&mut base, Some(avec(&["remise"])), id(&d), None, None, None, None, None).unwrap();
+    pieces::dupliquer_piece_sur_base(&mut base, id(&d)).unwrap();
+    let cmd = pieces::convertir_piece_sur_base(&mut base, id(&d), "commande_client".into()).unwrap();
+    pieces::convertir_commande_en_livraison_et_facture_sur_base(&mut base, id(&cmd)).unwrap();
 }

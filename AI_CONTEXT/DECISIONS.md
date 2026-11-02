@@ -2082,6 +2082,34 @@ modification d'une pièce (`Pieces.tsx`, quantités seulement).
 rend (deux versions). Écran : `ModalNouvellePiece.tsx` (menu,
 bandeau, totaux), `OngletDocuments.tsx` (cases), `genererPDF.ts`.
 
+**Complété le 02/11/2026** (demande du propriétaire : le menu partout
+où une pièce se crée ou se modifie, des colonnes qui suivent la pièce).
+Ce qui change dans le point 4 et dans « Pas pris » ci-dessus :
+
+- **La fiche client** ouvre la même fenêtre « Nouvelle pièce » que
+  Pièces, le client déjà choisi (même menu, même défaut du genre). Sa
+  fenêtre à elle est retirée : elle n'avait ni TVA ni menu, et mettait
+  la TVA de chaque ligne à 0 — une pièce faite depuis la fiche prend
+  désormais la TVA de l'article, comme depuis Pièces.
+- **Modifier une pièce** (brouillon, ou émise si elle reste
+  modifiable) a le menu, qui part des colonnes **de la pièce** (de son
+  genre si elle n'en garde pas). Rien ne part au serveur tant que le
+  menu n'est pas touché : la modification ne reprend jamais celles du
+  genre (`modifier_piece_colonnes_sur_base`, `colonnes: null` = ne
+  bouge pas). Le menu est en haut de la fenêtre et se ferme par un clic
+  ailleurs ou Échap : ouvert en bas, il couvrait « Sauvegarder ».
+- **Dupliquer, convertir** (devis → commande → BL → facture, commande →
+  BL + facture d'un geste, BCF → BRF → FAF) **et l'avoir d'annulation
+  d'une facture** recopient les colonnes de la source ; une source sans
+  liste donne une pièce sans liste (elle suit son genre). **Recopie
+  seulement** : les quatre genres à colonnes ont le même catalogue, une
+  colonne de la source a donc toujours un sens chez la cible — rien
+  n'est retiré ni ajouté. Dans les deux versions (`recopier_colonnes`,
+  `documents::recopier_colonnes_piece_sur`), dans la transaction qui
+  crée la pièce.
+- Restent sans menu : le comptoir (ticket), les pièces nées d'un retour
+  ou d'un achat au comptoir — elles suivent leur genre.
+
 ## D57 — Le caissier nomme un passant ; « ne pas suivre le stock » se décide dès la création (01/11/2026)
 
 **Les décisions du propriétaire (01/11/2026)** : (1) « Passer en client

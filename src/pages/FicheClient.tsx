@@ -5,7 +5,7 @@ import {
   ArrowLeft, User, Phone, MapPin, Mail, FileText,
   Loader2, Plus, Printer, ArrowRight, Eye, Pencil, RotateCcw,
   Receipt, Package, Truck, ClipboardList, Gift,
-  AlertTriangle, TrendingUp, Clock, Search, X, History,
+  AlertTriangle, TrendingUp, Clock, History,
 } from "lucide-react";
 import { GlassHalos } from "@/components/ui/GlassIcon";
 import { KpiLigne, CARTE, GRILLE } from "@/components/ui/KpiVerre";
@@ -33,7 +33,8 @@ import {
 import { ApercuPiece } from "@/components/ApercuPiece";
 import { ApercuRecu } from "@/components/ApercuRecu";
 import { ModalModifierTiers } from "@/components/ModalModifierTiers";
-import { UTILISATEUR_ACTIF, DEPOT_ACTIF } from "@/App";
+import { ModalNouvellePiece } from "@/components/ModalNouvellePiece";
+import { UTILISATEUR_ACTIF } from "@/App";
 
 // =====================================================================
 //  Types
@@ -54,21 +55,6 @@ interface Piece {
   total_ht: number; total_net: number; total_ttc: number;
   remise_globale: number; remise_montant: number;
   note?: string; piece_origine_id?: string;
-}
-interface Article {
-  id: string; nom: string; unite_base: string;
-  // `stock` et `taux_tva_defaut` sont bien renvoyes par
-  // lire_articles_avec_unites (ventes.rs) : c'est le type qui etait
-  // incomplet. Sixieme ecart de cle front/back du projet.
-  stock: number;
-  taux_tva_defaut?: number;
-  unites: { id: string; libelle: string; facteur: number; prix_reference: number }[];
-}
-interface LignePieceInput {
-  article_id: string; unite_vente_id: string;
-  article_nom: string; unite_libelle: string;
-  quantite: number; prix_unitaire: number;
-  remise_pct: number; taux_tva: number;
 }
 interface Avoir {
   id: string; montant: number; statut: string; cree_le: string;
@@ -172,289 +158,6 @@ const ONGLETS_PIECES = [
   { key: "facture",        label: "Factures",       filtre: "facture" },
   { key: "avoir_client",   label: "Avoirs",         filtre: "avoir_client" },
 ];
-
-// =====================================================================
-//  Modal : Nouvelle pièce
-// =====================================================================
-
-function ModalNouvellePiece({
-  ouvert, clientId, onFermer, onCree,
-}: {
-  ouvert: boolean; clientId: string;
-  onFermer: () => void; onCree: () => void;
-}) {
-  const [typePiece, setTypePiece] = useState("devis");
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [lignes, setLignes] = useState<LignePieceInput[]>([]);
-  const [remiseGlobale, setRemiseGlobale] = useState("0");
-  const [note, setNote] = useState("");
-  const [dateEcheance, setDateEcheance] = useState("");
-  const [chargement, setChargement] = useState(false);
-  const [rechercheArticle, setRechercheArticle] = useState("");
-  const [articlesFiltres, setArticlesFiltres] = useState<Article[]>([]);
-
-  useEffect(() => {
-    if (!ouvert) return;
-    invoke<Article[]>("lire_articles_avec_unites", {
-      role: UTILISATEUR_ACTIF?.role ?? "employe"
-    }).then(setArticles).catch(console.error);
-  }, [ouvert]);
-
-  function ajouterLigne(article: Article) {
-    const unite = article.unites[0];
-    setLignes(prev => [...prev, {
-      article_id: article.id, unite_vente_id: unite.id,
-      article_nom: article.nom, unite_libelle: unite.libelle,
-      quantite: 1, prix_unitaire: unite.prix_reference,
-      remise_pct: 0, taux_tva: 0,
-    }]);
-    setRechercheArticle(""); setArticlesFiltres([]);
-  }
-
-  function supprimerLigne(i: number) {
-    setLignes(prev => prev.filter((_, idx) => idx !== i));
-  }
-
-  function modifierLigne(i: number, champ: string, val: any) {
-    setLignes(prev => prev.map((l, idx) => idx === i ? { ...l, [champ]: val } : l));
-  }
-
-  async function handleCreer() {
-    if (lignes.length === 0) return;
-    setChargement(true);
-    try {
-      await invoke("creer_piece", {
-        clientId: clientId,
-        typePiece: typePiece,
-        lignes: lignes.map(l => ({
-          article_id: l.article_id,
-          unite_vente_id: l.unite_vente_id,
-          quantite: l.quantite,
-          prix_unitaire: l.prix_unitaire,
-          remise_pct: l.remise_pct,
-          taux_tva: l.taux_tva,
-        })),
-        remiseGlobale: parseFloat(remiseGlobale) || 0,
-        dateEcheance: dateEcheance || null,
-        note: note || null,
-        pieceOrigineId: null,
-        // Le depot ou la piece est etablie : c'est lui qui sera
-        // decremente a la validation de la facture. Sans lui, la
-        // marchandise sortait toujours du depot par defaut.
-        depotId: DEPOT_ACTIF,
-      });
-      setLignes([]); setNote(""); setRemiseGlobale("0"); setDateEcheance("");
-      onCree();
-    } catch (e) {
-      await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
-    } finally { setChargement(false); }
-  }
-
-  const totalHT = lignes.reduce((s, l) => {
-    const brut = Math.round(l.prix_unitaire * l.quantite);
-    return s + brut - Math.round(brut * l.remise_pct / 100);
-  }, 0);
-  const remiseMt = Math.round(totalHT * (parseFloat(remiseGlobale) || 0) / 100);
-  const totalNet = totalHT - remiseMt;
-
-  return (
-    <Dialog open={ouvert} onOpenChange={onFermer}>
-      <DialogContent className="max-w-5xl w-[92vw] h-[88vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
-          <DialogTitle>Nouvelle pièce commerciale</DialogTitle>
-        </DialogHeader>
-
-        <div className="flex-1 overflow-auto px-6 py-4 space-y-4">
-
-          {/* Type + Date + Note */}
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <Label className="text-xs">Type de pièce</Label>
-              <Select value={typePiece} onValueChange={v => { if (v) setTypePiece(v); }}>
-                <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="devis">Devis</SelectItem>
-                  <SelectItem value="proforma">Proforma</SelectItem>
-                  <SelectItem value="commande_client">Commande client</SelectItem>
-                  <SelectItem value="bon_livraison">Bon de livraison</SelectItem>
-                  <SelectItem value="facture">Facture</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Date d'échéance (optionnel)</Label>
-              <Input type="date" value={dateEcheance}
-                onChange={e => setDateEcheance(e.target.value)}
-                className="mt-1 h-9" />
-            </div>
-            <div>
-              <Label className="text-xs">Note (optionnel)</Label>
-              <Input value={note} onChange={e => setNote(e.target.value)}
-                placeholder="Conditions, délais..." className="mt-1 h-9" />
-            </div>
-          </div>
-
-          {/* Recherche article */}
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input value={rechercheArticle}
-              onChange={e => {
-                setRechercheArticle(e.target.value);
-                setArticlesFiltres(
-                  e.target.value.length < 1 ? [] :
-                  articles.filter(a =>
-                    a.nom.toLowerCase().includes(e.target.value.toLowerCase())
-                  ).slice(0, 10)
-                );
-              }}
-              placeholder="Rechercher un article à ajouter..."
-              className="h-9 pl-9" autoFocus />
-            {articlesFiltres.length > 0 && (
-              <div className="absolute z-20 w-full mt-1 bg-card border border-border
-                              rounded-md shadow-lg max-h-52 overflow-auto">
-                {articlesFiltres.map(a => (
-                  <button key={a.id} onClick={() => ajouterLigne(a)}
-                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-accent
-                               flex items-center justify-between gap-4 border-b border-border/50
-                               last:border-0">
-                    <span className="font-medium">{a.nom}</span>
-                    <span className="text-muted-foreground text-xs shrink-0">
-                      {fmt(a.unites[0].prix_reference)} / {a.unite_base}
-                      {a.stock >= 0 && (
-                        <span className={`ml-3 ${a.stock <= 0 ? "text-red-500" : "text-green-600"}`}>
-                          Stock : {a.stock % 1 === 0 ? a.stock : a.stock.toFixed(2)} {a.unite_base}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Tableau des lignes */}
-          {lignes.length === 0 ? (
-            <div className="border-2 border-dashed border-border rounded-lg py-12
-                            text-center text-muted-foreground">
-              <p className="text-sm">Aucun article — recherchez et ajoutez des articles ci-dessus</p>
-            </div>
-          ) : (
-            <div className="border border-border rounded-md overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/80 text-xs">
-                  <tr>
-                    <th className="text-left px-4 py-2.5 w-[30%]">Article</th>
-                    <th className="text-center px-2 py-2.5 w-[12%]">Unité</th>
-                    <th className="text-right px-2 py-2.5 w-[10%]">Qté</th>
-                    <th className="text-right px-2 py-2.5 w-[16%]">Prix unitaire (F)</th>
-                    <th className="text-right px-2 py-2.5 w-[10%]">Remise %</th>
-                    <th className="text-right px-2 py-2.5 w-[16%]">Montant (F)</th>
-                    <th className="px-2 py-2.5 w-[6%]"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lignes.map((l, i) => {
-                    const brut = Math.round(l.prix_unitaire * l.quantite);
-                    const remise = Math.round(brut * l.remise_pct / 100);
-                    const montant = brut - remise;
-                    return (
-                      <tr key={i} className="border-t border-border hover:bg-muted/20">
-                        <td className="px-4 py-2">
-                          <p className="font-medium">{l.article_nom}</p>
-                        </td>
-                        <td className="px-2 py-2 text-center">
-                          <p className="text-xs text-muted-foreground">{l.unite_libelle}</p>
-                        </td>
-                        <td className="px-2 py-2 text-right">
-                          <input type="number" min="0.01" step="0.01"
-                            value={l.quantite}
-                            onChange={e => modifierLigne(i, "quantite", parseFloat(e.target.value) || 1)}
-                            className="w-20 h-8 text-right text-sm border border-border
-                                       rounded px-2 bg-background focus:outline-none
-                                       focus:ring-1 focus:ring-primary" />
-                        </td>
-                        <td className="px-2 py-2 text-right">
-                          <input type="number" min="0"
-                            value={l.prix_unitaire}
-                            onChange={e => modifierLigne(i, "prix_unitaire", parseInt(e.target.value) || 0)}
-                            className="w-28 h-8 text-right text-sm border border-border
-                                       rounded px-2 bg-background focus:outline-none
-                                       focus:ring-1 focus:ring-primary" />
-                        </td>
-                        <td className="px-2 py-2 text-right">
-                          <div className="relative inline-block">
-                            <input type="number" min="0" max="100" step="1"
-                              value={l.remise_pct}
-                              onChange={e => modifierLigne(i, "remise_pct", parseFloat(e.target.value) || 0)}
-                              className="w-16 h-8 text-right text-sm border border-border
-                                         rounded pl-2 pr-5 bg-background focus:outline-none
-                                         focus:ring-1 focus:ring-primary" />
-                            <span className="absolute right-1.5 top-2 text-xs text-muted-foreground">%</span>
-                          </div>
-                        </td>
-                        <td className="px-2 py-2 text-right">
-                          <p className="font-semibold">{fmt(montant)}</p>
-                          {remise > 0 && (
-                            <p className="text-xs text-orange-800">−{fmt(remise)}</p>
-                          )}
-                        </td>
-                        <td className="px-2 py-2 text-center">
-                          <button onClick={() => supprimerLigne(i)}
-                            className="w-6 h-6 rounded-full flex items-center justify-center
-                                       text-muted-foreground hover:bg-destructive/10
-                                       hover:text-destructive transition-colors mx-auto">
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Remise globale + totaux */}
-          {lignes.length > 0 && (
-            <div className="flex items-center justify-between gap-6 pt-2">
-              <div className="flex items-center gap-3">
-                <Label className="text-sm shrink-0">Remise globale</Label>
-                <div className="relative w-24">
-                  <Input type="number" min="0" max="100" step="1"
-                    value={remiseGlobale}
-                    onChange={e => setRemiseGlobale(e.target.value)}
-                    className="h-8 pr-6 text-sm" />
-                  <span className="absolute right-2.5 top-2 text-xs text-muted-foreground">%</span>
-                </div>
-              </div>
-              <div className="text-right space-y-1">
-                {(remiseMt > 0 || totalHT !== totalNet) && (
-                  <p className="text-sm text-muted-foreground">Brut : {fmt(totalHT)}</p>
-                )}
-                {remiseMt > 0 && (
-                  <p className="text-sm text-orange-800">Remise : −{fmt(remiseMt)}</p>
-                )}
-                <p className="text-xl font-bold">Net : {fmt(totalNet)}</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Pied fixe */}
-        <div className="border-t border-border px-6 py-4 flex gap-3 shrink-0 bg-card">
-          <Button variant="outline" onClick={onFermer} className="flex-1">Annuler</Button>
-          <Button onClick={handleCreer}
-            disabled={lignes.length === 0 || chargement} className="flex-1">
-            {chargement
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : `Créer ${LABELS_TYPE[typePiece] ?? typePiece}`
-            }
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // =====================================================================
 //  Modal : Annuler un règlement
@@ -1492,8 +1195,10 @@ export function FicheClient({ clientId, onRetour, onHistorique }: FicheClientPro
       </div>
 
       {/* Modals */}
+      {/* La même fenêtre que Pièces, le client déjà choisi (D58 : même
+          menu « Colonnes », même réglage du genre, même TVA des articles). */}
       <ModalNouvellePiece
-        ouvert={modalNouv} clientId={clientId}
+        ouvert={modalNouv} cote="client" tiersIdInitial={clientId}
         onFermer={() => setModalNouv(false)}
         onCree={() => { setModalNouv(false); charger(); }} />
 

@@ -23,7 +23,9 @@ import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import { genererImpression, type FormatImpression } from "@/lib/genererPDF";
 import { chargerHabillage } from "@/lib/impression";
 import { noterImpression, marque, refusImpression } from "@/lib/duplicata";
-import { genreDePiece } from "@/lib/documents";
+import { type ReglagesDocuments, genreDePiece, lireReglagesDocuments } from "@/lib/documents";
+import { type Colonne, basculer, normaliserColonnes } from "@/lib/colonnes";
+import { MenuColonnes, BandeauColonnes, garderPourLeGenre } from "@/components/MenuColonnes";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -580,6 +582,23 @@ function ModalModifierPiece({
   // renvoyer un prix inconnu les réécrirait à faux.
   const [prixMasques, setPrixMasques] = useState(false);
   const lignesModifiables = editable && !prixMasques;
+  // D58 : les colonnes de la pièce, pas celles du genre. Une pièce qui
+  // n'en garde pas (d'avant D58, du comptoir) montre celles de son
+  // genre ; rien ne part au serveur tant que le menu n'est pas touché.
+  const [reglagesDocs, setReglagesDocs] = useState<ReglagesDocuments | null>(null);
+  const [colonnesPiece, setColonnesPiece] = useState<string[] | null>(null);
+  const [colonnes, setColonnes] = useState<Colonne[]>(normaliserColonnes(null));
+  const [colonnesTouchees, setColonnesTouchees] = useState(false);
+  const [garderColonnes, setGarderColonnes] = useState(false);
+  const genre = genreDePiece(piece?.type_piece ?? "facture");
+  useEffect(() => {
+    if (colonnesTouchees) return;
+    setColonnes(normaliserColonnes(colonnesPiece ?? reglagesDocs?.genres[genre]?.colonnes));
+  }, [colonnesPiece, reglagesDocs, genre, colonnesTouchees]);
+  function montrerColonne(c: Colonne, montrer: boolean) {
+    setColonnes(prev => basculer(prev, c, montrer));
+    setColonnesTouchees(true);
+  }
 
   useEffect(() => {
     if (ouvert && piece) {
@@ -589,6 +608,11 @@ function ModalModifierPiece({
       setReference(piece.reference ?? "");
       setLignes([]);
       setPrixMasques(false);
+      setColonnesPiece(null); setColonnesTouchees(false); setGarderColonnes(false);
+      lireReglagesDocuments().then(setReglagesDocs).catch(() => setReglagesDocs(null));
+      invoke<{ piece: { colonnes?: string[] | null } }>("lire_donnees_piece", { pieceId: piece.id })
+        .then(d => setColonnesPiece(d.piece.colonnes ?? null))
+        .catch(() => setColonnesPiece(null));
       if (piece.statut === "brouillon" || (piece.statut === "emis" && !estUnBon)) {
         setChargeLignes(true);
         invoke<LigneEdit[]>("lire_lignes_piece", { pieceId: piece.id })
@@ -668,7 +692,11 @@ function ModalModifierPiece({
         remiseGlobale: null,
         lignes: lignesEnvoi,
         datePiece: dateEnvoi,
+        // D58 : null = les colonnes de la pièce ne bougent pas.
+        colonnes: editable && colonnesTouchees ? colonnes : null,
       });
+      const refus = editable && garderColonnes ? await garderPourLeGenre(reglagesDocs, genre, colonnes) : null;
+      if (refus) await message(refus, { title: "Colonnes", kind: "warning" });
       onModifie();
     } catch (e) {
       await message(`Erreur : ${e}`, { title: "Erreur", kind: "error" });
@@ -696,6 +724,12 @@ function ModalModifierPiece({
             <span className="text-muted-foreground">{piece.numero}</span>
             <span className="ml-2 font-medium">{piece.tiers_nom}</span>
           </div>
+          {/* D58 : le menu « Colonnes » de la pièce, en haut : ouvert, il a
+              la place de descendre sans couvrir le bas de la fenêtre. */}
+          {editable && (
+            <MenuColonnes colonnes={colonnes} onBasculer={montrerColonne} genre={genre}
+              garder={garderColonnes} onGarder={setGarderColonnes} reglagesPrets={!!reglagesDocs} />
+          )}
           <div>
             <Label className="text-xs mb-1.5 block">Date de la pièce</Label>
             {/* Sans la permission d'antidater, la date se lit mais ne se
@@ -736,6 +770,11 @@ function ModalModifierPiece({
             <Input value={note} onChange={e => setNote(e.target.value)}
               placeholder="Conditions, remarques..." className="h-9" />
           </div>
+
+          {/* D58 : ce que les colonnes cachées portent */}
+          {editable && (
+            <BandeauColonnes colonnes={colonnes} lignes={lignes} onMontrer={c => montrerColonne(c, true)} />
+          )}
 
           {/* Lignes — brouillon uniquement */}
           {editable && (

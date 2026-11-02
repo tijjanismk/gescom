@@ -255,6 +255,22 @@ pub fn poser_colonnes_piece_sur(acces: &mut impl Acces, piece_id: &str, colonnes
         .map_err(|e| e.0)
 }
 
+/// Une piece nee d'une autre (conversion, duplicata, avoir d'annulation)
+/// garde les colonnes de sa source ; NULL reste NULL (elle suit son
+/// genre). Dans la transaction qui la cree.
+pub fn recopier_colonnes_piece_sur(acces: &mut impl Acces, source_id: &str, cible_id: &str) -> Result<(), String> {
+    let dossier = acces.dossier().to_string();
+    acces
+        .executer(
+            "UPDATE piece_commerciale
+             SET colonnes = (SELECT colonnes FROM piece_commerciale WHERE id = ?1 AND dossier_id = ?3)
+             WHERE id = ?2 AND dossier_id = ?3",
+            &parametres![source_id, cible_id, dossier],
+        )
+        .map(|_| ())
+        .map_err(|e| e.0)
+}
+
 /// Remet un genre aux reglages d'usine, images comprises.
 pub fn retablir_defaut_sur(acces: &mut impl Acces, genre: &str) -> Result<serde_json::Value, String> {
     if !regles::GENRES.contains(&genre) {

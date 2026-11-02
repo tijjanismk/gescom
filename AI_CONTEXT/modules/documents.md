@@ -91,8 +91,17 @@ prochaines » réécrit le réglage du genre (`parametres:modifier`).
   ni récapitulatif ni « HT/TTC », même cochés ; remise cachée = « Remise
   x % » sous la désignation), `alertesSaisie` (le bandeau),
   `totauxSaisie` (la suite d'arrondis de `lire_donnees_piece`).
-- Pas de colonnes : ticket, reçu, relevé, bulletin ; ni la « Nouvelle
-  pièce » de la fiche client, ni la modification d'une pièce.
+- Le menu et le bandeau : [MenuColonnes.tsx](../../src/components/MenuColonnes.tsx)
+  (`MenuColonnes`, `BandeauColonnes`, `garderPourLeGenre`), dans les
+  trois fenêtres de saisie : Nouvelle pièce (Pièces et fiche client, la
+  même fenêtre) et Modifier la pièce (`Pieces.tsx`, part des colonnes
+  de la pièce ; `modifier_piece` prend `colonnes`, null = ne bouge pas).
+- **Une pièce née d'une autre garde ses colonnes** (02/11) : conversion,
+  commande → BL + facture, duplicata, avoir d'annulation —
+  `recopier_colonnes` (version `Connection`) et
+  `documents::recopier_colonnes_piece_sur`, dans la transaction. NULL
+  reste NULL.
+- Pas de colonnes : ticket, reçu, relevé, bulletin.
 
 ## Les genres et leur type de pièce
 

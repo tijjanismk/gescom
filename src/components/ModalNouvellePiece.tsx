@@ -4,7 +4,7 @@
 import { useState, useEffect } from "react";
 import { appeler as invoke } from "@/lib/pont";
 import { avecHomonymeConfirme } from "@/lib/homonyme";
-import { Loader2, X, UserPlus, Package, Search, Columns3, AlertTriangle } from "lucide-react";
+import { Loader2, X, UserPlus, Package, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,12 +21,10 @@ import { peut } from "@/lib/droits";
 import { cn } from "@/lib/utils";
 import { MoneyInput, parseMontant } from "@/components/MoneyInput";
 import {
-  type ReglagesDocuments, LIBELLES_GENRE, genreDePiece, lireReglagesDocuments,
+  type ReglagesDocuments, genreDePiece, lireReglagesDocuments,
 } from "@/lib/documents";
-import {
-  type Colonne, COLONNES_REGLABLES, LIBELLES_COLONNE,
-  alertesSaisie, basculer, normaliserColonnes, totauxSaisie,
-} from "@/lib/colonnes";
+import { type Colonne, basculer, normaliserColonnes, totauxSaisie } from "@/lib/colonnes";
+import { MenuColonnes, BandeauColonnes, garderPourLeGenre } from "@/components/MenuColonnes";
 
 // =====================================================================
 //  Types
@@ -145,8 +143,6 @@ export function ModalNouvellePiece({
   const [colonnes, setColonnes] = useState<Colonne[]>(normaliserColonnes(null));
   const [colonnesTouchees, setColonnesTouchees] = useState(false);
   const [garderColonnes, setGarderColonnes] = useState(false);
-  const [menuColonnes, setMenuColonnes] = useState(false);
-  const peutRegler = peut("parametres:modifier");
   const genre = genreDePiece(typePiece);
   const voir = (c: Colonne) => colonnes.includes(c);
 
@@ -177,7 +173,7 @@ export function ModalNouvellePiece({
     setDateEcheance(""); setDatePiece(""); setNote("");
     setRechercheArticle(""); setArticlesFiltres([]);
     if (!tiersIdInitial) { setTiersId(""); setTiersNom(""); }
-    setColonnesTouchees(false); setGarderColonnes(false); setMenuColonnes(false);
+    setColonnesTouchees(false); setGarderColonnes(false);
     // Sans réglage lisible : les colonnes fixes, comme une base neuve.
     lireReglagesDocuments().then(setReglagesDocs).catch(() => setReglagesDocs(null));
 
@@ -322,7 +318,6 @@ export function ModalNouvellePiece({
   const totalHT = totaux.totalHt;
   const remiseMt = totaux.remiseMontant;
   const totalNet = totaux.totalNet;
-  const alertes = alertesSaisie(colonnes, lignes);
 
   async function handleCreer() {
     if (!tiersId) return;
@@ -375,18 +370,8 @@ export function ModalNouvellePiece({
       });
       // La pièce est créée ; le réglage du genre est un second geste. Un
       // refus ici ne défait pas la pièce, il se dit.
-      const reglage = reglagesDocs?.genres[genre];
-      if (garderColonnes && peutRegler && reglage) {
-        try {
-          await invoke("enregistrer_reglage_document", {
-            genre,
-            reglage: { ...reglage, colonnes, signatures: reglage.signatures.map(s => ({ libelle: s.libelle })) },
-          });
-        } catch (e) {
-          await message(`La pièce est créée, mais les colonnes ne sont pas gardées pour les prochaines : ${e}`,
-            { title: "Colonnes", kind: "warning" });
-        }
-      }
+      const refus = garderColonnes ? await garderPourLeGenre(reglagesDocs, genre, colonnes) : null;
+      if (refus) await message(refus, { title: "Colonnes", kind: "warning" });
       handleFermer();
       onCree();
     } catch (e) {
@@ -658,46 +643,8 @@ export function ModalNouvellePiece({
 
           {/* D58 : le menu « Colonnes » de cette pièce */}
           {!avoirSansLignes && (
-            <div className="flex justify-end">
-              <div className="relative">
-                <Button type="button" variant="outline" size="sm"
-                  aria-expanded={menuColonnes} aria-controls="menu-colonnes"
-                  onClick={() => setMenuColonnes(o => !o)}>
-                  <Columns3 className="h-4 w-4 mr-1.5" /> Colonnes
-                </Button>
-                {menuColonnes && (
-                  <div id="menu-colonnes" role="group" aria-label="Colonnes de cette pièce"
-                    className="absolute right-0 z-20 mt-1 w-80 rounded-md border border-border
-                               bg-card p-3 shadow-lg space-y-1">
-                    <p className="text-xs text-muted-foreground mb-1">
-                      Pour cette pièce, gardé avec elle. Toujours là : désignation, quantité,
-                      prix, total. Cacher une colonne ne change aucun montant.
-                    </p>
-                    {COLONNES_REGLABLES.map(c => (
-                      <label key={c} className="flex items-center gap-2 py-0.5 text-sm cursor-pointer">
-                        <input type="checkbox" className="h-4 w-4 accent-primary"
-                          checked={voir(c)} onChange={e => montrerColonne(c, e.target.checked)} />
-                        {LIBELLES_COLONNE[c]}
-                      </label>
-                    ))}
-                    <label className={cn("flex items-start gap-2 pt-2 mt-1 border-t border-border text-sm",
-                      peutRegler ? "cursor-pointer" : "opacity-70")}>
-                      <input type="checkbox" className="h-4 w-4 mt-0.5 accent-primary"
-                        disabled={!peutRegler || !reglagesDocs}
-                        checked={garderColonnes} onChange={e => setGarderColonnes(e.target.checked)} />
-                      <span>
-                        Garder pour les prochaines ({LIBELLES_GENRE[genre].toLowerCase()})
-                        <span className="block text-xs text-muted-foreground">
-                          {peutRegler
-                            ? "Change le réglage de Paramètres → Documents, à l'enregistrement."
-                            : "Réservé à qui peut modifier les Paramètres."}
-                        </span>
-                      </span>
-                    </label>
-                  </div>
-                )}
-              </div>
-            </div>
+            <MenuColonnes colonnes={colonnes} onBasculer={montrerColonne} genre={genre}
+              garder={garderColonnes} onGarder={setGarderColonnes} reglagesPrets={!!reglagesDocs} />
           )}
 
           {/* Tableau lignes */}
@@ -835,37 +782,7 @@ export function ModalNouvellePiece({
           )}
 
           {/* D58 : ce que les colonnes cachées portent, dit avant d'enregistrer */}
-          {(alertes.tvaCachee > 0 || alertes.remiseCachee > 0) && (
-            <div role="status"
-              className="flex items-start gap-3 rounded-md border border-border border-l-4
-                         border-l-orange-600 bg-card px-4 py-3 text-sm">
-              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-orange-700" />
-              <div className="flex-1 space-y-1">
-                {alertes.tvaCachee > 0 && (
-                  <p>
-                    {alertes.tvaCachee === 1 ? "1 ligne porte" : `${alertes.tvaCachee} lignes portent`} une
-                    TVA que la colonne cachée ne montre pas ; le total en tient compte.
-                  </p>
-                )}
-                {alertes.remiseCachee > 0 && (
-                  <p>
-                    {alertes.remiseCachee === 1 ? "1 ligne porte" : `${alertes.remiseCachee} lignes portent`} une
-                    remise que la colonne cachée ne montre pas ; le papier la dit sous la désignation.
-                  </p>
-                )}
-              </div>
-              <div className="flex flex-col gap-1.5 shrink-0">
-                {alertes.tvaCachee > 0 && (
-                  <Button type="button" size="sm" variant="outline"
-                    onClick={() => montrerColonne("tva", true)}>Montrer la TVA</Button>
-                )}
-                {alertes.remiseCachee > 0 && (
-                  <Button type="button" size="sm" variant="outline"
-                    onClick={() => montrerColonne("remise", true)}>Montrer la remise</Button>
-                )}
-              </div>
-            </div>
-          )}
+          <BandeauColonnes colonnes={colonnes} lignes={lignes} onMontrer={c => montrerColonne(c, true)} />
 
           {/* Remise globale + totaux */}
           {lignes.length > 0 && (
