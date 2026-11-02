@@ -3554,3 +3554,18 @@ deux bases ont des ventes, le garde-fou de la marque, le refus de
 - **Vérifié** : `colonnes_base` 14/14 sur SQLite, PostgreSQL
   (`gescom_test_eq6`) et compte limité ; suite noyau + serveur SQLite ;
   tsc ; node 24/24 ; banc `d58-colonnes.mjs` 18/18.
+
+## 02/11/2026 — la 1.13.2 : la suite des colonnes (D58)
+
+- **Fusionné** (`632eeea`, poussé) : le menu « Colonnes » dans « Nouvelle
+  pièce » de la fiche client et dans « Modifier la pièce », les colonnes
+  recopiées à la duplication, à la conversion et à l'avoir d'annulation,
+  le tableau de saisie droit quand une colonne se cache. Vérifié par la
+  session : `colonnes_base` 14/14 (SQLite, PostgreSQL, compte limité),
+  suite complète, tsc, node 24/24, banc `d58-colonnes` 18/18 ; sur la
+  fusion : tsc et node 24/24.
+- **Construit** : Gescom 1.13.2 et Gescom Serveur 0.3.2 (le noyau a
+  bougé). Équipe reste 0.2.1, rien ne la touche. Les installeurs sont sur
+  le bureau, dans `Gescom-1.13.2`, avec le script de mise à jour.
+  **Pas installés** : le propriétaire ne veut pas encore de mise en
+  production.

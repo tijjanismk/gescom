@@ -1,6 +1,6 @@
 [package]
 name = "gescom-noyau"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "Noyau metier Gescom — calculs purs, persistance, protocole reseau. Sans Tauri."
 
